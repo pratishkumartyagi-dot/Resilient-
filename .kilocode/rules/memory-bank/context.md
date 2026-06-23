@@ -64,3 +64,61 @@
 - [x] Step 2: toggle-to-select-all already present; confirmed functionality across all unique papers
 - [x] Step 3: synthesis generation now uses real AI when API keys are configured; falls back to mock data; properly advances to Step 4 after generation
 - [x] AI utilization integrated into content generation workflow; ready for extension to other pipeline steps
+
+## Systematic Review & Meta-Analysis Pipeline (2026-06-23)
+
+**Tab renamed**: "Systematic Review / RCT" → "Systematic Review & Meta-analysis"
+
+The systematic review tab now contains a full 8-step systematic review / meta-analysis pipeline with state managed via `systematicStep` (1–8) in `AppContext`.
+
+### New SR Pipeline Steps
+
+| Step | Component | Description |
+|------|-----------|-------------|
+| 1 | `SRStep1Search` | Broad research area search with AND/OR/NOT logic, year filter (From–To), Study Type filter (single select), 8 databases: PubMed, OpenAlex, Europe PMC, ERIC, Google Scholar, Shodhganga, CTRI – India, scite.ai. Semantic search active. Select All / Clear All toggle. Pubmed-style Boolean logic. No upper search limits per database. Citation Validator (DOI-based) referenced. All results → Step 2. |
+| 2 | `SRStep2Screening` | Deduplication using DOI+title key (`DedupEndNote`-style). Unique papers displayed with abstracts, filterable by database and keyword. Checkbox + Select All / Deselect All. Papers move to Step 3. |
+| 3 | `SRStep3Synthesis` | AI-powered synthesis table (AIPOCH tooluniverse-literature-deep-research) with columns: Vancouver reference + DOI link, Key Findings (T1–T4 graded), Synopsis, Study Conducted (Population/Setting/Time/Hypothesis/Intervention), Research Gaps. Upload source doc toggle (PDF/Word/CSV/Excel, max 5). Download: CSV/Excel/PDF/Word. Auto-advances to Step 4. |
+| 4 | `SRStep4Themes` | Generate 10 AI themes (AIPOCH medical-topic-saturation-and-whitespace-checker) with title, description, reasoning. NotebookLM-style formatting: Key Findings, Evidence Bias, Gap per theme. Custom theme textbox with checkbox multi-select. |
+| 5 | `SRStep5Questions` | Generate 10 research questions from themes + evidence gaps (AIPOCH clinical-question-clarifier). Toggle: Qualitative / Quantitative. ICMR Beginner's Guide referenced. |
+| 6 | `SRStep6Titles` | Generate 5 research titles (AIPOCH title-and-abstract-optimizer + Idea2Proposal guidelines + ICMR Beginners Guide). CSS/DS/ES framing per ICMR. Selected/editable title. |
+| 7 | `SRStep7Protocol` | Systematic Review vs Meta-Analysis toggle. Protocol generation (AIPOCH clinical-cohort-protocol-designer adapted for SR/MA). PRISMA 2020, PROSPERO-ready. PICO eligibility, search strategy, screening, data extraction, quality assessment, synthesis plan. |
+| 8 | `SRStep8AcademicWriting` | Full manuscript generator (AIPOCH academic-writing skill). Toggle: Systematic Review / Meta-Analysis / Narrative Review. PRISMA 2020, CONSORT, ICMR compliant. IMRAD structure. Export as Markdown. |
+
+### Files Created / Modified
+
+**New files:**
+- `src/components/systematic/SystematicReviewPipeline.tsx` — 8-step SR pipeline wrapper with step navigator
+- `src/components/systematic/SRStep1Search.tsx` — Step 1: search with 8 databases
+- `src/components/systematic/SRStep2Screening.tsx` — Step 2: deduplication + screening
+- `src/components/systematic/SRStep3Synthesis.tsx` — Step 3: AI synthesis table + upload/download
+- `src/components/systematic/SRStep4Themes.tsx` — Step 4: 10 AI themes
+- `src/components/systematic/SRStep5Questions.tsx` — Step 5: 10 research questions
+- `src/components/systematic/SRStep6Titles.tsx` — Step 6: 5 title candidates
+- `src/components/systematic/SRStep7Protocol.tsx` — Step 7: SR/MA protocol
+- `src/components/systematic/SRStep8AcademicWriting.tsx` — Step 8: academic writing
+
+**Modified files:**
+- `src/context/AppContext.tsx` — Added `systematicStep`, `srStudyTypeCategory`, `dedupPapers`, `filteredPapers`, `SET_SYSTEMATIC_STEP`, `SET_SR_CATEGORY`, `SET_SELECTED_PAPERS`, `SET_DEDUP_PAPERS`, `SET_FILTERED_PAPERS` actions
+- `src/app/page.tsx` — Replaced `SystematicReviewTab` import with `SystematicReviewPipeline`
+- `src/components/TopTabs.tsx` — Renamed "Systematic Review / RCT" → "Systematic Review & Meta-analysis"
+
+### Skills Used (SR Pipeline)
+
+- Step 3: AIPOCH `tooluniverse-literature-deep-research`
+- Step 4: AIPOCH `medical-topic-saturation-and-whitespace-checker`
+- Step 5: AIPOCH `clinical-question-clarifier`
+- Step 6: AIPOCH `title-and-abstract-optimizer` + `Idea2Proposal`
+- Step 7: AIPOCH `clinical-cohort-protocol-designer` (adapted for SR/MA)
+- Step 8: AIPOCH `academic-writing`
+
+### Key Design Decisions
+
+- DOI + title deduplication key (DedupEndNote-style) in Step 2
+- No external database links shown — app handles all searches internally
+- Pubmed Boolean AND/OR/NOT logic applied to all database searches
+- No upper search limits per database
+- ASReview / prismAId references preserved as future integrations
+- Manalyzer meta-analysis config available in Step 7
+- `RE
+
+_STATE` resets SR pipeline data alongside main pipeline

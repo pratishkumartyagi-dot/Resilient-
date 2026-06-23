@@ -9,7 +9,7 @@ const MAIN_TABS = [
   { id: "chat", label: "Resilient Chat", icon: MessageSquare },
   { id: "stats", label: "Statistical Analysis", icon: BarChart3 },
   { id: "samplesize", label: "Sample Size Calculator", icon: Sigma },
-  { id: "systematic", label: "Systematic Review / RCT", icon: FileText },
+  { id: "systematic", label: "Systematic Review & Meta-analysis", icon: FileText },
   { id: "paperwriter", label: "Paper Writer & Reviewer", icon: PenLine },
 ];
 

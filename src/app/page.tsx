@@ -19,7 +19,7 @@ import Step11Impact from "@/components/steps/Step11Impact";
 import ResilientChatTab from "@/components/tabs/ResilientChatTab";
 import StatisticalAnalysisTab from "@/components/tabs/StatisticalAnalysisTab";
 import SampleSizeTab from "@/components/tabs/SampleSizeTab";
-import SystematicReviewTab from "@/components/tabs/SystematicReviewTab";
+import SystematicReviewPipeline from "@/components/systematic/SystematicReviewPipeline";
 import PaperWriterTab from "@/components/tabs/PaperWriterTab";
 import GrantWritingTab from "@/components/tabs/GrantWritingTab";
 import SettingsModal from "@/components/SettingsModal";
@@ -50,7 +50,7 @@ function AppContent() {
       case "chat": return <ResilientChatTab />;
       case "stats": return <StatisticalAnalysisTab />;
       case "samplesize": return <SampleSizeTab />;
-      case "systematic": return <SystematicReviewTab />;
+      case "systematic": return <SystematicReviewPipeline />;
       case "paperwriter": return <PaperWriterTab />;
       default: return <GrantWritingTab />;
     }

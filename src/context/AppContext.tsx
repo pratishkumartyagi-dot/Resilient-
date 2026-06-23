@@ -80,6 +80,7 @@ export interface ProtocolSection {
 export interface AppState {
   currentTab: string;
   currentStep: number;
+  systematicStep: number;
   searchQuery: string;
   searchLogic: string;
   yearFrom: string;
@@ -108,6 +109,9 @@ export interface AppState {
   selectedDatabases: string[];
   geminiApiKey: string;
   openRouterApiKey: string;
+  srStudyTypeCategory: "systematic" | "meta" | null;
+  dedupPapers: any[];
+  filteredPapers: any[];
 }
 
 type Action =
@@ -140,13 +144,19 @@ type Action =
   | { type: "SET_ERROR"; payload: string }
   | { type: "TOGGLE_PRISMA"; payload: boolean }
   | { type: "SET_SELECTED_DATABASES"; payload: string[] }
+  | { type: "SET_SELECTED_PAPERS"; payload: Paper[] }
   | { type: "SET_GEMINI_KEY"; payload: string }
   | { type: "SET_OPENROUTER_KEY"; payload: string }
+  | { type: "SET_SYSTEMATIC_STEP"; payload: number }
+  | { type: "SET_SR_CATEGORY"; payload: "systematic" | "meta" | null }
+  | { type: "SET_DEDUP_PAPERS"; payload: any[] }
+  | { type: "SET_FILTERED_PAPERS"; payload: any[] }
   | { type: "RESET_STATE" };
 
 const initialState: AppState = {
   currentTab: "main",
   currentStep: 1,
+  systematicStep: 1,
   searchQuery: "",
   searchLogic: "AND",
   yearFrom: "",
@@ -206,6 +216,9 @@ const initialState: AppState = {
   ],
   geminiApiKey: "",
   openRouterApiKey: "",
+  srStudyTypeCategory: null,
+  dedupPapers: [],
+  filteredPapers: [],
 };
 
 function appReducer(state: AppState, action: Action): AppState {
@@ -323,10 +336,20 @@ function appReducer(state: AppState, action: Action): AppState {
       return { ...state, showPrisma: action.payload };
     case "SET_SELECTED_DATABASES":
       return { ...state, selectedDatabases: action.payload };
+    case "SET_SELECTED_PAPERS":
+      return { ...state, selectedPapers: action.payload };
     case "SET_GEMINI_KEY":
       return { ...state, geminiApiKey: action.payload };
     case "SET_OPENROUTER_KEY":
       return { ...state, openRouterApiKey: action.payload };
+    case "SET_SYSTEMATIC_STEP":
+      return { ...state, systematicStep: action.payload };
+    case "SET_SR_CATEGORY":
+      return { ...state, srStudyTypeCategory: action.payload };
+    case "SET_DEDUP_PAPERS":
+      return { ...state, dedupPapers: action.payload };
+    case "SET_FILTERED_PAPERS":
+      return { ...state, filteredPapers: action.payload };
     case "RESET_STATE":
       return { ...initialState };
     default:
