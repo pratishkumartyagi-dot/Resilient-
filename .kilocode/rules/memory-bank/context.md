@@ -71,6 +71,13 @@
 - [x] Added DOI-based citation validation using Crossref API (`validateDoiViaCrossref`, `verifyCitations` in `src/lib/database-apis.ts`) per AIPOCH citation-validator approach
 - [x] Citation validation runs automatically after every search; results stored in `AppState.citationValidationResults`
 - [x] Step 2 Results view shows per-paper citation badges: ✓ DOI verified / ⚠ DOI not found / no DOI / unchecked, plus aggregate stats in header
+- [x] Step 3: replaced AI-only synthesis with deterministic non-AI local engine (`src/lib/local-synthesis.ts`) applying decipher-research-agent + Research-Assistant methodology
+  - Extracts Key Findings, Study Details, Research Gaps using regex/keyword heuristics on paper abstracts
+  - Validates every DOI via Crossref (api.crossref.org) after each search
+  - Vancouver-style references with DOI links and verification badge
+  - Evidence tier grading (T1 mechanistic → T4 mention) per study type
+  - Runs without any API key; AI (Gemini/OpenRouter) remains as optional fallback if keys are configured
+- [x] API keys persist via localStorage; `AppContext` extended with citation validation state
 
 ## Systematic Review & Meta-Analysis Pipeline (2026-06-23)
 
