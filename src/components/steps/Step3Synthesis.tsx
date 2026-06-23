@@ -5,41 +5,9 @@ import { Download, FileUp, Sparkles, Trash2, ChevronDown, FileText, AlertCircle 
 import { useApp } from "@/context/AppContext";
 import { callGemini, callOpenRouter } from "@/lib/ai";
 import { downloadCSV, downloadExcel, downloadPDF, downloadWord, parseCSVText } from "@/lib/exporters";
+import { buildStep3Prompt } from "@/lib/research-skills";
 
-const buildDeepResearchPrompt = (papers: any[], uploadedContext: string): string => {
-  return `You are an expert systematic review research analyst performing deep synthesis of selected academic papers.
-
-TASK: Produce a structured evidence synthesis table by deeply analyzing each paper's content, methodology, findings, and research limitations.
-
-RULES:
-- Base ALL outputs strictly on the provided paper metadata (title, authors, journal, year, DOI, abstract, study type).
-- For Vancouver reference: format as "Authors. Title. Journal. Year;Volume(Issue):Pages. doi:DOI" — make it searchable by including the DOI link as https://doi.org/DOI.
-- Key findings: extract the most important quantitative and qualitative findings from the abstract.
-- Synopsis/Takeaway: 1-2 sentences explaining the core contribution to the evidence base.
-- Study Conducted: explicitly state Population, Setting, Time period of study, and any Intervention or diagnostic method tested (infer from abstract where explicit details are limited).
-- Research Gaps: identify (1) author-acknowledged limitations, (2) contradictions or conflicting evidence mentioned, (3) exclusion criteria if stated, and (4) underexplored areas the authors highlight. If the abstract does not specify, infer plausible gaps based on study design and scope.
-
-OUTPUT FORMAT — strict JSON array only:
-[
-  {
-    "id": "unique-id",
-    "reference": "Vancouver style with <em>journal</em> and DOI searchable link",
-    "keyFindings": "string",
-    "synopsis": "string",
-    "studyDetails": "Population: ... Setting: ... Time: ... Intervention: ...",
-    "researchGaps": "Limitations: ... Contradictions: ... Exclusion criteria: ... Future work: ..."
-  }
-]
-
-${uploadedContext ? `UPLOADED DOCUMENT CONTEXT:\n${uploadedContext}\n` : ""}
-PAPERS TO SYNTHESIZE:
-${papers
-  .map(
-    (p, i) =>
-      `${i + 1}. TITLE: ${p.title}\n   AUTHORS: ${p.authors}\n   JOURNAL: ${p.journal}\n   YEAR: ${p.year}\n   DOI: ${p.doi}\n   STUDY TYPE: ${p.studyType}\n   ABSTRACT: ${p.abstract}`
-  )
-  .join("\n\n")}`;
-};
+const buildDeepResearchPrompt = buildStep3Prompt;
 
 const generateMockSynthesis = (papers: any[]): any[] => {
   if (papers.length === 0) return [];

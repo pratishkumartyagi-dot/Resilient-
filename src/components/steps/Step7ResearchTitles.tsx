@@ -3,6 +3,8 @@
 import React, { useState } from "react";
 import { Sparkles, ChevronRight, RotateCcw } from "lucide-react";
 import { useApp } from "@/context/AppContext";
+import { callGemini, callOpenRouter } from "@/lib/ai";
+import { buildStep7Prompt } from "@/lib/research-skills";
 
 const generateMockTitles = () => [
   {
@@ -43,13 +45,79 @@ export default function Step7ResearchTitles() {
   const [selectedTitleText, setSelectedTitleText] = useState(state.userTitleInput || "");
 
   const handleGenerateTitles = async () => {
+    const selected = state.papers.filter((p) => p.selected);
+    if (selected.length === 0) {
+      alert("Please select papers in Step 2 first.");
+      return;
+    }
+
     dispatch({ type: "SET_LOADING", payload: true });
-    setTimeout(() => {
-      const mockTitles = generateMockTitles();
-      setTitles(mockTitles);
-      dispatch({ type: "SET_RESEARCH_TITLES", payload: mockTitles });
+    setTitles([]);
+
+    try {
+      const prompt = buildStep7Prompt(state.researchQuestions, state.synthesisTable, state.themes);
+
+      let responseText: string = "";
+      if (state.geminiApiKey) {
+        responseText = await callGemini(state.geminiApiKey, prompt);
+      } else if (state.openRouterApiKey) {
+        responseText = await callOpenRouter(state.openRouterApiKey, prompt);
+      } else {
+        throw new Error("No API key configured. Please open Settings (gear icon).");
+      }
+
+      const cleaned = responseText.replace(/```markdown/g, "").replace(/```/g, "").trim();
+
+      const generatedTitles: any[] = [];
+      const lines = cleaned.split("\n");
+      let currentTitle = "";
+      let currentExplanation = "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        const titleMatch = trimmed.match(/^#+\s+(.+)/);
+        if (titleMatch && trimmed.length < 200 && !trimmed.includes(":")) {
+          if (currentTitle) {
+            generatedTitles.push({
+              id: `title-${Date.now()}-${generatedTitles.length}`,
+              title: currentTitle,
+              explanation: currentExplanation.trim() || "AI-generated title following AIPOCH optimization methodology.",
+              selected: false,
+            });
+          }
+          currentTitle = titleMatch[1].replace(/\*\*/g, "").trim();
+          currentExplanation = "";
+        } else if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+          currentExplanation += trimmed.substring(2) + " ";
+        } else if (currentTitle && !trimmed.match(/^#{1,3}\s/i)) {
+          currentExplanation += trimmed + " ";
+        }
+      }
+
+      if (currentTitle) {
+        generatedTitles.push({
+          id: `title-${Date.now()}-${generatedTitles.length}`,
+          title: currentTitle,
+          explanation: currentExplanation.trim() || "AI-generated title following AIPOCH optimization methodology.",
+          selected: false,
+        });
+      }
+
+      const finalTitles = generatedTitles.length >= 3 ? generatedTitles.slice(0, 8) : generateMockTitles();
+      finalTitles.forEach((t, i) => { t.id = `title-${Date.now()}-${i}`; });
+
+      setTitles(finalTitles);
+      dispatch({ type: "SET_RESEARCH_TITLES", payload: finalTitles });
+    } catch (err: any) {
+      console.error("Title generation failed:", err);
+      const fallback = generateMockTitles();
+      setTitles(fallback);
+      dispatch({ type: "SET_RESEARCH_TITLES", payload: fallback });
+    } finally {
       dispatch({ type: "SET_LOADING", payload: false });
-    }, 2000);
+    }
   };
 
   const selectTitle = (title: any) => {

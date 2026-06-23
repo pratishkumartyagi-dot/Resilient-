@@ -1,8 +1,10 @@
 "use client";
 
 import React, { useState } from "react";
-import { ChevronRight, Plus, Trash2, Calculator, FlaskConical, ExternalLink } from "lucide-react";
+import { ChevronRight, Plus, Trash2, Calculator, FlaskConical, ExternalLink, Sparkles } from "lucide-react";
 import { useApp } from "@/context/AppContext";
+import { callGemini, callOpenRouter } from "@/lib/ai";
+import { buildStep9Prompt } from "@/lib/research-skills";
 
 export default function Step9Methodology() {
   const { state, dispatch } = useApp();
@@ -16,6 +18,7 @@ export default function Step9Methodology() {
     exclusionCriteria: state.methodology.exclusionCriteria || "",
     hypothesis: state.methodology.hypothesis || "",
   });
+  const [generatedMethods, setGeneratedMethods] = useState<string>("");
   const [questionnaire, setQuestionnaire] = useState<typeof state.questionnaire>(state.questionnaire);
   const [showSampleCalc, setShowSampleCalc] = useState(false);
   const [sampleAlpha, setSampleAlpha] = useState("0.05");
@@ -43,6 +46,38 @@ export default function Step9Methodology() {
     dispatch({ type: "REMOVE_OUTCOME", payload: outcomes[idx] });
   };
 
+  const handleGenerateMethods = async () => {
+    const selected = state.papers.filter((p) => p.selected);
+    if (selected.length === 0) {
+      alert("Please select papers in Step 2 first.");
+      return;
+    }
+
+    dispatch({ type: "SET_LOADING", payload: true });
+    setGeneratedMethods("");
+
+    try {
+      const prompt = buildStep9Prompt(state.aimObjectives, state.papers, state.studyType);
+
+      let responseText: string = "";
+      if (state.geminiApiKey) {
+        responseText = await callGemini(state.geminiApiKey, prompt);
+      } else if (state.openRouterApiKey) {
+        responseText = await callOpenRouter(state.openRouterApiKey, prompt);
+      } else {
+        throw new Error("No API key configured. Please open Settings (gear icon).");
+      }
+
+      const cleaned = responseText.replace(/```markdown/g, "").replace(/```/g, "").trim();
+      setGeneratedMethods(cleaned);
+    } catch (err: any) {
+      console.error("Methods generation failed:", err);
+      alert(err.message || "Failed to generate methods. Please try again.");
+    } finally {
+      dispatch({ type: "SET_LOADING", payload: false });
+    }
+  };
+
   const generateMockQuestionnaire = async () => {
     dispatch({ type: "SET_LOADING", payload: true });
     setTimeout(() => {
@@ -68,10 +103,39 @@ export default function Step9Methodology() {
   return (
     <div className="space-y-6">
       <div className="bg-[#0d1b3e] border border-blue-900/50 rounded-lg p-6 shadow">
-        <h2 className="text-xl font-bold text-white mb-1">Step 9: Methodology</h2>
-        <p className="text-sm text-blue-300 mb-6">
-          Define the study methodology, population, and outcome measures.
-        </p>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-xl font-bold text-white">Step 9: Methodology</h2>
+            <p className="text-sm text-blue-300">
+              Define study methodology using AIPOCH Methods Section Writer — compliant with CONSORT/STROBE/PRISMA guidelines.
+            </p>
+          </div>
+          <button
+            onClick={handleGenerateMethods}
+            disabled={state.isLoading}
+            className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50 flex items-center gap-2"
+          >
+            <Sparkles size={16} />
+            {state.isLoading ? "Generating..." : "Generate Methods"}
+          </button>
+        </div>
+
+        {state.isLoading && !generatedMethods && (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <div className="w-10 h-10 border-4 border-yellow-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+              <p className="text-blue-200 text-sm">Generating publication-ready Methods section...</p>
+              <p className="text-blue-400 text-xs mt-1">Following CONSORT/STROBE/PRISMA reporting guidelines</p>
+            </div>
+          </div>
+        )}
+
+        {generatedMethods && !state.isLoading && (
+          <div className="mb-6 bg-blue-950/30 border border-blue-900/50 rounded-lg p-5">
+            <p className="text-xs text-blue-400 mb-3 font-medium">AI-generated Methods section (edit fields below to refine):</p>
+            <pre className="text-sm text-blue-100 whitespace-pre-wrap leading-relaxed max-h-80 overflow-y-auto font-serif">{generatedMethods}</pre>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>

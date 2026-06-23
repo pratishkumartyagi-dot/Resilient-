@@ -3,6 +3,8 @@
 import React, { useState } from "react";
 import { Sparkles, Plus, Trash2, FlaskConical, Beaker } from "lucide-react";
 import { useApp } from "@/context/AppContext";
+import { callGemini, callOpenRouter } from "@/lib/ai";
+import { buildStep6Prompt } from "@/lib/research-skills";
 
 const generateMockQuestions = (type: "qualitative" | "quantitative") => {
   const qualQuestions = [
@@ -41,13 +43,74 @@ export default function Step6ResearchQuestions() {
   const [customQuestion, setCustomQuestion] = useState(state.userQuestionInput);
 
   const handleGenerateQuestions = async () => {
+    const selected = state.papers.filter((p) => p.selected);
+    if (selected.length === 0) {
+      alert("Please select papers in Step 2 first.");
+      return;
+    }
+
     dispatch({ type: "SET_LOADING", payload: true });
-    setTimeout(() => {
-      const mockQuestions = generateMockQuestions(questionType);
-      setQuestions(mockQuestions);
-      dispatch({ type: "SET_RESEARCH_QUESTIONS", payload: mockQuestions });
+    setQuestions([]);
+
+    try {
+      const prompt = buildStep6Prompt(state.papers, state.themes, state.searchQuery);
+
+      let responseText: string = "";
+      if (state.geminiApiKey) {
+        responseText = await callGemini(state.geminiApiKey, prompt);
+      } else if (state.openRouterApiKey) {
+        responseText = await callOpenRouter(state.openRouterApiKey, prompt);
+      } else {
+        throw new Error("No API key configured. Please open Settings (gear icon).");
+      }
+
+      const cleaned = responseText.replace(/```markdown/g, "").replace(/```/g, "").trim();
+
+      const questions: any[] = [];
+      const lines = cleaned.split("\n");
+      let currentType: "qualitative" | "quantitative" = questionType;
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        if (trimmed.match(/^#{1,3}\s/i)) continue;
+
+        const questionMatch = trimmed.match(/^(?:\d+\.|[-*]|•)\s+(.+)/);
+        if (questionMatch && questionMatch[1].length > 20) {
+          const qText = questionMatch[1]
+            .replace(/\*\*/g, "")
+            .replace(/\*\(([^)]+)\)\*/, "($1)")
+            .trim();
+
+          const isQual = /qualitative|experience|perception|perspective|narrative|how do|what are the/i.test(qText);
+          const isQuant = /quantitative|prevalence|incidence|association|correlation|what is the|does a|is there a/i.test(qText);
+
+          questions.push({
+            id: `rq-${Date.now()}-${questions.length}`,
+            question: qText,
+            type: isQual ? "qualitative" : isQuant ? "quantitative" : questionType,
+            selected: false,
+          });
+        }
+      }
+
+      if (questions.length === 0) {
+        const fallback = generateMockQuestions(questionType);
+        setQuestions(fallback);
+        dispatch({ type: "SET_RESEARCH_QUESTIONS", payload: fallback });
+      } else {
+        setQuestions(questions);
+        dispatch({ type: "SET_RESEARCH_QUESTIONS", payload: questions });
+      }
+    } catch (err: any) {
+      console.error("Question generation failed:", err);
+      const fallback = generateMockQuestions(questionType);
+      setQuestions(fallback);
+      dispatch({ type: "SET_RESEARCH_QUESTIONS", payload: fallback });
+    } finally {
       dispatch({ type: "SET_LOADING", payload: false });
-    }, 1800);
+    }
   };
 
   const toggleQuestion = (qId: string) => {

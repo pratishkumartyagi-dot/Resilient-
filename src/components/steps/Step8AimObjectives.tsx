@@ -1,8 +1,10 @@
 "use client";
 
 import React, { useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Sparkles } from "lucide-react";
 import { useApp } from "@/context/AppContext";
+import { callGemini, callOpenRouter } from "@/lib/ai";
+import { buildStep8Prompt } from "@/lib/research-skills";
 
 export default function Step8AimObjectives() {
   const { state, dispatch } = useApp();
@@ -17,6 +19,7 @@ export default function Step8AimObjectives() {
       ? [...state.aimObjectives.secondaryObjectives]
       : ["", "", ""],
   });
+  const [generatedText, setGeneratedText] = useState<string>("");
 
   const updateAim = (val: string) => {
     setLocalObj((prev) => ({ ...prev, aim: val }));
@@ -50,6 +53,57 @@ export default function Step8AimObjectives() {
     dispatch({ type: "SET_AIM_OBJECTIVES", payload: { secondaryObjectives: updated } });
   };
 
+  const handleGenerateWithAI = async () => {
+    const selected = state.papers.filter((p) => p.selected);
+    if (selected.length === 0) {
+      alert("Please select papers in Step 2 first.");
+      return;
+    }
+
+    dispatch({ type: "SET_LOADING", payload: true });
+    setGeneratedText("");
+
+    try {
+      const prompt = buildStep8Prompt(state.researchQuestions, state.themes, state.papers);
+
+      let responseText: string = "";
+      if (state.geminiApiKey) {
+        responseText = await callGemini(state.geminiApiKey, prompt);
+      } else if (state.openRouterApiKey) {
+        responseText = await callOpenRouter(state.openRouterApiKey, prompt);
+      } else {
+        throw new Error("No API key configured. Please open Settings (gear icon).");
+      }
+
+      const cleaned = responseText.replace(/```markdown/g, "").replace(/```/g, "").trim();
+
+      const aimMatch = cleaned.match(/(?:Primary?\s*)?Aim[:\s]+(.+?)(?:\n|$)/i);
+      const primaryObjMatch = cleaned.match(/Primary\s*(?:Objective)?[:\s]+(.+?)(?:\n|$)/i);
+      const secondaryMatches = cleaned.matchAll(/(?:Secondary\s*Objective|Secondary\s*Aim)\s*\d*[:\s]+(.+?)(?:\n|$)/gi);
+
+      if (aimMatch) updateAim(aimMatch[1].trim());
+      if (primaryObjMatch) updatePrimary(primaryObjMatch[1].trim());
+
+      const secondaryObjs = Array.from(secondaryMatches).map((m) => m[1].trim()).filter(Boolean);
+      if (secondaryObjs.length > 0) {
+        const allSecondary = [...localObj.secondaryObjectives];
+        secondaryObjs.forEach((obj, i) => {
+          if (!allSecondary[i]) allSecondary[i] = "";
+          allSecondary[i] = obj;
+        });
+        setLocalObj((prev) => ({ ...prev, secondaryObjectives: allSecondary }));
+        dispatch({ type: "SET_AIM_OBJECTIVES", payload: { secondaryObjectives: allSecondary } });
+      }
+
+      setGeneratedText(cleaned);
+    } catch (err: any) {
+      console.error("Aim generation failed:", err);
+      alert(err.message || "Failed to generate aims. Please try again.");
+    } finally {
+      dispatch({ type: "SET_LOADING", payload: false });
+    }
+  };
+
   const handleProceed = () => {
     if (!localObj.aim.trim() || !localObj.primaryObjective.trim()) {
       alert("Please provide at least an Aim and a Primary Objective.");
@@ -58,13 +112,44 @@ export default function Step8AimObjectives() {
     dispatch({ type: "SET_STEP", payload: 9 });
   };
 
+  const hasContent = localObj.aim.trim() || localObj.primaryObjective.trim();
+
   return (
     <div className="space-y-6">
       <div className="bg-[#0d1b3e] border border-blue-900/50 rounded-lg p-6 shadow">
-        <h2 className="text-xl font-bold text-white mb-1">Step 8: Aim & Objectives</h2>
-        <p className="text-sm text-blue-300 mb-6">
-          Refine your study aim and primary and secondary objectives based on your research title.
-        </p>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-xl font-bold text-white">Step 8: Aim & Objectives</h2>
+            <p className="text-sm text-blue-300">
+              Design primary aims, secondary aims, and testable hypotheses using AIPOCH Aim and Hypothesis Designer methodology.
+            </p>
+          </div>
+          <button
+            onClick={handleGenerateWithAI}
+            disabled={state.isLoading}
+            className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50 flex items-center gap-2"
+          >
+            <Sparkles size={16} />
+            {state.isLoading ? "Generating..." : "Generate with AI"}
+          </button>
+        </div>
+
+        {state.isLoading && !generatedText && (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <div className="w-10 h-10 border-4 border-yellow-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+              <p className="text-blue-200 text-sm">Designing aim hierarchy and testable hypotheses...</p>
+              <p className="text-blue-400 text-xs mt-1">Following AIPOCH protocol-framing methodology</p>
+            </div>
+          </div>
+        )}
+
+        {generatedText && !state.isLoading && (
+          <div className="mb-6 bg-blue-950/40 border border-blue-900/50 rounded-lg p-4">
+            <p className="text-xs text-blue-400 mb-2 font-medium">AI-generated structured output:</p>
+            <pre className="text-xs text-blue-200 whitespace-pre-wrap max-h-64 overflow-y-auto font-mono">{generatedText}</pre>
+          </div>
+        )}
 
         <div className="space-y-5">
           <div>

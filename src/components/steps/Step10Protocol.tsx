@@ -1,8 +1,10 @@
 "use client";
 
 import React, { useState } from "react";
-import { ChevronRight, ChevronLeft, FileText, Save } from "lucide-react";
+import { ChevronRight, ChevronLeft, FileText, Save, Sparkles } from "lucide-react";
 import { useApp } from "@/context/AppContext";
+import { callGemini, callOpenRouter } from "@/lib/ai";
+import { buildStep10Prompt } from "@/lib/research-skills";
 
 export default function Step10Protocol() {
   const { state, dispatch } = useApp();
@@ -12,11 +14,59 @@ export default function Step10Protocol() {
     methods: state.protocol.methods || "",
     expectedOutcomes: state.protocol.expectedOutcomes || "",
   });
+  const [generatedProtocol, setGeneratedProtocol] = useState<string>("");
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const updateSection = (section: string, val: string) => {
     const updated = { ...localProtocol, [section]: val };
     setLocalProtocol(updated);
     dispatch({ type: "SET_PROTOCOL", payload: { [section]: val } });
+  };
+
+  const handleGenerateProtocol = async () => {
+    const selected = state.papers.filter((p) => p.selected);
+    if (selected.length === 0) {
+      alert("Please select papers in Step 2 first.");
+      return;
+    }
+
+    setIsGenerating(true);
+    setGeneratedProtocol("");
+
+    try {
+      const prompt = buildStep10Prompt(state.aimObjectives, state.papers, state.studyType, state.synthesisTable);
+
+      let responseText: string = "";
+      if (state.geminiApiKey) {
+        responseText = await callGemini(state.geminiApiKey, prompt);
+      } else if (state.openRouterApiKey) {
+        responseText = await callOpenRouter(state.openRouterApiKey, prompt);
+      } else {
+        throw new Error("No API key configured. Please open Settings (gear icon).");
+      }
+
+      const cleaned = responseText.replace(/```markdown/g, "").replace(/```/g, "").trim();
+      setGeneratedProtocol(cleaned);
+
+      const sectionPatterns: Record<string, RegExp> = {
+        background: /## A\.\s*Study Intent Summary[\s\S]*?(?=## B\.|$)/,
+        objectives: /## B\.\s*Why Cohort Design Fits[\s\S]*?(?=## C\.|$)/,
+        methods: /## C\.\s*Recommended Cohort Type[\s\S]*?(?=## D\.|$)/,
+        expectedOutcomes: /## D\.\s*Source Population[\s\S]*?(?=## E\.|$)/,
+      };
+
+      for (const [key, pattern] of Object.entries(sectionPatterns)) {
+        const match = cleaned.match(pattern);
+        if (match) {
+          updateSection(key, match[0].replace(/^##\s*[A-Z]\.\s*[^\n]+\n*/i, "").trim());
+        }
+      }
+    } catch (err: any) {
+      console.error("Protocol generation failed:", err);
+      alert(err.message || "Failed to generate protocol. Please try again.");
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const sections: { key: string; label: string; placeholder: string; defaultContent: string }[] = [
@@ -108,7 +158,7 @@ Significance: The study will provide Nigeria's Ministry of Health and WHO AFRO w
           <div>
             <h2 className="text-xl font-bold text-white">Step 10: Research Protocol</h2>
             <p className="text-sm text-blue-300">
-              Edit and refine your research protocol sections synthesized from previous steps.
+              Design a structured clinical cohort study protocol using AIPOCH Clinical Cohort Protocol Designer methodology.
             </p>
           </div>
           <div className="flex gap-2">
@@ -117,7 +167,15 @@ Significance: The study will provide Nigeria's Ministry of Health and WHO AFRO w
               className="text-sm bg-blue-900/50 text-blue-200 px-3 py-2 rounded-lg hover:bg-blue-900/70 flex items-center gap-1"
             >
               <FileText size={14} />
-              Load AI Defaults
+              Load Defaults
+            </button>
+            <button
+              onClick={handleGenerateProtocol}
+              disabled={isGenerating || state.isLoading}
+              className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50 flex items-center gap-2"
+            >
+              <Sparkles size={16} />
+              {isGenerating ? "Generating..." : "Generate Protocol"}
             </button>
             <button
               onClick={handleExport}
@@ -128,6 +186,23 @@ Significance: The study will provide Nigeria's Ministry of Health and WHO AFRO w
             </button>
           </div>
         </div>
+
+        {(isGenerating || state.isLoading) && (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <div className="w-10 h-10 border-4 border-yellow-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+              <p className="text-blue-200 text-sm">Designing cohort protocol framework...</p>
+              <p className="text-blue-400 text-xs mt-1">Following AIPOCH cohort design methodology (A–L sections)</p>
+            </div>
+          </div>
+        )}
+
+        {generatedProtocol && !isGenerating && (
+          <div className="mb-6 bg-blue-950/30 border border-blue-900/50 rounded-lg p-5">
+            <p className="text-xs text-blue-400 mb-3 font-medium">AI-generated protocol framework (sections auto-filled below):</p>
+            <pre className="text-sm text-blue-100 whitespace-pre-wrap leading-relaxed max-h-64 overflow-y-auto font-mono">{generatedProtocol}</pre>
+          </div>
+        )}
 
         <div className="space-y-5">
           {sections.map((section) => (

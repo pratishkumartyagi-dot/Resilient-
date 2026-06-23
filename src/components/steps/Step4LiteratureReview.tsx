@@ -3,6 +3,8 @@
 import React, { useState } from "react";
 import { Sparkles, BookOpen, RotateCcw } from "lucide-react";
 import { useApp } from "@/context/AppContext";
+import { callGemini, callOpenRouter } from "@/lib/ai";
+import { buildStep4Prompt } from "@/lib/research-skills";
 
 const generateMockLiteratureReview = (): string => {
   return `1. Introduction and Background
@@ -34,14 +36,46 @@ export default function Step4LiteratureReview() {
   const { state, dispatch } = useApp();
   const [reviewText, setReviewText] = useState(state.literatureReview || "");
 
+  const getPrompt = () => {
+    const selected = state.papers.filter((p) => p.selected);
+    const uploadedText = (state as any).uploadedText || "";
+    return buildStep4Prompt(selected, uploadedText);
+  };
+
   const handleGenerateReview = async () => {
+    const selected = state.papers.filter((p) => p.selected);
+    if (selected.length === 0) {
+      alert("Please select at least one paper in Step 2 first.");
+      return;
+    }
+
     dispatch({ type: "SET_LOADING", payload: true });
-    setTimeout(() => {
-      const mockReview = generateMockLiteratureReview();
-      setReviewText(mockReview);
-      dispatch({ type: "SET_LITERATURE_REVIEW", payload: mockReview });
+    setReviewText("");
+
+    try {
+      const prompt = getPrompt();
+      let review: string = "";
+
+      if (state.geminiApiKey) {
+        const response = await callGemini(state.geminiApiKey, prompt);
+        review = response.replace(/```markdown/g, "").replace(/```/g, "").trim();
+      } else if (state.openRouterApiKey) {
+        const response = await callOpenRouter(state.openRouterApiKey, prompt);
+        review = response.replace(/```markdown/g, "").replace(/```/g, "").trim();
+      } else {
+        throw new Error("No API key configured. Please open Settings (gear icon) and add a Gemini or OpenRouter API key.");
+      }
+
+      setReviewText(review);
+      dispatch({ type: "SET_LITERATURE_REVIEW", payload: review });
+    } catch (err: any) {
+      console.error("Literature review generation failed:", err);
+      const fallback = generateMockLiteratureReview();
+      setReviewText(fallback);
+      dispatch({ type: "SET_LITERATURE_REVIEW", payload: fallback });
+    } finally {
       dispatch({ type: "SET_LOADING", payload: false });
-    }, 2500);
+    }
   };
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -52,9 +86,7 @@ export default function Step4LiteratureReview() {
 
   const handleReset = () => {
     if (confirm("Reset literature review to original AI-generated version?")) {
-      const mockReview = generateMockLiteratureReview();
-      setReviewText(mockReview);
-      dispatch({ type: "SET_LITERATURE_REVIEW", payload: mockReview });
+      handleGenerateReview();
     }
   };
 
@@ -65,7 +97,7 @@ export default function Step4LiteratureReview() {
           <div>
             <h2 className="text-xl font-bold text-white">Step 4: Review of Literature</h2>
             <p className="text-sm text-blue-300">
-              Generate a comprehensive narrative review synthesized from your selected papers.
+              Generate a comprehensive thematic literature review synthesized from your selected papers using AIPOCH methodology.
             </p>
           </div>
           <div className="flex gap-2">
@@ -88,11 +120,11 @@ export default function Step4LiteratureReview() {
           </div>
         </div>
 
-        {state.isLoading && (
+        {state.isLoading && !reviewText && (
           <div className="flex items-center justify-center py-16">
             <div className="text-center">
               <div className="w-10 h-10 border-4 border-yellow-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-              <p className="text-blue-200 text-sm">Synthesizing evidence across selected papers...</p>
+              <p className="text-blue-200 text-sm">Synthesizing evidence across selected papers thematically...</p>
               <p className="text-blue-400 text-xs mt-1">This may take 30-60 seconds</p>
             </div>
           </div>

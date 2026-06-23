@@ -40,8 +40,20 @@
 - [x] Step1: made "Select All" a true toggle (selects all databases when partial, deselects all when all are selected)
 - [x] Step1: removed artificial cap on mock paper count; now scales dynamically by selected databases (dbs.length × 15, no upper limit)
 - [x] Step1: app now auto-advances to Step 2 immediately after search completes
-- [x] Step3: fixed invalid Gemini model name (`gemini-2.5-flash-lite` → `gemini-3.1-flash-lite`) so real AI synthesis actually works
-- [x] Step3: error handling now surfaces API key requirement instead of silently falling back to mock data
+- [x] Step3: fixed invalid Gemini model name to `gemini-3.1-flash-lite-preview` so real AI synthesis works
+- [x] Step3: error handling surfaces API key requirement instead of silently falling back to mock data
+- [x] Steps 3–10: integrated AIPOCH Medical Research Skills prompts from github.com/aipoch/medical-research-skills
+  - Step 3: tooluniverse-literature-deep-research (evidence-graded synthesis table)
+  - Step 4: literature-review (thematic narrative review with PRISMA)
+  - Step 5: medical-topic-saturation-and-whitespace-checker (research themes)
+  - Step 6: clinical-question-clarifier (structured research questions)
+  - Step 7: title-and-abstract-optimizer (publication-ready titles)
+  - Step 8: aim-and-hypothesis-designer (aim hierarchy + testable hypotheses)
+  - Step 9: methods-section-writer (CONSORT/STROBE/PRISMA Methods)
+  - Step 10: clinical-cohort-protocol-designer (A–L cohort protocol framework)
+- [x] Created `src/lib/research-skills.ts` exporting typed prompt builders for Steps 3–10
+- [x] Steps 4, 5, 6, 7, 8, 9, 10: replaced mock/setTimeout-only generation with real AI calls (Gemini primary, OpenRouter fallback)
+- [x] Step3: fixed loading spinner condition to show during all loading states
 - [x] Header rebrand: removed "Resilient Researcher Assistant" and "Systematic Review & Evidence Synthesis"; replaced center subtitle with "Powered Research Intelligence Platform"
 - [x] Added Settings gear icon to header, triggering API key configuration modal
 - [x] Created API settings modal (`SettingsModal`) supporting Gemini 3.1 Flash Lite (primary) and OpenRouter gpt-oss-120b (fallback), with test-connection buttons

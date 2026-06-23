@@ -3,6 +3,8 @@
 import React, { useState } from "react";
 import { Sparkles, Plus, Trash2, Lightbulb } from "lucide-react";
 import { useApp } from "@/context/AppContext";
+import { callGemini, callOpenRouter } from "@/lib/ai";
+import { buildStep5Prompt } from "@/lib/research-skills";
 
 const generateMockThemes = () => {
   return [
@@ -85,13 +87,70 @@ export default function Step5Themes() {
   const [customTheme, setCustomTheme] = useState(state.userThemeInput);
 
   const handleGenerateThemes = async () => {
+    const selected = state.papers.filter((p) => p.selected);
+    if (selected.length === 0) {
+      alert("Please select papers in Step 2 first.");
+      return;
+    }
+
     dispatch({ type: "SET_LOADING", payload: true });
-    setTimeout(() => {
-      const mockThemes = generateMockThemes();
-      setThemes(mockThemes);
-      dispatch({ type: "SET_THEMES", payload: mockThemes });
+    setThemes([]);
+
+    try {
+      const prompt = buildStep5Prompt(state.papers, state.synthesisTable);
+
+      let responseText: string = "";
+      if (state.geminiApiKey) {
+        responseText = await callGemini(state.geminiApiKey, prompt);
+      } else if (state.openRouterApiKey) {
+        responseText = await callOpenRouter(state.openRouterApiKey, prompt);
+      } else {
+        throw new Error("No API key configured. Please open Settings (gear icon).");
+      }
+
+      const cleaned = responseText.replace(/```json/g, "").replace(/```/g, "").replace(/```markdown/g, "").trim();
+
+      let parsedThemes: any[] = [];
+      try {
+        const jsonMatch = cleaned.match(/\[[\s\S]*\]|\{[\s\S]*\}/);
+        if (jsonMatch) {
+          parsedThemes = JSON.parse(jsonMatch[0]);
+        } else {
+          throw new Error("No JSON found");
+        }
+      } catch {
+        const lines = cleaned.split("\n").filter((l) => l.trim().startsWith("-") || l.trim().startsWith("•"));
+        parsedThemes = lines.slice(0, 10).map((line, i) => ({
+          id: `theme-${Date.now()}-${i}`,
+          title: line.replace(/^[-\•]\s*/, "").substring(0, 60),
+          description: `Theme extracted from literature analysis: ${line.replace(/^[-\•]\s*/, "").substring(0, 120)}`,
+          reasoning: "Generated from AI analysis of selected papers following AIPOCH saturation and whitespace methodology.",
+          selected: false,
+        }));
+      }
+
+      const normalizedThemes = parsedThemes.map((t: any, i: number) => ({
+        id: t.id || `theme-${Date.now()}-${i}`,
+        title: t.title || t.theme || t.name || `Theme ${i + 1}`,
+        description: t.description || t.details || "",
+        reasoning: t.reasoning || t.rationale || "Generated from AI analysis of selected papers.",
+        selected: false,
+      }));
+
+      if (normalizedThemes.length === 0) {
+        throw new Error("No themes could be parsed from AI response");
+      }
+
+      setThemes(normalizedThemes);
+      dispatch({ type: "SET_THEMES", payload: normalizedThemes });
+    } catch (err: any) {
+      console.error("Theme generation failed:", err);
+      const fallback = generateMockThemes();
+      setThemes(fallback);
+      dispatch({ type: "SET_THEMES", payload: fallback });
+    } finally {
       dispatch({ type: "SET_LOADING", payload: false });
-    }, 2000);
+    }
   };
 
   const toggleTheme = (themeId: string) => {
