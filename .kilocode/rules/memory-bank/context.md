@@ -64,6 +64,9 @@
 - [x] Step 2: toggle-to-select-all already present; confirmed functionality across all unique papers
 - [x] Step 3: synthesis generation now uses real AI when API keys are configured; falls back to mock data; properly advances to Step 4 after generation
 - [x] AI utilization integrated into content generation workflow; ready for extension to other pipeline steps
+- [x] Replaced mock 180-paper generation in Step 1 Search with real live API calls (OpenAlex, PubMed E-utilities, Europe PMC) via `src/lib/database-apis.ts`
+- [x] Step 1 now fetches real paper metadata (title, authors, journal, year, DOI, abstract, PMID) across selected databases; dedupes by DOI+title before storing in state
+- [x] Databases without free live APIs fall back to simulated stub data with realistic structure
 
 ## Systematic Review & Meta-Analysis Pipeline (2026-06-23)
 

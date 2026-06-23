@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { Search, Database, Filter, X } from "lucide-react";
 import { useApp } from "@/context/AppContext";
+import { fetchRealPapers, generateMockLegacy, type Paper } from "@/lib/database-apis";
 
 const STUDY_TYPES = [
   "All Study Types",
@@ -56,22 +57,52 @@ export default function Step1Search() {
   };
 
   const handleSearch = async () => {
-    if (!localQuery.trim()) return;
+    if (!localQuery.trim() || selectedDbs.length === 0) {
+      dispatch({ type: "SET_ERROR", payload: "Enter a search query and select at least one database." });
+      return;
+    }
     dispatch({ type: "SET_LOADING", payload: true });
     dispatch({ type: "SET_ERROR", payload: "" });
-
     dispatch({
       type: "SET_SEARCH",
       payload: { query: localQuery, logic: localLogic, yearFrom, yearTo, studyType },
     });
     dispatch({ type: "SET_SELECTED_DATABASES", payload: selectedDbs });
 
-    setTimeout(() => {
-      const mockPapers = generateMockPapers(localQuery, selectedDbs);
-      dispatch({ type: "SET_PAPERS", payload: mockPapers });
+    const realDbs = selectedDbs.filter((db) => ["OpenAlex", "PubMed", "Europe PMC", "ERIC", "Google Scholar", "Shodhganga", "CTRI – India", "scite.ai"].includes(db));
+    const fallbackDbs = selectedDbs.filter((db) => !realDbs.includes(db));
+
+    try {
+      let papers: Paper[] = [];
+
+      if (realDbs.length > 0) {
+        try {
+          papers = await fetchRealPapers(localQuery, realDbs, yearFrom, yearTo, studyType);
+        } catch (err: any) {
+          console.warn("Primary API fetch failed, falling back to mock/stub data:", err.message);
+          if (fallbackDbs.length === 0) {
+            dispatch({ type: "SET_ERROR", payload: `Live search failed: ${err.message}. Using simulated results.` });
+          }
+          papers = generateMockLegacy(localQuery, selectedDbs);
+        }
+      }
+
+      if (papers.length === 0 && fallbackDbs.length > 0) {
+        papers = generateMockLegacy(localQuery, fallbackDbs);
+      }
+
+      if (papers.length === 0) {
+        dispatch({ type: "SET_ERROR", payload: "No papers found. Try broader terms or more databases." });
+      } else {
+        dispatch({ type: "SET_PAPERS", payload: papers });
+      }
+    } catch (err: any) {
+      dispatch({ type: "SET_ERROR", payload: err.message || "Search failed. Please try again." });
+      dispatch({ type: "SET_PAPERS", payload: generateMockLegacy(localQuery, selectedDbs) });
+    } finally {
       dispatch({ type: "SET_STEP", payload: 2 });
       dispatch({ type: "SET_LOADING", payload: false });
-    }, 1500);
+    }
   };
 
   const generateMockPapers = (query: string, dbs: string[]) => {
