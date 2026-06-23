@@ -7,7 +7,7 @@ export default function Header() {
   return (
     <header className="bg-gradient-to-r from-[#0a1a3a] to-[#0d2080] text-white shadow-lg">
       <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center">
           <div className="relative w-16 h-16 flex-shrink-0">
             <Image
               src="/resilient-logo.jpg"
@@ -18,19 +18,14 @@ export default function Header() {
               unoptimized
             />
           </div>
-          <div>
-            <p className="text-xs text-blue-200">
-              AI-Powered Research Intelligence Platform
-            </p>
-          </div>
         </div>
         <div className="text-center">
           <h1 className="text-2xl font-bold text-yellow-300 tracking-wider">
             Resilient Research App
           </h1>
-          <p className="text-xs text-blue-200">Powered Research Intelligence Platform</p>
+          <p className="text-xs text-blue-200">AI-Powered Research Intelligence Platform</p>
         </div>
-        <div className="flex items-center">
+        <div className="flex items-center justify-end">
           <button
             onClick={() => {
               const event = new CustomEvent("open-settings");

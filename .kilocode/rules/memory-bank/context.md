@@ -36,6 +36,7 @@
 
 ## Recent Enhancements (2026-06-23)
 
+- [x] Header layout update: moved "AI-Powered Research Intelligence Platform" from below logo to below centered "Resilient Research App" title; removed "Powered Research Intelligence Platform" subtitle
 - [x] Header rebrand: removed "Resilient Researcher Assistant" and "Systematic Review & Evidence Synthesis"; replaced center subtitle with "Powered Research Intelligence Platform"
 - [x] Added Settings gear icon to header, triggering API key configuration modal
 - [x] Created API settings modal (`SettingsModal`) supporting Gemini 3.1 Flash Lite (primary) and OpenRouter gpt-oss-120b (fallback), with test-connection buttons
