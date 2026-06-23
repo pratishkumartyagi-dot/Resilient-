@@ -110,8 +110,10 @@ export interface AppState {
   geminiApiKey: string;
   openRouterApiKey: string;
   srStudyTypeCategory: "systematic" | "meta" | null;
-  dedupPapers: any[];
-  filteredPapers: any[];
+  dedupPapers: Paper[];
+  filteredPapers: Paper[];
+  citationValidationResults: Record<string, { valid: boolean; title?: string; message: string }>;
+  citationValidationStatus: "idle" | "running" | "done";
 }
 
 type Action =
@@ -151,6 +153,8 @@ type Action =
   | { type: "SET_SR_CATEGORY"; payload: "systematic" | "meta" | null }
   | { type: "SET_DEDUP_PAPERS"; payload: any[] }
   | { type: "SET_FILTERED_PAPERS"; payload: any[] }
+  | { type: "SET_CITATION_RESULTS"; payload: Record<string, { valid: boolean; title?: string; message: string }> }
+  | { type: "SET_CITATION_STATUS"; payload: "idle" | "running" | "done" }
   | { type: "RESET_STATE" };
 
 const initialState: AppState = {
@@ -219,6 +223,8 @@ const initialState: AppState = {
   srStudyTypeCategory: null,
   dedupPapers: [],
   filteredPapers: [],
+  citationValidationResults: {},
+  citationValidationStatus: "idle",
 };
 
 function appReducer(state: AppState, action: Action): AppState {
@@ -350,6 +356,10 @@ function appReducer(state: AppState, action: Action): AppState {
       return { ...state, dedupPapers: action.payload };
     case "SET_FILTERED_PAPERS":
       return { ...state, filteredPapers: action.payload };
+    case "SET_CITATION_RESULTS":
+      return { ...state, citationValidationResults: action.payload };
+    case "SET_CITATION_STATUS":
+      return { ...state, citationValidationStatus: action.payload };
     case "RESET_STATE":
       return { ...initialState };
     default:

@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { Search, Database, Filter, X } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { fetchRealPapers, generateMockLegacy, type Paper } from "@/lib/database-apis";
+import { fetchRealPapers, generateMockLegacy, verifyCitations, type Paper } from "@/lib/database-apis";
 
 const STUDY_TYPES = [
   "All Study Types",
@@ -91,10 +91,19 @@ export default function Step1Search() {
         papers = generateMockLegacy(localQuery, fallbackDbs);
       }
 
-      if (papers.length === 0) {
-        dispatch({ type: "SET_ERROR", payload: "No papers found. Try broader terms or more databases." });
-      } else {
+      if (papers.length > 0) {
+        dispatch({ type: "SET_CITATION_STATUS", payload: "running" });
+        try {
+          const citationResults = await verifyCitations(papers);
+          dispatch({ type: "SET_CITATION_RESULTS", payload: Object.fromEntries(citationResults) });
+        } catch {
+          dispatch({ type: "SET_CITATION_RESULTS", payload: {} });
+        } finally {
+          dispatch({ type: "SET_CITATION_STATUS", payload: "done" });
+        }
         dispatch({ type: "SET_PAPERS", payload: papers });
+      } else {
+        dispatch({ type: "SET_ERROR", payload: "No papers found. Try broader terms or more databases." });
       }
     } catch (err: any) {
       dispatch({ type: "SET_ERROR", payload: err.message || "Search failed. Please try again." });

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { CheckSquare, Square, Trash2, FileText, Search } from "lucide-react";
+import { CheckSquare, Square, Trash2, FileText, Search, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 
 export default function Step2Results() {
@@ -34,6 +34,17 @@ export default function Step2Results() {
     dispatch({ type: "SET_STEP", payload: 3 });
   };
 
+  const getCitationBadge = (paper: any) => {
+    if (state.citationValidationStatus === "running") {
+      return <span className="text-[10px] bg-blue-900/40 text-blue-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"><Loader2 size={10} className="animate-spin" /> verifying</span>;
+    }
+    if (!paper.doi) return <span className="text-[10px] bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded">no DOI</span>;
+    const result = state.citationValidationResults[paper.doi.toLowerCase()];
+    if (!result) return <span className="text-[10px] bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded">unchecked</span>;
+    if (result.valid) return <span className="text-[10px] bg-green-900/50 text-green-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"><CheckCircle2 size={10} /> DOI verified</span>;
+    return <span className="text-[10px] bg-red-900/40 text-red-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"><AlertCircle size={10} /> DOI not found</span>;
+  };
+
   return (
     <div className="space-y-6">
       <div className="bg-[#0d1b3e] border border-blue-900/50 rounded-lg p-6 shadow">
@@ -42,6 +53,12 @@ export default function Step2Results() {
             <h2 className="text-xl font-bold text-white">Step 2: Results & Deduplication</h2>
             <p className="text-sm text-blue-300">
               Total: {state.papers.length} papers | Unique: {uniquePapers.length} | Selected: {selectedCount}
+              {state.citationValidationStatus === "running" && " | Verifying citations..."}
+              {state.citationValidationStatus === "done" && (
+                <span className="ml-2 text-green-300">
+                  · Citations checked: {Object.values(state.citationValidationResults).filter((r: any) => r.valid).length}/{state.papers.filter((p) => p.doi).length} DOIs verified
+                </span>
+              )}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -131,6 +148,7 @@ export default function Step2Results() {
                   <span className="text-xs bg-teal-900/40 text-teal-300 px-2 py-0.5 rounded">
                     {paper.studyType}
                   </span>
+                  {getCitationBadge(paper)}
                 </div>
               </div>
             </div>

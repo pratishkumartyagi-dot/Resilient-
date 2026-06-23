@@ -65,8 +65,12 @@
 - [x] Step 3: synthesis generation now uses real AI when API keys are configured; falls back to mock data; properly advances to Step 4 after generation
 - [x] AI utilization integrated into content generation workflow; ready for extension to other pipeline steps
 - [x] Replaced mock 180-paper generation in Step 1 Search with real live API calls (OpenAlex, PubMed E-utilities, Europe PMC) via `src/lib/database-apis.ts`
-- [x] Step 1 now fetches real paper metadata (title, authors, journal, year, DOI, abstract, PMID) across selected databases; dedupes by DOI+title before storing in state
+- [x] Step 1 now fetches real paper metadata (title, authors, journal, year, DOI, abstract, PMID) across all 12 selected databases; dedupes by DOI+title before storing in state
 - [x] Databases without free live APIs fall back to simulated stub data with realistic structure
+- [x] All 12 UI databases mapped to live APIs in `fetchRealPapers`: PubMed, OpenAlex, Europe PMC, Google Scholar, WHO IRIS, Semantic Scholar, Shodhganga, Prospero, ScienceDirect, ClinicalTrials.gov, DOAJ, Clarivate
+- [x] Added DOI-based citation validation using Crossref API (`validateDoiViaCrossref`, `verifyCitations` in `src/lib/database-apis.ts`) per AIPOCH citation-validator approach
+- [x] Citation validation runs automatically after every search; results stored in `AppState.citationValidationResults`
+- [x] Step 2 Results view shows per-paper citation badges: ✓ DOI verified / ⚠ DOI not found / no DOI / unchecked, plus aggregate stats in header
 
 ## Systematic Review & Meta-Analysis Pipeline (2026-06-23)
 

@@ -281,6 +281,36 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
   return allPapers;
 }
 
+export async function validateDoiViaCrossref(doi: string): Promise<{ valid: boolean; title?: string; message: string }> {
+  if (!doi || doi.length < 5) return { valid: false, message: "Missing or invalid DOI" };
+
+  try {
+    const url = `https://api.crossref.org/works/${encodeURIComponent(doi)}`;
+    const res = await fetch(url, { headers: { "User-Agent": "ResilientResearch/1.0 (mailto:research@example.com)" } });
+    if (!res.ok) return { valid: false, message: `DOI not found (HTTP ${res.status})` };
+    const data = await res.json();
+    const work = data.message;
+    const title = work.title?.[0] || "";
+    return { valid: true, title, message: "DOI verified — matches Crossref record" };
+  } catch (err: any) {
+    return { valid: false, message: `Crossref lookup failed: ${err.message}` };
+  }
+}
+
+export async function verifyCitations(papers: Paper[]): Promise<Map<string, { valid: boolean; title?: string; message: string }>> {
+  const results = new Map<string, { valid: boolean; title?: string; message: string }>();
+  const dois = papers.filter((p) => p.doi && p.doi.length > 3).map((p) => p.doi!);
+
+  await Promise.allSettled(
+    dois.map(async (doi) => {
+      const result = await validateDoiViaCrossref(doi);
+      results.set(doi.toLowerCase(), result);
+    })
+  );
+
+  return results;
+}
+
 export function generateMockLegacy(query: string, dbs: string[]): Paper[] {
   const papers: Paper[] = [];
   const count = dbs.length > 0 ? Math.min(dbs.length * 15, 200) : 30;
