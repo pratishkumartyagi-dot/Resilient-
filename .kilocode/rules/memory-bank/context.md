@@ -40,6 +40,8 @@
 - [x] Step1: made "Select All" a true toggle (selects all databases when partial, deselects all when all are selected)
 - [x] Step1: removed artificial cap on mock paper count; now scales dynamically by selected databases (dbs.length × 15, no upper limit)
 - [x] Step1: app now auto-advances to Step 2 immediately after search completes
+- [x] Step3: fixed invalid Gemini model name (`gemini-3.1-flash-lite` → `gemini-2.0-flash`) so real AI synthesis actually works
+- [x] Step3: error handling now surfaces API key requirement instead of silently falling back to mock data
 - [x] Header rebrand: removed "Resilient Researcher Assistant" and "Systematic Review & Evidence Synthesis"; replaced center subtitle with "Powered Research Intelligence Platform"
 - [x] Added Settings gear icon to header, triggering API key configuration modal
 - [x] Created API settings modal (`SettingsModal`) supporting Gemini 3.1 Flash Lite (primary) and OpenRouter gpt-oss-120b (fallback), with test-connection buttons

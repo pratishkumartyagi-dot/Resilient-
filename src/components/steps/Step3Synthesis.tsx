@@ -85,7 +85,7 @@ export default function Step3Synthesis() {
         const cleaned = response.replace(/```json/g, "").replace(/```/g, "").trim();
         synthesis = JSON.parse(cleaned);
       } else {
-        synthesis = generateMockSynthesis(selected);
+        throw new Error("No API key configured. Please open Settings (gear icon) and add a Gemini or OpenRouter API key to enable real AI synthesis.");
       }
 
       dispatch({ type: "SET_SYNTHESIS", payload: synthesis });
@@ -93,13 +93,8 @@ export default function Step3Synthesis() {
       dispatch({ type: "SET_STEP", payload: 4 });
     } catch (err: any) {
       console.error("Synthesis generation failed:", err);
-      setError(err.message || "Failed to generate synthesis table. Using deep-reasoning fallback.");
-      const selected = state.papers.filter((p) => p.selected);
-      const fallback = generateMockSynthesis(selected);
-      dispatch({ type: "SET_SYNTHESIS", payload: fallback });
-      setLocalSynthesis(fallback);
-      dispatch({ type: "SET_STEP", payload: 4 });
-    } finally {
+      const message = err.message || "Failed to generate synthesis table.";
+      setError(message);
       dispatch({ type: "SET_LOADING", payload: false });
     }
   };
@@ -290,7 +285,7 @@ export default function Step3Synthesis() {
           </div>
         )}
 
-        {state.isLoading && !state.synthesisTable.length && (
+        {state.isLoading && (
           <div className="flex items-center justify-center py-16">
             <div className="text-center">
               <div className="w-10 h-10 border-4 border-yellow-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
