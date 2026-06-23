@@ -3,62 +3,83 @@
 import React, { useState, useRef } from "react";
 import { Download, FileUp, Sparkles, Trash2, ExternalLink, ChevronDown } from "lucide-react";
 import { useApp } from "@/context/AppContext";
+import { callGemini, callOpenRouter } from "@/lib/ai";
 
-const generateMockSynthesis = (): any[] => {
-  const papers = [
-    {
-      id: "syn-1",
-      reference: "Smith J, Doe A, et al. Latent tuberculosis infection screening among healthcare workers: a systematic review. <em>J Infect Dis</em>. 2022;185(3):456-468. doi:10.1000/jid.2022.456",
-      keyFindings: "Prevalence of LTBI among HCWs ranged from 15-45% across 23 studies. IGRA demonstrated higher specificity (95%) compared to TST (78%).",
-      synopsis: "This systematic review synthesized evidence from 23 studies involving 45,000+ healthcare workers. The authors found significantly higher LTBI prevalence in low-income countries (p<0.001) and identified inadequate infection control measures as a primary driver.",
-      studyDetails: "Population: N=45,000 HCWs across 12 countries. Setting: Hospital-based and community health centers. Time: 2010–2022. Hypothesis: HCWs have 2.5× higher LTBI risk vs general population. Intervention: Annual IGRA screening program.",
-      researchGaps: "Limited data on transgender HCWs, rural hospital settings underrepresented, long-term follow-up beyond 5 years scarce.",
-    },
-    {
-      id: "syn-2",
-      reference: "Chen L, Wang M, et al. Implementation challenges of mobile radiology van screening in rural China. <em>Trop Med Int Health</em>. 2021;26(8):901-912. doi:10.1000/tmih.2021.901",
-      keyFindings: "Mobile van screening increased detection rates by 320% in remote districts. Combined IGRA + chest X-ray approach yielded 94% sensitivity.",
-      synopsis: "Innovative delivery of LTBI screening via mobile radiology units demonstrated substantial feasibility gains. The study identified key enablers (community trust, flexible scheduling) and barriers (power interruptions, staff turnover).",
-      studyDetails: "Population: N=12,000 rural residents across 8 counties. Setting: Mobile radiology vans + fixed health posts. Time: 2018–2021. Hypothesis: Mobile units reduce structural barriers to screening access. Intervention: Quarterly mobile van screening with same-day chest X-ray.",
-      researchGaps: "Insufficient data on TB preventive therapy uptake post-positive test, cost-effectiveness not modeled, seasonal access variation unanalyzed.",
-    },
-    {
-      id: "syn-3",
-      reference: "Okonkwo C, Eze P, et al. IGRA uptake and cost-effectiveness in Nigerian tertiary hospitals. <em>BMC Public Health</em>. 2023;23:1245. doi:10.1000/bmcph.2023.1245",
-      keyFindings: "IGRA screening cost per QALY gained: $1,240. Below WHO threshold of $3,000/QALY. Acceptability among 82% of HCWs surveyed.",
-      synopsis: "This economic evaluation from Nigeria provides cost-effectiveness evidence supporting IGRA implementation in sub-Saharan African tertiary hospitals. The study also captured qualitative HCW perspectives highlighting stigma-related concerns.",
-      studyDetails: "Population: N=3,200 HCWs (1:2 nurse-to-doctor ratio). Setting: 4 tertiary hospitals in Lagos and Abuja. Time: 2020–2023. Hypothesis: IGRA is cost-effective at local income thresholds. Intervention: Annual workplace IGRA + counseling.",
-      researchGaps: "Pediatric HCWs not included, no comparison with molecular diagnostics (e.g., Xpert MTB), external validity to non-hospital settings limited.",
-    },
-    {
-      id: "syn-4",
-      reference: "Kumar R, Sharma P, et al. Digital health tools for LTBI contact tracing in Mumbai slums. <em>Glob Health Sci Pract</em>. 2024;12(1):67-78. doi:10.1000/ghsp.2024.067",
-      keyFindings: "Mobile app-based contact tracing improved completion rates by 47%. Digital reminders reduced defaulting from 18% to 6%.",
-      synopsis: "A cluster RCT demonstrated that digital health tools (SMS reminders, WhatsApp appointment scheduling) significantly improved LTBI contact tracing completion rates in densely populated urban slums. The tool also reduced time-to-diagnosis by 35%.",
-      studyDetails: "Population: N=8,500 close contacts of TB index cases. Setting: Mumbai slum communities + 12 local clinics. Time: 2022–2024. Hypothesis: Digital reminders improve contact tracing completion. Intervention: Custom mobile app with biometric ID verification.",
-      researchGaps: "App depends on smartphone ownership (60% baseline penetration), non-literate user interface not tested, long-term maintenance strategy absent.",
-    },
-  ];
-
-  return papers;
+const generateMockSynthesis = (papers: any[]): any[] => {
+  if (papers.length === 0) return [];
+  return papers.slice(0, 5).map((p, i) => ({
+    id: `syn-${Date.now()}-${i}`,
+    reference: `${p.authors} ${p.title}. <em>${p.journal}</em>. ${p.year}. doi:${p.doi}`,
+    keyFindings: `Study ${i + 1} investigated ${p.title.toLowerCase().replace(/^[^:]+:\s*/, "")} with notable findings related to the research topic.`,
+    synopsis: `This ${p.studyType.toLowerCase()} contributes to the evidence base by examining outcomes across the selected population and settings.`,
+    studyDetails: `Population and setting details derived from the study context. Time period aligns with publication year ${p.year}.`,
+    researchGaps: `Further research needed to address generalizability, long-term follow-up, and diverse population representation.`,
+  }));
 };
 
 export default function Step3Synthesis() {
   const { state, dispatch } = useApp();
   const [showUpload, setShowUpload] = useState(false);
   const [downloadFormat, setDownloadFormat] = useState("csv");
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [localSynthesis, setLocalSynthesis] = useState<any[]>(state.synthesisTable);
 
   const handleGenerateSynthesis = async () => {
+    const selected = state.papers.filter((p) => p.selected);
+    if (selected.length === 0) {
+      alert("Please select at least one paper to proceed.");
+      return;
+    }
+
     dispatch({ type: "SET_LOADING", payload: true });
-    setTimeout(() => {
-      const mockData = generateMockSynthesis();
-      dispatch({ type: "SET_SYNTHESIS", payload: mockData });
-      setLocalSynthesis(mockData);
-      dispatch({ type: "SET_LOADING", payload: false });
+    setError("");
+
+    try {
+      const prompt = `You are a research synthesis assistant. Generate a structured evidence synthesis table for the following selected papers. Return JSON only in this exact format:
+[
+  {
+    "id": "string",
+    "reference": "string (Vancouver style with HTML emphasis tags)",
+    "keyFindings": "string",
+    "synopsis": "string",
+    "studyDetails": "string (include population, setting, time, intervention/diagnostic tested)",
+    "researchGaps": "string"
+  }
+]
+
+Selected papers:
+${selected.map((p, i) => `${i + 1}. ${p.authors}. ${p.title}. ${p.journal}. ${p.year}. DOI: ${p.doi}. Study Type: ${p.studyType}. Abstract: ${p.abstract}`).join("\n\n")}`;
+
+      let synthesis: any[] = [];
+
+      if (state.geminiApiKey) {
+        const response = await callGemini(state.geminiApiKey, prompt);
+        const cleaned = response.replace(/```json/g, "").replace(/```/g, "").trim();
+        synthesis = JSON.parse(cleaned);
+      } else if (state.openRouterApiKey) {
+        const response = await callOpenRouter(state.openRouterApiKey, prompt);
+        const cleaned = response.replace(/```json/g, "").replace(/```/g, "").trim();
+        synthesis = JSON.parse(cleaned);
+      } else {
+        synthesis = generateMockSynthesis(selected);
+      }
+
+      dispatch({ type: "SET_SYNTHESIS", payload: synthesis });
+      setLocalSynthesis(synthesis);
       dispatch({ type: "SET_STEP", payload: 4 });
-    }, 2000);
+    } catch (err: any) {
+      console.error("Synthesis generation failed:", err);
+      setError(err.message || "Failed to generate synthesis table. Using mock data.");
+      const fallback = generateMockSynthesis(selected);
+      dispatch({ type: "SET_SYNTHESIS", payload: fallback });
+      setLocalSynthesis(fallback);
+      dispatch({ type: "SET_STEP", payload: 4 });
+    } finally {
+      dispatch({ type: "SET_LOADING", payload: false });
+      setGenerating(false);
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -96,10 +117,16 @@ export default function Step3Synthesis() {
           Extract and synthesize key findings from selected papers into a structured evidence table.
         </p>
 
+        {error && (
+          <div className="bg-red-900/30 border border-red-700 text-red-300 rounded-lg px-4 py-3 text-sm mb-4">
+            {error}
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center gap-3 mb-6">
           <button
             onClick={handleGenerateSynthesis}
-            disabled={state.isLoading || state.selectedPapers.length === 0}
+            disabled={state.isLoading || state.papers.filter((p) => p.selected).length === 0}
             className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50 flex items-center gap-2"
           >
             <Sparkles size={16} />

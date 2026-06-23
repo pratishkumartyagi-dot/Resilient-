@@ -73,7 +73,7 @@ export default function Step1Search() {
 
   const generateMockPapers = (query: string, dbs: string[]) => {
     const papers: any[] = [];
-    const count = 12;
+    const count = dbs.length > 0 ? Math.min(dbs.length * 15, 100) : 20;
     for (let i = 0; i < count; i++) {
       const db = dbs[i % dbs.length] || DATABASES[0];
       papers.push({

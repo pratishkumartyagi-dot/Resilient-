@@ -4,7 +4,7 @@
 
 **App Status**: ✅ Fully functional prototype built
 
-**App Name**: Resilient Researcher Assistant
+**App Name**: Resilient Research App
 **Description**: AI-powered research intelligence platform for systematic reviews, evidence synthesis, and academic writing.
 **Tech Stack**: Next.js 16, React 19, TypeScript, Tailwind CSS 4, Lucide React, Recharts
 
@@ -34,49 +34,15 @@
   - [x] Chat, stats, systematic review, paper writer, grant writing tabs implemented
   - [x] Production build passes cleanly (`bun run build`)
 
-## Current Structure
+## Recent Enhancements (2026-06-23)
 
-| File/Directory | Purpose | Status |
-|----------------|---------|--------|
-| `src/app/page.tsx` | Main app shell with tabs | ✅ Ready |
-| `src/app/layout.tsx` | Root layout + metadata | ✅ Ready |
-| `src/app/globals.css` | Global Tailwind styles | ✅ Ready |
-| `src/context/AppContext.tsx` | Global state management | ✅ Ready |
-| `src/components/Header.tsx` | App header with logo + title | ✅ Ready |
-| `src/components/TopTabs.tsx` | Main tab navigation | ✅ Ready |
-| `src/components/StepNavigator.tsx` | 11-step pipeline nav | ✅ Ready |
-| `src/components/steps/Step1Search.tsx` | Database search with boolean logic | ✅ Ready |
-| `src/components/steps/Step2Results.tsx` | Dedup + PRISMA diagram | ✅ Ready |
-| `src/components/steps/Step3Synthesis.tsx` | Evidence synthesis table | ✅ Ready |
-| `src/components/steps/Step4LiteratureReview.tsx` | Narrative literature review | ✅ Ready |
-| `src/components/steps/Step5Themes.tsx` | 10 AI-generated themes | ✅ Ready |
-| `src/components/steps/Step6ResearchQuestions.tsx` | Research questions generator | ✅ Ready |
-| `src/components/steps/Step7ResearchTitles.tsx` | Research title suggestions | ✅ Ready |
-| `src/components/steps/Step8AimObjectives.tsx` | Aim & objectives editor | ✅ Ready |
-| `src/components/steps/Step9Methodology.tsx` | Methodology + sample size | ✅ Ready |
-| `src/components/steps/Step10Protocol.tsx` | Protocol drafting | ✅ Ready |
-| `src/components/steps/Step11Impact.tsx` | Research impact assessment | ✅ Ready |
-| `src/components/tabs/ResilientChatTab.tsx` | NotebookLM-style chat | ✅ Ready |
-| `src/components/tabs/StatisticalAnalysisTab.tsx` | jamovi-style charts | ✅ Ready |
-| `src/components/tabs/SampleSizeTab.tsx` | Sample size calculator | ✅ Ready |
-| `src/components/tabs/SystematicReviewTab.tsx` | SR/RCT pipeline tabs | ✅ Ready |
-| `src/components/tabs/PaperWriterTab.tsx` | Academic paper writer/reviewer | ✅ Ready |
-| `src/components/tabs/GrantWritingTab.tsx` | Grant writing assistant | ✅ Ready |
-| `public/resilient-logo.jpg` | Resilient logo asset | ✅ Ready |
-| `.kilocode/rules/memory-bank/context.md` | Project context | ✅ Updated |
-
-## Current Focus
-
-The app is functional and builds cleanly. Next steps:
-- Replace mock AI generation with real API integrations
-- Implement actual semantic search across biomedical databases
-- Add real PDF/CSV/Excel export
-- Integrate jamovi backend for actual statistics
-- Connect to GitHub repositories for citation validation, deduplication, and synthesis agents
-
-## Session History
-
-| Date | Changes |
-|------|---------|
-| Initial | Template created with base setup |
-| 2026-06-22 | Built full Resilient Researcher Assistant application with 11-step pipeline, 6 main tabs, and comprehensive UI |
+- [x] Header rebrand: removed "Resilient Researcher Assistant" and "Systematic Review & Evidence Synthesis"; replaced center subtitle with "Powered Research Intelligence Platform"
+- [x] Added Settings gear icon to header, triggering API key configuration modal
+- [x] Created API settings modal (`SettingsModal`) supporting Gemini 3.1 Flash Lite (primary) and OpenRouter gpt-oss-120b (fallback), with test-connection buttons
+- [x] Added `src/lib/ai.ts` with wrapper functions for Gemini and OpenRouter REST endpoints
+- [x] Updated `AppContext` with `geminiApiKey` and `openRouterApiKey` state fields
+- [x] Fixed `selectedPapers` state sync bug in reducer (was always empty, blocking Step 3 generation)
+- [x] Step 1: expanded mock paper generation from fixed 12 to scale by selected databases (`min(selectedDbs * 15, 100)`)
+- [x] Step 2: toggle-to-select-all already present; confirmed functionality across all unique papers
+- [x] Step 3: synthesis generation now uses real AI when API keys are configured; falls back to mock data; properly advances to Step 4 after generation
+- [x] AI utilization integrated into content generation workflow; ready for extension to other pipeline steps

@@ -22,6 +22,7 @@ import SampleSizeTab from "@/components/tabs/SampleSizeTab";
 import SystematicReviewTab from "@/components/tabs/SystematicReviewTab";
 import PaperWriterTab from "@/components/tabs/PaperWriterTab";
 import GrantWritingTab from "@/components/tabs/GrantWritingTab";
+import SettingsModal from "@/components/SettingsModal";
 
 function AppContent() {
   const { state } = useApp();
@@ -60,6 +61,7 @@ function AppContent() {
       <Header />
       <TopTabs />
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-6">{renderTabContent()}</main>
+      <SettingsModal />
     </div>
   );
 }

@@ -106,6 +106,8 @@ export interface AppState {
   error: string;
   showPrisma: boolean;
   selectedDatabases: string[];
+  geminiApiKey: string;
+  openRouterApiKey: string;
 }
 
 type Action =
@@ -138,6 +140,8 @@ type Action =
   | { type: "SET_ERROR"; payload: string }
   | { type: "TOGGLE_PRISMA"; payload: boolean }
   | { type: "SET_SELECTED_DATABASES"; payload: string[] }
+  | { type: "SET_GEMINI_KEY"; payload: string }
+  | { type: "SET_OPENROUTER_KEY"; payload: string }
   | { type: "RESET_STATE" };
 
 const initialState: AppState = {
@@ -200,6 +204,8 @@ const initialState: AppState = {
     "DOAJ",
     "Clarivate",
   ],
+  geminiApiKey: "",
+  openRouterApiKey: "",
 };
 
 function appReducer(state: AppState, action: Action): AppState {
@@ -218,18 +224,22 @@ function appReducer(state: AppState, action: Action): AppState {
         studyType: action.payload.studyType ?? state.studyType,
       };
     case "SET_PAPERS":
-      return { ...state, papers: action.payload };
+      return { ...state, papers: action.payload, selectedPapers: action.payload.filter((p) => p.selected) };
     case "TOGGLE_PAPER":
       return {
         ...state,
         papers: state.papers.map((p) =>
           p.id === action.payload ? { ...p, selected: !p.selected } : p
         ),
+        selectedPapers: state.papers.map((p) =>
+          p.id === action.payload ? { ...p, selected: !p.selected } : p
+        ).filter((p) => p.selected),
       };
     case "SELECT_ALL_PAPERS":
       return {
         ...state,
         papers: state.papers.map((p) => ({ ...p, selected: action.payload })),
+        selectedPapers: action.payload ? [...state.papers] : [],
       };
     case "SET_SYNTHESIS":
       return { ...state, synthesisTable: action.payload };
@@ -313,6 +323,10 @@ function appReducer(state: AppState, action: Action): AppState {
       return { ...state, showPrisma: action.payload };
     case "SET_SELECTED_DATABASES":
       return { ...state, selectedDatabases: action.payload };
+    case "SET_GEMINI_KEY":
+      return { ...state, geminiApiKey: action.payload };
+    case "SET_OPENROUTER_KEY":
+      return { ...state, openRouterApiKey: action.payload };
     case "RESET_STATE":
       return { ...initialState };
     default:

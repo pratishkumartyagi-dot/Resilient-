@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { Settings } from "lucide-react";
 
 export default function Header() {
   return (
@@ -18,21 +19,29 @@ export default function Header() {
             />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-wide text-yellow-400">
-              Resilient Researcher Assistant
-            </h1>
             <p className="text-xs text-blue-200">
               AI-Powered Research Intelligence Platform
             </p>
           </div>
         </div>
         <div className="text-center">
-          <h2 className="text-2xl font-bold text-yellow-300 tracking-wider">
+          <h1 className="text-2xl font-bold text-yellow-300 tracking-wider">
             Resilient Research App
-          </h2>
-          <p className="text-xs text-blue-200">Systematic Review & Evidence Synthesis</p>
+          </h1>
+          <p className="text-xs text-blue-200">Powered Research Intelligence Platform</p>
         </div>
-        <div className="w-20" />
+        <div className="flex items-center">
+          <button
+            onClick={() => {
+              const event = new CustomEvent("open-settings");
+              window.dispatchEvent(event);
+            }}
+            className="p-2 rounded-lg bg-blue-900/40 text-blue-300 hover:bg-blue-900/60"
+            title="Settings"
+          >
+            <Settings size={20} />
+          </button>
+        </div>
       </div>
     </header>
   );
