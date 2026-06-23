@@ -44,8 +44,10 @@ export default function Step1Search() {
   };
 
   const selectAllDbs = () => {
-    setSelectedDbs(DATABASES);
-    dispatch({ type: "SET_SELECTED_DATABASES", payload: DATABASES });
+    const allSelected = selectedDbs.length === DATABASES.length;
+    const next = allSelected ? [] : DATABASES;
+    setSelectedDbs(next);
+    dispatch({ type: "SET_SELECTED_DATABASES", payload: next });
   };
 
   const clearDbs = () => {
@@ -67,13 +69,14 @@ export default function Step1Search() {
     setTimeout(() => {
       const mockPapers = generateMockPapers(localQuery, selectedDbs);
       dispatch({ type: "SET_PAPERS", payload: mockPapers });
+      dispatch({ type: "SET_STEP", payload: 2 });
       dispatch({ type: "SET_LOADING", payload: false });
     }, 1500);
   };
 
   const generateMockPapers = (query: string, dbs: string[]) => {
     const papers: any[] = [];
-    const count = dbs.length > 0 ? Math.min(dbs.length * 15, 100) : 20;
+    const count = dbs.length > 0 ? dbs.length * 15 : 20;
     for (let i = 0; i < count; i++) {
       const db = dbs[i % dbs.length] || DATABASES[0];
       papers.push({
@@ -190,7 +193,7 @@ export default function Step1Search() {
               onClick={selectAllDbs}
               className="text-xs bg-green-900/50 text-green-300 px-3 py-1 rounded hover:bg-green-900/70"
             >
-              Select All
+              {selectedDbs.length === DATABASES.length ? "Deselect All" : "Select All"}
             </button>
             <button
               onClick={clearDbs}
