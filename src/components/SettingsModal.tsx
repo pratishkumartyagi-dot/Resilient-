@@ -8,22 +8,45 @@ import { testGeminiKey, testOpenRouterKey } from "@/lib/ai";
 export default function SettingsModal() {
   const { state, dispatch } = useApp();
   const [isOpen, setIsOpen] = useState(false);
-  const [geminiKey, setGeminiKey] = useState(state.geminiApiKey);
-  const [openRouterKey, setOpenRouterKey] = useState(state.openRouterApiKey);
+  const [geminiKey, setGeminiKey] = useState("");
+  const [openRouterKey, setOpenRouterKey] = useState("");
+  const [loadedFromStorage, setLoadedFromStorage] = useState(false);
   const [testingGemini, setTestingGemini] = useState(false);
   const [testingOpenRouter, setTestingOpenRouter] = useState(false);
   const [geminiResult, setGeminiResult] = useState<boolean | null>(null);
   const [openRouterResult, setOpenRouterResult] = useState<boolean | null>(null);
 
   React.useEffect(() => {
+    if (typeof window !== "undefined" && !loadedFromStorage) {
+      try {
+        const savedGemini = localStorage.getItem("resilient_gemini_api_key") || "";
+        const savedOpenRouter = localStorage.getItem("resilient_openrouter_api_key") || "";
+        setGeminiKey(savedGemini);
+        setOpenRouterKey(savedOpenRouter);
+        if (savedGemini || savedOpenRouter) {
+          dispatch({ type: "SET_GEMINI_KEY", payload: savedGemini });
+          dispatch({ type: "SET_OPENROUTER_KEY", payload: savedOpenRouter });
+        }
+      } catch {
+        // Storage unavailable
+      }
+      setLoadedFromStorage(true);
+    }
+
     const handler = () => setIsOpen(true);
     window.addEventListener("open-settings", handler);
     return () => window.removeEventListener("open-settings", handler);
-  }, []);
+  }, [dispatch, loadedFromStorage]);
 
   const handleSave = () => {
     dispatch({ type: "SET_GEMINI_KEY", payload: geminiKey });
     dispatch({ type: "SET_OPENROUTER_KEY", payload: openRouterKey });
+    try {
+      localStorage.setItem("resilient_gemini_api_key", geminiKey);
+      localStorage.setItem("resilient_openrouter_api_key", openRouterKey);
+    } catch {
+      // Storage unavailable
+    }
     setIsOpen(false);
     setGeminiResult(null);
     setOpenRouterResult(null);
