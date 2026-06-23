@@ -9,24 +9,33 @@ export interface SynthesisRow {
   researchGaps: string;
 }
 
-const EVIDENCE_TIERS: Record<string, { label: string; stars: string }> = {
-  rct: { label: "T1 (★★★) Mechanistic", stars: "★★★" },
-  "systematic review": { label: "T2 (★★☆) Functional", stars: "★★☆" },
-  "meta-analysis": { label: "T2 (★★☆) Functional", stars: "★★☆" },
-  "observational study": { label: "T3 (★☆☆) Association", stars: "★☆☆" },
-  cohort: { label: "T3 (★☆☆) Association", stars: "★☆☆" },
-  "case-control": { label: "T3 (★☆☆) Association", stars: "★☆☆" },
-  review: { label: "T4 (☆☆☆) Mention", stars: "☆☆☆" },
+/* ------------------------------------------------------------------ */
+/*  Evidence-tier mapping (AIPOCH / decipher-research-agent style)    */
+/* ------------------------------------------------------------------ */
+const EVIDENCE_TIERS: Record<string, { label: string; color: string }> = {
+  "randomized controlled trial": { label: "T1 — Mechanistic (★★★)", color: "text-green-300" },
+  rct: { label: "T1 — Mechanistic (★★★)", color: "text-green-300" },
+  "systematic review": { label: "T2 — Functional (★★☆)", color: "text-yellow-300" },
+  "meta-analysis": { label: "T2 — Functional (★★☆)", color: "text-yellow-300" },
+  cohort: { label: "T3 — Associational (★☆☆)", color: "text-orange-300" },
+  "case-control": { label: "T3 — Associational (★☆☆)", color: "text-orange-300" },
+  "observational study": { label: "T3 — Associational (★☆☆)", color: "text-orange-300" },
+  "cross-sectional": { label: "T3 — Associational (★☆☆)", color: "text-orange-300" },
+  review: { label: "T4 — Mention (☆☆☆)", color: "text-blue-300" },
+  qualitative: { label: "T3 — Associational (★☆☆)", color: "text-orange-300" },
 };
 
-function getEvidenceTier(studyType: string): { label: string; stars: string } {
+function getEvidenceTier(studyType: string): { label: string; color: string } {
   const t = studyType.toLowerCase();
   for (const [key, val] of Object.entries(EVIDENCE_TIERS)) {
     if (t.includes(key)) return val;
   }
-  return { label: "T3 (★☆☆) Association", stars: "★☆☆" };
+  return { label: "T3 — Associational (★☆☆)", color: "text-orange-300" };
 }
 
+/* ------------------------------------------------------------------ */
+/*  Vancouver reference with DOI + Crossref verification badge         */
+/* ------------------------------------------------------------------ */
 function toVancouver(paper: Paper, verifiedDoi?: { valid: boolean; title?: string }): string {
   const cleanTitle = paper.title.replace(/[<>=]/g, "").trim();
   const authors = paper.authors || "Unknown authors";
@@ -34,92 +43,265 @@ function toVancouver(paper: Paper, verifiedDoi?: { valid: boolean; title?: strin
   const year = paper.year;
   const doi = paper.doi || "";
   const doiLink = doi ? ` <a href="https://doi.org/${doi}" target="_blank" rel="noopener noreferrer">doi:${doi}</a>` : "";
-  const verified = verifiedDoi?.valid ? " ✓" : "";
-  return `${authors}. "${cleanTitle}". <em>${journal}</em>. ${year}.${doiLink}${verified}`;
+  const badge = verifiedDoi?.valid ? ' <span class="text-green-400">[Crossref ✓]</span>' : doi ? ' <span class="text-red-400">[DOI not verified]</span>' : "";
+  return `${authors}. "${cleanTitle}". <em>${journal}</em>. ${year}.[PMID:${paper.pmid || "N/A"}]${doiLink}${badge}`;
 }
 
-function extractLimitations(abstract: string): string {
-  const limitPatterns = [
-    /limit(?:s|ation|ed)?[^.]*\./gi,
+/* ------------------------------------------------------------------ */
+/*  Sentence-level classifiers (mirrors decipher-research-agent       */
+/*  multi-agent pipeline: Background → Objective → Methods → Results  */
+/*  → Conclusions)                                                    */
+/* ------------------------------------------------------------------ */
+type SentenceClass = "objective" | "method" | "result" | "conclusion" | "background" | "other";
+
+function classifySentence(s: string): SentenceClass {
+  const lower = s.toLowerCase();
+  if (/^(the objective|aim|purpose|we aimed|this study aims|goal|intended to|sought to)/i.test(lower)) return "objective";
+  if (/^(methods|methodology|design|setting|participants|patients and methods|study design|we (conducted|performed|carried out|did)|between)/i.test(lower)) return "method";
+  if (/(found|showed|demonstrated|revealed|indicated|reported|observed|detected|significantly|increase|decrease|association|correlation|prevalence|incidence|rate|odds ratio|risk ratio|hazard ratio|p\s*[=＜<]|p-value|ci\b|confidence interval|\d+%|relative risk|adjusted|mean difference|\bOR\b|\bRR\b|\bHR\b|\bMD\b|\bSMD\b)/i.test(lower)) return "result";
+  if (/^(in conclusion|conclusion|to conclude|we conclude|overall|in summary|taken together|these findings|this suggests|this indicates)/i.test(lower)) return "conclusion";
+  if (/^(background|introduction|context|rationale|prior|previous|existing|literature)/i.test(lower)) return "background";
+  return "other";
+}
+
+function splitSentences(text: string): string[] {
+  return text
+    .replace(/([.!?])\s+/g, "$1|")
+    .split("|")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 25);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Effect-size / quantitative anchor extraction                      */
+/*  (AI-Research-Analyzer pattern: surface the numbers that matter)   */
+/* ------------------------------------------------------------------ */
+function extractQuantitativeAnchors(sentences: string[]): string[] {
+  const anchors: string[] = [];
+  const patterns = [
+    /\b\d+(?:\.\d+)?\s*%/g,                          // percentages
+    /\bp\s*[=＜<]\s*0\.\d+/gi,                       // p-values
+    /\b(?:OR|RR|HR|MD|SMD)\b[^.]{0,30}[=:][^.]{0,30}\d+(?:\.\d+)?/gi, // effect measures
+    /\b(?:95%?\s*CI)[^.]*\./gi,                      // confidence intervals
+    /\b\d+(?:\.\d+)?\s*(?:per\s+\d+|×|times)\b/gi,  // rate / multiplier
+    /\b(?:AUC|ROC|sensitivity|specificity|PPV|NPV)\b[^.]*\./gi, // diagnostic stats
+  ];
+  for (const s of sentences) {
+    for (const pat of patterns) {
+      const m = s.match(pat);
+      if (m) {
+        const clean = s.replace(/[<>=]/g, "").trim();
+        if (clean.length < 280) anchors.push(clean);
+      }
+    }
+  }
+  // Deduplicate by first 40 chars
+  const seen = new Set<string>();
+  return anchors.filter((a) => {
+    const key = a.slice(0, 40).toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/*  Primary Key Findings extractor                                    */
+/*  Mirrors decipher-research-agent "Research Analyst" agent output   */
+/* ------------------------------------------------------------------ */
+function extractPrimaryKeyFindings(abstract: string, studyType: string): string {
+  const sentences = splitSentences(abstract);
+  if (sentences.length === 0) return "Key findings not clearly reported in available abstract.";
+
+  // Phase 1 – classify every sentence
+  const classified = sentences.map((s) => ({ text: s, cls: classifySentence(s) }));
+
+  // Phase 2 – pick result + conclusion sentences, prefer quantitative anchors
+  const resultSentences = classified.filter((s) => s.cls === "result");
+  const conclusionSentences = classified.filter((s) => s.cls === "conclusion");
+
+  // Phase 3 – quantitative anchors from result sentences
+  const resultTexts = resultSentences.map((s) => s.text);
+  const anchors = extractQuantitativeAnchors(resultTexts);
+
+  // Phase 4 – build structured findings
+  const parts: string[] = [];
+  const tier = getEvidenceTier(studyType);
+  parts.push(`[${tier.label}]`);
+
+  if (anchors.length > 0) {
+    // Use quantitative anchors as the core findings
+    const uniqueAnchors = anchors.slice(0, 3);
+    parts.push(...uniqueAnchors.map((a) => a.replace(/[<>=]/g, "").trim()));
+  }
+
+  if (resultSentences.length > 0) {
+    // Pick highest-quality result sentences (longer = usually more complete)
+    const sorted = resultSentences
+      .filter((s) => s.text.length > 50)
+      .sort((a, b) => b.text.length - a.text.length);
+    const top = sorted.slice(0, 2);
+    for (const s of top) {
+      const clean = s.text.replace(/[<>=]/g, "").trim();
+      if (clean.length > 40 && !parts.some((p) => p.includes(clean.slice(0, 30)))) {
+        parts.push(clean);
+      }
+    }
+  }
+
+  if (conclusionSentences.length > 0 && parts.length < 4) {
+    const topConclusion = conclusionSentences
+      .filter((s) => s.text.length > 40)
+      .sort((a, b) => b.text.length - a.text.length)[0];
+    if (topConclusion) {
+      const clean = topConclusion.text.replace(/[<>=]/g, "").trim();
+      if (!parts.some((p) => p.includes(clean.slice(0, 30)))) {
+        parts.push(clean);
+      }
+    }
+  }
+
+  // Phase 5 – if we still have almost nothing, fall back to top ranked sentences
+  if (parts.length <= 2) {
+    const ranked = classified
+      .filter((s) => s.cls !== "other")
+      .sort((a, b) => b.text.length - a.text.length);
+    for (const s of ranked.slice(0, 3)) {
+      const clean = s.text.replace(/[<>=]/g, "").trim();
+      if (!parts.some((p) => p.includes(clean.slice(0, 30)))) {
+        parts.push(clean);
+      }
+    }
+  }
+
+  // Remove the tier bracket from the actual text if we have good content
+  const textParts = parts.filter((p) => !p.startsWith("[") || p.includes("T1") || p.includes("T2"));
+  const finalText = textParts.slice(0, 4).join(" ");
+
+  return finalText.length > 20 ? finalText : "Key findings reported; refer to full text for quantitative details.";
+}
+
+/* ------------------------------------------------------------------ */
+/*  Study-details extractor (PICO-style, AI-Research-Analyzer RAG)    */
+/* ------------------------------------------------------------------ */
+function extractStudyDetails(abstract: string, paper: Paper): string {
+  const sentences = splitSentences(abstract);
+
+  // Population
+  const population =
+    sentences.find((s) => /(?:participants?|patients?|subjects?|population|sample|cohort|individuals?|adults?|children|adolescents|women|men)/i.test(s) && s.length > 40) ||
+    `Defined per study inclusion criteria (${paper.studyType}).`;
+
+  // Setting
+  const setting =
+    sentences.find((s) => /(?:setting|conducted|performed|carried out|hospital|clinic|centre|center|community|school|online|nationwide|multicenter|tertiary|primary care|rural|urban)/i.test(s) && s.length > 40) ||
+    `${paper.journal} publication context.`;
+
+  // Time
+  const yearRange = abstract.match(/\b(19|20)\d{2}\b/g);
+  const time = yearRange && yearRange.length >= 2 ? `${Math.min(...yearRange.map(Number))}–${Math.max(...yearRange.map(Number))}` : `Published ${paper.year}`;
+
+  // Intervention
+  const intervention =
+    sentences.find((s) => /(?:intervention|treatment|exposure|drug|therapy|program|policy|screening|diagnostic|procedure|surgery|vaccine|antibiotic)/i.test(s) && s.length > 40) ||
+    (paper.studyType.toLowerCase().includes("rct") || paper.studyType.toLowerCase().includes("trial")
+      ? "Active intervention as defined in trial protocol."
+      : "Observational — no active intervention imposed.");
+
+  return `Population: ${population.replace(/[<>=]/g, "")} | Setting: ${setting.replace(/[<>=]/g, "")} | Time: ${time} | Intervention: ${intervention.replace(/[<>=]/g, "")}`;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Research-gaps extractor (AIPOCH whitespace-checker + AI-Research-  */
+/*  Analyzer gap-detection pattern)                                    */
+/* ------------------------------------------------------------------ */
+function extractResearchGaps(abstract: string, studyType: string): string {
+  const sentences = splitSentences(abstract);
+
+  // Limitations
+  const limitationPatterns = [
+    /limit(?:s|ation|ed|ing)[^.]*\./gi,
     /constraint(?:s)?[^.]*\./gi,
     /small[^.]*sample[^.]*\./gi,
-    /single[^.]*(?:center|country|site)[^.]*\./gi,
+    /single[^.]*(?:center|country|site|region)[^.]*\./gi,
     /geographic(?:al)?[^.]*bias[^.]*\./gi,
-    /self[^.]*report(?:ed)?[^.]*\./gi,
+    /self[^.]*report(?:ed|ing)[^.]*\./gi,
+    /retrospective[^.]*\./gi,
+    /attrition[^.]*\./gi,
+    /recall[^.]*\./gi,
+    /underpowered[^.]*\./gi,
   ];
-  const matches: string[] = [];
-  for (const pat of limitPatterns) {
-    const m = abstract.match(pat);
-    if (m) matches.push(...m);
-  }
-  return matches.length > 0 ? matches.slice(0, 3).join(" ") : "Generalizability limited by sample characteristics and study scope.";
-}
-
-function extractIntervention(abstract: string, studyType: string): string {
-  if (studyType.toLowerCase().includes("rct") || studyType.toLowerCase().includes("trial")) {
-    const m = abstract.match(/(?:intervention|treatment|exposure|drug|therapy)[^.]*\./i);
-    return m ? m[0].replace(/[<>]/g, "") : "Protocol-driven intervention as described in methods.";
-  }
-  return "Observational — no active intervention imposed.";
-}
-
-function extractTimePeriod(abstract: string, year: number): string {
-  const yearRange = abstract.match(/\b(19|20)\d{2}\b/g);
-  if (yearRange && yearRange.length >= 2) {
-    const years = yearRange.map(Number).sort((a, b) => a - b);
-    return `${years[0]}–${years[years.length - 1]}`;
-  }
-  return `Data collected through ${year}.`;
-}
-
-function extractGapsAndContradictions(abstract: string): { gaps: string; contradictions: string } {
-  const gapPatterns = [
-    /gap(?:s)?[^.]*\./gi,
-    /future[^.]*(?:work|research|direction)[^.]*\./gi,
-    /underexplored[^.]*\./gi,
-    /need(?:s)?[^.]*(?:further|more)[^.]*\./gi,
-  ];
-  const gapMatches: string[] = [];
-  for (const pat of gapPatterns) {
-    const m = abstract.match(pat);
-    if (m) gapMatches.push(...m);
+  const limitations: string[] = [];
+  for (const pat of limitationPatterns) {
+    const matches = abstract.match(pat) || [];
+    limitations.push(...matches.slice(0, 2));
   }
 
+  // Contradictions / conflicts
   const contradPatterns = [
     /conflict(?:ing|s)?[^.]*\./gi,
     /inconsistent[^.]*\./gi,
     /discrepanc(?:y|ies)[^.]*\./gi,
     /contrast(?:s|ed|ing)?[^.]*\./gi,
+    /differ(?:s|ed)?[^.]*from[^.]*\./gi,
   ];
-  const contradMatches: string[] = [];
+  const contradictions: string[] = [];
   for (const pat of contradPatterns) {
-    const m = abstract.match(pat);
-    if (m) contradMatches.push(...m);
+    const matches = abstract.match(pat) || [];
+    contradictions.push(...matches.slice(0, 2));
   }
 
-  return {
-    gaps: gapMatches.length > 0 ? gapMatches.slice(0, 2).join(" ") : "Further longitudinal and cross-cultural replication warranted.",
-    contradictions: contradMatches.length > 0 ? contradMatches.slice(0, 2).join(" ") : "No explicit contradictions identified in abstract.",
-  };
+  // Exclusion criteria
+  const exclusionPatterns = [
+    /exclude(?:d|s)?[^.]*\./gi,
+    /not[^.]*included[^.]*\./gi,
+    /ineligible[^.]*\./gi,
+    /lack(?:ed)?[^.]*(?:data|information|follow)[^.]*\./gi,
+  ];
+  const exclusions: string[] = [];
+  for (const pat of exclusionPatterns) {
+    const matches = abstract.match(pat) || [];
+    exclusions.push(...matches.slice(0, 2));
+  }
+
+  // Future work / whitespace
+  const futurePatterns = [
+    /future[^.]*(?:work|research|direction|study|trial)[^.]*\./gi,
+    /gap(?:s)?[^.]*\./gi,
+    /underexplored[^.]*\./gi,
+    /need(?:s)?[^.]*(?:further|more|additional|longer|larger)[^.]*\./gi,
+    /warrant(?:s)?[^.]*(?:further|additional|investigation|study)[^.]*\./gi,
+    /recommend(?:ed|s)?[^.]*(?:further|future|additional)[^.]*\./gi,
+  ];
+  const future: string[] = [];
+  for (const pat of futurePatterns) {
+    const matches = abstract.match(pat) || [];
+    future.push(...matches.slice(0, 2));
+  }
+
+  const limText = limitations.length > 0 ? limitations.slice(0, 2).join(" ") : "No specific limitations detailed in the abstract; common biases (selection, confounding, measurement) may apply.";
+  const contText = contradictions.length > 0 ? contradictions.slice(0, 2).join(" ") : "No explicit contradictions identified in the provided abstract.";
+  const excText = exclusions.length > 0 ? exclusions.slice(0, 2).join(" ") : "Standard exclusion for pediatric/geriatric/comorbid populations unless otherwise stated.";
+  const futText = future.length > 0 ? future.slice(0, 2).join(" ") : `Longitudinal follow-up, replication in diverse populations, and cost-effectiveness analysis recommended.`;
+
+  return `Limitations: ${limText} | Contradictions: ${contText} | Exclusion criteria: ${excText} | Future work: ${futText}`;
 }
 
-function buildKeyFindings(abstract: string, studyType: string): { findings: string; tier: { label: string; stars: string } } {
-  const sentences = abstract.split(/(?<=[.!?])\s+/).filter((s) => s.trim().length > 30);
-  const significantSentences = sentences.filter((s) =>
-    /significant|association|correlation|effective|reduce|increase|prevalence|outcome|result|finding|difference|impact|risk|factor/i.test(s)
-  );
-
-  const findingsPool = significantSentences.length >= 2 ? significantSentences.slice(0, 3) : sentences.slice(0, 2);
-  const findingsText = findingsPool.join(" ").replace(/[<>=]/g, "").trim();
-  const tier = getEvidenceTier(studyType);
-
-  return {
-    findings: `(${tier.label}) ${findingsText || "Key findings reported in study. Refer to full text for detailed quantitative results."}`,
-    tier,
-  };
+/* ------------------------------------------------------------------ */
+/*  Synopsis (mirrors NotebookLM-style summary)                        */
+/* ------------------------------------------------------------------ */
+function buildSynopsis(paper: Paper): string {
+  const topic = paper.title.includes(":") ? paper.title.split(":").pop()?.trim() : paper.title;
+  const base = `${paper.studyType} examining "${topic || paper.title}".`;
+  const journalShort = paper.journal.split(" ").slice(0, 3).join(" ");
+  return `${base} Published in ${journalShort} (${paper.year}). Core contribution advances the evidence base for the topic area.`;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Main local synthesis generator                                    */
+/* ------------------------------------------------------------------ */
 export async function generateLocalSynthesis(papers: Paper[]): Promise<SynthesisRow[]> {
+  // Parallel DOI validation (Crossref) — same as AI-Research-Analyzer citation-validator approach
   const doisToValidate = papers.filter((p) => p.doi && p.doi.length > 3).map((p) => p.doi!);
   const citationResults = new Map<string, { valid: boolean; title?: string; message: string }>();
 
@@ -132,18 +314,19 @@ export async function generateLocalSynthesis(papers: Paper[]): Promise<Synthesis
 
   return papers.map((paper, idx) => {
     const verifiedDoi = paper.doi ? citationResults.get(paper.doi.toLowerCase()) : undefined;
-    const { findings, tier } = buildKeyFindings(paper.abstract, paper.studyType);
-    const gapsAndContrads = extractGapsAndContradictions(paper.abstract);
-    const limitations = extractLimitations(paper.abstract);
-    const fullGaps = `Limitations: ${limitations} Contradictions: ${gapsAndContrads.contradictions} Future work: ${gapsAndContrads.gaps}`;
+
+    const keyFindings = extractPrimaryKeyFindings(paper.abstract || "", paper.studyType);
+    const studyDetails = extractStudyDetails(paper.abstract || "", paper);
+    const researchGaps = extractResearchGaps(paper.abstract || "", paper.studyType);
+    const synopsis = buildSynopsis(paper);
 
     return {
-      id: `local-syn-${Date.now()}-${idx}`,
+      id: `syn-${Date.now()}-${idx}`,
       reference: toVancouver(paper, verifiedDoi),
-      keyFindings: findings,
-      synopsis: `${paper.studyType} examining ${paper.title.split(":").pop()?.trim() || "the stated topic"}. Core contribution advances the evidence base for ${paper.journal.split(" ").slice(0, 2).join(" ")}.`,
-      studyDetails: `Population: as defined in study inclusion criteria. Setting: ${paper.journal}. Time: ${extractTimePeriod(paper.abstract, paper.year)}. Hypothesis: tested in study design. Intervention: ${extractIntervention(paper.abstract, paper.studyType)}`,
-      researchGaps: fullGaps,
+      keyFindings,
+      synopsis,
+      studyDetails,
+      researchGaps,
     };
   });
 }
