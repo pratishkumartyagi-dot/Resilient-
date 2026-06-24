@@ -8,20 +8,6 @@ import { downloadCSV, downloadExcel, downloadPDF, downloadWord, parseCSVText } f
 import { buildStep3Prompt } from "@/lib/research-skills";
 import { generateLocalSynthesis, type SynthesisRow } from "@/lib/local-synthesis";
 
-const buildDeepResearchPrompt = buildStep3Prompt;
-
-const generateFallbackSynthesis = (papers: any[]): SynthesisRow[] => {
-  if (papers.length === 0) return [];
-  return papers.slice(0, 8).map((p, i) => ({
-    id: `syn-${Date.now()}-${i}`,
-    reference: `${p.authors} "${p.title}". <em>${p.journal}</em>. ${p.year}. <a href="https://doi.org/${p.doi}" target="_blank" rel="noopener noreferrer">doi:${p.doi}</a>`,
-    keyFindings: `Primary outcome demonstrated significant association between intervention and measured endpoints (p<0.05). Effect sizes ranged from moderate to large across subpopulations.`,
-    synopsis: `This ${p.studyType.toLowerCase()} advances the evidence base by addressing gaps in prior literature through rigorous methodology and multi-site validation.`,
-    studyDetails: `Population: diverse cohorts reflecting target demographic. Setting: multi-center academic and community settings. Time: 2018–2024. Hypothesis: tested in study design. Intervention: protocol-driven comparative assessment.`,
-    researchGaps: `Limitations: single-country design limits generalizability; self-reported outcomes in 22% of sample. Contradictions: findings partially conflict with earlier meta-analyses on subgroup effects. Exclusion criteria: pediatric and geriatric subpopulations were excluded. Future work: longitudinal follow-up and cost-effectiveness analysis warranted.`,
-  }));
-};
-
 export default function Step3Synthesis() {
   const { state, dispatch } = useApp();
   const [showUpload, setShowUpload] = useState(false);
@@ -31,11 +17,35 @@ export default function Step3Synthesis() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [localSynthesis, setLocalSynthesis] = useState<any[]>(state.synthesisTable);
 
+  const getFilteredPapers = () => {
+    const selected = state.papers.filter((p) => p.selected);
+    const minAbstractLength = 50;
+    return selected.filter((p) => {
+      if (!p.doi || p.doi.length < 5) return false;
+      const citResult = state.citationValidationResults[p.doi.toLowerCase()];
+      if (citResult && !citResult.valid) return false;
+      if (!p.abstract || p.abstract.length < minAbstractLength) return false;
+      return true;
+    });
+  };
+
   const handleGenerateSynthesis = async () => {
     const selected = state.papers.filter((p) => p.selected);
     if (selected.length === 0) {
       alert("Please select at least one paper to proceed.");
       return;
+    }
+
+    const filteredPapers = getFilteredPapers();
+
+    if (filteredPapers.length === 0) {
+      setError("No papers with verified DOIs and abstract content found. All selected papers were excluded during DOI validation. Please return to Step 2 and select papers with verified DOIs.");
+      return;
+    }
+
+    if (filteredPapers.length < selected.length) {
+      const excludedCount = selected.length - filteredPapers.length;
+      alert(`Note: ${excludedCount} paper(s) were excluded due to invalid/non-existent DOIs or missing abstracts. Synthesis will proceed with ${filteredPapers.length} verified paper(s).`);
     }
 
     dispatch({ type: "SET_LOADING", payload: true });
@@ -45,7 +55,7 @@ export default function Step3Synthesis() {
       let synthesis: SynthesisRow[] = [];
 
       if (state.geminiApiKey || state.openRouterApiKey) {
-        const prompt = buildDeepResearchPrompt(selected, uploadedText);
+          const prompt = buildStep3Prompt(filteredPapers, uploadedText);
         try {
           let responseText = "";
           if (state.geminiApiKey) {
@@ -56,25 +66,37 @@ export default function Step3Synthesis() {
           const cleaned = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
           synthesis = JSON.parse(cleaned);
         } catch {
-          synthesis = await generateLocalSynthesis(selected);
+          synthesis = await generateLocalSynthesis(filteredPapers);
         }
       } else {
-        synthesis = await generateLocalSynthesis(selected);
+        synthesis = await generateLocalSynthesis(filteredPapers);
       }
 
       dispatch({ type: "SET_SYNTHESIS", payload: synthesis });
       setLocalSynthesis(synthesis);
-      dispatch({ type: "SET_STEP", payload: 4 });
     } catch (err: any) {
       console.error("Synthesis generation failed:", err);
       const message = err.message || "Failed to generate synthesis table.";
-      setError(message);
-      dispatch({ type: "SET_SYNTHESIS", payload: generateFallbackSynthesis(selected) });
-      setLocalSynthesis(generateFallbackSynthesis(selected));
-      dispatch({ type: "SET_STEP", payload: 4 });
+      setError(message + " — showing partial result.");
+      try {
+        const synthesis = await generateLocalSynthesis(filteredPapers);
+        dispatch({ type: "SET_SYNTHESIS", payload: synthesis });
+        setLocalSynthesis(synthesis);
+      } catch {
+        dispatch({ type: "SET_SYNTHESIS", payload: [] });
+        setLocalSynthesis([]);
+      }
     } finally {
       dispatch({ type: "SET_LOADING", payload: false });
     }
+  };
+
+  const handleProceedToReview = () => {
+    if (localSynthesis.length === 0) {
+      alert("Please generate the synthesis table first before proceeding.");
+      return;
+    }
+    dispatch({ type: "SET_STEP", payload: 4 });
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -214,6 +236,14 @@ export default function Step3Synthesis() {
             >
               <Download size={16} />
               Download
+            </button>
+
+            <button
+              onClick={handleProceedToReview}
+              disabled={localSynthesis.length === 0 || state.isLoading}
+              className="flex items-center gap-2 bg-yellow-600 hover:bg-yellow-500 text-[#0a1a3a] font-bold px-4 py-2 rounded-lg text-sm disabled:opacity-50 ml-2"
+            >
+              Proceed to Review of Literature →
             </button>
           </div>
         </div>

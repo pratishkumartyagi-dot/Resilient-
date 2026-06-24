@@ -5,47 +5,20 @@ import { Sparkles, BookOpen, RotateCcw } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callOpenRouter } from "@/lib/ai";
 import { buildStep4Prompt } from "@/lib/research-skills";
+import { generateLocalLiteratureReview } from "@/lib/local-synthesis";
 
 const generateMockLiteratureReview = (): string => {
-  return `1. Introduction and Background
-
-Latent tuberculosis infection (LTBI) represents a significant global public health challenge, affecting approximately one-quarter of the world's population (Houben & Dodd, 2014). Healthcare workers (HCWs) are disproportionately exposed to Mycobacterium tuberculosis due to their occupational proximity to infectious patients, making systematic LTBI screening an essential institutional safeguard. Multiple epidemiological studies have demonstrated that HCWs face a substantially elevated risk of LTBI acquisition compared to the general population, with meta-analytic estimates suggesting a two- to three-fold increased odds ratio (Diel et al., 2022).
-
-2. Global Prevalence and Epidemiological Patterns
-
-A comprehensive systematic review encompassing 23 studies across 12 countries reported LTBI prevalence among HCWs ranging from 15% to 45%, with marked heterogeneity attributed to geographical region, healthcare setting type, and diagnostic modality employed (Maguire et al., 2022). Low- and middle-income countries (LMICs) consistently reported higher prevalence rates, which may reflect both genuine exposure gradients and differential access to occupational health infrastructure. The pooling of data across diverse healthcare contexts—from tertiary teaching hospitals in Western nations to primary care clinics in rural sub-Saharan Africa—revealed that structural factors, including ventilation adequacy, institutional IPC budget, and staff-to-patient ratios, mediated LTBI risk independent of individual-level determinants (Osei et al., 2023).
-
-3. Diagnostic Approaches: IGRA versus Tuberculin Skin Test
-
-The comparative diagnostic accuracy of interferon-gamma release assays (IGRAs) and tuberculin skin tests (TST) has been extensively debated. IGRAs demonstrated consistently higher specificity (median 95%) compared to TST (median 78%) in BCG-vaccinated populations, which has significant implications for screening program design in countries with universal BCG coverage (Zwerling et al., 2021). A multicentre study involving 8,500 HCWs across 4 tertiary hospitals in Nigeria found that IGRA-based annual screening yielded a cost per quality-adjusted life-year (QALY) gained of $1,240—well below the WHO willingness-to-pay threshold for sub-Saharan Africa—supporting the feasibility of routine IGRA implementation in resource-constrained settings (Okonkwo et al., 2023).
-
-4. Innovative Delivery Models
-
-Recent evidence has highlighted the role of innovative service delivery models in overcoming structural barriers to LTBI screening. A cluster randomized controlled trial evaluating a mobile radiology van program in rural China demonstrated a 320% increase in detection rates relative to fixed-site screening alone, with the combined approach of IGRA plus same-day chest radiography achieving 94% sensitivity (Chen et al., 2021). Similarly, digital health tools deployed in Mumbai slums were associated with a 47% improvement in contact tracing completion rates, achieved primarily through automated appointment reminders and biometric patient identification (Kumar et al., 2024).
-
-5. Research Gaps and Future Directions
-
-Despite the expanding evidence base, several critical research gaps persist. First, the exclusion of pediatric HCWs and ancillary staff from most studies limits generalizability to the broader workforce. Second, longitudinal follow-up data beyond five years post-exposure remain limited, impeding our understanding of late conversion dynamics and the durability of preventive therapy-induced immune modulation. Third, the integration of novel molecular diagnostics—including Xpert MTB/RIF Ultra—within routine occupational screening has received minimal empirical attention. Fourth, cost-effectiveness modeling from South Asian contexts outside India, as well as from Central and East African contexts, remains underdeveloped.
-
-6. Conclusion
-
-The accumulated evidence strongly supports the implementation of systematic, evidence-informed LTBI screening programs for HCWs, with IGRA-based protocols demonstrating superior specificity and favorable cost-effectiveness profiles in LMIC contexts. Delivery innovations—particularly those leveraging mobile and digital technologies—offer scalable solutions to access constraints. Future research priorities should include expanding the evidence base to understudied populations, evaluating newer diagnostic platforms, and assessing program sustainability beyond initial pilot phases.`;
+  return `# Literature Review\n\n> **Note:** This review was generated using local NLP analysis because no API key is configured. Add a Gemini or OpenRouter API key in Settings for a richer AI-generated review.\n\n---\n\nNo papers selected or available. Please select papers in Step 2 and generate a synthesis table in Step 3 before proceeding to Step 4.`;
 };
 
 export default function Step4LiteratureReview() {
   const { state, dispatch } = useApp();
   const [reviewText, setReviewText] = useState(state.literatureReview || "");
 
-  const getPrompt = () => {
-    const selected = state.papers.filter((p) => p.selected);
-    const uploadedText = (state as any).uploadedText || "";
-    return buildStep4Prompt(selected, uploadedText);
-  };
-
   const handleGenerateReview = async () => {
     const selected = state.papers.filter((p) => p.selected);
     if (selected.length === 0) {
-      alert("Please select at least one paper in Step 2 first.");
+      alert("Please select papers in Step 2 first, or generate a synthesis table in Step 3.");
       return;
     }
 
@@ -53,26 +26,61 @@ export default function Step4LiteratureReview() {
     setReviewText("");
 
     try {
-      const prompt = getPrompt();
+      const synthesisContext = state.synthesisTable.length > 0
+        ? "\n\nPRE-COMPUTED SYNTHESIS TABLE (use this as the core evidence base):\n" +
+          state.synthesisTable.map((r, i) => `${i + 1}. ${r.reference}\n   Key findings: ${r.keyFindings}\n   Study: ${r.studyDetails}\n   Gaps: ${r.researchGaps}`).join("\n\n")
+        : "";
+
       let review: string = "";
 
       if (state.geminiApiKey) {
-        const response = await callGemini(state.geminiApiKey, prompt);
-        review = response.replace(/```markdown/g, "").replace(/```/g, "").trim();
+        const prompt = buildStep4Prompt(selected, "") + synthesisContext;
+        review = await callGemini(state.geminiApiKey, prompt);
       } else if (state.openRouterApiKey) {
-        const response = await callOpenRouter(state.openRouterApiKey, prompt);
-        review = response.replace(/```markdown/g, "").replace(/```/g, "").trim();
+        const prompt = buildStep4Prompt(selected, "") + synthesisContext;
+        review = await callOpenRouter(state.openRouterApiKey, prompt);
       } else {
-        throw new Error("No API key configured. Please open Settings (gear icon) and add a Gemini or OpenRouter API key.");
+        review = generateLocalLiteratureReview(
+          selected.map((p) => ({
+            authors: p.authors,
+            year: p.year,
+            title: p.title,
+            journal: p.journal,
+            abstract: p.abstract,
+            doi: p.doi,
+            studyType: p.studyType,
+            database: p.database,
+          })),
+          state.searchQuery
+        );
       }
 
+      review = review.replace(/```markdown/g, "").replace(/```/g, "").trim();
       setReviewText(review);
       dispatch({ type: "SET_LITERATURE_REVIEW", payload: review });
     } catch (err: any) {
       console.error("Literature review generation failed:", err);
-      const fallback = generateMockLiteratureReview();
-      setReviewText(fallback);
-      dispatch({ type: "SET_LITERATURE_REVIEW", payload: fallback });
+      const selectedForLocal = state.papers.filter((p) => p.selected);
+      if (selectedForLocal.length > 0) {
+        const fallback = generateLocalLiteratureReview(
+          selectedForLocal.map((p) => ({
+            authors: p.authors,
+            year: p.year,
+            title: p.title,
+            journal: p.journal,
+            abstract: p.abstract,
+            doi: p.doi,
+            studyType: p.studyType,
+            database: p.database,
+          })),
+          state.searchQuery
+        );
+        setReviewText(fallback);
+        dispatch({ type: "SET_LITERATURE_REVIEW", payload: fallback });
+      } else {
+        setReviewText(generateMockLiteratureReview());
+        dispatch({ type: "SET_LITERATURE_REVIEW", payload: generateMockLiteratureReview() });
+      }
     } finally {
       dispatch({ type: "SET_LOADING", payload: false });
     }
