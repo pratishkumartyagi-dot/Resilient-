@@ -53,7 +53,7 @@ const generateMockResponse = (userMessage: string, pipelineState: any): string =
   return `I understand your question relates to the research pipeline. Based on your current progress (Step ${pipelineState.currentStep}):\n\n• You have ${pipelineState.selectedPapers.length} papers selected\n• ${pipelineState.themes.filter((t: any) => t.selected).length} themes selected\n• ${pipelineState.researchQuestions.filter((q: any) => q.selected).length} research questions selected\n\nI can provide more specific insights once you let me know which area you'd like to explore—try asking about "synthesis", "themes", "questions", "titles", "methodology", or "impact".`;
 };
 
-const initialMessages: Message[] = [
+const createInitialMessages = (): Message[] => [
   {
     id: "welcome",
     role: "assistant",
@@ -64,7 +64,7 @@ const initialMessages: Message[] = [
 
 export default function ResilientChatTab() {
   const { state } = useApp();
-  const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const [messages, setMessages] = useState<Message[]>(createInitialMessages);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -105,7 +105,7 @@ export default function ResilientChatTab() {
   };
 
   const handleClear = () => {
-    setMessages(initialMessages);
+    setMessages(createInitialMessages());
   };
 
   return (

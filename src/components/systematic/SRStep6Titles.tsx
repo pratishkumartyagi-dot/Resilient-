@@ -46,31 +46,31 @@ ${themes?.length > 0 ? `\nIDENTIFIED THEMES:\n${themes.slice(0, 5).map((t: any, 
 
 const MOCK_TITLES = [
   {
-    id: `title-${Date.now()}-1`,
+    id: "title-1",
     title: "Occupational Latent Tuberculosis Infection Among Healthcare Workers: A Systematic Review and Meta-Analysis of Prevalence, Diagnostic Accuracy, and Treatment Outcomes",
     explanation: "CSS title. Includes study type, population (HCWs), condition (LTBI), and scope (prevalence, diagnostic accuracy, treatment). Suitable for IJTLD or PLOS Global Public Health. ICMR-compliant — specific cause-seeking framing.",
     selected: false,
   },
   {
-    id: `title-${Date.now()}-2`,
+    id: "title-2",
     title: "Diagnostic Performance of IGRA Versus TST for LTBI Screening in Healthcare Workers: A Systematic Review and Meta-Analysis of Diagnostic Test Accuracy",
     explanation: "CSS title focused on comparative diagnostic accuracy. Appropriate for diagnostic accuracy systematic review with QUADAS-2 compliance. Suitable for BMC Infectious Diseases or Trop Med Int Health.",
     selected: false,
   },
   {
-    id: `title-${Date.now()}-3`,
+    id: "title-3",
     title: "Barriers and Facilitators to LTBI Treatment Completion Among Healthcare Workers: A Qualitative Evidence Synthesis Using GRADE-CERQual",
     explanation: "Qualitative evidence synthesis (ES) title. Targets the care cascade and adherence theme. Suitable for systematic review of qualitative evidence. Fits Implementation Science or Global Health journals.",
     selected: false,
   },
   {
-    id: `title-${Date.now()}-4`,
+    id: "title-4",
     title: "Implementation and Cost-Effectiveness of Digital-Enhanced LTBI Contact Tracing in Urban LMIC Settings: A Mixed-Methods Systematic Review",
     explanation: "CSS/ES hybrid title integrating implementation science and economic evaluation. Novel framing combining digital health and contact tracing. Suitable for BMJ Global Health or Global Health Action.",
     selected: false,
   },
   {
-    id: `title-${Date.now()}-5`,
+    id: "title-5",
     title: "Stigma, Disclosure, and Mental Health Outcomes Following LTBI Diagnosis in Healthcare Workers: A Systematic Review of Qualitative Evidence",
     explanation: "ES title targeting an under-represented thematic area. Qualitatively focused. Suitable for social science medical journals. Addresses the Theme 9 gap identified in synthesis.",
     selected: false,
