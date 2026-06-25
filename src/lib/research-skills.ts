@@ -67,15 +67,39 @@ export interface ProtocolSection {
 }
 
 export function buildStep3Prompt(papers: Paper[], uploadedContext: string): string {
-  return `You are an expert systematic review research analyst performing deep evidence synthesis on selected academic papers, following the AIPOCH Literature Deep Research methodology.
+  return `You are an expert systematic review research analyst performing deep evidence synthesis on selected academic papers, using Long Chain-of-Thought (Long CoT) reasoning methodology.
 
-TASK: Produce a structured evidence synthesis table by deeply analyzing each paper's content, methodology, findings, and research limitations using evidence-graded reasoning.
+## Long CoT Reasoning Protocol
 
-EVIDENCE GRADING RULES:
-- T1 (★★★) Mechanistic: In-target study with direct experimental evidence
-- T2 (★★☆) Functional: Functional study showing role in pathway context  
-- T3 (★☆☆) Association: Screen hit, GWAS association, correlation
-- T4 (☆☆☆) Mention: Review mention, text-mined interaction, peripheral reference
+Before producing the final JSON, you MUST follow this structured deep reasoning chain:
+
+### Deep Reasoning Phase 1 — Evidence Inventory
+For each paper, extract:
+- Primary claim / main finding
+- Evidence strength indicator (mechanistic, functional, associational, mention)
+- Population studied, setting, time period
+- Key quantitative results or qualitative conclusions
+
+### Deep Reasoning Phase 2 — Claim Extraction & Cross-Study Comparison
+Identify overlapping and conflicting claims across papers:
+- Which findings are consistent across multiple studies?
+- Which findings contradict each other?
+- Which papers address the same question with different methods?
+
+### Deep Reasoning Phase 3 — Evidence Grading
+Assign each finding an evidence grade:
+- T1 (★★★) Mechanistic: in-target study with direct experimental evidence
+- T2 (★★☆) Functional: functional study showing role in pathway context
+- T3 (★☆☆) Association: screen hit, GWAS association, correlation
+- T4 (☆☆☆) Mention: review mention, text-mined interaction, peripheral reference
+
+### Deep Reasoning Phase 4 — Feasible Reflection
+Before finalizing each row, ask:
+- Is this claim directly supported by the abstract? If not, mark as inferred.
+- Have I acknowledged contradictions or limitations mentioned by the authors?
+- Is the research gap plausible given the study design?
+
+TASK: Produce a structured evidence synthesis table by deeply analyzing each paper's content, methodology, findings, and research limitations using the above Long CoT evidence-graded reasoning.
 
 SYNTHESIS RULES:
 - Base ALL outputs strictly on the provided paper metadata (title, authors, journal, year, DOI, abstract, study type).
@@ -84,7 +108,6 @@ SYNTHESIS RULES:
 - Synopsis/Takeaway: 1-2 sentences explaining the core contribution to the evidence base.
 - Study Conducted: explicitly state Population, Setting, Time period of study, and any Intervention or diagnostic method tested.
 - Research Gaps: identify (1) author-acknowledged limitations, (2) contradictions or conflicting evidence, (3) exclusion criteria if stated, (4) underexplored areas the authors highlight. If the abstract does not specify, infer plausible gaps based on study design and scope.
-- Cluster papers into research themes (≥3 papers per theme where possible).
 - Grade every claim by evidence strength.
 
 OUTPUT FORMAT — strict JSON array only:
@@ -111,18 +134,33 @@ ${papers
 
 export function buildStep4Prompt(papers: Paper[], uploadedContext: string): string {
   const selectedPapers = papers.filter((p) => p.selected);
-  return `You are an expert biomedical researcher writing a systematic literature review following the AIPOCH Literature Review methodology.
+  return `You are an expert biomedical researcher writing a systematic literature review, using Long Chain-of-Thought (Long CoT) reasoning methodology for deep structured analysis.
+
+## Long CoT Reasoning Protocol
+
+Before writing the final review, you MUST follow this structured reasoning chain:
+
+### Deep Reasoning Phase 1 — Planning/Scoping
+- Define PICO framework: Population, Intervention/Exposure, Comparator, Outcomes
+- Clarify the exact research boundary and scope
+
+### Deep Reasoning Phase 2 — Evidence Mapping
+- Map each selected paper to evidence themes
+- Identify study designs and their relative weight in the evidence hierarchy
+- Note publication dates and any temporal trends
+
+### Deep Reasoning Phase 3 — Thematic Synthesis
+- Group findings into coherent themes (not study-by-study)
+- For each theme: (a) summarize convergent findings, (b) highlight divergent results, (c) identify the strongest evidence tier
+
+### Deep Reasoning Phase 4 — Feasible Reflection (Self-Critique)
+Before finalizing the document:
+- Have I truly synthesized findings, or merely summarized studies?
+- Are there contradictions I need to acknowledge explicitly?
+- Which claims are evidence-limited vs. well-supported?
+- What are the most important knowledge gaps I've identified?
 
 TASK: Write a comprehensive, thematic literature review based on the ${selectedPapers.length} selected papers.
-
-WORKFLOW (7 phases):
-1. Planning/Scoping with PICO framework
-2. Systematic Literature Search (note: search already conducted, ${selectedPapers.length} papers retrieved)
-3. Screening/Selection (already done — papers pre-selected in Step 2)
-4. Data Extraction & Quality Assessment (Cochrane RoB, NOS, AMSTAR 2 where applicable)
-5. Synthesis and Analysis — organize THEMATICALLY (not study-by-study), compare and contrast, highlight strongest evidence, identify knowledge gaps
-6. Citation Verification with DOIs
-7. Document Generation
 
 REQUIREMENTS:
 - Write a professional narrative literature review in markdown format
