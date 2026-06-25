@@ -21,9 +21,6 @@ export default function Step3Synthesis() {
     const selected = state.papers.filter((p) => p.selected);
     const minAbstractLength = 50;
     return selected.filter((p) => {
-      if (!p.doi || p.doi.length < 5) return false;
-      const citResult = state.citationValidationResults[p.doi.toLowerCase()];
-      if (citResult && !citResult.valid) return false;
       if (!p.abstract || p.abstract.length < minAbstractLength) return false;
       return true;
     });
@@ -39,13 +36,13 @@ export default function Step3Synthesis() {
     const filteredPapers = getFilteredPapers();
 
     if (filteredPapers.length === 0) {
-      setError("No papers with verified DOIs and abstract content found. All selected papers were excluded during DOI validation. Please return to Step 2 and select papers with verified DOIs.");
+      setError("No papers with sufficient abstract content found. Please return to Step 2 and select papers with abstracts.");
       return;
     }
 
     if (filteredPapers.length < selected.length) {
       const excludedCount = selected.length - filteredPapers.length;
-      alert(`Note: ${excludedCount} paper(s) were excluded due to invalid/non-existent DOIs or missing abstracts. Synthesis will proceed with ${filteredPapers.length} verified paper(s).`);
+      alert(`Note: ${excludedCount} paper(s) were excluded due to missing/short abstracts. Synthesis will proceed with ${filteredPapers.length} paper(s).`);
     }
 
     dispatch({ type: "SET_LOADING", payload: true });
