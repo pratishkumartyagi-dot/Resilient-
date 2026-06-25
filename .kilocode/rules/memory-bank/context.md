@@ -94,6 +94,21 @@
   - Europe PMC: `pageSize=100` with offset pagination until exhausted
 - [x] All databases now retrieve complete result sets instead of 50/paper caps
 
+## Long CoT Prompt Integration — Step 3 & Step 4 (2026-06-25)
+
+- [x] Integrated [LightChen233/Awesome-Long-Chain-of-Thought-Reasoning](https://github.com/LightChen233/Awesome-Long-Chain-of-Thought-Reasoning) reasoning methodology into `src/lib/research-skills.ts`
+- [x] Step 3 (`buildStep3Prompt`): added 4-phase Long CoT protocol before synthesis generation:
+  - Phase 1: Evidence Inventory (primary claim, evidence strength, population/setting/time)
+  - Phase 2: Claim Extraction & Cross-Study Comparison (overlapping, conflicting, divergent findings)
+  - Phase 3: Evidence Grading (T1 mechanistic → T4 mention)
+  - Phase 4: Feasible Reflection (self-critique: claim supported? contradictions acknowledged? gaps plausible?)
+- [x] Step 4 (`buildStep4Prompt`): added 4-phase Long CoT protocol before literature review generation:
+  - Phase 1: Planning/Scoping with PICO framework
+  - Phase 2: Evidence Mapping (themes, study design weight, temporal trends)
+  - Phase 3: Thematic Synthesis (convergent/divergent findings, strongest evidence tier)
+  - Phase 4: Feasible Reflection (self-critique: true synthesis vs summary? evidence-limited claims? knowledge gaps?)
+- [x] Both prompts now instruct the model to follow the deep reasoning chain before producing the final output
+
 ## Systematic Review & Meta-Analysis Pipeline (2026-06-23)
 
 **Tab renamed**: "Systematic Review / RCT" → "Systematic Review & Meta-analysis"
