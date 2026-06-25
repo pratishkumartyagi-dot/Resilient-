@@ -38,6 +38,78 @@ function classifyStudyType(title: string, abstract: string): string {
   return "Observational Study";
 }
 
+function fuzzyMatch(orig: string, sub: string): number {
+  const cleanOrig = orig.replace(/[^a-zA-Z0-9 ]+/g, "").toLowerCase();
+  const subWords = sub.replace(/[^a-zA-Z0-9 ]+/g, "").toLowerCase().split(" ").filter(Boolean);
+  if (subWords.length < 2) return cleanOrig.includes(subWords[0] || "") ? 1 : 0;
+  const pairs: string[] = [];
+  for (let i = 0; i < subWords.length - 1; i++) {
+    pairs.push(`${subWords[i]} ${subWords[i + 1]}`);
+  }
+  const totalLen = pairs.join("").length;
+  if (totalLen === 0) return 0;
+  const matchedLen = pairs
+    .filter((p) => cleanOrig.includes(p))
+    .map((p) => p.length)
+    .reduce((a, b) => a + b, 0);
+  return matchedLen / totalLen;
+}
+
+async function findDoiByTitleAuthor(title: string, authorsStr?: string): Promise<{doi?: string; title?: string; message: string}> {
+  try {
+    const firstAuthor = authorsStr
+      ? authorsStr.split(",")[0].replace(/[^a-zA-Z0-9 ]+/g, " ").trim().split(" ").slice(-1)[0]
+      : "";
+    const queryTitle = title.replace(/[^a-zA-Z0-9 ]+/g, " ").trim();
+    const queryParts: string[] = [];
+    if (firstAuthor) queryParts.push(`query.author:=${encodeURIComponent(firstAuthor)}`);
+    queryParts.push(`query.bibliographic=${encodeURIComponent(queryTitle)}`);
+    const url = `https://api.crossref.org/works?${queryParts.join("&")}&rows=5`;
+    const res = await fetch(url, { headers: { "User-Agent": "ResilientResearch/1.0 (mailto:research@example.com)" } });
+    if (!res.ok) return { message: `Crossref query failed: ${res.status}` };
+    const data = await res.json();
+    const works = data.message?.items || [];
+    if (works.length === 0) return { message: "No Crossref results" };
+    for (const work of works) {
+      const workTitle = work.title?.[0] || "";
+      const workDoi = work.DOI || "";
+      const score = fuzzyMatch(workTitle, title);
+      if (score >= 0.55 && workDoi) {
+        return { doi: workDoi, title: workTitle, message: `DOI found via Crossref (match ${Math.round(score * 100)}%)` };
+      }
+    }
+    return { message: "No matching DOI found in top Crossref results" };
+  } catch (err: any) {
+    return { message: `DOI lookup failed: ${err.message}` };
+  }
+}
+
+export async function enrichPapersWithDois(papers: Paper[]): Promise<Paper[]> {
+  const withoutDoi = papers.filter((p) => !p.doi || p.doi.length < 5);
+  if (withoutDoi.length === 0) return papers;
+  const CHUNK_SIZE = 20;
+  const updated = new Map<string, string>();
+  for (let i = 0; i < withoutDoi.length; i += CHUNK_SIZE) {
+    const chunk = withoutDoi.slice(i, i + CHUNK_SIZE);
+    const results = await Promise.allSettled(
+      chunk.map(async (p) => {
+        const found = await findDoiByTitleAuthor(p.title, p.authors);
+        return { id: p.id, doi: found.doi };
+      })
+    );
+    results.forEach((r) => {
+      if (r.status === "fulfilled" && r.value.doi) {
+        updated.set(r.value.id, r.value.doi);
+      }
+    });
+  }
+  return papers.map((p) => {
+    const newDoi = updated.get(p.id);
+    if (newDoi) return { ...p, doi: newDoi, url: `https://doi.org/${newDoi}` };
+    return p;
+  });
+}
+
 function normalizeOpenAlexWork(work: any): Paper {
   const title = work.title || `Untitled (${work.id?.split("/").pop() || "unknown"})`;
   const authors =
@@ -80,26 +152,42 @@ async function fetchOpenAlex(query: string, yearFrom?: string, yearTo?: string, 
   if (yearTo) filterParts.push(`publication_year:<${yearTo}`);
   const filterStr = filterParts.length ? `&filter=${filterParts.join(",")}` : "";
 
-  const url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=50&mailto=research@example.com${filterStr}`;
+  const baseUrl = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=100&mailto=research@example.com${filterStr}`;
+  const papers: Paper[] = [];
+  let cursor = "*";
+  let cursorUrl = `${baseUrl}&cursor=${cursor}`;
 
-  const res = await fetch(url, { headers: { "User-Agent": "ResilientResearch/1.0 (mailto:research@example.com)" } });
-  if (!res.ok) throw new Error(`OpenAlex error: ${res.status}`);
-  const data = await res.json();
+  for (let page = 0; page < 100; page++) {
+    const res = await fetch(cursorUrl, { headers: { "User-Agent": "ResilientResearch/1.0 (mailto:research@example.com)" } });
+    if (!res.ok) break;
+    const data = await res.json();
+    const results = data.results || [];
+    if (results.length === 0) break;
+    results.forEach((w: any) => papers.push(normalizeOpenAlexWork(w)));
+    const nextCursor = data.meta?.next_cursor;
+    if (!nextCursor) break;
+    cursorUrl = `${baseUrl}&cursor=${encodeURIComponent(nextCursor)}`;
+  }
 
-  const papers: Paper[] = (data.results || [])
-    .filter((w: any) => w.title && w.title.length > 10)
-    .map(normalizeOpenAlexWork);
+  const seenDois = new Set<string>();
+  const seenTitles = new Set<string>();
+  const deduped = papers.filter((p) => {
+    const doiKey = p.doi?.toLowerCase();
+    const titleKey = p.title.toLowerCase().trim().slice(0, 60);
+    if (doiKey && seenDois.has(doiKey)) return false;
+    if (titleKey && seenTitles.has(titleKey)) return false;
+    if (doiKey) seenDois.add(doiKey);
+    if (titleKey) seenTitles.add(titleKey);
+    return true;
+  });
 
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
-    const filtered = papers.filter((p) => {
-      const text = `${p.title} ${p.abstract}`.toLowerCase();
-      return keywords.some((kw) => text.includes(kw));
-    });
-    return filtered.length > 0 ? filtered : papers.slice(0, 20);
+    const filtered = deduped.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+    return filtered.length > 0 ? filtered : deduped.slice(0, 20);
   }
 
-  return papers.slice(0, 50);
+  return deduped;
 }
 
 // Re-export STUDY_TYPES for backward compatibility
@@ -111,60 +199,63 @@ async function fetchPubMed(query: string, yearFrom?: string, yearTo?: string, st
   const pubDateFilter = dateParts.join(" AND ");
 
   const searchQuery = pubDateFilter ? `(${query}) AND ${pubDateFilter}` : query;
-  const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmode=json&retmax=50&term=${encodeURIComponent(searchQuery)}`;
+  const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmode=json&retmax=10000&term=${encodeURIComponent(searchQuery)}`;
 
   const searchRes = await fetch(searchUrl);
   if (!searchRes.ok) throw new Error(`PubMed search error: ${searchRes.status}`);
   const searchData = await searchRes.json();
-
-  const pmids = searchData.esearchresult?.idlist || [];
+  const pmids: string[] = searchData.esearchresult?.idlist || [];
   if (pmids.length === 0) return [];
 
-  const fetchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&retmode=xml&id=${pmids.slice(0, 50).join(",")}`;
-  const fetchRes = await fetch(fetchUrl);
-  if (!fetchRes.ok) throw new Error(`PubMed fetch error: ${fetchRes.status}`);
-  const xmlText = await fetchRes.text();
-
   const papers: Paper[] = [];
-  const articleRegex = /<PubmedArticle>([\s\S]*?)<\/PubmedArticle>/g;
-  let match: RegExpExecArray | null;
+  const BATCH = 200;
+  for (let i = 0; i < pmids.length; i += BATCH) {
+    const batch = pmids.slice(i, i + BATCH);
+    const fetchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&retmode=xml&id=${batch.join(",")}`;
+    const fetchRes = await fetch(fetchUrl);
+    if (!fetchRes.ok) continue;
+    const xmlText = await fetchRes.text();
 
-  while ((match = articleRegex.exec(xmlText)) !== null) {
-    const articleXml = match[1];
-    const pmid = (articleXml.match(/<PMID[^>]*>(\d+)<\/PMID>/) || [])[1] || "";
-    const titleMatch = articleXml.match(/<ArticleTitle[^>]*>([\s\S]*?)<\/ArticleTitle>/);
-    const abstractMatch = articleXml.match(/<AbstractText[^>]*>([\s\S]*?)<\/AbstractText>/g);
-    const authors: string[] = [];
-    const authorRegex = /<Author[^>]*>[\s\S]*?<LastName>([^<]+)<\/LastName>[\s\S]*?<ForeName>([^<]+)<\/ForeName>[\s\S]*?<\/Author>/g;
-    let authorMatch: RegExpExecArray | null;
-    while ((authorMatch = authorRegex.exec(articleXml)) !== null && authors.length < 8) {
-      authors.push(`${authorMatch[2]} ${authorMatch[1]}`);
+    const articleRegex = /<PubmedArticle>([\s\S]*?)<\/PubmedArticle>/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = articleRegex.exec(xmlText)) !== null) {
+      const articleXml = match[1];
+      const pmid = (articleXml.match(/<PMID[^>]*>(\d+)<\/PMID>/) || [])[1] || "";
+      const titleMatch = articleXml.match(/<ArticleTitle[^>]*>([\s\S]*?)<\/ArticleTitle>/);
+      const abstractMatch = articleXml.match(/<AbstractText[^>]*>([\s\S]*?)<\/AbstractText>/g);
+      const authors: string[] = [];
+      const authorRegex = /<Author[^>]*>[\s\S]*?<LastName>([^<]+)<\/LastName>[\s\S]*?<ForeName>([^<]+)<\/ForeName>[\s\S]*?<\/Author>/g;
+      let authorMatch: RegExpExecArray | null;
+      while ((authorMatch = authorRegex.exec(articleXml)) !== null && authors.length < 8) {
+        authors.push(`${authorMatch[2]} ${authorMatch[1]}`);
+      }
+      const journalMatch = articleXml.match(/<Title[^>]*>([^<]+)<\/Title>/) || articleXml.match(/<ISOAbbreviation[^>]*>([^<]+)<\/ISOAbbreviation>/);
+      const yearMatch = articleXml.match(/<Year[^>]*>(\d{4})<\/Year>/);
+      const doiMatch = articleXml.match(/<ELocationID EIdType="doi"[^>]*>([^<]+)<\/ELocationID>/);
+
+      if (!titleMatch) continue;
+
+      const title = titleMatch[1].replace(/<[^>]+>/g, "").trim();
+      const abstract = abstractMatch
+        ? abstractMatch.map((a) => a.replace(/<[^>]+>/g, "").trim()).join(" ")
+        : "No abstract available.";
+      const paper: Paper = {
+        id: `pubmed-${pmid || Math.random().toString(36).slice(2, 8)}`,
+        title,
+        authors: authors.length > 0 ? authors.join(", ") + (authors.length >= 8 ? " et al." : "") : "Unknown authors",
+        journal: journalMatch ? journalMatch[1].trim() : "Unknown Journal",
+        year: yearMatch ? parseInt(yearMatch[1]) : new Date().getFullYear(),
+        doi: doiMatch ? doiMatch[1].replace("https://doi.org/", "") : "",
+        abstract: abstract.substring(0, 3000),
+        database: "PubMed",
+        studyType: classifyStudyType(title, abstract),
+        selected: false,
+        url: pmid ? `https://pubmed.ncbi.nlm.nih.gov/${pmid}/` : "",
+        pmid,
+      };
+      papers.push(paper);
     }
-    const journalMatch = articleXml.match(/<Title[^>]*>([^<]+)<\/Title>/) || articleXml.match(/<ISOAbbreviation[^>]*>([^<]+)<\/ISOAbbreviation>/);
-    const yearMatch = articleXml.match(/<Year[^>]*>(\d{4})<\/Year>/);
-    const doiMatch = articleXml.match(/<ELocationID EIdType="doi"[^>]*>([^<]+)<\/ELocationID>/);
-
-    if (!titleMatch) continue;
-
-    const title = titleMatch[1].replace(/<[^>]+>/g, "").trim();
-    const abstract = abstractMatch
-      ? abstractMatch.map((a) => a.replace(/<[^>]+>/g, "").trim()).join(" ")
-      : "No abstract available.";
-    const paper: Paper = {
-      id: `pubmed-${pmid || Math.random().toString(36).slice(2, 8)}`,
-      title,
-      authors: authors.length > 0 ? authors.join(", ") + (authors.length >= 8 ? " et al." : "") : "Unknown authors",
-      journal: journalMatch ? journalMatch[1].trim() : "Unknown Journal",
-      year: yearMatch ? parseInt(yearMatch[1]) : new Date().getFullYear(),
-      doi: doiMatch ? doiMatch[1].replace("https://doi.org/", "") : "",
-      abstract: abstract.substring(0, 3000),
-      database: "PubMed",
-      studyType: classifyStudyType(title, abstract),
-      selected: false,
-      url: pmid ? `https://pubmed.ncbi.nlm.nih.gov/${pmid}/` : "",
-      pmid,
-    };
-    papers.push(paper);
   }
 
   if (studyType && studyType !== "All Study Types") {
@@ -179,21 +270,23 @@ async function fetchPubMed(query: string, yearFrom?: string, yearTo?: string, st
 
 async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const yearFilter = yearFrom || yearTo ? `(FIRST_DATE:[${yearFrom || "1000"} TO ${yearTo || "9999"}]) AND ` : "";
-  const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/SEARCH?query=${encodeURIComponent(yearFilter + query)}&resultType=core&pageSize=50&format=json`;
+  const papers: Paper[] = [];
 
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Europe PMC error: ${res.status}`);
-  const data = await res.json();
-  const results = data.result?.result || [];
+  for (let start = 0; start < 10000; start += 100) {
+    const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/SEARCH?query=${encodeURIComponent(yearFilter + query)}&resultType=core&pageSize=100&format=json&start=${start}`;
+    const res = await fetch(url);
+    if (!res.ok) break;
+    const data = await res.json();
+    const results = data.result?.result || [];
+    if (results.length === 0) break;
 
-  const papers: Paper[] = results
-    .filter((r: any) => r.title && r.title.length > 10)
-    .map((r: any) => {
+    results.forEach((r: any) => {
+      if (!r.title || r.title.length <= 10) return;
       const authors = (r.authorList?.author || [])
         .slice(0, 8)
         .map((a: any) => `${a.firstName || ""} ${a.lastName || ""}`.trim())
         .join(", ");
-      return {
+      papers.push({
         id: `epmc-${r.id || Math.random().toString(36).slice(2, 8)}`,
         title: r.title,
         authors: authors || "Unknown",
@@ -206,33 +299,35 @@ async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string,
         selected: false,
         url: r.doi ? `https://doi.org/${r.doi}` : `https://europepmc.org/article/${r.id}`,
         pmid: r.pmid,
-      };
+      });
     });
+
+    if (results.length < 100) break;
+  }
+
+  const seenDois = new Set<string>();
+  const seenTitles = new Set<string>();
+  const deduped = papers.filter((p) => {
+    const doiKey = p.doi?.toLowerCase();
+    const titleKey = p.title.toLowerCase().trim().slice(0, 60);
+    if (doiKey && seenDois.has(doiKey)) return false;
+    if (titleKey && seenTitles.has(titleKey)) return false;
+    if (doiKey) seenDois.add(doiKey);
+    if (titleKey) seenTitles.add(titleKey);
+    return true;
+  });
 
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
-    const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
-    return filtered.length > 0 ? filtered : papers.slice(0, 20);
+    const filtered = deduped.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+    return filtered.length > 0 ? filtered : deduped.slice(0, 20);
   }
 
-  return papers.slice(0, 50);
+  return deduped;
 }
 
 export async function fetchRealPapers(query: string, databases: string[], yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const allPapers: Paper[] = [];
-  const seenDois = new Set<string>();
-  const seenTitles = new Set<string>();
-
-  const deduplicate = (papers: Paper[]) =>
-    papers.filter((p) => {
-      const doiKey = p.doi?.toLowerCase();
-      const titleKey = p.title.toLowerCase().trim().slice(0, 60);
-      if (doiKey && seenDois.has(doiKey)) return false;
-      if (titleKey && seenTitles.has(titleKey)) return false;
-      if (doiKey) seenDois.add(doiKey);
-      if (titleKey) seenTitles.add(titleKey);
-      return true;
-    });
 
   const apiDatabases: Record<string, () => Promise<Paper[]>> = {
     "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
@@ -260,25 +355,37 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
         const fetchFn = apiDatabases[db];
         if (!fetchFn) return;
         const papers = await fetchFn();
-        const deduped = deduplicate(papers);
-        deduped.forEach((p) => {
-          p.database = db;
-          if (studyType && studyType !== "All Study Types") {
-            p.studyType = classifyStudyType(p.title, p.abstract);
-          }
-        });
-        allPapers.push(...deduped);
+        if (studyType && studyType !== "All Study Types") {
+          papers.forEach((p) => (p.database = db));
+        } else {
+          papers.forEach((p) => (p.database = db));
+        }
+        allPapers.push(...papers);
       } catch (err) {
         console.warn(`[${db}] fetch failed:`, err);
       }
     })
   );
 
-  if (allPapers.length === 0) {
+  const seenDois = new Set<string>();
+  const seenTitles = new Set<string>();
+  const deduped = allPapers.filter((p) => {
+    const doiKey = p.doi?.toLowerCase();
+    const titleKey = p.title.toLowerCase().trim().slice(0, 60);
+    if (doiKey && seenDois.has(doiKey)) return false;
+    if (titleKey && seenTitles.has(titleKey)) return false;
+    if (doiKey) seenDois.add(doiKey);
+    if (titleKey) seenTitles.add(titleKey);
+    return true;
+  });
+
+  const enriched = await enrichPapersWithDois(deduped);
+
+  if (enriched.length === 0) {
     throw new Error(`No papers found across ${databases.length} selected databases. Try broadening your query or selecting more databases.`);
   }
 
-  return allPapers;
+  return enriched;
 }
 
 export async function validateDoiViaCrossref(doi: string): Promise<{ valid: boolean; title?: string; message: string }> {
