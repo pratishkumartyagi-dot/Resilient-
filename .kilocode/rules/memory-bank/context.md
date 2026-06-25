@@ -79,6 +79,21 @@
   - Runs without any API key; AI (Gemini/OpenRouter) remains as optional fallback if keys are configured
 - [x] API keys persist via localStorage; `AppContext` extended with citation validation state
 
+## Step 1 DOI-Finder Integration & Pagination (2026-06-25)
+
+- [x] Integrated torfbolt/DOI-finder methodology into Step 1 search flow
+- [x] Added DOI ascertainment in `src/lib/database-apis.ts`:
+  - `findDoiByTitleAuthor`: uses Crossref Query API (`query.bibliographic`, `query.author`) + fuzzy matching to resolve DOIs for papers missing them
+  - `fuzzyMatch`: word-pair based similarity scorer (matches DOI-finder Python approach)
+  - `enrichPapersWithDois`: batch processes papers without DOIs (chunks of 20), assigns newly found DOIs, updates `url`
+- [x] DOI ascertainment runs BEFORE advancing to Step 2 in `Step1Search.tsx`
+- [x] Citation verification (`verifyCitations`) now runs on enriched papers so newly found DOIs are also validated
+- [x] Removed search caps / implemented full pagination:
+  - OpenAlex: cursor-based pagination, per-page=100, max 100 pages
+  - PubMed: `retmax=10000` with batched efetch (200/batch)
+  - Europe PMC: `pageSize=100` with offset pagination until exhausted
+- [x] All databases now retrieve complete result sets instead of 50/paper caps
+
 ## Systematic Review & Meta-Analysis Pipeline (2026-06-23)
 
 **Tab renamed**: "Systematic Review / RCT" → "Systematic Review & Meta-analysis"
