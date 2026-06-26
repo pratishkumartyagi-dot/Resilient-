@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { ChevronRight, ChevronLeft, FileText, Save, Sparkles } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callOpenRouter } from "@/lib/ai";
+import { callGemini, callOpenRouter, callDeepSeek } from "@/lib/ai";
 import { buildStep10Prompt } from "@/lib/research-skills";
 
 export default function Step10Protocol() {
@@ -37,7 +37,9 @@ export default function Step10Protocol() {
       const prompt = buildStep10Prompt(state.aimObjectives, state.papers, state.studyType, state.synthesisTable);
 
       let responseText: string = "";
-      if (state.geminiApiKey) {
+      if (state.deepseekApiKey) {
+        responseText = await callDeepSeek(state.deepseekApiKey, prompt);
+      } else if (state.geminiApiKey) {
         responseText = await callGemini(state.geminiApiKey, prompt);
       } else if (state.openRouterApiKey) {
         responseText = await callOpenRouter(state.openRouterApiKey, prompt);

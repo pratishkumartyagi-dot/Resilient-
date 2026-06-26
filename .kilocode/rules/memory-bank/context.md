@@ -33,6 +33,8 @@
   - [x] Impact assessment module
   - [x] Chat, stats, systematic review, paper writer, grant writing tabs implemented
   - [x] Production build passes cleanly (`bun run build`)
+  - [x] DeepSeek R1 integrated as primary deep reasoning engine across Steps 3–10 and Protocol Generator
+  - [x] DeepSeek API key configurable in Settings modal with test connection
 
 ## Recent Enhancements (2026-06-23)
 
@@ -206,3 +208,31 @@ The systematic review tab now contains a full 8-step systematic review / meta-an
 - Deep reasoning and document state now managed locally within `ProtocolChatTab` to avoid global state bloat
 - `TopTabs.tsx` extended with 7th tab: `{ id: "protocol", label: "Protocol Generator", icon: ScrollText }`
 - `page.tsx` updated to render `ProtocolChatTab` when `currentTab === "protocol"`
+
+## DeepSeek R1 Integration — Deep Reasoning Engine (2026-06-26)
+
+**New AI provider**: DeepSeek R1 (`deepseek/deepseek-r1`) via OpenRouter API as the primary deep reasoning engine for evidence synthesis throughout the research pipeline.
+
+### Files Modified
+- `src/lib/ai.ts` — Added `callDeepSeek()` (wraps OpenRouter with `deepseek/deepseek-r1` model) and `testDeepSeekKey()`
+- `src/context/AppContext.tsx` — Added `deepseekApiKey` state field and `SET_DEEPSEEK_KEY` reducer action
+- `src/components/SettingsModal.tsx` — Added DeepSeek API key input with Test Connection button; localStorage key `resilient_deepseek_api_key`
+- `src/components/steps/Step3Synthesis.tsx` — DeepSeek R1 primary for synthesis generation
+- `src/components/steps/Step4LiteratureReview.tsx` — DeepSeek R1 primary for literature review generation
+- `src/components/steps/Step5Themes.tsx` — DeepSeek R1 primary for theme generation
+- `src/components/steps/Step6ResearchQuestions.tsx` — DeepSeek R1 primary for research question generation
+- `src/components/steps/Step7ResearchTitles.tsx` — DeepSeek R1 primary for title optimization
+- `src/components/steps/Step8AimObjectives.tsx` — DeepSeek R1 primary for aims/hypotheses generation
+- `src/components/steps/Step9Methodology.tsx` — DeepSeek R1 primary for methods section writing
+- `src/components/steps/Step10Protocol.tsx` — DeepSeek R1 primary for protocol generation
+- `src/components/tabs/ProtocolChatTab.tsx` — DeepSeek R1 primary for deep reasoning chat and protocol generation
+
+### AI Provider Priority (updated)
+1. **DeepSeek R1** (`deepseek/deepseek-r1`) — primary for deep reasoning with papers
+2. **Gemini 3.1 Flash Lite** — fallback
+3. **OpenRouter gpt-oss-120b** — secondary fallback
+
+### Model Selection
+- DeepSeek R1 is accessed via OpenRouter API using model identifier `deepseek/deepseek-r1`
+- Users can provide their OpenRouter API key in the DeepSeek field; the same key works for both models
+- All steps 3–10 and the Protocol Generator chat now prefer DeepSeek R1 when a key is configured

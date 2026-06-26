@@ -3,30 +3,36 @@
 import React, { useState } from "react";
 import { X, Settings as SettingsIcon, Key, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { testGeminiKey, testOpenRouterKey } from "@/lib/ai";
+import { testGeminiKey, testOpenRouterKey, testDeepSeekKey } from "@/lib/ai";
 
 export default function SettingsModal() {
   const { state, dispatch } = useApp();
   const [isOpen, setIsOpen] = useState(false);
   const [geminiKey, setGeminiKey] = useState("");
   const [openRouterKey, setOpenRouterKey] = useState("");
+  const [deepseekKey, setDeepseekKey] = useState("");
   const [loadedFromStorage, setLoadedFromStorage] = useState(false);
   const [testingGemini, setTestingGemini] = useState(false);
   const [testingOpenRouter, setTestingOpenRouter] = useState(false);
+  const [testingDeepSeek, setTestingDeepSeek] = useState(false);
   const [geminiResult, setGeminiResult] = useState<boolean | null>(null);
   const [openRouterResult, setOpenRouterResult] = useState<boolean | null>(null);
+  const [deepseekResult, setDeepseekResult] = useState<boolean | null>(null);
 
   React.useEffect(() => {
     if (typeof window !== "undefined" && !loadedFromStorage) {
-      try {
-        const savedGemini = localStorage.getItem("resilient_gemini_api_key") || "";
-        const savedOpenRouter = localStorage.getItem("resilient_openrouter_api_key") || "";
-        setGeminiKey(savedGemini);
-        setOpenRouterKey(savedOpenRouter);
-        if (savedGemini || savedOpenRouter) {
-          dispatch({ type: "SET_GEMINI_KEY", payload: savedGemini });
-          dispatch({ type: "SET_OPENROUTER_KEY", payload: savedOpenRouter });
-        }
+    try {
+      const savedGemini = localStorage.getItem("resilient_gemini_api_key") || "";
+      const savedOpenRouter = localStorage.getItem("resilient_openrouter_api_key") || "";
+      const savedDeepSeek = localStorage.getItem("resilient_deepseek_api_key") || "";
+      setGeminiKey(savedGemini);
+      setOpenRouterKey(savedOpenRouter);
+      setDeepseekKey(savedDeepSeek);
+      if (savedGemini || savedOpenRouter || savedDeepSeek) {
+        dispatch({ type: "SET_GEMINI_KEY", payload: savedGemini });
+        dispatch({ type: "SET_OPENROUTER_KEY", payload: savedOpenRouter });
+        dispatch({ type: "SET_DEEPSEEK_KEY", payload: savedDeepSeek });
+      }
       } catch {
         // Storage unavailable
       }
@@ -41,15 +47,18 @@ export default function SettingsModal() {
   const handleSave = () => {
     dispatch({ type: "SET_GEMINI_KEY", payload: geminiKey });
     dispatch({ type: "SET_OPENROUTER_KEY", payload: openRouterKey });
+    dispatch({ type: "SET_DEEPSEEK_KEY", payload: deepseekKey });
     try {
       localStorage.setItem("resilient_gemini_api_key", geminiKey);
       localStorage.setItem("resilient_openrouter_api_key", openRouterKey);
+      localStorage.setItem("resilient_deepseek_api_key", deepseekKey);
     } catch {
       // Storage unavailable
     }
     setIsOpen(false);
     setGeminiResult(null);
     setOpenRouterResult(null);
+    setDeepseekResult(null);
   };
 
   const handleTestGemini = async () => {
@@ -66,6 +75,14 @@ export default function SettingsModal() {
     const ok = await testOpenRouterKey(openRouterKey);
     setOpenRouterResult(ok);
     setTestingOpenRouter(false);
+  };
+
+  const handleTestDeepSeek = async () => {
+    setTestingDeepSeek(true);
+    setDeepseekResult(null);
+    const ok = await testDeepSeekKey(deepseekKey);
+    setDeepseekResult(ok);
+    setTestingDeepSeek(false);
   };
 
   if (!isOpen) return null;
@@ -124,7 +141,7 @@ export default function SettingsModal() {
           <div className="space-y-2">
             <label className="flex items-center gap-2 text-sm font-medium text-blue-200">
               <Key size={14} className="text-yellow-400" />
-              OpenRouter API Key <span className="text-xs text-blue-400">(gpt-oss-120b)</span>
+              OpenRouter API Key <span className="text-xs text-blue-400">(gpt-oss-120b fallback)</span>
             </label>
             <input
               type="password"
@@ -155,9 +172,43 @@ export default function SettingsModal() {
             </div>
           </div>
 
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-sm font-medium text-blue-200">
+              <Key size={14} className="text-yellow-400" />
+              DeepSeek API Key <span className="text-xs text-blue-400">(DeepSeek-R1 reasoning model)</span>
+            </label>
+            <input
+              type="password"
+              value={deepseekKey}
+              onChange={(e) => setDeepseekKey(e.target.value)}
+              placeholder="Enter DeepSeek API key..."
+              className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-2.5 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+            />
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleTestDeepSeek}
+                disabled={testingDeepSeek || !deepseekKey.trim()}
+                className="text-xs bg-blue-900/50 text-blue-200 px-3 py-1.5 rounded hover:bg-blue-900/70 disabled:opacity-50 flex items-center gap-1"
+              >
+                {testingDeepSeek ? <Loader2 size={12} className="animate-spin" /> : null}
+                Test Connection
+              </button>
+              {deepseekResult === true && (
+                <span className="text-xs text-green-300 flex items-center gap-1">
+                  <CheckCircle2 size={12} /> Connected
+                </span>
+              )}
+              {deepseekResult === false && (
+                <span className="text-xs text-red-300 flex items-center gap-1">
+                  <XCircle size={12} /> Failed
+                </span>
+              )}
+            </div>
+          </div>
+
           <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-3">
             <p className="text-xs text-blue-300">
-               Keys are stored locally in the application state. Gemini 3.1 Flash Lite is used as the primary AI engine. OpenRouter gpt-oss-120b serves as a fallback provider for content generation throughout the pipeline.
+               Keys are stored locally in the application state. DeepSeek-R1 is used as the primary deep reasoning engine for evidence synthesis. Gemini 3.1 Flash Lite and OpenRouter gpt-oss-120b serve as fallback providers.
             </p>
           </div>
         </div>

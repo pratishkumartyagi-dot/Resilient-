@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { ChevronRight, Sparkles } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callOpenRouter } from "@/lib/ai";
+import { callGemini, callOpenRouter, callDeepSeek } from "@/lib/ai";
 import { buildStep8Prompt } from "@/lib/research-skills";
 
 export default function Step8AimObjectives() {
@@ -67,7 +67,9 @@ export default function Step8AimObjectives() {
       const prompt = buildStep8Prompt(state.researchQuestions, state.themes, state.papers);
 
       let responseText: string = "";
-      if (state.geminiApiKey) {
+      if (state.deepseekApiKey) {
+        responseText = await callDeepSeek(state.deepseekApiKey, prompt);
+      } else if (state.geminiApiKey) {
         responseText = await callGemini(state.geminiApiKey, prompt);
       } else if (state.openRouterApiKey) {
         responseText = await callOpenRouter(state.openRouterApiKey, prompt);

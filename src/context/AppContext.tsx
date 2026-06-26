@@ -109,6 +109,7 @@ export interface AppState {
   selectedDatabases: string[];
   geminiApiKey: string;
   openRouterApiKey: string;
+  deepseekApiKey: string;
   srStudyTypeCategory: "systematic" | "meta" | null;
   dedupPapers: Paper[];
   filteredPapers: Paper[];
@@ -149,6 +150,7 @@ type Action =
   | { type: "SET_SELECTED_PAPERS"; payload: Paper[] }
   | { type: "SET_GEMINI_KEY"; payload: string }
   | { type: "SET_OPENROUTER_KEY"; payload: string }
+  | { type: "SET_DEEPSEEK_KEY"; payload: string }
   | { type: "SET_SYSTEMATIC_STEP"; payload: number }
   | { type: "SET_SR_CATEGORY"; payload: "systematic" | "meta" | null }
   | { type: "SET_DEDUP_PAPERS"; payload: any[] }
@@ -220,6 +222,7 @@ const initialState: AppState = {
   ],
   geminiApiKey: "",
   openRouterApiKey: "",
+  deepseekApiKey: "",
   srStudyTypeCategory: null,
   dedupPapers: [],
   filteredPapers: [],
@@ -348,6 +351,8 @@ function appReducer(state: AppState, action: Action): AppState {
       return { ...state, geminiApiKey: action.payload };
     case "SET_OPENROUTER_KEY":
       return { ...state, openRouterApiKey: action.payload };
+    case "SET_DEEPSEEK_KEY":
+      return { ...state, deepseekApiKey: action.payload };
     case "SET_SYSTEMATIC_STEP":
       return { ...state, systematicStep: action.payload };
     case "SET_SR_CATEGORY":

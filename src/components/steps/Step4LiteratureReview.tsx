@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { Sparkles, BookOpen, RotateCcw } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callOpenRouter } from "@/lib/ai";
+import { callGemini, callOpenRouter, callDeepSeek } from "@/lib/ai";
 import { buildStep4Prompt } from "@/lib/research-skills";
 import { generateLocalLiteratureReview } from "@/lib/local-synthesis";
 
@@ -33,7 +33,10 @@ export default function Step4LiteratureReview() {
 
       let review: string = "";
 
-      if (state.geminiApiKey) {
+      if (state.deepseekApiKey) {
+        const prompt = buildStep4Prompt(selected, "") + synthesisContext;
+        review = await callDeepSeek(state.deepseekApiKey, prompt);
+      } else if (state.geminiApiKey) {
         const prompt = buildStep4Prompt(selected, "") + synthesisContext;
         review = await callGemini(state.geminiApiKey, prompt);
       } else if (state.openRouterApiKey) {

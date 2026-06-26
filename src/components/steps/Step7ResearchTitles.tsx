@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { Sparkles, ChevronRight, RotateCcw } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callOpenRouter } from "@/lib/ai";
+import { callGemini, callOpenRouter, callDeepSeek } from "@/lib/ai";
 import { buildStep7Prompt } from "@/lib/research-skills";
 
 const generateMockTitles = () => [
@@ -58,7 +58,9 @@ export default function Step7ResearchTitles() {
       const prompt = buildStep7Prompt(state.researchQuestions, state.synthesisTable, state.themes);
 
       let responseText: string = "";
-      if (state.geminiApiKey) {
+      if (state.deepseekApiKey) {
+        responseText = await callDeepSeek(state.deepseekApiKey, prompt);
+      } else if (state.geminiApiKey) {
         responseText = await callGemini(state.geminiApiKey, prompt);
       } else if (state.openRouterApiKey) {
         responseText = await callOpenRouter(state.openRouterApiKey, prompt);

@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { ChevronRight, Plus, Trash2, Calculator, FlaskConical, ExternalLink, Sparkles } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callOpenRouter } from "@/lib/ai";
+import { callGemini, callOpenRouter, callDeepSeek } from "@/lib/ai";
 import { buildStep9Prompt } from "@/lib/research-skills";
 
 export default function Step9Methodology() {
@@ -60,7 +60,9 @@ export default function Step9Methodology() {
       const prompt = buildStep9Prompt(state.aimObjectives, state.papers, state.studyType);
 
       let responseText: string = "";
-      if (state.geminiApiKey) {
+      if (state.deepseekApiKey) {
+        responseText = await callDeepSeek(state.deepseekApiKey, prompt);
+      } else if (state.geminiApiKey) {
         responseText = await callGemini(state.geminiApiKey, prompt);
       } else if (state.openRouterApiKey) {
         responseText = await callOpenRouter(state.openRouterApiKey, prompt);

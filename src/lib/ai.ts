@@ -21,7 +21,7 @@ export async function callGemini(apiKey: string, prompt: string): Promise<string
   return candidate;
 }
 
-export async function callOpenRouter(apiKey: string, prompt: string): Promise<string> {
+export async function callOpenRouter(apiKey: string, prompt: string, model = "gpt-oss-120b"): Promise<string> {
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -29,7 +29,7 @@ export async function callOpenRouter(apiKey: string, prompt: string): Promise<st
       Authorization: `Bearer ${encodeURIComponent(apiKey)}`,
     },
     body: JSON.stringify({
-      model: "gpt-oss-120b",
+      model,
       messages: [{ role: "user", content: prompt }],
     }),
   });
@@ -45,6 +45,10 @@ export async function callOpenRouter(apiKey: string, prompt: string): Promise<st
   return content;
 }
 
+export async function callDeepSeek(apiKey: string, prompt: string): Promise<string> {
+  return callOpenRouter(apiKey, prompt, "deepseek/deepseek-r1");
+}
+
 export async function testGeminiKey(apiKey: string): Promise<boolean> {
   try {
     const result = await callGemini(apiKey, "Hello, this is a test message. Please respond with OK.");
@@ -57,6 +61,15 @@ export async function testGeminiKey(apiKey: string): Promise<boolean> {
 export async function testOpenRouterKey(apiKey: string): Promise<boolean> {
   try {
     const result = await callOpenRouter(apiKey, "Hello, this is a test message. Please respond with OK.");
+    return result.toLowerCase().includes("ok");
+  } catch {
+    return false;
+  }
+}
+
+export async function testDeepSeekKey(apiKey: string): Promise<boolean> {
+  try {
+    const result = await callDeepSeek(apiKey, "Hello, this is a test message. Please respond with OK.");
     return result.toLowerCase().includes("ok");
   } catch {
     return false;
