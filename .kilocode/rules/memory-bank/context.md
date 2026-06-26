@@ -163,6 +163,13 @@ The systematic review tab now contains a full 8-step systematic review / meta-an
 - No upper search limits per database
 - ASReview / prismAId references preserved as future integrations
 - Manalyzer meta-analysis config available in Step 7
-- `RE
+- `RESET_STATE` resets SR pipeline data alongside main pipeline
 
-_STATE` resets SR pipeline data alongside main pipeline
+## Europe PMC and API robustness fixes (2026-06-26)
+
+- [x] Fixed Europe PMC endpoint: `SEARCH` (uppercase) → `search` (lowercase) — old URL returned 404
+- [x] Fixed Europe PMC pagination: replaced obsolete `start` offset with `cursorMark` / `nextCursorMark`
+- [x] Fixed Europe PMC response parsing: `data.result?.result` → `data.resultList?.result`
+- [x] Removed forbidden `User-Agent` header from browser `fetch` calls (OpenAlex, Crossref) — would throw TypeError in strict browser environments
+- [x] Added `fetchWithTimeout` helper (15s AbortController) to all database and Crossref fetches in `src/lib/database-apis.ts`
+- [x] Verified production build passes (`bun run build`), typecheck and lint clean

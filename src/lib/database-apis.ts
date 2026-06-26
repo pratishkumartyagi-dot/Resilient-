@@ -65,7 +65,7 @@ async function findDoiByTitleAuthor(title: string, authorsStr?: string): Promise
     if (firstAuthor) queryParts.push(`query.author:=${encodeURIComponent(firstAuthor)}`);
     queryParts.push(`query.bibliographic=${encodeURIComponent(queryTitle)}`);
     const url = `https://api.crossref.org/works?${queryParts.join("&")}&rows=5`;
-    const res = await fetch(url, { headers: { "User-Agent": "ResilientResearch/1.0 (mailto:research@example.com)" } });
+    const res = await fetchWithTimeout(url);
     if (!res.ok) return { message: `Crossref query failed: ${res.status}` };
     const data = await res.json();
     const works = data.message?.items || [];
@@ -158,7 +158,12 @@ async function fetchOpenAlex(query: string, yearFrom?: string, yearTo?: string, 
   let cursorUrl = `${baseUrl}&cursor=${cursor}`;
 
   for (let page = 0; page < 100; page++) {
-    const res = await fetch(cursorUrl, { headers: { "User-Agent": "ResilientResearch/1.0 (mailto:research@example.com)" } });
+    let res: Response;
+    try {
+      res = await fetchWithTimeout(cursorUrl);
+    } catch {
+      break;
+    }
     if (!res.ok) break;
     const data = await res.json();
     const results = data.results || [];
@@ -201,7 +206,7 @@ async function fetchPubMed(query: string, yearFrom?: string, yearTo?: string, st
   const searchQuery = pubDateFilter ? `(${query}) AND ${pubDateFilter}` : query;
   const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmode=json&retmax=10000&term=${encodeURIComponent(searchQuery)}`;
 
-  const searchRes = await fetch(searchUrl);
+  const searchRes = await fetchWithTimeout(searchUrl);
   if (!searchRes.ok) throw new Error(`PubMed search error: ${searchRes.status}`);
   const searchData = await searchRes.json();
   const pmids: string[] = searchData.esearchresult?.idlist || [];
@@ -212,7 +217,7 @@ async function fetchPubMed(query: string, yearFrom?: string, yearTo?: string, st
   for (let i = 0; i < pmids.length; i += BATCH) {
     const batch = pmids.slice(i, i + BATCH);
     const fetchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&retmode=xml&id=${batch.join(",")}`;
-    const fetchRes = await fetch(fetchUrl);
+    const fetchRes = await fetchWithTimeout(fetchUrl);
     if (!fetchRes.ok) continue;
     const xmlText = await fetchRes.text();
 
@@ -268,18 +273,40 @@ async function fetchPubMed(query: string, yearFrom?: string, yearTo?: string, st
 }
 
 
+async function fetchWithTimeout(url: string, ms = 15000): Promise<Response> {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const yearFilter = yearFrom || yearTo ? `(FIRST_DATE:[${yearFrom || "1000"} TO ${yearTo || "9999"}]) AND ` : "";
   const papers: Paper[] = [];
+  let cursorMark: string | undefined;
 
-  for (let start = 0; start < 10000; start += 100) {
-    const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/SEARCH?query=${encodeURIComponent(yearFilter + query)}&resultType=core&pageSize=100&format=json&start=${start}`;
-    const res = await fetch(url);
+  for (let page = 0; page < 200; page++) {
+    const qs = new URLSearchParams({
+      query: yearFilter + query,
+      resultType: "core",
+      pageSize: "100",
+      format: "json",
+    });
+    if (cursorMark) qs.set("cursorMark", cursorMark);
+    const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?${qs.toString()}`;
+    let res: Response;
+    try {
+      res = await fetchWithTimeout(url);
+    } catch {
+      break;
+    }
     if (!res.ok) break;
     const data = await res.json();
-    const results = data.result?.result || [];
+    const results = data.resultList?.result || [];
     if (results.length === 0) break;
-
     results.forEach((r: any) => {
       if (!r.title || r.title.length <= 10) return;
       const authors = (r.authorList?.author || [])
@@ -290,19 +317,19 @@ async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string,
         id: `epmc-${r.id || Math.random().toString(36).slice(2, 8)}`,
         title: r.title,
         authors: authors || "Unknown",
-        journal: r.journalTitle || r.source || "Unknown Journal",
-        year: parseInt(r.firstPublicationDate?.slice(0, 4)) || new Date().getFullYear(),
+        journal: r.journalInfo?.journal?.title || r.source || "Unknown Journal",
+        year: parseInt(r.pubYear || r.firstPublicationDate?.slice(0, 4)) || new Date().getFullYear(),
         doi: r.doi || "",
         abstract: r.abstractText || r.abstract || "No abstract available.",
         database: "Europe PMC",
-        studyType: classifyStudyType(r.title, r.abstract || ""),
+        studyType: classifyStudyType(r.title, r.abstractText || r.abstract || ""),
         selected: false,
         url: r.doi ? `https://doi.org/${r.doi}` : `https://europepmc.org/article/${r.id}`,
         pmid: r.pmid,
       });
     });
-
-    if (results.length < 100) break;
+    cursorMark = data.nextCursorMark;
+    if (!cursorMark) break;
   }
 
   const seenDois = new Set<string>();
@@ -393,7 +420,7 @@ export async function validateDoiViaCrossref(doi: string): Promise<{ valid: bool
 
   try {
     const url = `https://api.crossref.org/works/${encodeURIComponent(doi)}`;
-    const res = await fetch(url, { headers: { "User-Agent": "ResilientResearch/1.0 (mailto:research@example.com)" } });
+    const res = await fetchWithTimeout(url);
     if (!res.ok) return { valid: false, message: `DOI not found (HTTP ${res.status})` };
     const data = await res.json();
     const work = data.message;
