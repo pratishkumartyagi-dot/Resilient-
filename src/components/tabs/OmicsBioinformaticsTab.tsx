@@ -1,13 +1,70 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Send, User, Bot, Trash2, FlaskConical, ChevronDown } from "lucide-react";
+import { Send, User, Bot, Trash2, FlaskConical, Paperclip, X, Download, FileText, Loader2, Dna, BarChart3, Network, Shield, Search, GitBranch, Bug, Table2, FileJson, FileType2, Printer } from "lucide-react";
+import { parseOmicsDataFile, ALLOWED_OMICS_TYPES } from "@/lib/document-parser";
 
 interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
+}
+
+interface TableData {
+  header: string[];
+  rows: string[][];
+}
+
+interface AnalysisResult {
+  title: string;
+  summary: string;
+  method: string;
+  aipochSkill: string;
+  command: string;
+  figureNote?: string;
+  tableData?: TableData;
+  outputs: { name: string; format: string }[];
+}
+
+type OmicsTab = "single-cell" | "bulk" | "pathway" | "immune" | "genomics" | "dimred" | "microbiome";
+
+const ANALYSIS_TABS: { id: OmicsTab; label: string; icon: React.ElementType; skill: string; skillPath: string }[] = [
+  { id: "single-cell", label: "Single-cell RNA-seq", icon: Dna, skill: "Scanpy QC-to-clustering, scVI integration, cell typing, spatial mapping", skillPath: "awesome-med-research-skills/Protocol Design/single-cell-research-planner" },
+  { id: "bulk", label: "Bulk RNA-seq & DEG", icon: BarChart3, skill: "PyDESeq2, limma, edgeR; volcano + heatmap; batch correction", skillPath: "awesome-med-research-skills/Data Analysis/differential-expression-analysis, deg-screening-analysis" },
+  { id: "pathway", label: "Pathway & Network", icon: Network, skill: "GO/KEGG, GSEA, GSVA/ssGSEA, WGCNA, PPI, ceRNA, Sankey", skillPath: "awesome-med-research-skills/Data Analysis/gokegg, gsea, gsva-analysis-and-visualization, wgcna-analysis, ppi-network-analysis, cerna-analysis" },
+  { id: "immune", label: "Immune Infiltration", icon: Shield, skill: "CIBERSORTx (22 cell types), ssGSEA, ESTIMATE", skillPath: "awesome-med-research-skills/Data Analysis/cibersort-immune-infiltration-analysis, ssgsea-immune-infiltration-analysis, estimate-immune-score-analysis" },
+  { id: "genomics", label: "Genomics & Sequence", icon: Search, skill: "Biopython, BLAST, SAM/BAM/VCF, FASTQC, Circos, deepTools, CRISPR", skillPath: "awesome-med-research-skills/Data Analysis (genomics toolkit)" },
+  { id: "dimred", label: "Dimensionality Reduction", icon: GitBranch, skill: "PCA, UMAP, t-SNE, consensus clustering, hierarchical clustering, KNN imputation", skillPath: "awesome-med-research-skills/Data Analysis/pca-dimensionality-reduction, umap-tsne-analysis, consensus-clustering-analysis, hierarchical-clustering-plot, knn-imputation" },
+  { id: "microbiome", label: "Microbiome & Others", icon: Bug, skill: "scikit-bio diversity, FlowIO FCS, pyOpenMS, Neuropixels/Kilosort4", skillPath: "awesome-med-research-skills/Data Analysis (microbiome & other modalities)" },
+];
+
+const createInitialMessages = (): Message[] => [
+  {
+    id: "welcome-omics",
+    role: "assistant",
+    content: `🧬 Welcome to **Omics & Bioinformatics** (powered by [aipoch/medical-research-skills](https://github.com/aipoch/medical-research-skills)).\n\nUpload a document or raw sequencing file, then choose an analysis category below to run a real AIPOCH-aligned workflow.\n\nSupported inputs:\n- **Documents**: .docx, .pdf, .txt, .md\n- **Raw data**: .csv, .tsv (expression matrices, count tables, gene lists)`,
+    timestamp: new Date(),
+  },
+];
+
+function downloadBlob(content: string, filename: string, mime: string) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function escapeCsvField(value: string): string {
+  if (value.includes('"') || value.includes(",") || value.includes("\n")) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
 }
 
 const generateOmicsResponse = (userMessage: string): string => {
