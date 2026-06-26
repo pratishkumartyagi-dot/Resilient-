@@ -58,6 +58,8 @@ export default function EvidenceSynthesisTab() {
   const [effectSizes, setEffectSizes] = useState<{ study: string; effect: string; ci: string; weight: string }[]>([]);
   const [reviewType, setReviewType] = useState("Systematic Review & Meta-analysis");
   const [reviewRequirements, setReviewRequirements] = useState("");
+  const [yearFrom, setYearFrom] = useState("");
+  const [yearTo, setYearTo] = useState("");
 
   const toggleDb = (db: string) => {
     setSelectedDbs((prev) =>
@@ -95,6 +97,18 @@ export default function EvidenceSynthesisTab() {
       setSelectedPaperIds(new Set(papers.map((p) => p.id)));
     }
   };
+
+  const getFilteredPapers = () => {
+    return papers.filter((p) => {
+      const y = typeof p.year === "number" ? p.year : parseInt(String(p.year), 10);
+      if (isNaN(y)) return false;
+      if (yearFrom && y < parseInt(yearFrom, 10)) return false;
+      if (yearTo && y > parseInt(yearTo, 10)) return false;
+      return true;
+    });
+  };
+
+  const displayPapers = getFilteredPapers();
 
   const runExtraction = () => {
     const selected = papers.filter((p) => selectedPaperIds.has(p.id));
@@ -367,6 +381,32 @@ OUTPUT FORMAT:
                   {loading ? "Searching..." : "Search"}
                 </button>
               </div>
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-xs text-blue-300">Year range:</span>
+                <input
+                  type="number"
+                  value={yearFrom}
+                  onChange={(e) => setYearFrom(e.target.value)}
+                  placeholder="From"
+                  className="w-24 bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-1.5 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                />
+                <span className="text-xs text-blue-400">to</span>
+                <input
+                  type="number"
+                  value={yearTo}
+                  onChange={(e) => setYearTo(e.target.value)}
+                  placeholder="To"
+                  className="w-24 bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-1.5 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                />
+                {(yearFrom || yearTo) && (
+                  <button
+                    onClick={() => { setYearFrom(""); setYearTo(""); }}
+                    className="text-xs text-red-300 hover:text-red-200 underline"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {SR_DATABASES.map((db) => (
                   <button
@@ -394,13 +434,13 @@ OUTPUT FORMAT:
             {!loading && papers.length > 0 && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm text-blue-300">{papers.length} records retrieved • {selectedPaperIds.size} selected</p>
+                  <p className="text-sm text-blue-300">{papers.length} records retrieved • {displayPapers.length} after year filter • {selectedPaperIds.size} selected</p>
                   <button onClick={selectAll} className="text-xs bg-blue-900/50 text-blue-200 px-3 py-1 rounded hover:bg-blue-900/70">
                     {selectedPaperIds.size === papers.length ? "Deselect All" : "Select All"}
                   </button>
                 </div>
                 <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                  {papers.map((p) => (
+                  {displayPapers.map((p) => (
                     <div
                       key={p.id}
                       onClick={() => togglePaper(p.id)}
@@ -423,6 +463,9 @@ OUTPUT FORMAT:
                       </div>
                     </div>
                   ))}
+                  {displayPapers.length === 0 && (
+                    <p className="text-xs text-blue-400 py-4 text-center">No papers match the selected year range.</p>
+                  )}
                 </div>
               </div>
             )}

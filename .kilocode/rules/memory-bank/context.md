@@ -236,3 +236,42 @@ The systematic review tab now contains a full 8-step systematic review / meta-an
 - DeepSeek R1 is accessed via OpenRouter API using model identifier `deepseek/deepseek-r1`
 - Users can provide their OpenRouter API key in the DeepSeek field; the same key works for both models
 - All steps 3–10 and the Protocol Generator chat now prefer DeepSeek R1 when a key is configured
+
+## Evidence Synthesis & Meta-analysis Tab Overhaul (2026-06-26)
+
+**File rewritten**: `src/components/tabs/EvidenceSynthesisTab.tsx` fully rebuilt to be functional end-to-end, aligned with https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis.
+
+### Step 1 — Search & Screening
+- Added **Year From / To** filter inputs so users can constrain the search by publication year range
+- Client-side year filtering applied to retrieved papers before display
+- Shows "X records retrieved • Y after year filter • Z selected" count
+- Clear button to reset year filters
+
+### Step 3 — Risk of Bias (functional)
+- Added **Overall RoB Assessment Instructions** textarea for user guidance
+- Per-study **Risk of Bias** dropdown (Low / Some concerns / High) and **Assessor Notes** input
+- **Save Assessments** button persists RoB judgments into extracted data
+- Data flows forward into synthesis and reporting steps
+
+### Step 4 — Synthesis & Meta-analysis (functional)
+- Added **Review Type** selector: Systematic Review, Systematic Review & Meta-analysis, Narrative Review, Umbrella Review, Scoping Review, Rapid Review, Mixed Methods Review, Diagnostic Test Accuracy Review
+- Added **Specific Requirements** textbox for user-defined review instructions (subgroups, study design filters, GRADE, meta-regression, etc.)
+- Added **Additional Synthesis Instructions** textbox for fine-tuning the synthesis approach
+- AI generates narrative synthesis using DeepSeek R1 (primary) / Gemini / OpenRouter
+  - Prompt incorporates review type, user requirements, and extracted studies
+  - Meta-analysis steps included when review type contains "Meta-analysis"
+- Parsed effect-size table rendered as editable inputs (Study, Effect Estimate, 95% CI, Weight)
+- Output rendered as formatted markdown (headings, tables, body text)
+
+### Step 5 — Reporting & PRISMA (functional)
+- Generates **robvis-style Risk of Bias Summary** (bar chart proportions: Low / Some concerns / High / Pending)
+- Generates **robvis-style Traffic Light Plot** table (D1–D5 bias domain grid)
+- Computes **PRISMA 2020 Flow Diagram** counts (Identification → Deduplication → Screening → Excluded → Assessed → Included)
+- Displays synthesis summary and effect-size table for reporting use
+- **Download PRISMA CSV** and **Download RoB CSV** buttons for export
+
+### Tools Referenced
+- Literature search: OpenAlex, PubMed E-utilities, Europe PMC, ASReview, prismAId, CitationChaser
+- RoB visualization: robvis (traffic-light + summary plots)
+- Meta-analysis: meta, metafor, metaumbrella, forestplot
+- Reporting: PRISMA 2020, ROSES
