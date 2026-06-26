@@ -4,15 +4,44 @@
 
 ```
 src/
-├── app/                    # Next.js App Router
-│   ├── layout.tsx          # Root layout + metadata
-│   ├── page.tsx            # Home page
-│   ├── globals.css         # Tailwind imports + global styles
-│   └── favicon.ico         # Site icon
-└── (expand as needed)
-    ├── components/         # React components (add when needed)
-    ├── lib/                # Utilities and helpers (add when needed)
-    └── db/                 # Database files (add via recipe)
+├── app/
+│   ├── layout.tsx
+│   ├── page.tsx
+│   └── globals.css
+├── components/
+│   ├── Header.tsx
+│   ├── TopTabs.tsx
+│   ├── StepNavigator.tsx
+│   ├── SettingsModal.tsx
+│   ├── steps/                  # 11-step pipeline
+│   │   ├── Step1Search.tsx
+│   │   ├── Step2Results.tsx
+│   │   ├── Step3Synthesis.tsx
+│   │   ├── Step4LiteratureReview.tsx
+│   │   ├── Step5Themes.tsx
+│   │   ├── Step6ResearchQuestions.tsx
+│   │   ├── Step7ResearchTitles.tsx
+│   │   ├── Step8AimObjectives.tsx
+│   │   ├── Step9Methodology.tsx
+│   │   ├── Step10Protocol.tsx
+│   │   └── Step11Impact.tsx
+│   └── tabs/                   # Tab-level views
+│       ├── ResilientChatTab.tsx
+│       ├── ProtocolChatTab.tsx   # <-- NEW: Perplexity-style protocol generator
+│       ├── StatisticalAnalysisTab.tsx
+│       ├── SampleSizeTab.tsx
+│       ├── EvidenceSynthesisTab.tsx
+│       ├── PaperWriterTab.tsx
+│       └── GrantWritingTab.tsx
+├── context/
+│   └── AppContext.tsx           # Global state
+└── lib/
+    ├── ai.ts                   # Gemini / OpenRouter wrappers
+    ├── database-apis.ts        # Live scholarly DB fetchers
+    ├── document-parser.ts      # <-- NEW: Word/PDF/text parsing
+    ├── local-synthesis.ts      # Local evidence-synthesis engine
+    ├── research-skills.ts      # AIPOCH Long-CoT prompt builders
+    └── exporters.ts            # CSV/Excel/PDF/Word generators
 ```
 
 ## Key Design Patterns

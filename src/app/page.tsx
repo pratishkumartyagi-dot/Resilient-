@@ -21,6 +21,7 @@ import StatisticalAnalysisTab from "@/components/tabs/StatisticalAnalysisTab";
 import SampleSizeTab from "@/components/tabs/SampleSizeTab";
 import EvidenceSynthesisTab from "@/components/tabs/EvidenceSynthesisTab";
 import PaperWriterTab from "@/components/tabs/PaperWriterTab";
+import ProtocolChatTab from "@/components/tabs/ProtocolChatTab";
 import GrantWritingTab from "@/components/tabs/GrantWritingTab";
 import SettingsModal from "@/components/SettingsModal";
 
@@ -52,6 +53,7 @@ function AppContent() {
       case "samplesize": return <SampleSizeTab />;
       case "systematic": return <EvidenceSynthesisTab />;
       case "paperwriter": return <PaperWriterTab />;
+      case "protocol": return <ProtocolChatTab />;
       default: return <GrantWritingTab />;
     }
   };

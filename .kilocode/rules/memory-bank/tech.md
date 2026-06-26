@@ -59,7 +59,12 @@ bun typecheck      # Run TypeScript type checking
 {
   "next": "^16.1.3", // Framework
   "react": "^19.2.3", // UI library
-  "react-dom": "^19.2.3" // React DOM
+  "react-dom": "^19.2.3", // React DOM
+  "lucide-react": "^1.21.0", // Icons
+  "recharts": "^3.8.1", // Charts
+  "uuid": "^14.0.1", // ID generation
+  "mammoth": "^1.12.0", // Word document text extraction
+  "pdfjs-dist": "^6.0.227" // PDF text extraction in browser
 }
 ```
 

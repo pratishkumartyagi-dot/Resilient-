@@ -173,3 +173,36 @@ The systematic review tab now contains a full 8-step systematic review / meta-an
 - [x] Removed forbidden `User-Agent` header from browser `fetch` calls (OpenAlex, Crossref) — would throw TypeError in strict browser environments
 - [x] Added `fetchWithTimeout` helper (15s AbortController) to all database and Crossref fetches in `src/lib/database-apis.ts`
 - [x] Verified production build passes (`bun run build`), typecheck and lint clean
+
+## Protocol Generator — Perplexity-style Deep Reasoning Chat (2026-06-26)
+
+**New tab added**: "Protocol Generator" in `TopTabs` (between "Paper Writer & Reviewer" and "Grant Writing")
+
+### New Component: `ProtocolChatTab`
+- Perplexity/open-notebook style chat dashboard
+- Deep Reasoning toggle (Long CoT mode inspired by github.com/LightChen233/Awesome-Long-Chain-of-Thought-Reasoning)
+- File upload support: `.docx`, `.pdf`, `.txt`, `.md`
+- Document parsed with `mammoth` (Word) and `pdfjs-dist` (PDF)
+- 6-phase Long CoT reasoning: Context Analysis → Gap Identification → Design Alignment → Feasibility Check → Bias Audit → Output Generation
+- AIPOCH Clinical Cohort Protocol Designer (Sections A–L) generation
+- Word (.doc) download with AIPOCH-formatted protocol
+- Click "Generate" or type "generate protocol" to produce full protocol
+- Inline document upload status bar with file size and remove button
+- Perplexity-style: centered chat, minimal chrome, sources preview
+
+### New Utility: `src/lib/document-parser.ts`
+- `parseWordDocument(file)` — uses `mammoth.extractRawText`
+- `parsePDFDocument(file)` — uses `pdfjs-dist` with worker fallback
+- `parseTextDocument(file)` — uses `File.text()`
+- `parseUploadedDocument(file)` — dispatches by extension, returns `{ name, content, type }`
+- `ALLOWED_DOCUMENT_TYPES` constant for `<input accept>` attribute
+
+### New Packages Installed
+- `mammoth@1.12.0` — Word document text extraction
+- `pdfjs-dist@6.0.227` — PDF text extraction in browser
+
+### Context Changes
+- Removed unused `protocolGenerationEnabled`, `isDeepReasoning`, `documentContent` from `AppState`
+- Deep reasoning and document state now managed locally within `ProtocolChatTab` to avoid global state bloat
+- `TopTabs.tsx` extended with 7th tab: `{ id: "protocol", label: "Protocol Generator", icon: ScrollText }`
+- `page.tsx` updated to render `ProtocolChatTab` when `currentTab === "protocol"`

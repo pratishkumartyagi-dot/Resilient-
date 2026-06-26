@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useApp } from "@/context/AppContext";
-import { MessageSquare, BarChart3, Sigma, FlaskConical, FileText, PenLine } from "lucide-react";
+import { MessageSquare, BarChart3, Sigma, FlaskConical, FileText, PenLine, ScrollText } from "lucide-react";
 
 const MAIN_TABS = [
   { id: "main", label: "Research Pipeline", icon: FlaskConical },
@@ -11,6 +11,7 @@ const MAIN_TABS = [
   { id: "samplesize", label: "Sample Size Calculator", icon: Sigma },
   { id: "systematic", label: "Evidence Synthesis & Meta-analysis", icon: FileText },
   { id: "paperwriter", label: "Paper Writer & Reviewer", icon: PenLine },
+  { id: "protocol", label: "Protocol Generator", icon: ScrollText },
 ];
 
 export default function TopTabs() {
