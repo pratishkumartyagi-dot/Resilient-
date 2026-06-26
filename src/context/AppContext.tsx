@@ -115,6 +115,7 @@ export interface AppState {
   filteredPapers: Paper[];
   citationValidationResults: Record<string, { valid: boolean; title?: string; message: string }>;
   citationValidationStatus: "idle" | "running" | "done";
+  omicsEnabled: boolean;
 }
 
 type Action =
@@ -157,7 +158,8 @@ type Action =
   | { type: "SET_FILTERED_PAPERS"; payload: any[] }
   | { type: "SET_CITATION_RESULTS"; payload: Record<string, { valid: boolean; title?: string; message: string }> }
   | { type: "SET_CITATION_STATUS"; payload: "idle" | "running" | "done" }
-  | { type: "RESET_STATE" };
+  | { type: "RESET_STATE" }
+  | { type: "TOGGLE_OMICS"; payload: boolean };
 
 const initialState: AppState = {
   currentTab: "main",
@@ -228,6 +230,7 @@ const initialState: AppState = {
   filteredPapers: [],
   citationValidationResults: {},
   citationValidationStatus: "idle",
+  omicsEnabled: false,
 };
 
 function appReducer(state: AppState, action: Action): AppState {
@@ -365,6 +368,8 @@ function appReducer(state: AppState, action: Action): AppState {
       return { ...state, citationValidationResults: action.payload };
     case "SET_CITATION_STATUS":
       return { ...state, citationValidationStatus: action.payload };
+    case "TOGGLE_OMICS":
+      return { ...state, omicsEnabled: action.payload };
     case "RESET_STATE":
       return { ...initialState };
     default:

@@ -275,3 +275,21 @@ The systematic review tab now contains a full 8-step systematic review / meta-an
 - RoB visualization: robvis (traffic-light + summary plots)
 - Meta-analysis: meta, metafor, metaumbrella, forestplot
 - Reporting: PRISMA 2020, ROSES
+
+## Omics & Bioinformatics Mode Toggle — Resilient Chat (2026-06-26)
+
+**Feature**: Added toggle in `ResilientChatTab` to switch between "Research Pipeline" and "Omics & Bioinformatics" modes, leveraging https://github.com/aipoch/medical-research-skills capabilities.
+
+### Files Modified
+- `src/context/AppContext.tsx` — Added `omicsEnabled: boolean` to `AppState`, `TOGGLE_OMICS` reducer action
+- `src/components/tabs/ResilientChatTab.tsx` — Added toggle button, omics-specific response generator, contextual UI styling
+
+### Capabilities Available in Omics Mode
+- Single-cell RNA-seq: Scanpy QC-to-clustering, scVI-tools batch integration, cell type annotation, spatial transcriptomics
+- Bulk RNA-seq: PyDESeq2, limma/edgeR, DEG screening, volcano/heatmap visualization, batch correction
+- Pathway & network: GO/KEGG, GSEA, GSVA, WGCNA, ceRNA, PPI, Sankey diagrams
+- Immune infiltration: CIBERSORTx (22 immune cell types), ssGSEA, ESTIMATE
+- Genomics & sequence: Biopython, BLAST, SAM/BAM/CRAM/VCF, CRISPR, Circos, deepTools
+- Dimensionality reduction: PCA, UMAP, t-SNE, consensus clustering, KNN imputation
+- Microbiome & other modalities: scikit-bio, FlowIO, pyOpenMS, Neuropixels/Kilosort4
+- All outputs formatted for manuscript figures and methods sections
