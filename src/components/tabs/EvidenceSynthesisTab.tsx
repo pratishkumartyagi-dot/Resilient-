@@ -60,6 +60,8 @@ export default function EvidenceSynthesisTab() {
   const [reviewRequirements, setReviewRequirements] = useState("");
   const [yearFrom, setYearFrom] = useState("");
   const [yearTo, setYearTo] = useState("");
+  const [searchLogic, setSearchLogic] = useState("AND");
+  const [studyTypeFilter, setStudyTypeFilter] = useState("All Study Types");
 
   const toggleDb = (db: string) => {
     setSelectedDbs((prev) =>
@@ -73,7 +75,7 @@ export default function EvidenceSynthesisTab() {
     setPapers([]);
     setSelectedPaperIds(new Set());
     try {
-      const results = await fetchRealPapers(query, selectedDbs);
+      const results = await fetchRealPapers(query, selectedDbs, yearFrom, yearTo, studyTypeFilter === "All Study Types" ? undefined : studyTypeFilter);
       setPapers(results);
     } catch {
       setPapers(generateMockLegacy(query, selectedDbs));
@@ -104,6 +106,7 @@ export default function EvidenceSynthesisTab() {
       if (isNaN(y)) return false;
       if (yearFrom && y < parseInt(yearFrom, 10)) return false;
       if (yearTo && y > parseInt(yearTo, 10)) return false;
+      if (studyTypeFilter !== "All Study Types" && p.studyType !== studyTypeFilter) return false;
       return true;
     });
   };
@@ -381,8 +384,24 @@ OUTPUT FORMAT:
                   {loading ? "Searching..." : "Search"}
                 </button>
               </div>
-              <div className="flex items-center gap-2 mb-4">
-                <span className="text-xs text-blue-300">Year range:</span>
+              <div className="flex flex-wrap items-center gap-2 mb-4">
+                <span className="text-xs text-blue-300">Boolean:</span>
+                <div className="flex rounded-lg overflow-hidden border border-blue-800">
+                  {["AND", "OR", "NOT"].map((op) => (
+                    <button
+                      key={op}
+                      onClick={() => setSearchLogic(op)}
+                      className={`px-3 py-1.5 text-xs font-bold transition-colors ${
+                        searchLogic === op
+                          ? "bg-yellow-500 text-[#0a1a3a]"
+                          : "bg-blue-900/50 text-blue-200 hover:bg-blue-900/70"
+                      }`}
+                    >
+                      {op}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-xs text-blue-300 ml-2">Year:</span>
                 <input
                   type="number"
                   value={yearFrom}
@@ -398,12 +417,33 @@ OUTPUT FORMAT:
                   placeholder="To"
                   className="w-24 bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-1.5 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500"
                 />
-                {(yearFrom || yearTo) && (
+                <span className="text-xs text-blue-300 ml-2">Study Type:</span>
+                <select
+                  value={studyTypeFilter}
+                  onChange={(e) => setStudyTypeFilter(e.target.value)}
+                  className="bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                >
+                  <option value="All Study Types">All Study Types</option>
+                  <option value="Randomized Controlled Trial (RCT)">Randomized Controlled Trial (RCT)</option>
+                  <option value="Systematic Review">Systematic Review</option>
+                  <option value="Meta-Analysis">Meta-Analysis</option>
+                  <option value="Observational Study">Observational Study</option>
+                  <option value="Cohort Study">Cohort Study</option>
+                  <option value="Case-Control Study">Case-Control Study</option>
+                  <option value="Cross-Sectional Study">Cross-Sectional Study</option>
+                  <option value="Clinical Trial">Clinical Trial</option>
+                  <option value="Qualitative Study">Qualitative Study</option>
+                  <option value="Case Report / Case Series">Case Report / Case Series</option>
+                  <option value="Review Article">Review Article</option>
+                  <option value="Guideline / Consensus Statement">Guideline / Consensus Statement</option>
+                  <option value="Dissertation / Thesis">Dissertation / Thesis</option>
+                </select>
+                {(yearFrom || yearTo || studyTypeFilter !== "All Study Types") && (
                   <button
-                    onClick={() => { setYearFrom(""); setYearTo(""); }}
+                    onClick={() => { setYearFrom(""); setYearTo(""); setStudyTypeFilter("All Study Types"); }}
                     className="text-xs text-red-300 hover:text-red-200 underline"
                   >
-                    Clear
+                    Clear filters
                   </button>
                 )}
               </div>
