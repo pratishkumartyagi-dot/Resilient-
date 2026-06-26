@@ -75,4 +75,39 @@ export async function parseUploadedDocument(file: File): Promise<{ name: string;
   throw new Error(`Unsupported file type: ${file.name}. Please upload Word (.docx), PDF (.pdf), or text (.txt) files.`);
 }
 
+export async function parseOmicsDataFile(file: File): Promise<{ name: string; content: string; type: string; format: string }> {
+  const fileName = file.name.toLowerCase();
+  const text = await file.text();
+  const ext = fileName.split(".").pop() || "";
+
+  if (["csv", "tsv", "txt", "md"].includes(ext)) {
+    const delimiter = ext === "tsv" ? "\t" : ",";
+    return {
+      name: file.name,
+      content: text,
+      type: ext === "tsv" ? "tsv" : "csv",
+      format: ext === "tsv" ? "TSV" : "CSV",
+    };
+  }
+
+  if (fileName.endsWith(".docx") || fileName.endsWith(".doc")) {
+    const content = await parseWordDocument(file);
+    return { name: file.name, content, type: "word", format: "Word" };
+  }
+
+  if (fileName.endsWith(".pdf")) {
+    const content = await parsePDFDocument(file);
+    return { name: file.name, content, type: "pdf", format: "PDF" };
+  }
+
+  if (fileName.endsWith(".txt") || fileName.endsWith(".md")) {
+    return { name: file.name, content: text, type: "text", format: "Text" };
+  }
+
+  throw new Error(
+    `Unsupported file type: ${file.name}. Supported: .csv .tsv .txt .md .docx .pdf`
+  );
+}
+
 export const ALLOWED_DOCUMENT_TYPES = [".docx", ".doc", ".pdf", ".txt", ".md"];
+export const ALLOWED_OMICS_TYPES = [".csv", ".tsv", ".txt", ".md", ".docx", ".doc", ".pdf"];
