@@ -23,6 +23,7 @@ import EvidenceSynthesisTab from "@/components/tabs/EvidenceSynthesisTab";
 import PaperWriterTab from "@/components/tabs/PaperWriterTab";
 import ProtocolChatTab from "@/components/tabs/ProtocolChatTab";
 import GrantWritingTab from "@/components/tabs/GrantWritingTab";
+import OmicsBioinformaticsTab from "@/components/tabs/OmicsBioinformaticsTab";
 import SettingsModal from "@/components/SettingsModal";
 
 function AppContent() {
@@ -48,6 +49,7 @@ function AppContent() {
   const renderTabContent = () => {
     switch (state.currentTab) {
       case "main": return <StepNavigator>{renderMainPipeline()}</StepNavigator>;
+      case "omics": return <OmicsBioinformaticsTab />;
       case "chat": return <ResilientChatTab />;
       case "stats": return <StatisticalAnalysisTab />;
       case "samplesize": return <SampleSizeTab />;

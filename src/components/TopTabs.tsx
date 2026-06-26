@@ -2,10 +2,11 @@
 
 import React from "react";
 import { useApp } from "@/context/AppContext";
-import { MessageSquare, BarChart3, Sigma, FlaskConical, FileText, PenLine, ScrollText } from "lucide-react";
+import { FlaskConical as FlaskConicalIcon, Dna, MessageSquare, BarChart3, Sigma, FileText, PenLine, ScrollText } from "lucide-react";
 
 const MAIN_TABS = [
-  { id: "main", label: "Research Pipeline", icon: FlaskConical },
+  { id: "main", label: "Research Pipeline", icon: FlaskConicalIcon },
+  { id: "omics", label: "Omics & Bioinformatics", icon: Dna },
   { id: "chat", label: "Resilient Chat", icon: MessageSquare },
   { id: "stats", label: "Statistical Analysis", icon: BarChart3 },
   { id: "samplesize", label: "Sample Size Calculator", icon: Sigma },
