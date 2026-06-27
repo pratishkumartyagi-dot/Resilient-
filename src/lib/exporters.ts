@@ -208,3 +208,141 @@ export function parseCSVText(text: string): string[][] {
   }
   return lines;
 }
+
+export function downloadLiteratureReviewPDF(sections: Record<string, string>, title = "Literature Review") {
+  const printWindow = window.open("", "_blank");
+  if (!printWindow) {
+    alert("Please allow popups to download PDF.");
+    return;
+  }
+  const sectionOrder = [
+    "introduction",
+    "problemGlobal",
+    "problemSEA",
+    "problemIndia",
+    "gaps",
+    "future",
+    "conclusion",
+    "references",
+  ];
+  const sectionLabels: Record<string, string> = {
+    introduction: "Introduction / Background",
+    problemGlobal: "Problem Statement — Global",
+    problemSEA: "Problem Statement — South-East Asia",
+    problemIndia: "Problem Statement — India",
+    gaps: "Research Gaps",
+    future: "Future Studies to Be Carried Out",
+    conclusion: "Conclusion",
+    references: "References",
+  };
+  const body = sectionOrder
+    .map((key) => {
+      const content = sections[key] || "";
+      if (!content.trim()) return "";
+      const escaped = content
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\n/g, "<br/>");
+      return `<h2>${sectionLabels[key]}</h2><div class="section">${escaped}</div>`;
+    })
+    .filter(Boolean)
+    .join("");
+
+  const html = `
+    <html>
+      <head>
+        <title>${title}</title>
+        <style>
+          body { font-family: "Times New Roman", Times, serif; padding: 40px; color: #000; line-height: 1.6; }
+          h1 { font-size: 16pt; margin-bottom: 6px; text-align: center; }
+          h2 { font-size: 12pt; margin-top: 18px; margin-bottom: 6px; }
+          .section { font-size: 11pt; }
+          @media print {
+            body { padding: 20mm; }
+            h1 { page-break-after: avoid; }
+            h2 { page-break-after: avoid; }
+            .section { page-break-inside: avoid; }
+          }
+        </style>
+      </head>
+      <body>
+        <h1>${title}</h1>
+        ${body}
+        <script>
+          window.onload = function() {
+            window.print();
+            setTimeout(() => window.close(), 100);
+          };
+        <\/script>
+      </body>
+    </html>
+  `;
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
+}
+
+export function downloadLiteratureReviewWord(sections: Record<string, string>, title = "Literature Review") {
+  const sectionOrder = [
+    "introduction",
+    "problemGlobal",
+    "problemSEA",
+    "problemIndia",
+    "gaps",
+    "future",
+    "conclusion",
+    "references",
+  ];
+  const sectionLabels: Record<string, string> = {
+    introduction: "Introduction / Background",
+    problemGlobal: "Problem Statement — Global",
+    problemSEA: "Problem Statement — South-East Asia",
+    problemIndia: "Problem Statement — India",
+    gaps: "Research Gaps",
+    future: "Future Studies to Be Carried Out",
+    conclusion: "Conclusion",
+    references: "References",
+  };
+  const body = sectionOrder
+    .map((key) => {
+      const content = sections[key] || "";
+      if (!content.trim()) return "";
+      const escaped = content
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\n/g, "<br/>");
+      return `<h2>${sectionLabels[key]}</h2><div>${escaped}</div>`;
+    })
+    .filter(Boolean)
+    .join("");
+
+  const html = `
+    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta charset="utf-8">
+        <title>${title}</title>
+        <style>
+          body { font-family: "Times New Roman", Times, serif; }
+          h1 { font-size: 16pt; text-align: center; margin-bottom: 6px; }
+          h2 { font-size: 12pt; margin-top: 14px; margin-bottom: 4px; }
+          div { font-size: 11pt; line-height: 1.5; }
+        </style>
+      </head>
+      <body>
+        <h1>${title}</h1>
+        ${body}
+      </body>
+    </html>
+  `;
+  const blob = new Blob([html], { type: "application/msword;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${title.toLowerCase().replace(/\s+/g, "-")}.doc`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}

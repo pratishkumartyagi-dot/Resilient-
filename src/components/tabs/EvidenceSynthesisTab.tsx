@@ -10,6 +10,7 @@ import {
 import { useApp } from "@/context/AppContext";
 import { callDeepSeek, callGemini, callOpenRouter } from "@/lib/ai";
 import { fetchRealPapers, generateMockLegacy, type Paper } from "@/lib/database-apis";
+import { downloadLiteratureReviewPDF, downloadLiteratureReviewWord } from "@/lib/exporters";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Legend
@@ -596,60 +597,144 @@ ${methodsBlock}\n\n---
 ### Risk of Bias Commentary\n\nUsing **${robLabel}** (robvis), the overall distribution of risk-of-bias judgments across ${papersForSynthesis.length} studies is: Low ${robSummary.low}, Some/Moderate concerns ${robSummary.some}, High/Critical ${robSummary.high}, Pending ${robSummary.pending}. ${robSummary.high > 0 ? "Studies at high risk of bias may overestimate effects; sensitivity analysis excluding these studies is recommended." : "No studies were rated at high risk of bias."} Domain-level traffic-light plots are available in the reporting step.\n\n---\n\n### Gaps and Future Directions\n\n- Unpublished or grey literature not searched in this run.\n- Subgroup analyses and meta-regression should be explored if heterogeneity is high.\n- Certainty of evidence (GRADE) should be formally assessed prior to guideline submission.\n- Sensitivity analysis excluding high-RoB studies recommended for robustness.\n\n> Generated locally using awesome-evidence-synthesis open-source workflow standards. For meta-analysis statistics, export the effect table to **R (metafor/meta)**, **JASP**, or **OpenMEE**.\n`;
   };
 
+  const parseLiteratureReview = (text: string): Record<string, string> => {
+    const sections: Record<string, string> = {
+      introduction: "",
+      problemGlobal: "",
+      problemSEA: "",
+      problemIndia: "",
+      gaps: "",
+      future: "",
+      conclusion: "",
+      references: "",
+    };
+
+    const lines = text.split("\n");
+    let currentKey: string | null = null;
+    let buffer: string[] = [];
+
+    const assign = () => {
+      if (!currentKey) return;
+      const content = buffer.join("\n").trim();
+      if (currentKey === "problem" && content) {
+        const globalMatch = content.match(/\*\*Global:\*\*([\s\S]*?)(?=\*\*South-East Asia:\*\*|\*\*India:\*\*|$)/i);
+        const seaMatch = content.match(/\*\*South-East Asia:\*\*([\s\S]*?)(?=\*\*India:\*\*|$)/i);
+        const indiaMatch = content.match(/\*\*India:\*\*([\s\S]*?)$/i);
+        sections.problemGlobal = (globalMatch?.[1] || "").trim();
+        sections.problemSEA = (seaMatch?.[1] || "").trim();
+        sections.problemIndia = (indiaMatch?.[1] || "").trim();
+      } else if (content) {
+        sections[currentKey] = content;
+      }
+      buffer = [];
+    };
+
+    for (const line of lines) {
+      const trimmed = line.trim().toLowerCase();
+      let matched: string | null = null;
+
+      if (/^(introduction|background|introduction\s*\/\s*background)$/.test(trimmed)) matched = "introduction";
+      else if (/^(problem\s+statement|problem\s+statement\s*[-–—]?\s*global)$/.test(trimmed)) matched = "problem";
+      else if (/^(problem\s+statement\s*[-–—]?\s*south[- ]?east\s+asia|south[- ]?east\s+asia)$/.test(trimmed)) matched = "problemSEADirect";
+      else if (/^(problem\s+statement\s*[-–—]?\s*india|india)$/.test(trimmed)) matched = "problemIndiaDirect";
+      else if (/^problem\s+statement\s*[-–—]?\s*global$/.test(trimmed)) matched = "problemGlobalDirect";
+      else if (/^research\s+gaps|^gaps$/.test(trimmed)) matched = "gaps";
+      else if (/^future\s+studies\s+to\s+be\s+carried\s+out|^future\s+studies|^future$/.test(trimmed)) matched = "future";
+      else if (/^conclusion$/.test(trimmed)) matched = "conclusion";
+      else if (/^references|^bibliography$/.test(trimmed)) matched = "references";
+
+      if (matched) {
+        assign();
+        currentKey = matched === "problemSEADirect" ? "problemSEA" : matched === "problemIndiaDirect" ? "problemIndia" : matched === "problemGlobalDirect" ? "problemGlobal" : matched;
+      } else {
+        buffer.push(line);
+      }
+    }
+
+    assign();
+    return sections;
+  };
+
   const generateLiteratureReview = async () => {
     if (extractedData.length === 0 && selectedPaperIds.size === 0) {
       alert("Please select papers first.");
       return;
     }
     setLiteratureReviewLoading(true);
-    setLiteratureReview("");
+    setLiteratureReviewSections({
+      introduction: "",
+      problemGlobal: "",
+      problemSEA: "",
+      problemIndia: "",
+      gaps: "",
+      future: "",
+      conclusion: "",
+      references: "",
+    });
     try {
       const selectedPapers = papers.filter((p) => selectedPaperIds.has(p.id));
-      const references = selectedPapers.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.database}.${p.doi ? ` https://doi.org/${p.doi}` : ""}`).join("\n");
+      const references = selectedPapers
+        .map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.database}.${p.doi ? ` https://doi.org/${p.doi}` : ""}`)
+        .join("\n");
 
-      const prompt = `You are an expert academic writer using deep reasoning methodology inspired by janhq/jan (long chain-of-thought reflection). Write a comprehensive, publication-ready narrative literature review based ONLY on the selected studies provided below. Follow this exact structure and headings:
+      const numberedRefs = selectedPapers
+        .map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.database}.${p.doi ? ` https://doi.org/${p.doi}` : ""}`)
+        .join("\n");
 
-# Introduction / Background
-Provide a thorough contextual overview of the research topic, its significance, and the current landscape. Set the stage for why this review matters.
+      const prompt = `You are an expert academic writer using deep reasoning methodology inspired by janhq/jan (long chain-of-thought reflection). Write a comprehensive, publication-ready narrative literature review based ONLY on the selected studies provided below.
 
-# Problem Statement
-- **Global:** Describe the scale and burden of the problem at the global level, citing epidemiological data and worldwide trends.
-- **South-East Asia:** Focus on regional patterns, challenges, and specific contexts in South-East Asia.
-- **India:** Narrow down to India-specific situation, policies, epidemiology, infrastructure, and unique challenges.
+Follow this exact structure and headings:
+- Introduction / Background
+- Problem Statement (with subsections: Global, South-East Asia, India)
+- Research Gaps
+- Future Studies to Be Carried Out
+- Conclusion
+- References
 
-# Research Gaps
-Critically analyze the selected studies and identify what is missing from the literature. Be specific: mention which subpopulations, settings, methodologies, or outcome measures are understudied.
+CITATION RULES:
+- Cite papers inline using bracketed numbers in square brackets, e.g. [1], [2], [3].
+- The numbering MUST match the numbered references list below.
+- Do NOT use author-year citations. Use ONLY bracketed numbers.
+- Aim for 2-4 inline citations per paragraph.
 
-# Future Studies to Be Carried Out
-Recommend specific, actionable future research directions. What studies are needed? What methodologies, populations, or comparisons would strengthen the evidence base?
+REFERENCES (use these EXACT numbers in your inline citations):
+${numberedRefs}
 
-# Conclusion
-Synthesize the key takeaways from the entire review. What is the current state of evidence, and what should researchers, clinicians, or policymakers take away from this review?
-
-# References
-You MUST include the following references exactly as listed at the end of your review:
-
-${references}
-
-SELECTED STUDIES (your primary evidence base):
+SELECTED STUDIES:
 ${selectedPapers.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. Type: ${p.studyType || "Not specified"}. Database: ${p.database}.${p.doi ? ` DOI: ${p.doi}` : ""}`).join("\n\n")}
 
 EXTRACTED DATA:
 ${extractedData.filter((p) => selectedPaperIds.has(p.id)).map((p) => `- ${p.title}: ${p.outcome || "Outcome not specified"}`).join("\n")}
 
-DEEP REASONING INSTRUCTIONS (from janhq/jan methodology):
-1. Before drafting each section, think step-by-step about the available evidence.
-2. Explicitly acknowledge uncertainty or conflicting findings rather than smoothing them over.
-3. For each claim, ask: "What evidence actually supports this?" and "What might I be missing?"
-4. Reflect on whether the selected studies adequately represent the global, regional (South-East Asia), and national (India) contexts.
-5. Ensure the narrative flows logically from broad context → specific problem → critical gaps → forward-looking recommendations.
+DEEP REASONING RULES:
+1. Think step-by-step before drafting each section.
+2. Explicitly acknowledge conflicting or limited evidence.
+3. Ensure global, South-East Asia, and India perspectives are all addressed where relevant.
+4. Use ONLY inline numeric citations [N]. Do NOT add a separate bibliography beyond the numbered references list.
 
 OUTPUT FORMAT:
-Write the full narrative review in clean Markdown. Use the exact headings specified above. Do NOT add extra headings. Aim for 2500–4000 words total.`;
+Use ONLY plain text with these exact headings on their own lines:
+Introduction / Background
+Problem Statement
+Research Gaps
+Future Studies to Be Carried Out
+Conclusion
+References
+
+Do NOT use Markdown formatting like # or ##. Do NOT add extra headings.`;
 
       const apiKey = state.deepseekApiKey || state.geminiApiKey || state.openRouterApiKey;
       if (!apiKey) {
-        setLiteratureReview(`# Literature Review\n\n**Error:** No API key configured. Please add your DeepSeek, Gemini, or OpenRouter API key in Settings to generate the literature review.\n\n## References\n\n${references}`);
+        setLiteratureReviewSections({
+          introduction: "No API key configured. Please add your DeepSeek, Gemini, or OpenRouter API key in Settings to generate the literature review.",
+          problemGlobal: "",
+          problemSEA: "",
+          problemIndia: "",
+          gaps: "",
+          future: "",
+          conclusion: "",
+          references: numberedRefs,
+        });
         setLiteratureReviewLoading(false);
         return;
       }
@@ -663,10 +748,29 @@ Write the full narrative review in clean Markdown. Use the exact headings specif
         text = await callOpenRouter(state.openRouterApiKey!, prompt);
       }
 
-      const cleaned = text.replace(/```markdown/g, "").replace(/```/g, "").trim();
-      setLiteratureReview(cleaned);
+      const cleaned = text.replace(/```/g, "").trim();
+      const parsed = parseLiteratureReview(cleaned);
+      setLiteratureReviewSections({
+        introduction: parsed.introduction || "",
+        problemGlobal: parsed.problemGlobal || parsed.problem || "",
+        problemSEA: parsed.problemSEA || "",
+        problemIndia: parsed.problemIndia || "",
+        gaps: parsed.gaps || "",
+        future: parsed.future || "",
+        conclusion: parsed.conclusion || "",
+        references: parsed.references || numberedRefs,
+      });
     } catch (err: any) {
-      setLiteratureReview(`# Literature Review\n\n**Error generating review:** ${err.message || "Unknown error"}\n\nPlease ensure your API key is valid and try again.`);
+      setLiteratureReviewSections({
+        introduction: `Error generating review: ${err.message || "Unknown error"}. Please ensure your API key is valid and try again.`,
+        problemGlobal: "",
+        problemSEA: "",
+        problemIndia: "",
+        gaps: "",
+        future: "",
+        conclusion: "",
+        references: "",
+      });
     } finally {
       setLiteratureReviewLoading(false);
     }
@@ -1601,7 +1705,7 @@ Mobile: [Number]
                 <h3 className="text-lg font-bold text-white">Literature Review</h3>
               </div>
               <p className="text-xs text-blue-400 mb-4">
-                Generate a structured narrative literature review using deep reasoning (DeepSeek R1). All selected papers are automatically included as references. Navigate through the generated review using the headings below, or regenerate with updated selections.
+                Generate a structured narrative literature review using deep reasoning (DeepSeek R1). All selected papers are automatically included as references. Edit each section below. Inline citations are shown in brackets [N]. References are serially numbered in Vancouver style.
               </p>
 
               <div className="flex flex-wrap items-center gap-3 mb-4">
@@ -1622,30 +1726,58 @@ Mobile: [Number]
                     </>
                   )}
                 </button>
+                {(literatureReviewSections.introduction || literatureReviewSections.references) && (
+                  <>
+                    <button
+                      onClick={() => downloadLiteratureReviewPDF(literatureReviewSections)}
+                      className="flex items-center gap-2 bg-red-900/50 text-red-200 hover:bg-red-800/60 px-4 py-2 rounded-lg text-sm"
+                    >
+                      <Download size={14} />
+                      Download PDF
+                    </button>
+                    <button
+                      onClick={() => downloadLiteratureReviewWord(literatureReviewSections)}
+                      className="flex items-center gap-2 bg-blue-900/50 text-blue-200 hover:bg-blue-800/60 px-4 py-2 rounded-lg text-sm"
+                    >
+                      <Download size={14} />
+                      Download Word
+                    </button>
+                  </>
+                )}
                 <span className="text-xs text-blue-300">
                   {selectedPaperIds.size} selected papers · {extractedData.length} extracted
                 </span>
               </div>
 
-              {literatureReview && (
-                <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-5">
-                  <h4 className="text-sm font-bold text-white mb-3">Generated Narrative Review</h4>
-                  <div className="text-blue-100 whitespace-pre-wrap max-h-[700px] overflow-y-auto text-sm leading-relaxed">
-                    {literatureReview.split("\n").map((line, i) => {
-                      if (line.startsWith("# ")) return <h1 key={i} className="text-lg font-bold text-white mt-5 mb-2">{line.slice(2)}</h1>;
-                      if (line.startsWith("## ")) return <h2 key={i} className="text-base font-bold text-yellow-200 mt-4 mb-2 border-b border-blue-800 pb-1">{line.slice(3)}</h2>;
-                      if (line.startsWith("### ")) return <h3 key={i} className="text-sm font-bold text-blue-200 mt-3 mb-1">{line.slice(4)}</h3>;
-                      if (line.startsWith("- **")) return <li key={i} className="text-sm text-blue-100 mb-1 ml-4 list-disc">{line.slice(2)}</li>;
-                      if (line.startsWith("  - ")) return <li key={i} className="text-sm text-blue-100 mb-1 ml-8 list-disc">{line.slice(4)}</li>;
-                      if (line.startsWith("> ")) return <blockquote key={i} className="text-sm text-blue-300 italic border-l-2 border-blue-600 pl-3 my-2">{line.slice(2)}</blockquote>;
-                      if (line.trim() === "") return <br key={i} />;
-                      return <p key={i} className="text-sm text-blue-100 mb-1">{line}</p>;
-                    })}
-                  </div>
+              {(literatureReviewSections.introduction || literatureReviewSections.references || literatureReviewLoading) ? (
+                <div className="space-y-4">
+                  {[
+                    { key: "introduction", label: "Introduction / Background", placeholder: "Context, significance, and current landscape of the research topic." },
+                    { key: "problemGlobal", label: "Problem Statement — Global", placeholder: "Scale and burden of the problem at the global level." },
+                    { key: "problemSEA", label: "Problem Statement — South-East Asia", placeholder: "Regional patterns, challenges, and specific contexts in South-East Asia." },
+                    { key: "problemIndia", label: "Problem Statement — India", placeholder: "India-specific situation, policies, epidemiology, infrastructure, and unique challenges." },
+                    { key: "gaps", label: "Research Gaps", placeholder: "What is missing from the literature? Understudied subpopulations, settings, methodologies, or outcomes." },
+                    { key: "future", label: "Future Studies to Be Carried Out", placeholder: "Specific, actionable future research directions and recommendations." },
+                    { key: "conclusion", label: "Conclusion", placeholder: "Key takeaways and implications for researchers, clinicians, or policymakers." },
+                    { key: "references", label: "References (Vancouver style, serially numbered)", placeholder: "1. Author(s) (Year). Title. Database. DOI", isReferences: true },
+                  ].map(({ key, label, placeholder, isReferences }) => (
+                    <div key={key} className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+                      <label className="block text-sm font-medium text-yellow-200 mb-2">{label}</label>
+                      <textarea
+                        value={literatureReviewSections[key as keyof typeof literatureReviewSections]}
+                        onChange={(e) => setLiteratureReviewSections((prev) => ({ ...prev, [key]: e.target.value }))}
+                        placeholder={placeholder}
+                        className="w-full bg-blue-950 border border-blue-800 text-blue-100 rounded-lg px-4 py-3 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 min-h-[100px] leading-relaxed"
+                      />
+                      {isReferences && literatureReviewSections.references && (
+                        <p className="text-[10px] text-blue-400 mt-1">
+                          {literatureReviewSections.references.split("\n").filter((l) => l.trim()).length} references
+                        </p>
+                      )}
+                    </div>
+                  ))}
                 </div>
-              )}
-
-              {!literatureReview && !literatureReviewLoading && (
+              ) : (
                 <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-6 text-center">
                   <BookOpen size={32} className="text-blue-400 mx-auto mb-3" />
                   <p className="text-sm text-blue-200 mb-1">No literature review generated yet.</p>
