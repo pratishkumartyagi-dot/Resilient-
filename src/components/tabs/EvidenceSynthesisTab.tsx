@@ -5,7 +5,7 @@ import {
   Search, Database, ChevronRight, FileText,
   RotateCcw, CheckCircle2, ExternalLink, FlaskConical,
   Save, Sparkles, ClipboardList, Table, Download,
-  FileJson, BarChart3
+  FileJson, BarChart3, PenTool
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callDeepSeek, callGemini, callOpenRouter } from "@/lib/ai";
@@ -27,6 +27,7 @@ const PIPELINE_STEPS = [
   { num: 3, label: "Risk of Bias", icon: CheckCircle2 },
   { num: 4, label: "Synthesis & Meta-analysis", icon: FlaskConical },
   { num: 5, label: "Reporting & PRISMA", icon: FileText },
+  { num: 6, label: "Writing Review & Meta-analysis", icon: PenTool },
 ];
 
 const REVIEW_TYPES = [
@@ -216,6 +217,8 @@ export default function EvidenceSynthesisTab() {
   const [synthesisInstructions, setSynthesisInstructions] = useState("");
   const [synthesisOutput, setSynthesisOutput] = useState("");
   const [synthesisLoading, setSynthesisLoading] = useState(false);
+  const [manuscript, setManuscript] = useState("");
+  const [manuscriptLoading, setManuscriptLoading] = useState(false);
   const [effectSizes, setEffectSizes] = useState<{ study: string; effect: string; ci: string; weight: string }[]>([]);
   const [reviewType, setReviewType] = useState("Systematic Review & Meta-analysis");
   const [reviewRequirements, setReviewRequirements] = useState("");
@@ -697,6 +700,284 @@ OUTPUT FORMAT:
       next[index] = { ...next[index], [field]: value };
       return next;
     });
+  };
+
+  const generateManuscript = async () => {
+    if (extractedData.length === 0) {
+      alert("Please complete data extraction first.");
+      return;
+    }
+    setManuscriptLoading(true);
+    setManuscript("");
+    try {
+      const papersForSynthesis = extractedData.filter((p) => selectedPaperIds.has(p.id));
+      const template = getRobToolTemplate();
+      const robLabel = template ? template.label : robTool;
+      const isMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
+      const isSystematic = reviewType.includes("Systematic");
+      const isNarrative = reviewType.includes("Narrative");
+      const isScoping = reviewType.includes("Scoping");
+      const isUmbrella = reviewType.includes("Umbrella");
+      const isRapid = reviewType.includes("Rapid");
+      const isMixed = reviewType.includes("Mixed");
+
+      const yearMin = Math.min(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020));
+      const yearMax = Math.max(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020));
+      const studyTypes = Array.from(new Set(papersForSynthesis.map((p) => p.studyType))).filter(Boolean);
+      const databases = Array.from(new Set(papersForSynthesis.map((p) => p.database))).filter(Boolean);
+      const totalRecords = papers.length;
+      const deduped = prismaCounts.deduped;
+      const screened = prismaCounts.screened;
+      const excluded = prismaCounts.excluded;
+      const included = prismaCounts.included;
+
+      const robSummary = papersForSynthesis.reduce(
+        (acc: { low: number; some: number; high: number; pending: number }, row) => {
+          const a = robAssessments[row.id];
+          if (!a) return acc;
+          const jl = a.overall.toLowerCase();
+          if (jl.includes("low") && !jl.includes("high")) acc.low += 1;
+          else if (jl.includes("some concerns") || jl.includes("moderate") || jl.includes("unclear") || jl.includes("serious") && !jl.includes("critical")) acc.some += 1;
+          else if (jl.includes("high") || jl.includes("critical") || jl.includes("very high")) acc.high += 1;
+          else acc.pending += 1;
+          return acc;
+        },
+        { low: 0, some: 0, high: 0, pending: 0 }
+      );
+
+      const reviewTypeLabel = reviewType;
+      const topic = query || "the research topic";
+
+      const relatedWorksBlock = papersForSynthesis.slice(0, 8).map((p, i) => {
+        const limitation = p.outcome
+          ? `The study focused on ${p.outcome.toLowerCase()}, leaving broader contextual factors unexamined.`
+          : "The scope was limited, and generalizability to broader populations remains uncertain.";
+        return `${i + 1}. ${p.authors} (${p.year}). *${p.title}*. ${p.studyType || "Study type not specified"}. ${limitation}`;
+      }).join("\n\n");
+
+      const methodologyParagraph = isMeta
+        ? `The present ${reviewTypeLabel.toLowerCase()} employed a structured evidence-synthesis methodology. The approach combined systematic database searching, duplicate screening, structured data extraction, per-domain risk-of-bias assessment using ${robLabel}, and random-effects meta-analysis where feasible. This design differs from prior reviews by integrating robvis-standardized domain-level bias judgments with GRADE certainty assessment, enabling transparent quantification of both within-study bias and between-study heterogeneity. Key methods included PICO-framed search strategies, PRISMA 2020-compliant reporting, and forest-plot-ready effect-size extraction compatible with metafor, meta, and forestplot.`
+        : `The present ${reviewTypeLabel.toLowerCase()} employed a structured evidence-synthesis methodology. The approach combined systematic database searching, duplicate screening, and structured data extraction. Risk-of-bias assessment was conducted using ${robLabel}, and findings were synthesized narratively following awesome-evidence-synthesis guidance. This design emphasizes transparent reproducibility, PRISMA 2020-aligned reporting, and thematic mapping of the evidence base.`;
+
+      const resultsOverview = papersForSynthesis.length > 0
+        ? `The evidence base comprised ${papersForSynthesis.length} studies (${yearMin}–${yearMax}) encompassing ${studyTypes.join(", ").toLowerCase() || "mixed study designs"}. Pooled or narrative findings indicate [direction of effect] for [outcome]. Heterogeneity was assessed via I² and τ²; ${robSummary.high} studies were rated at high risk of bias. The overall certainty of evidence was rated as ${"moderate"} following GRADE criteria.`
+        : "No studies met the inclusion criteria.";
+
+      const discussionImplications = isMeta
+        ? "The meta-analytic estimate should be interpreted alongside the GRADE certainty assessment and robvis domain-level judgments. High risk-of-bias studies may overestimate effects; sensitivity analyses excluding these studies are recommended. Findings align with prior evidence in [field], though methodological differences preclude direct comparison. Limitations include potential publication bias and varying follow-up periods."
+        : "Narrative findings should be interpreted in light of the methodological quality of included studies. The review followed PRISMA 2020 and robvis methodology; however, heterogeneity in study designs limits statistical pooling. Findings are consistent with prior reviews in [field] but highlight unresolved gaps. Limitations include restricted database coverage and potential selection bias.";
+
+      const conclusionPara1 = `This ${reviewTypeLabel.toLowerCase()} synthesized evidence from ${included} studies examining ${topic}. The findings indicate [summary of main result]. Methodological quality varied across studies, with ${robSummary.low} rated low risk, ${robSummary.some} some/moderate concerns, and ${robSummary.high} at high risk of bias. ${isMeta ? "The pooled effect estimate provides a quantitative synthesis that should inform [clinical/policy] decision-making." : "The narrative synthesis maps the current state of evidence and identifies priorities for future inquiry."}`;
+
+      const conclusionPara2 = `Future research should address [specific gaps], employ standardized outcome measures, and report effect sizes with confidence intervals. Prospective registration and open-access data sharing are recommended to enhance reproducibility. ${isMeta ? "Network meta-analysis and individual patient data synthesis may clarify treatment effects across heterogeneous populations." : "Scoping and systematic review updates are warranted as new evidence emerges."}`;
+
+      const figurePlaceholders = isMeta
+        ? `\\begin{figure*}[ht]\n  \\centering\n  \\includegraphics[width=\\textwidth]{forest_plot}\n  \\caption{Forest plot of pooled effect estimates.}\n\\end{figure*}\n\n\\begin{figure}[ht]\n  \\centering\n  \\includegraphics[width=0.5\\textwidth]{funnel_plot}\n  \\caption{Funnel plot assessing publication bias.}\n\\end{figure}\n\n\\begin{figure}[ht]\n  \\centering\n  \\includegraphics[width=0.5\\textwidth]{robvis_traffic_light}\n  \\caption{Risk-of-bias traffic-light plot (${robLabel}).}\n\\end{figure}`
+        : `\\begin{figure}[ht]\n  \\centering\n  \\includegraphics[width=0.5\\textwidth]{robvis_traffic_light}\n  \\caption{Risk-of-bias traffic-light plot (${robLabel}).}\n\\end{figure}`;
+
+      const manuscript = `# ${reviewTypeLabel}: ${topic}
+
+## Title Page
+**Manuscript type:** ${reviewTypeLabel}
+**Topic:** ${topic}
+**Date:** ${new Date().toISOString().split("T")[0]}
+**PRISMA 2020 compliant:** Yes
+**Registration:** Not applicable / PROSPERO CRDXXXXXXXX
+
+---
+
+## Abstract
+
+The ${reviewTypeLabel.toLowerCase()} examined ${topic}. A systematic search of ${databases.join(", ") || selectedDbs.join(", ")} identified ${totalRecords} records, yielding ${included} studies for synthesis. ${isMeta ? "A random-effects meta-analysis was performed using metafor (R)." : "A narrative synthesis was conducted following awesome-evidence-synthesis principles."} ${robSummary.low} studies demonstrated low risk of bias, ${robSummary.some} some concerns, and ${robSummary.high} high risk. The pooled ${isMeta ? "estimate (not yet computed)" : "thematic findings"} suggests [direction] for [outcome]. These findings should be interpreted alongside the GRADE certainty assessment and PRISMA 2020 reporting standards. Results highlight [key implication] and recommend [action].
+
+**Keywords:** ${[topic, reviewTypeLabel.toLowerCase(), ...studyTypes].sort().join(", ")}, evidence synthesis, PRISMA 2020, GRADE, robvis
+
+---
+
+## 1. Introduction
+
+### 1.1 Background and Context
+${topic} represents an important area of [field]. Despite existing research, key questions remain unanswered regarding [specific gap]. Prior reviews have synthesized evidence on related topics, yet methodological limitations reduce confidence in current conclusions.
+
+### 1.2 Rationale
+This ${reviewTypeLabel.toLowerCase()} was conducted to address the evidence gap identified above. The problem/gap/hook heuristic guides the narrative: the problem is [state problem], the gap is [identify missing evidence], and the hook is [explain why this review matters now].
+
+### 1.3 Objectives
+The primary objective was to synthesize evidence on ${topic}. Secondary objectives included assessing risk of bias, evaluating certainty of evidence via GRADE, and mapping heterogeneity across study designs.
+
+---
+
+## 2. Related Works
+
+${relatedWorksBlock.replace(/\n\n/g, "\n\n")}
+
+**Overall limitation:** Existing reviews typically lack standardized risk-of-bias assessment, GRADE certainty ratings, and PRISMA 2020-compliant reporting. None integrate robvis-domain-level judgments with meta-analytic pooling, limiting interpretability of bias patterns.
+
+---
+
+## 3. Proposed System Design
+
+### 3.1 Methodological Approach
+${methodologyParagraph}
+
+### 3.2 Rationale for Methods
+The selected methods align with the review objectives. Systematic searching ensures comprehensive coverage; duplicate screening minimizes selection bias; robvis-domain assessments provide granular bias profiles; and ${isMeta ? "random-effects meta-analysis accounts for expected between-study heterogeneity." : "narrative synthesis captures diverse evidence without inappropriate statistical pooling."}
+
+### 3.3 Quality Assurance
+Inter-rater reliability was calculated using Cohen's kappa (κ). Discrepancies were resolved by consensus or third-reviewer adjudication. The data extraction template was piloted on a subset of studies.
+
+---
+
+## 4. Results and Discussions
+
+### 4.1 Experimental / Synthesis Results
+${resultsOverview}
+
+${figurePlaceholders}
+
+### 4.2 Discussion of Findings
+${discussionImplications}
+
+The pooled or narrative findings extend prior work by [specific contribution]. ${isMeta ? "Statistical heterogeneity (I² = XX%) informed subgroup analyses." : "Thematic mapping revealed consistent patterns across study designs."} The GRADE assessment rated the certainty of evidence as [moderate], primarily downgraded for risk of bias and inconsistency.
+
+---
+
+## 5. Conclusion
+
+${conclusionPara1}
+
+${conclusionPara2}
+
+---
+
+## References
+
+Arrange in order of appearance: Introduction → Related Works → Methods → Results.
+
+1. Page MJ, McKenzie JE, Bossuyt PM, et al. The PRISMA 2020 statement. *BMJ*. 2021;372:n71.
+2. [Add references from Related Works in citation order...]
+3. [Continue adding references as cited...]
+
+---
+
+## Supplementary Materials
+
+- **Table S1.** Search strategies by database
+- **Table S2.** Excluded studies with reasons for exclusion
+- **Table S3.** Data extraction template
+- **Figure S1.** robvis traffic-light plot (${robLabel})
+- **Figure S2.** Funnel plot (if meta-analysis)
+- **Figure S3.** Forest plot (if meta-analysis)
+- **GRADE evidence profile** (if applicable)
+
+---
+
+## Email Templates
+
+### Template 1 — Request to Accept the Research Paper
+
+**From**  
+[Author Name],  
+Department of [Department],  
+[Institution],  
+[Address].
+
+**To,**  
+The Reviewers,  
+[Conference Name],  
+[Conference Location]
+
+Respected Sir/Madam,
+
+Subject: Requesting acceptance of the research paper titled "[Title]"
+
+With reference to the above subject, the manuscript has been prepared in accordance with the conference formatting guidelines. All figures, tables, captions, margins, fonts, and references have been verified. The manuscript is attached for kind consideration. The authors look forward to receiving the reviewers' feedback at the earliest.
+
+Thank you.
+
+Yours sincerely,  
+[Author Name]  
+[Department, Institution, Address]  
+Mobile: [Number]
+
+---
+
+### Template 2 — Submission of Final Paper, Copyright Form & Payment Proof
+
+**From**  
+[Author Name],  
+Department of [Department],  
+[Institution],  
+[Address].
+
+**To,**  
+The Reviewers,  
+[Conference Name],  
+[Conference Location]
+
+Respected Sir/Madam,
+
+Subject: Submission of Final Paper, Copyright Form & Payment Proof — Manuscript ID: [ID]
+
+The final revised manuscript, copyright transfer form, and payment proof are attached. All formatting requirements, including author name section, section headings, subheadings, margins, font styles, line spacing, figure/table captions, and references, have been verified. Kindly acknowledge receipt.
+
+Thank you.
+
+Yours sincerely,  
+[Author Name]  
+[Department, Institution, Address]  
+Mobile: [Number]
+
+---
+
+### Template 3 — Voice-Over Presentation Submission
+
+**From**  
+[Author Name],  
+Department of [Department],  
+[Institution],  
+[Address].
+
+**To,**  
+The Reviewers,  
+[Conference Name],  
+[Conference Location]
+
+Respected Sir/Madam,
+
+Subject: Voice-Over PPT Submission — Manuscript ID: [ID]
+
+The paper titled "[Title]" (Manuscript ID: [ID]) has been accepted. Due to scheduling conflicts, the authors are unable to present live. A voice-recorded presentation is attached for the conference program. Kindly confirm receipt.
+
+Thank you.
+
+Yours sincerely,  
+[Author Name]  
+[Department, Institution, Address]  
+Mobile: [Number]
+
+---
+
+*Manuscript drafted using the Research Paper Template (a3X3k/gist) and aligned with UNMC literature review types, Dagher & Khan (2025) systematic review guidance, awesome-evidence-synthesis workflow standards, and PRISMA 2020 reporting. Authors must verify extracted data, complete effect-size calculations in statistical software (metafor/meta/forestplot), confirm GRADE ratings, and ensure <15% similarity via proper citation before submission.*
+`;
+
+      setManuscript(manuscript);
+    } catch (err: any) {
+      setManuscript(`# Error\n\n**Failed to generate manuscript:** ${err.message || "Unknown error"}\n\nPlease complete Steps 1–5 and try again.`);
+    } finally {
+      setManuscriptLoading(false);
+    }
+  };
+
+  const downloadManuscript = () => {
+    if (!manuscript) return;
+    const blob = new Blob([manuscript], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `manuscript-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   const prismaCounts = {
@@ -1643,8 +1924,12 @@ OUTPUT FORMAT:
                 </div>
               )}
             </div>
-            <div className="flex justify-end">
-              <button onClick={() => { setPipelineStep(1); setPapers([]); setSelectedPaperIds(new Set()); setExtractedData([]); setSynthesisOutput(""); setEffectSizes([]); setRobAssessments({}); setSynthesisInstructions(""); setReviewRequirements(""); }} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setPipelineStep(6)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
+                Proceed to Writing & Meta-analysis
+                <PenTool size={16} />
+              </button>
+              <button onClick={() => { setPipelineStep(1); setPapers([]); setSelectedPaperIds(new Set()); setExtractedData([]); setSynthesisOutput(""); setEffectSizes([]); setRobAssessments({}); setSynthesisInstructions(""); setReviewRequirements(""); setManuscript(""); }} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
                 Start New Review
                 <RotateCcw size={16} />
               </button>
