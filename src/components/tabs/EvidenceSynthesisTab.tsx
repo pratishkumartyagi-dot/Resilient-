@@ -5,11 +5,15 @@ import {
   Search, Database, ChevronRight, FileText,
   RotateCcw, CheckCircle2, ExternalLink, FlaskConical,
   Save, Sparkles, ClipboardList, Table, Download,
-  BarChart3, FileJson
+  FileJson, BarChart3
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callDeepSeek, callGemini, callOpenRouter } from "@/lib/ai";
 import { fetchRealPapers, generateMockLegacy, type Paper } from "@/lib/database-apis";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  Legend
+} from "recharts";
 
 const SR_DATABASES = [
   "PubMed", "OpenAlex", "Europe PMC", "Google Scholar",
@@ -36,10 +40,166 @@ const REVIEW_TYPES = [
   "Diagnostic Test Accuracy Review",
 ];
 
-interface RobAssessment {
-  rob: string;
-  notes: string;
+interface DomainJudgment {
+  judgment: string;
 }
+
+interface RobAssessment {
+  tool: string;
+  overall: string;
+  notes: string;
+  domains: Record<string, DomainJudgment>;
+}
+
+interface RobToolTemplate {
+  id: string;
+  label: string;
+  domains: { id: string; label: string }[];
+  judgments: string[];
+  overallDefault: string;
+}
+
+const ROB_TOOL_TEMPLATES: RobToolTemplate[] = [
+  {
+    id: "ROB2",
+    label: "Cochrane RoB 2.0",
+    domains: [
+      { id: "D1", label: "Bias arising from the randomization process" },
+      { id: "D2", label: "Bias due to deviations from intended interventions" },
+      { id: "D3", label: "Bias due to missing outcome data" },
+      { id: "D4", label: "Bias in measurement of the outcome" },
+      { id: "D5", label: "Bias in selection of the reported result" },
+    ],
+    judgments: ["Low risk of bias", "Some concerns", "High risk of bias", "No information"],
+    overallDefault: "Some concerns",
+  },
+  {
+    id: "ROB2-Cluster",
+    label: "RoB 2.0 (Cluster RCTs)",
+    domains: [
+      { id: "D1a", label: "Bias arising from the randomization process" },
+      { id: "D1b", label: "Bias in cluster identification" },
+      { id: "D2", label: "Bias due to deviations from intended interventions" },
+      { id: "D3", label: "Bias due to missing outcome data" },
+      { id: "D4", label: "Bias in measurement of the outcome" },
+      { id: "D5", label: "Bias in selection of the reported result" },
+    ],
+    judgments: ["Low risk of bias", "Some concerns", "High risk of bias", "No information", "Not applicable"],
+    overallDefault: "Some concerns",
+  },
+  {
+    id: "ROBINS-I",
+    label: "ROBINS-I (Non-randomized)",
+    domains: [
+      { id: "D1", label: "Confounding" },
+      { id: "D2", label: "Selection of participants" },
+      { id: "D3", label: "Classification of interventions" },
+      { id: "D4", label: "Deviations from intended interventions" },
+      { id: "D5", label: "Missing data" },
+      { id: "D6", label: "Measurement of outcomes" },
+      { id: "D7", label: "Selection of the reported result" },
+    ],
+    judgments: ["Low risk of bias", "Moderate", "Serious", "Critical", "No information"],
+    overallDefault: "Serious",
+  },
+  {
+    id: "ROBINS-E",
+    label: "ROBINS-E (Environmental/Non-RCT)",
+    domains: [
+      { id: "D1", label: "Confounding" },
+      { id: "D2", label: "Selection of participants into the study" },
+      { id: "D3", label: "Classification of interventions/exposures" },
+      { id: "D4", label: "Deviations from intended interventions" },
+      { id: "D5", label: "Missing data" },
+      { id: "D6", label: "Measurement of outcomes" },
+      { id: "D7", label: "Selection of the reported result" },
+    ],
+    judgments: ["Low risk of bias", "Some concerns", "High", "Very high", "No information"],
+    overallDefault: "High",
+  },
+  {
+    id: "QUADAS-2",
+    label: "QUADAS-2 (Diagnostic Test Accuracy)",
+    domains: [
+      { id: "D1", label: "Patient selection" },
+      { id: "D2", label: "Index test" },
+      { id: "D3", label: "Reference standard" },
+      { id: "D4", label: "Flow and timing" },
+    ],
+    judgments: ["Low risk of bias", "Some concerns", "High risk of bias", "No information"],
+    overallDefault: "Some concerns",
+  },
+  {
+    id: "QUIPS",
+    label: "QUIPS (Prognostic Studies)",
+    domains: [
+      { id: "D1", label: "Study participation" },
+      { id: "D2", label: "Study attrition" },
+      { id: "D3", label: "Prognostic factor measurement" },
+      { id: "D4", label: "Outcome measurement" },
+      { id: "D5", label: "Confounding measurement and account" },
+      { id: "D6", label: "Analysis and reporting" },
+    ],
+    judgments: ["Low risk of bias", "Moderate", "High risk of bias", "No information"],
+    overallDefault: "Moderate",
+  },
+  {
+    id: "Generic",
+    label: "Generic",
+    domains: [
+      { id: "D1", label: "Domain 1" },
+      { id: "D2", label: "Domain 2" },
+      { id: "D3", label: "Domain 3" },
+      { id: "D4", label: "Domain 4" },
+      { id: "D5", label: "Domain 5" },
+    ],
+    judgments: ["Critical", "High", "Unclear", "Some concerns", "Moderate", "Low", "No information", "Not applicable"],
+    overallDefault: "Unclear",
+  },
+];
+
+const ROB_JUDGMENT_COLORS: Record<string, Record<string, string>> = {
+  cochrane: {
+    "Low risk of bias": "#02C100",
+    "Some concerns": "#E2DF07",
+    "High risk of bias": "#BF0000",
+    "No information": "#4EA1F7",
+    "Low": "#02C100",
+    "Moderate": "#E2DF07",
+    "Serious": "#d95f0e",
+    "Critical": "#993404",
+    "Very high": "#820000",
+    "Unclear": "#E2DF07",
+    "Not applicable": "#cccccc",
+  },
+  colourblind: {
+    "Low risk of bias": "#4d9221",
+    "Some concerns": "#e66101",
+    "High risk of bias": "#e7298a",
+    "No information": "#7570b3",
+    "Low": "#4d9221",
+    "Moderate": "#e66101",
+    "Serious": "#d95f0e",
+    "Critical": "#993404",
+    "Very high": "#820000",
+    "Unclear": "#e66101",
+    "Not applicable": "#cccccc",
+  },
+};
+
+const ROB_DOMAIN_COLORS: Record<string, string> = {
+  "Low risk of bias": "#02C100",
+  "Some concerns": "#E2DF07",
+  "High risk of bias": "#BF0000",
+  "No information": "#4EA1F7",
+  "Moderate": "#e66101",
+  "Serious": "#d95f0e",
+  "Critical": "#993404",
+  "Very high": "#820000",
+  "Unclear": "#E2DF07",
+  "Not applicable": "#cccccc",
+  "Low": "#02C100",
+};
 
 export default function EvidenceSynthesisTab() {
   const { state } = useApp();
@@ -51,6 +211,7 @@ export default function EvidenceSynthesisTab() {
   const [loading, setLoading] = useState(false);
   const [extractedData, setExtractedData] = useState<any[]>([]);
   const [robAssessments, setRobAssessments] = useState<Record<string, RobAssessment>>({});
+  const [robTool, setRobTool] = useState<string>("ROB2");
   const [robInstructions, setRobInstructions] = useState("");
   const [synthesisInstructions, setSynthesisInstructions] = useState("");
   const [synthesisOutput, setSynthesisOutput] = useState("");
@@ -113,8 +274,114 @@ export default function EvidenceSynthesisTab() {
 
   const displayPapers = getFilteredPapers();
 
+  const getRobToolTemplate = (): RobToolTemplate | undefined => {
+    return ROB_TOOL_TEMPLATES.find((t) => t.id === robTool);
+  };
+
+  const getRobJudgmentColor = (judgment: string): string => {
+    return ROB_DOMAIN_COLORS[judgment] || "#4EA1F7";
+  };
+
+  const initRobAssessment = (id: string): RobAssessment => {
+    const template = getRobToolTemplate();
+    if (!template) {
+      return { tool: robTool, overall: "Unclear", notes: "", domains: {} };
+    }
+    const domains: Record<string, DomainJudgment> = {};
+    template.domains.forEach((d) => {
+      domains[d.id] = { judgment: "No information" };
+    });
+    return { tool: robTool, overall: template.overallDefault, notes: "", domains };
+  };
+
+  const updateRobDomain = (paperId: string, domainId: string, judgment: string) => {
+    setRobAssessments((prev) => {
+      const existing = prev[paperId];
+      if (!existing) return prev;
+      return {
+        ...prev,
+        [paperId]: {
+          ...existing,
+          domains: { ...existing.domains, [domainId]: { judgment } },
+        },
+      };
+    });
+  };
+
+  const updateRobOverall = (paperId: string, overall: string) => {
+    setRobAssessments((prev) => {
+      const existing = prev[paperId];
+      if (!existing) return prev;
+      return { ...prev, [paperId]: { ...existing, overall } };
+    });
+  };
+
+  const updateRobNotes = (paperId: string, notes: string) => {
+    setRobAssessments((prev) => {
+      const existing = prev[paperId];
+      if (!existing) return prev;
+      return { ...prev, [paperId]: { ...existing, notes } };
+    });
+  };
+
+  const getRobJudgmentForPaper = (paperId: string, domainId: string): string => {
+    const a = robAssessments[paperId];
+    if (!a) return "No information";
+    if (domainId === "Overall") return a.overall || "Pending";
+    return a.domains[domainId]?.judgment || "No information";
+  };
+
+  const robCounts = extractedData.reduce(
+    (acc: { low: number; some: number; high: number; pending: number; moderate: number; serious: number; critical: number; veryHigh: number; unclear: number }, row) => {
+      const template = getRobToolTemplate();
+      if (!template) return acc;
+      template.domains.forEach((d) => {
+        const j = getRobJudgmentForPaper(row.id, d.id);
+        const jl = j.toLowerCase();
+        if (jl.includes("no information")) acc.pending += 1;
+        else if (jl.includes("low risk of bias") || jl === "low") acc.low += 1;
+        else if (jl.includes("some concerns") || jl.includes("unclear") || jl === "moderate") acc.some += 1;
+        else if (jl.includes("high risk of bias") || jl.includes("high") && !jl.includes("very")) acc.high += 1;
+        else if (jl.includes("very high")) acc.veryHigh += 1;
+        else if (jl.includes("critical")) acc.critical += 1;
+        else if (jl.includes("moderate")) acc.moderate += 1;
+        else if (jl.includes("serious")) acc.serious += 1;
+      });
+      return acc;
+    },
+    { low: 0, some: 0, high: 0, pending: 0, moderate: 0, serious: 0, critical: 0, veryHigh: 0, unclear: 0 }
+  );
+
+  const getRobSummaryData = () => {
+    const template = getRobToolTemplate();
+    if (!template || extractedData.length === 0) return [];
+    return [
+      { name: "Overall", ...Object.fromEntries(template.domains.map((d) => {
+        const counts: Record<string, number> = { low: 0, some: 0, high: 0, pending: 0 };
+        extractedData.forEach((row) => {
+          const j = getRobJudgmentForPaper(row.id, "Overall");
+          const jl = j.toLowerCase();
+          if (jl.includes("no information")) counts.pending += 1;
+          else if (jl.includes("low risk of bias") || jl === "low") counts.low += 1;
+          else if (jl.includes("some concerns") || jl.includes("unclear") || jl === "moderate" || jl === "serious") counts.some += 1;
+          else if (jl.includes("high risk of bias") || jl.includes("high") || jl.includes("very high") || jl.includes("critical")) counts.high += 1;
+        });
+        return [d.id, counts];
+      })) },
+    ];
+  };
+
+  const saveRobAssessments = () => {
+    alert("Risk of Bias assessments saved locally.");
+  };
+
   const runExtraction = () => {
     const selected = papers.filter((p) => selectedPaperIds.has(p.id));
+    const assessments: Record<string, RobAssessment> = {};
+    selected.forEach((p) => {
+      assessments[p.id] = initRobAssessment(p.id);
+    });
+    setRobAssessments(assessments);
     setExtractedData(
       selected.map((p) => ({
         id: p.id,
@@ -126,30 +393,21 @@ export default function EvidenceSynthesisTab() {
         population: "Extracted from abstract",
         intervention: "Extracted from abstract",
         outcome: "Extracted from abstract",
-        ROB: "Low / Some concerns / High — pending assessment",
+        ROB: "Pending — assess in Step 3",
       }))
     );
     setPipelineStep(3);
   };
 
   const updateRobAssessment = (id: string, field: keyof RobAssessment, value: string) => {
-    setRobAssessments((prev) => ({
-      ...prev,
-      [id]: { ...prev[id], [field]: value },
-    }));
-  };
-
-  const saveRobAssessments = () => {
-    const updated = extractedData.map((row) => {
-      const assessment = robAssessments[row.id];
+    setRobAssessments((prev) => {
+      const existing = prev[id];
+      if (!existing) return prev;
       return {
-        ...row,
-        ROB: assessment?.rob || row.ROB,
-        notes: assessment?.notes || "",
+        ...prev,
+        [id]: { ...existing, [field]: value },
       };
     });
-    setExtractedData(updated);
-    alert("Risk of Bias assessments saved.");
   };
 
   const generateSynthesis = async () => {
@@ -262,18 +520,6 @@ OUTPUT FORMAT:
     });
   };
 
-  const robCounts = extractedData.reduce(
-    (acc, row) => {
-      const rob = robAssessments[row.id]?.rob || row.ROB || "Pending";
-      if (rob.toLowerCase().includes("low")) acc.low += 1;
-      else if (rob.toLowerCase().includes("some") || rob.toLowerCase().includes("concerns")) acc.some += 1;
-      else if (rob.toLowerCase().includes("high")) acc.high += 1;
-      else acc.pending += 1;
-      return acc;
-    },
-    { low: 0, some: 0, high: 0, pending: 0 }
-  );
-
   const prismaCounts = {
     identification: papers.length,
     deduped: Math.max(papers.length - Math.floor(papers.length * 0.15), selectedPaperIds.size + Math.floor(selectedPaperIds.size * 0.1)),
@@ -305,15 +551,22 @@ OUTPUT FORMAT:
   };
 
   const downloadRobCsv = () => {
+    const template = getRobToolTemplate();
+    const domainCols = template ? template.domains.map((d) => d.id) : [];
+    const header = ["Study", "Title", "Year", ...domainCols, "Overall", "Notes"];
     const rows = [
-      ["Study", "Title", "Year", "Risk of Bias", "Notes"],
-      ...extractedData.map((row) => [
-        row.id,
-        row.title,
-        row.year,
-        robAssessments[row.id]?.rob || row.ROB || "Pending",
-        robAssessments[row.id]?.notes || "",
-      ]),
+      header,
+      ...extractedData.map((row) => {
+        const a = robAssessments[row.id];
+        return [
+          row.id,
+          row.title,
+          row.year,
+          ...domainCols.map((d) => a?.domains[d]?.judgment || "No information"),
+          a?.overall || "Pending",
+          a?.notes || "",
+        ];
+      }),
     ];
     const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -590,62 +843,141 @@ OUTPUT FORMAT:
                 <h3 className="text-lg font-bold text-white">Risk of Bias Assessment</h3>
               </div>
               <p className="text-sm text-blue-300 mb-4">
-                Supported by tooling from <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a>. Use <em>robvis</em> for traffic-light plots, <em>RoB2</em>/<em>ROBINS-I</em>/<em>QUADAS-2</em> templates. Add your instructions and notes below.
+                Aligned with <a href="https://github.com/mcguinlu/robvis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">robvis</a> / <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a>. Select your assessment tool, then rate each domain per study.
               </p>
 
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-blue-200 mb-2">Overall RoB Assessment Instructions</label>
-                <textarea
-                  value={robInstructions}
-                  onChange={(e) => setRobInstructions(e.target.value)}
-                  placeholder="e.g., Focus on blinding and allocation concealment for RCTs; use ROBINS-I for non-randomized studies..."
-                  className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-3 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 min-h-[80px]"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-sm font-medium text-blue-200 mb-2">Assessment Tool</label>
+                  <select
+                    value={robTool}
+                    onChange={(e) => setRobTool(e.target.value)}
+                    className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                  >
+                    {ROB_TOOL_TEMPLATES.map((t) => (
+                      <option key={t.id} value={t.id}>{t.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-blue-200 mb-2">Assessor Instructions</label>
+                  <textarea
+                    value={robInstructions}
+                    onChange={(e) => setRobInstructions(e.target.value)}
+                    placeholder="e.g., use ROB2 for RCTs, ROBINS-I for quasi-experimental; focus on blinding and allocation concealment..."
+                    className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-3 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 min-h-[60px]"
+                  />
+                </div>
               </div>
 
-              <div className="space-y-3 mb-4">
-                {extractedData.map((row) => (
-                  <div key={row.id} className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
-                    <p className="text-xs text-blue-200 truncate mb-1 font-medium">{row.title}</p>
-                    <p className="text-[10px] text-blue-400 mb-3">{row.authors} ({row.year})</p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-[10px] text-blue-300 mb-1">Risk of Bias</label>
-                        <select
-                          value={robAssessments[row.id]?.rob || ""}
-                          onChange={(e) => updateRobAssessment(row.id, "rob", e.target.value)}
-                          className="w-full bg-blue-950 border border-blue-800 text-white rounded px-2 py-1.5 text-xs"
-                        >
-                          <option value="">Select...</option>
-                          <option value="Low risk of bias">Low risk of bias</option>
-                          <option value="Some concerns">Some concerns</option>
-                          <option value="High risk of bias">High risk of bias</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-[10px] text-blue-300 mb-1">Assessor Notes</label>
-                        <input
-                          type="text"
-                          value={robAssessments[row.id]?.notes || ""}
-                          onChange={(e) => updateRobAssessment(row.id, "notes", e.target.value)}
-                          placeholder="e.g., No blinding reported..."
-                          className="w-full bg-blue-950 border border-blue-800 text-white rounded px-2 py-1.5 text-xs placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                        />
-                      </div>
-                    </div>
+              {(() => {
+                const template = getRobToolTemplate();
+                if (!template) return null;
+                return (
+                  <div className="mb-4 overflow-x-auto">
+                    <table className="w-full border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-blue-900/60 text-left">
+                          <th className="border border-blue-800 px-3 py-2 text-yellow-200 sticky left-0 bg-blue-900/90 z-10">Study</th>
+                          {template.domains.map((d) => (
+                            <th key={d.id} className="border border-blue-800 px-2 py-2 text-yellow-200 min-w-[100px]" title={d.label}>
+                              {d.id}
+                            </th>
+                          ))}
+                          <th className="border border-blue-800 px-2 py-2 text-yellow-200 min-w-[100px]">Overall</th>
+                          <th className="border border-blue-800 px-2 py-2 text-yellow-200 min-w-[120px]">Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {extractedData.map((row) => {
+                          const assessment = robAssessments[row.id];
+                          if (!assessment) return null;
+                          return (
+                            <tr key={row.id} className="hover:bg-blue-900/20">
+                              <td className="border border-blue-800 px-3 py-2 text-blue-100">
+                                <span className="truncate block max-w-[200px]" title={row.title}>{row.title}</span>
+                                <span className="text-[10px] text-blue-400">{row.authors} ({row.year})</span>
+                              </td>
+                              {template.domains.map((d) => {
+                                const judgment = assessment.domains[d.id]?.judgment || "No information";
+                                return (
+                                  <td key={d.id} className="border border-blue-800 px-1 py-1.5 text-center">
+                                    <span
+                                      className="block rounded-sm cursor-pointer"
+                                      style={{
+                                        backgroundColor: getRobJudgmentColor(judgment),
+                                        opacity: judgment === "No information" ? 0.5 : 1,
+                                        width: 28,
+                                        height: 18,
+                                        margin: "0 auto",
+                                      }}
+                                      title={`${d.id}: ${judgment}`}
+                                    />
+                                    <select
+                                      value={judgment}
+                                      onChange={(e) => updateRobDomain(row.id, d.id, e.target.value)}
+                                      className="mt-1 bg-blue-950 border border-blue-700 text-white rounded px-1 py-0.5 w-full text-[10px] focus:outline-none focus:ring-1 focus:ring-yellow-500"
+                                    >
+                                      {template.judgments.map((j) => (
+                                        <option key={j} value={j}>{j}</option>
+                                      ))}
+                                    </select>
+                                  </td>
+                                );
+                              })}
+                              <td className="border border-blue-800 px-1 py-1.5 text-center">
+                                <select
+                                  value={assessment.overall}
+                                  onChange={(e) => updateRobOverall(row.id, e.target.value)}
+                                  className="bg-blue-950 border border-blue-700 text-white rounded px-1 py-1 w-full text-xs focus:outline-none focus:ring-1 focus:ring-yellow-500"
+                                >
+                                  {template.judgments.map((j) => (
+                                    <option key={j} value={j}>{j}</option>
+                                  ))}
+                                </select>
+                                <span
+                                  className="block rounded-sm mt-1"
+                                  style={{
+                                    backgroundColor: getRobJudgmentColor(assessment.overall),
+                                    width: 28,
+                                    height: 18,
+                                    margin: "0 auto",
+                                  }}
+                                  title={`Overall: ${assessment.overall}`}
+                                />
+                              </td>
+                              <td className="border border-blue-800 px-1 py-1.5">
+                                <input
+                                  type="text"
+                                  value={assessment.notes}
+                                  onChange={(e) => updateRobNotes(row.id, e.target.value)}
+                                  placeholder="Notes..."
+                                  className="bg-blue-950 border border-blue-700 text-white rounded px-1 py-1 w-full text-[10px] placeholder:text-blue-500 focus:outline-none focus:ring-1 focus:ring-yellow-500"
+                                />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
-                ))}
-              </div>
+                );
+              })()}
 
               <div className="flex items-center justify-between">
-                <button onClick={saveRobAssessments} className="flex items-center gap-2 bg-green-900/50 text-green-300 px-4 py-2 rounded-lg hover:bg-green-900/70 text-sm">
-                  <Save size={14} />
-                  Save Assessments
-                </button>
-                <button onClick={() => setPipelineStep(4)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
-                  Proceed to Synthesis
-                  <ChevronRight size={16} />
-                </button>
+                <div className="text-xs text-blue-400">
+                  {extractedData.length} studies · {(() => { const t = getRobToolTemplate(); return t ? `${t.domains.length} domains` : ''; })()}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={saveRobAssessments} className="flex items-center gap-2 bg-green-900/50 text-green-300 px-4 py-2 rounded-lg hover:bg-green-900/70 text-sm">
+                    <Save size={14} />
+                    Save Assessments
+                  </button>
+                  <button onClick={() => setPipelineStep(4)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
+                    Proceed to Synthesis
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -814,38 +1146,70 @@ OUTPUT FORMAT:
                     <BarChart3 size={14} className="text-yellow-400" />
                     robvis — Risk of Bias Summary
                   </h4>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-green-300 w-24">Low risk</span>
-                      <div className="flex-1 h-4 bg-blue-950 rounded-full overflow-hidden">
-                        <div className="h-full bg-green-500 transition-all" style={{ width: extractedData.length ? `${(robCounts.low / extractedData.length) * 100}%` : "0%" }} />
-                      </div>
-                      <span className="text-[10px] text-blue-300 w-8 text-right">{robCounts.low}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-yellow-300 w-24">Some concerns</span>
-                      <div className="flex-1 h-4 bg-blue-950 rounded-full overflow-hidden">
-                        <div className="h-full bg-yellow-500 transition-all" style={{ width: extractedData.length ? `${(robCounts.some / extractedData.length) * 100}%` : "0%" }} />
-                      </div>
-                      <span className="text-[10px] text-blue-300 w-8 text-right">{robCounts.some}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-red-300 w-24">High risk</span>
-                      <div className="flex-1 h-4 bg-blue-950 rounded-full overflow-hidden">
-                        <div className="h-full bg-red-500 transition-all" style={{ width: extractedData.length ? `${(robCounts.high / extractedData.length) * 100}%` : "0%" }} />
-                      </div>
-                      <span className="text-[10px] text-blue-300 w-8 text-right">{robCounts.high}</span>
-                    </div>
-                    {robCounts.pending > 0 && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-blue-400 w-24">Pending</span>
-                        <div className="flex-1 h-4 bg-blue-950 rounded-full overflow-hidden">
-                          <div className="h-full bg-blue-500 transition-all" style={{ width: extractedData.length ? `${(robCounts.pending / extractedData.length) * 100}%` : "0%" }} />
+                  {(() => {
+                    const template = getRobToolTemplate();
+                    if (!template || extractedData.length === 0) {
+                      return (
+                        <p className="text-xs text-blue-400 py-8 text-center">
+                          Complete assessments in Step 3 to generate a robvis summary.
+                        </p>
+                      );
+                    }
+                    const total = extractedData.length;
+                    const data = template.domains
+                      .map((d) => {
+                        const counts = { low: 0, some: 0, high: 0, noInfo: 0 } as Record<string, number>;
+                        extractedData.forEach((row) => {
+                          const jl = getRobJudgmentForPaper(row.id, d.id).toLowerCase();
+                          if (jl.includes("no information")) counts.noInfo += 1;
+                          else if (jl.includes("low risk of bias") || jl === "low") counts.low += 1;
+                          else if (jl.includes("some concerns") || jl.includes("unclear") || jl === "moderate") counts.some += 1;
+                          else if (jl.includes("high risk of bias") || jl.includes("high") || jl.includes("very high") || jl.includes("critical")) counts.high += 1;
+                          else if (jl.includes("moderate") || jl.includes("serious")) counts.some += 1;
+                        });
+                        return {
+                          name: `${d.id}: ${d.label}`,
+                          Low: counts.low,
+                          SomeConcerns: counts.some,
+                          High: counts.high,
+                          NoInfo: counts.noInfo,
+                        };
+                      })
+                      .concat([{
+                        name: "Overall",
+                        Low: extractedData.filter((r) => { const j = getRobJudgmentForPaper(r.id, "Overall"); const jl = j.toLowerCase(); return jl.includes("low risk of bias") || jl === "low"; }).length,
+                        SomeConcerns: extractedData.filter((r) => { const j = getRobJudgmentForPaper(r.id, "Overall"); const jl = j.toLowerCase(); return jl.includes("some concerns") || jl.includes("unclear") || jl === "moderate" || jl.includes("serious"); }).length,
+                        High: extractedData.filter((r) => { const j = getRobJudgmentForPaper(r.id, "Overall"); const jl = j.toLowerCase(); return jl.includes("high risk of bias") || jl.includes("high") || jl.includes("very high") || jl.includes("critical"); }).length,
+                        NoInfo: extractedData.filter((r) => { const j = getRobJudgmentForPaper(r.id, "Overall"); const jl = j.toLowerCase(); return jl.includes("no information"); }).length,
+                      }]);
+                    const chartHeight = Math.max(150, data.length * 38 + 40);
+                    return (
+                      <div>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3 text-[10px]">
+                          <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: "#02C100" }} /> Low risk</span>
+                          <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: "#E2DF07" }} /> Some concerns</span>
+                          <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: "#BF0000" }} /> High risk</span>
+                          <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: "#4EA1F7" }} /> No information</span>
                         </div>
-                        <span className="text-[10px] text-blue-300 w-8 text-right">{robCounts.pending}</span>
+                        <ResponsiveContainer width="100%" height={chartHeight}>
+                          <BarChart data={data} layout="vertical" margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#1e3a5f" />
+                            <XAxis type="number" stroke="#4ea1f7" tick={{ fontSize: 10 }} allowDecimals={false} />
+                            <YAxis type="category" dataKey="name" stroke="#4ea1f7" tick={{ fontSize: 10, fill: "#93c5fd" }} width={80} />
+                            <Tooltip
+                              contentStyle={{ background: "#0a1530", border: "1px solid #1e3a5f", borderRadius: 8, fontSize: 12 }}
+                              labelStyle={{ color: "#e2e8f0" }}
+                            />
+                            <Legend wrapperStyle={{ fontSize: 10 }} />
+                            <Bar dataKey="Low" stackId="bias" fill="#02C100" radius={[0, 2, 2, 0]} />
+                            <Bar dataKey="SomeConcerns" stackId="bias" fill="#E2DF07" radius={[0, 2, 2, 0]} />
+                            <Bar dataKey="High" stackId="bias" fill="#BF0000" radius={[0, 2, 2, 0]} />
+                            <Bar dataKey="NoInfo" stackId="bias" fill="#4EA1F7" radius={[0, 2, 2, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
                       </div>
-                    )}
-                  </div>
+                    );
+                  })()}
                   <div className="mt-3 flex gap-2">
                     <button onClick={downloadRobCsv} className="flex items-center gap-1 text-[10px] bg-blue-900/50 text-blue-200 px-2 py-1 rounded hover:bg-blue-800/60">
                       <Download size={10} /> CSV
@@ -855,40 +1219,78 @@ OUTPUT FORMAT:
 
                 <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
                   <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-                    <BarChart3 size={14} className="text-yellow-400" />
+                    <Table size={14} className="text-yellow-400" />
                     robvis — Traffic Light Plot
                   </h4>
-                  <div className="overflow-x-auto max-h-[240px] overflow-y-auto">
-                    <table className="w-full border-collapse text-[10px]">
-                      <thead>
-                        <tr className="bg-blue-900/60 text-left">
-                          <th className="border border-blue-800 px-2 py-1 text-yellow-200">Study</th>
-                          <th className="border border-blue-800 px-2 py-1 text-yellow-200">D1</th>
-                          <th className="border border-blue-800 px-2 py-1 text-yellow-200">D2</th>
-                          <th className="border border-blue-800 px-2 py-1 text-yellow-200">D3</th>
-                          <th className="border border-blue-800 px-2 py-1 text-yellow-200">D4</th>
-                          <th className="border border-blue-800 px-2 py-1 text-yellow-200">D5</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {extractedData.map((row, idx) => {
-                          const rob = robAssessments[row.id]?.rob || row.ROB || "Pending";
-                          const color = rob.toLowerCase().includes("low") ? "bg-green-500" : rob.toLowerCase().includes("some") || rob.toLowerCase().includes("concerns") ? "bg-yellow-500" : rob.toLowerCase().includes("high") ? "bg-red-500" : "bg-blue-500";
-                          return (
-                            <tr key={row.id} className="hover:bg-blue-900/20">
-                              <td className="border border-blue-800 px-2 py-1 text-blue-200 truncate max-w-[120px]" title={row.title}>{row.authors} ({row.year})</td>
-                              {["D1","D2","D3","D4","D5"].map((d) => (
-                                <td key={d} className="border border-blue-800 px-2 py-1 text-center">
-                                  <span className={`inline-block w-3 h-3 rounded-sm ${color}`} title={`${d}: ${rob}`} />
-                                </td>
+                  {(() => {
+                    const template = getRobToolTemplate();
+                    if (!template || extractedData.length === 0) {
+                      return (
+                        <p className="text-xs text-blue-400 py-8 text-center">
+                          Complete assessments in Step 3 to generate the robvis traffic light plot.
+                        </p>
+                      );
+                    }
+                    const allColumns = template.domains.map((d) => d.id).concat(["Overall"]);
+                    return (
+                      <div className="overflow-x-auto max-h-[320px] overflow-y-auto">
+                        <table className="w-full border-collapse text-[10px]">
+                          <thead>
+                            <tr className="bg-blue-900/60 text-left sticky top-0">
+                              <th className="border border-blue-800 px-2 py-1.5 text-yellow-200 sticky left-0 bg-blue-900/90 z-10">Study</th>
+                              {template.domains.map((d) => (
+                                <th key={d.id} className="border border-blue-800 px-1 py-1.5 text-yellow-200" title={d.label}>{d.id}</th>
                               ))}
+                              <th className="border border-blue-800 px-1 py-1.5 text-yellow-200">Overall</th>
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                  <p className="text-[9px] text-blue-400 mt-1">D1–D5: bias domain assessments</p>
+                          </thead>
+                          <tbody>
+                            {extractedData.map((row) => {
+                              const assessment = robAssessments[row.id];
+                              if (!assessment) return null;
+                              return (
+                                <tr key={row.id} className="hover:bg-blue-900/20">
+                                  <td className="border border-blue-800 px-2 py-1 text-blue-200 whitespace-nowrap" title={row.title}>
+                                    {row.authors} ({row.year})
+                                  </td>
+                                  {template.domains.map((d) => {
+                                    const judgment = assessment.domains[d.id]?.judgment || "No information";
+                                    const bg = getRobJudgmentColor(judgment);
+                                    const isPending = judgment === "No information";
+                                    return (
+                                      <td
+                                        key={d.id}
+                                        className="border border-blue-800 px-1 py-1 text-center"
+                                        title={`${d.id} (${d.label}): ${judgment}`}
+                                      >
+                                        <span
+                                          className="inline-block rounded-sm"
+                                          style={{ backgroundColor: bg, opacity: isPending ? 0.5 : 1, width: 20, height: 14 }}
+                                        />
+                                      </td>
+                                    );
+                                  })}
+                                  <td className="border border-blue-800 px-1 py-1 text-center">
+                                    <span
+                                      className="inline-block rounded-sm"
+                                      style={{ backgroundColor: getRobJudgmentColor(assessment.overall), width: 20, height: 14 }}
+                                      title={`Overall: ${assessment.overall}`}
+                                    />
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })()}
+                  <p className="text-[9px] text-blue-400 mt-2">
+                    {(() => {
+                      const t = getRobToolTemplate();
+                      return t ? `Reference: ${t.label}` : "";
+                    })()}
+                  </p>
                 </div>
               </div>
 
