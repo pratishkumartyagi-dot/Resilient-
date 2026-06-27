@@ -220,7 +220,16 @@ export default function EvidenceSynthesisTab() {
   const [synthesisLoading, setSynthesisLoading] = useState(false);
   const [manuscript, setManuscript] = useState("");
   const [manuscriptLoading, setManuscriptLoading] = useState(false);
-  const [literatureReview, setLiteratureReview] = useState("");
+  const [literatureReviewSections, setLiteratureReviewSections] = useState({
+    introduction: "",
+    problemGlobal: "",
+    problemSEA: "",
+    problemIndia: "",
+    gaps: "",
+    future: "",
+    conclusion: "",
+    references: "",
+  });
   const [literatureReviewLoading, setLiteratureReviewLoading] = useState(false);
   const [effectSizes, setEffectSizes] = useState<{ study: string; effect: string; ci: string; weight: string }[]>([]);
   const [reviewType, setReviewType] = useState("Systematic Review & Meta-analysis");
