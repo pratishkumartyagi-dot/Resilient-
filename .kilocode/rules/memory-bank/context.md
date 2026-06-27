@@ -284,6 +284,9 @@ The systematic review tab now contains a full 8-step systematic review / meta-an
 - `src/context/AppContext.tsx` — Added `omicsEnabled: boolean` to `AppState`, `TOGGLE_OMICS` reducer action
 - `src/components/tabs/ResilientChatTab.tsx` — Added toggle button, omics-specific response generator, contextual UI styling
 
+### New Tab
+- `src/components/tabs/OmicsBioinformaticsTab.tsx` — Dedicated Omics & Bioinformatics chat tab with file upload support for .docx, .pdf, .txt, .md, .csv, .tsv
+
 ### Capabilities Available in Omics Mode
 - Single-cell RNA-seq: Scanpy QC-to-clustering, scVI-tools batch integration, cell type annotation, spatial transcriptomics
 - Bulk RNA-seq: PyDESeq2, limma/edgeR, DEG screening, volcano/heatmap visualization, batch correction
@@ -293,3 +296,9 @@ The systematic review tab now contains a full 8-step systematic review / meta-an
 - Dimensionality reduction: PCA, UMAP, t-SNE, consensus clustering, KNN imputation
 - Microbiome & other modalities: scikit-bio, FlowIO, pyOpenMS, Neuropixels/Kilosort4
 - All outputs formatted for manuscript figures and methods sections
+
+## Bug Fix — OmicsBioinformaticsTab duplicate declaration (2026-06-27)
+
+- [x] Fixed "createInitialMessages is defined multiple times" build error in `src/components/tabs/OmicsBioinformaticsTab.tsx`
+- [x] Removed orphaned duplicate `createInitialMessages` declaration at module scope (line 42)
+- [x] Kept the single wired declaration at line 99 (used by `useState` and `handleClear`)

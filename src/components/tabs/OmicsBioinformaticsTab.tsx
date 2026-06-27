@@ -39,15 +39,6 @@ const ANALYSIS_TABS: { id: OmicsTab; label: string; icon: React.ElementType; ski
   { id: "microbiome", label: "Microbiome & Others", icon: Bug, skill: "scikit-bio diversity, FlowIO FCS, pyOpenMS, Neuropixels/Kilosort4", skillPath: "awesome-med-research-skills/Data Analysis (microbiome & other modalities)" },
 ];
 
-const createInitialMessages = (): Message[] => [
-  {
-    id: "welcome-omics",
-    role: "assistant",
-    content: `🧬 Welcome to **Omics & Bioinformatics** (powered by [aipoch/medical-research-skills](https://github.com/aipoch/medical-research-skills)).\n\nUpload a document or raw sequencing file, then choose an analysis category below to run a real AIPOCH-aligned workflow.\n\nSupported inputs:\n- **Documents**: .docx, .pdf, .txt, .md\n- **Raw data**: .csv, .tsv (expression matrices, count tables, gene lists)`,
-    timestamp: new Date(),
-  },
-];
-
 function downloadBlob(content: string, filename: string, mime: string) {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
