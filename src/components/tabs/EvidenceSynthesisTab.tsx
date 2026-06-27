@@ -5,7 +5,7 @@ import {
   Search, Database, ChevronRight, FileText,
   RotateCcw, CheckCircle2, ExternalLink, FlaskConical,
   Save, Sparkles, ClipboardList, Table, Download,
-  FileJson, BarChart3, PenTool
+  FileJson, BarChart3, PenTool, BookOpen
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callDeepSeek, callGemini, callOpenRouter } from "@/lib/ai";
@@ -25,9 +25,10 @@ const PIPELINE_STEPS = [
   { num: 1, label: "Search & Screening", icon: Search },
   { num: 2, label: "Data Extraction", icon: FileText },
   { num: 3, label: "Risk of Bias", icon: CheckCircle2 },
-  { num: 4, label: "Synthesis & Meta-analysis", icon: FlaskConical },
-  { num: 5, label: "Reporting & PRISMA", icon: FileText },
-  { num: 6, label: "Writing Review & Meta-analysis", icon: PenTool },
+  { num: 4, label: "Literature Review", icon: BookOpen },
+  { num: 5, label: "Synthesis & Meta-analysis", icon: FlaskConical },
+  { num: 6, label: "Reporting & PRISMA", icon: FileText },
+  { num: 7, label: "Writing Review & Meta-analysis", icon: PenTool },
 ];
 
 const REVIEW_TYPES = [
@@ -219,6 +220,8 @@ export default function EvidenceSynthesisTab() {
   const [synthesisLoading, setSynthesisLoading] = useState(false);
   const [manuscript, setManuscript] = useState("");
   const [manuscriptLoading, setManuscriptLoading] = useState(false);
+  const [literatureReview, setLiteratureReview] = useState("");
+  const [literatureReviewLoading, setLiteratureReviewLoading] = useState(false);
   const [effectSizes, setEffectSizes] = useState<{ study: string; effect: string; ci: string; weight: string }[]>([]);
   const [reviewType, setReviewType] = useState("Systematic Review & Meta-analysis");
   const [reviewRequirements, setReviewRequirements] = useState("");
@@ -582,6 +585,82 @@ ${methodsBlock}\n\n---
 ### Effect Size Summary\n\n| Study | Effect Estimate | 95% CI | Weight |\n|-------|----------------|--------|--------|\n${effectTable}\n\n---
 
 ### Risk of Bias Commentary\n\nUsing **${robLabel}** (robvis), the overall distribution of risk-of-bias judgments across ${papersForSynthesis.length} studies is: Low ${robSummary.low}, Some/Moderate concerns ${robSummary.some}, High/Critical ${robSummary.high}, Pending ${robSummary.pending}. ${robSummary.high > 0 ? "Studies at high risk of bias may overestimate effects; sensitivity analysis excluding these studies is recommended." : "No studies were rated at high risk of bias."} Domain-level traffic-light plots are available in the reporting step.\n\n---\n\n### Gaps and Future Directions\n\n- Unpublished or grey literature not searched in this run.\n- Subgroup analyses and meta-regression should be explored if heterogeneity is high.\n- Certainty of evidence (GRADE) should be formally assessed prior to guideline submission.\n- Sensitivity analysis excluding high-RoB studies recommended for robustness.\n\n> Generated locally using awesome-evidence-synthesis open-source workflow standards. For meta-analysis statistics, export the effect table to **R (metafor/meta)**, **JASP**, or **OpenMEE**.\n`;
+  };
+
+  const generateLiteratureReview = async () => {
+    if (extractedData.length === 0 && selectedPaperIds.size === 0) {
+      alert("Please select papers first.");
+      return;
+    }
+    setLiteratureReviewLoading(true);
+    setLiteratureReview("");
+    try {
+      const selectedPapers = papers.filter((p) => selectedPaperIds.has(p.id));
+      const references = selectedPapers.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.database}.${p.doi ? ` https://doi.org/${p.doi}` : ""}`).join("\n");
+
+      const prompt = `You are an expert academic writer using deep reasoning methodology inspired by janhq/jan (long chain-of-thought reflection). Write a comprehensive, publication-ready narrative literature review based ONLY on the selected studies provided below. Follow this exact structure and headings:
+
+# Introduction / Background
+Provide a thorough contextual overview of the research topic, its significance, and the current landscape. Set the stage for why this review matters.
+
+# Problem Statement
+- **Global:** Describe the scale and burden of the problem at the global level, citing epidemiological data and worldwide trends.
+- **South-East Asia:** Focus on regional patterns, challenges, and specific contexts in South-East Asia.
+- **India:** Narrow down to India-specific situation, policies, epidemiology, infrastructure, and unique challenges.
+
+# Research Gaps
+Critically analyze the selected studies and identify what is missing from the literature. Be specific: mention which subpopulations, settings, methodologies, or outcome measures are understudied.
+
+# Future Studies to Be Carried Out
+Recommend specific, actionable future research directions. What studies are needed? What methodologies, populations, or comparisons would strengthen the evidence base?
+
+# Conclusion
+Synthesize the key takeaways from the entire review. What is the current state of evidence, and what should researchers, clinicians, or policymakers take away from this review?
+
+# References
+You MUST include the following references exactly as listed at the end of your review:
+
+${references}
+
+SELECTED STUDIES (your primary evidence base):
+${selectedPapers.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. Type: ${p.studyType || "Not specified"}. Database: ${p.database}.${p.doi ? ` DOI: ${p.doi}` : ""}`).join("\n\n")}
+
+EXTRACTED DATA:
+${extractedData.filter((p) => selectedPaperIds.has(p.id)).map((p) => `- ${p.title}: ${p.outcome || "Outcome not specified"}`).join("\n")}
+
+DEEP REASONING INSTRUCTIONS (from janhq/jan methodology):
+1. Before drafting each section, think step-by-step about the available evidence.
+2. Explicitly acknowledge uncertainty or conflicting findings rather than smoothing them over.
+3. For each claim, ask: "What evidence actually supports this?" and "What might I be missing?"
+4. Reflect on whether the selected studies adequately represent the global, regional (South-East Asia), and national (India) contexts.
+5. Ensure the narrative flows logically from broad context → specific problem → critical gaps → forward-looking recommendations.
+
+OUTPUT FORMAT:
+Write the full narrative review in clean Markdown. Use the exact headings specified above. Do NOT add extra headings. Aim for 2500–4000 words total.`;
+
+      const apiKey = state.deepseekApiKey || state.geminiApiKey || state.openRouterApiKey;
+      if (!apiKey) {
+        setLiteratureReview(`# Literature Review\n\n**Error:** No API key configured. Please add your DeepSeek, Gemini, or OpenRouter API key in Settings to generate the literature review.\n\n## References\n\n${references}`);
+        setLiteratureReviewLoading(false);
+        return;
+      }
+
+      let text: string;
+      if (state.deepseekApiKey) {
+        text = await callDeepSeek(state.deepseekApiKey, prompt);
+      } else if (state.geminiApiKey) {
+        text = await callGemini(state.geminiApiKey, prompt);
+      } else {
+        text = await callOpenRouter(state.openRouterApiKey!, prompt);
+      }
+
+      const cleaned = text.replace(/```markdown/g, "").replace(/```/g, "").trim();
+      setLiteratureReview(cleaned);
+    } catch (err: any) {
+      setLiteratureReview(`# Literature Review\n\n**Error generating review:** ${err.message || "Unknown error"}\n\nPlease ensure your API key is valid and try again.`);
+    } finally {
+      setLiteratureReviewLoading(false);
+    }
   };
 
   const generateSynthesis = async () => {
@@ -1496,8 +1575,8 @@ Mobile: [Number]
                     Save Assessments
                   </button>
                   <button onClick={() => setPipelineStep(4)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
-                    Proceed to Synthesis
-                    <ChevronRight size={16} />
+                    Proceed to Literature Review
+                    <BookOpen size={16} />
                   </button>
                 </div>
               </div>
@@ -1506,6 +1585,79 @@ Mobile: [Number]
         )}
 
         {pipelineStep === 4 && (
+          <div className="space-y-4">
+            <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <BookOpen size={18} className="text-yellow-400" />
+                <h3 className="text-lg font-bold text-white">Literature Review</h3>
+              </div>
+              <p className="text-xs text-blue-400 mb-4">
+                Generate a structured narrative literature review using deep reasoning (DeepSeek R1). All selected papers are automatically included as references. Navigate through the generated review using the headings below, or regenerate with updated selections.
+              </p>
+
+              <div className="flex flex-wrap items-center gap-3 mb-4">
+                <button
+                  onClick={generateLiteratureReview}
+                  disabled={literatureReviewLoading || (selectedPaperIds.size === 0 && extractedData.length === 0)}
+                  className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
+                >
+                  {literatureReviewLoading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-[#0a1a3a] border-t-transparent rounded-full animate-spin" />
+                      Generating Literature Review...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={16} />
+                      Generate Literature Review
+                    </>
+                  )}
+                </button>
+                <span className="text-xs text-blue-300">
+                  {selectedPaperIds.size} selected papers · {extractedData.length} extracted
+                </span>
+              </div>
+
+              {literatureReview && (
+                <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-5">
+                  <h4 className="text-sm font-bold text-white mb-3">Generated Narrative Review</h4>
+                  <div className="text-blue-100 whitespace-pre-wrap max-h-[700px] overflow-y-auto text-sm leading-relaxed">
+                    {literatureReview.split("\n").map((line, i) => {
+                      if (line.startsWith("# ")) return <h1 key={i} className="text-lg font-bold text-white mt-5 mb-2">{line.slice(2)}</h1>;
+                      if (line.startsWith("## ")) return <h2 key={i} className="text-base font-bold text-yellow-200 mt-4 mb-2 border-b border-blue-800 pb-1">{line.slice(3)}</h2>;
+                      if (line.startsWith("### ")) return <h3 key={i} className="text-sm font-bold text-blue-200 mt-3 mb-1">{line.slice(4)}</h3>;
+                      if (line.startsWith("- **")) return <li key={i} className="text-sm text-blue-100 mb-1 ml-4 list-disc">{line.slice(2)}</li>;
+                      if (line.startsWith("  - ")) return <li key={i} className="text-sm text-blue-100 mb-1 ml-8 list-disc">{line.slice(4)}</li>;
+                      if (line.startsWith("> ")) return <blockquote key={i} className="text-sm text-blue-300 italic border-l-2 border-blue-600 pl-3 my-2">{line.slice(2)}</blockquote>;
+                      if (line.trim() === "") return <br key={i} />;
+                      return <p key={i} className="text-sm text-blue-100 mb-1">{line}</p>;
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {!literatureReview && !literatureReviewLoading && (
+                <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-6 text-center">
+                  <BookOpen size={32} className="text-blue-400 mx-auto mb-3" />
+                  <p className="text-sm text-blue-200 mb-1">No literature review generated yet.</p>
+                  <p className="text-xs text-blue-300">Click &quot;Generate Literature Review&quot; to produce a structured narrative review with deep reasoning based on your selected papers.</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setPipelineStep(3)} className="bg-blue-900/50 hover:bg-blue-800/60 text-blue-200 font-bold px-4 py-2 rounded-lg flex items-center gap-2">
+                Back to Risk of Bias
+              </button>
+              <button onClick={() => setPipelineStep(5)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
+                Proceed to Synthesis
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {pipelineStep === 5 && (
           <div className="space-y-4">
             <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
               <div className="flex items-center gap-2 mb-3">
@@ -1647,7 +1799,7 @@ Mobile: [Number]
               )}
 
               <div className="flex justify-end">
-                <button onClick={() => setPipelineStep(5)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
+                <button onClick={() => setPipelineStep(6)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
                   Proceed to Reporting
                   <ChevronRight size={16} />
                 </button>
@@ -1656,7 +1808,7 @@ Mobile: [Number]
           </div>
         )}
 
-        {pipelineStep === 5 && (
+        {pipelineStep === 6 && (
           <div className="space-y-4">
             <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
               <h3 className="text-lg font-bold text-white mb-1">PRISMA 2020 Reporting & Visualization</h3>
@@ -1925,7 +2077,7 @@ Mobile: [Number]
               )}
             </div>
             <div className="flex justify-end gap-3">
-              <button onClick={() => setPipelineStep(6)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
+              <button onClick={() => setPipelineStep(7)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
                 Proceed to Writing & Meta-analysis
                 <PenTool size={16} />
               </button>
@@ -1936,7 +2088,7 @@ Mobile: [Number]
             </div>
           </div>
         )}
-        {pipelineStep === 6 && (
+        {pipelineStep === 7 && (
           <div className="space-y-4">
             <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
               <div className="flex items-center gap-2 mb-3">

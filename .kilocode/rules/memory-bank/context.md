@@ -366,3 +366,54 @@ The systematic review tab now contains a full 8-step systematic review / meta-an
 - [x] Fixed JSX nesting issues and duplicate closing tags introduced during edit
 - [x] Escaped unescaped quotes in narrative review example text (`react/no-unescaped-entities` lint fix)
 - [x] Verified `bun typecheck`, `bun lint`, and `bun run build` all pass cleanly
+
+## Literature Review Step Added After Risk of Bias (2026-06-27)
+
+**File**: `src/components/tabs/EvidenceSynthesisTab.tsx`
+
+**Feature**: Added full Literature Review generation step after Step 3 (Risk of Bias). All selected papers from prior steps are automatically included as references in the generated review.
+
+### Step Renumbering
+- Step 4: Literature Review (NEW)
+- Step 5: Synthesis & Meta-analysis (was 4)
+- Step 6: Reporting & PRISMA (was 5)
+- Step 7: Writing Review & Meta-analysis (was 6)
+
+### Literature Review Structure
+The AI-generated narrative review follows a strict heading structure:
+1. Introduction / Background
+2. Problem Statement (Global, South-East Asia, India)
+3. Research gaps
+4. Future studies to be carried out
+5. Conclusion
+6. References (auto-populated from selected papers)
+
+### AI Integration
+- Uses DeepSeek R1 (primary) for deep reasoning via `callDeepSeek`
+- Falls back to Gemini / OpenRouter if configured
+- Prompt incorporates janhq/jan-inspired Long CoT methodology:
+  - Step-by-step reasoning before drafting each section
+  - Explicit uncertainty acknowledgment
+  - Cross-checking claims against available evidence
+  - Reflecting on global/regional/national representation gaps
+  - Logical narrative flow (broad context → specific problem → gaps → recommendations)
+- User can trigger generation with "Generate Literature Review" button
+- Output rendered as formatted Markdown with styled headings
+
+### State Added
+- `literatureReview` (string) — generated review text
+- `literatureReviewLoading` (boolean) — loading state during generation
+
+### UI Features
+- BookOpen icon added to `lucide-react` imports
+- "Proceed to Literature Review" button replaces "Proceed to Synthesis" in Step 3
+- Back button to return to Risk of Bias from Literature Review
+- Proceed button to advance to Synthesis from Literature Review
+- Shows selected paper count and extracted study count
+- Displays loading spinner during generation
+- Presents generated review with styled h1/h2/h3/blockquote/list elements
+
+### Bug Fixes
+- Escaped unescaped quotes in narrative review example text
+- Fixed JSX nesting issues and duplicate closing tags from prior edits
+- Verified `bun typecheck`, `bun lint`, and `bun run build` all pass cleanly
