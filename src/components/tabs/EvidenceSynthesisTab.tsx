@@ -1114,7 +1114,7 @@ Mobile: [Number]
                 <s.icon size={14} />
                 {s.label}
               </button>
-              {s.num < 5 && <div className="text-blue-600"><ChevronRight size={14} /></div>}
+              {s.num < PIPELINE_STEPS.length && <div className="text-blue-600"><ChevronRight size={14} /></div>}
             </React.Fragment>
           ))}
         </div>
@@ -1933,6 +1933,126 @@ Mobile: [Number]
                 Start New Review
                 <RotateCcw size={16} />
               </button>
+            </div>
+          </div>
+        )}
+        {pipelineStep === 6 && (
+          <div className="space-y-4">
+            <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <PenTool size={18} className="text-yellow-400" />
+                <h3 className="text-lg font-bold text-white">Writing Review & Meta-analysis</h3>
+              </div>
+              <p className="text-xs text-blue-400 mb-4">
+                This step will generate the full manuscript, narrative review, or meta-analysis report based on your extracted data, risk-of-bias assessments, and synthesis outputs. AI generation requires an API key in Settings.
+              </p>
+
+              {!manuscript ? (
+                <div className="space-y-4">
+                  <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+                    <h4 className="text-sm font-bold text-white mb-2">Example: Narrative Review (to be generated in future)</h4>
+                    <div className="text-xs text-blue-200 whitespace-pre-wrap max-h-[500px] overflow-y-auto leading-relaxed bg-blue-900/20 p-3 rounded border border-blue-800">
+{`# Narrative Review: The Impact of Digital Health Interventions on Chronic Disease Management — A State-of-the-Art Review
+
+## Abstract
+
+Background: Digital health interventions (DHIs) — including mobile applications, wearable sensors, telemedicine platforms, and AI-driven decision-support tools — have proliferated over the past decade as scalable solutions for chronic disease management. This narrative review synthesizes the available evidence on the effectiveness, adoption barriers, and equity implications of DHIs across major chronic conditions including diabetes mellitus, hypertension, chronic obstructive pulmonary disease (COPD), and mental health disorders.
+
+Methods: We conducted a narrative synthesis of peer-reviewed literature published between 2015 and 2025 across PubMed, Scopus, and Web of Science. Inclusion criteria encompassed original research, systematic reviews, and meta-analyses evaluating DHIs for chronic disease outcomes. Studies were grouped thematically by intervention modality, disease category, and outcome domain.
+
+Results: Across 48 included studies, DHIs demonstrated moderate efficacy in improving clinical outcomes (glycated hemoglobin reduction of 0.4–0.8% in diabetes, systolic blood pressure reductions of 4–8 mmHg in hypertension) and process outcomes (medication adherence improvement of 15–25%). However, effect sizes were highly heterogeneous. Key thematic findings include: (1) mobile app-based self-management tools showed the strongest evidence for diabetes and asthma; (2) wearable sensor integration yielded promising but inconclusive results for COPD and heart failure; (3) AI chatbot interventions improved mental health outcomes in short-term RCTs but suffered from high attrition in real-world deployments; (4) equity concerns persist, with underrepresentation of low-income and older adult populations in digital intervention trials.
+
+Discussion: While DHIs hold promise for extending the reach and efficiency of chronic disease care, the evidence base remains characterized by methodological heterogeneity, small sample sizes, and inconsistent outcome reporting. Future research should prioritize pragmatic trial designs, standardized patient-reported outcome measures, and intentional inclusion of diverse populations to strengthen the generalizability of findings.
+
+Conclusion: Digital health interventions represent a valuable adjunct to traditional chronic disease management, but their real-world effectiveness depends on careful tailoring to patient populations, integration with clinical workflows, and equitable design. Policymakers and clinicians should view DHIs as complementary tools rather than standalone solutions.
+
+Keywords: digital health, chronic disease, narrative review, mobile health, telemedicine, AI in healthcare`}
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+                    <h4 className="text-sm font-bold text-white mb-2">Narrative Review Structure Reference</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-blue-200">
+                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
+                        <p className="font-bold text-yellow-200 mb-1">1. Title</p>
+                         <p className="text-blue-300">Descriptive, reflects scope and angle (e.g., &quot;Narrative Review: …&quot;)</p>
+                      </div>
+                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
+                        <p className="font-bold text-yellow-200 mb-1">2. Abstract</p>
+                        <p className="text-blue-300">Background, methods, key themes, conclusion, keywords</p>
+                      </div>
+                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
+                        <p className="font-bold text-yellow-200 mb-1">3. Introduction</p>
+                        <p className="text-blue-300">Epidemiological context, rationale, review objectives, scope</p>
+                      </div>
+                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
+                        <p className="font-bold text-yellow-200 mb-1">4. Methods</p>
+                        <p className="text-blue-300">Search strategy, databases, selection criteria, thematic approach</p>
+                      </div>
+                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
+                        <p className="font-bold text-yellow-200 mb-1">5. Results / Themes</p>
+                        <p className="text-blue-300">Thematic organization with evidence summaries per theme</p>
+                      </div>
+                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
+                        <p className="font-bold text-yellow-200 mb-1">6. Discussion</p>
+                        <p className="text-blue-300">Interpretation, limitations, gaps, clinical/policy implications</p>
+                      </div>
+                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
+                        <p className="font-bold text-yellow-200 mb-1">7. Conclusion</p>
+                        <p className="text-blue-300">Concise take-home messages and recommendations</p>
+                      </div>
+                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
+                        <p className="font-bold text-yellow-200 mb-1">8. References</p>
+                        <p className="text-blue-300">Vancouver or APA style, arranged in order of appearance</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={generateManuscript}
+                    disabled={manuscriptLoading || extractedData.length === 0}
+                    className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
+                  >
+                    {manuscriptLoading ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-[#0a1a3a] border-t-transparent rounded-full animate-spin" />
+                        Generating Manuscript...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={16} />
+                        Generate Full Manuscript
+                      </>
+                    )}
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+                    <h4 className="text-sm font-bold text-white mb-3">Generated Manuscript</h4>
+                    <div className="text-blue-100 whitespace-pre-wrap max-h-[600px] overflow-y-auto text-sm leading-relaxed">
+                      {manuscript.split("\n").map((line, i) => {
+                        if (line.startsWith("# ")) return <h1 key={i} className="text-lg font-bold text-white mt-4 mb-2">{line.slice(2)}</h1>;
+                        if (line.startsWith("## ")) return <h2 key={i} className="text-base font-bold text-yellow-200 mt-3 mb-2">{line.slice(3)}</h2>;
+                        if (line.startsWith("### ")) return <h3 key={i} className="text-sm font-bold text-blue-200 mt-2 mb-1">{line.slice(4)}</h3>;
+                        if (line.startsWith("| ")) return <pre key={i} className="text-xs overflow-x-auto my-2 bg-blue-900/20 p-2 rounded">{line}</pre>;
+                        if (line.trim() === "") return <br key={i} />;
+                        return <p key={i} className="text-sm text-blue-100 mb-1">{line}</p>;
+                      })}
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-3">
+                    <button onClick={downloadManuscript} className="flex items-center gap-2 bg-emerald-900/50 text-emerald-300 px-4 py-2 rounded-lg hover:bg-emerald-800/70 text-sm">
+                      <Download size={14} />
+                      Download Manuscript (.md)
+                    </button>
+                    <button onClick={() => setPipelineStep(1)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
+                      <RotateCcw size={16} />
+                      Start New Review
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

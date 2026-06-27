@@ -353,3 +353,16 @@ The systematic review tab now contains a full 8-step systematic review / meta-an
 ### Bug Fix API Key Test
 - `testGeminiKey`/`testOpenRouterKey`/`testDeepSeekKey` previously checked `result.toLowerCase().includes("ok")` causing false failures when provider replied without the literal "ok" substring
 - Fixed: test now returns `true` on any successful HTTP call with non-empty content; `false` only on caught exception / HTTP error
+
+## Step 6 Writing Review & Meta-analysis — Narrative Review Example Added (2026-06-27)
+
+**File**: `src/components/tabs/EvidenceSynthesisTab.tsx`
+
+- [x] Added missing `pipelineStep === 6` rendering block (previously only defined in `PIPELINE_STEPS` but never rendered)
+- [x] Updated step navigator chevron to show through all 6 steps (`s.num < PIPELINE_STEPS.length`)
+- [x] Added example narrative review content: "The Impact of Digital Health Interventions on Chronic Disease Management — A State-of-the-Art Review"
+- [x] Added "Narrative Review Structure Reference" grid (8-section structure: Title, Abstract, Introduction, Methods, Results/Themes, Discussion, Conclusion, References)
+- [x] Integrated existing `generateManuscript` and `downloadManuscript` functions into Step 6
+- [x] Fixed JSX nesting issues and duplicate closing tags introduced during edit
+- [x] Escaped unescaped quotes in narrative review example text (`react/no-unescaped-entities` lint fix)
+- [x] Verified `bun typecheck`, `bun lint`, and `bun run build` all pass cleanly
