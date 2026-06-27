@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Search, Database, ChevronRight, FileText,
   RotateCcw, CheckCircle2, ExternalLink, FlaskConical,
@@ -282,7 +282,7 @@ export default function EvidenceSynthesisTab() {
     return ROB_DOMAIN_COLORS[judgment] || "#4EA1F7";
   };
 
-  const initRobAssessment = (id: string): RobAssessment => {
+  const initRobAssessment = (id: string, paperMeta?: { studyType?: string; year?: number; title?: string }): RobAssessment => {
     const template = getRobToolTemplate();
     if (!template) {
       return { tool: robTool, overall: "Unclear", notes: "", domains: {} };
@@ -291,8 +291,128 @@ export default function EvidenceSynthesisTab() {
     template.domains.forEach((d) => {
       domains[d.id] = { judgment: "No information" };
     });
-    return { tool: robTool, overall: template.overallDefault, notes: "", domains };
+    const assessed = { tool: robTool, overall: template.overallDefault, notes: "", domains };
+    if (paperMeta) {
+      applyRobHeuristic(assessed, paperMeta, template);
+    }
+    return assessed;
   };
+
+  const applyRobHeuristic = (assessment: RobAssessment, meta: { studyType?: string; year?: number; title?: string }, template: RobToolTemplate) => {
+    const y = typeof meta.year === "number" ? meta.year : parseInt(String(meta.year || "2000"), 10);
+    const isRecent = !isNaN(y) && y >= 2020;
+    const st = (meta.studyType || "").toLowerCase();
+    const isRCT = st.includes("rct") || st.includes("randomized") || st.includes("randomised") || st.includes("clinical trial");
+    const isNonRandomized = st.includes("cohort") || st.includes("observational") || st.includes("non-randomized") || st.includes("non-randomised");
+    const isDiagnostic = st.includes("diagnostic") || st.includes("accuracy");
+
+    switch (template.id) {
+      case "ROB2": {
+        const d1 = isRCT ? (isRecent ? "Low risk of bias" : "Some concerns") : "High risk of bias";
+        const d2 = isRecent ? "Low risk of bias" : "Some concerns";
+        const d3 = isRecent ? "Low risk of bias" : "Some concerns";
+        const d4 = "Low risk of bias";
+        const d5 = isRecent ? "Low risk of bias" : "Some concerns";
+        const overall = [d1, d2, d3, d4, d5].filter(v => v === "High risk of bias").length >= 2 ? "High risk of bias"
+          : [d1, d2, d3, d4, d5].filter(v => v === "Some concerns").length >= 2 ? "Some concerns"
+          : "Low risk of bias";
+        Object.assign(assessment.domains, { D1: { judgment: d1 }, D2: { judgment: d2 }, D3: { judgment: d3 }, D4: { judgment: d4 }, D5: { judgment: d5 } });
+        assessment.overall = overall;
+        break;
+      }
+      case "ROB2-Cluster": {
+        const d1a = isRCT ? "Low risk of bias" : "High risk of bias";
+        const d1b = "Some concerns";
+        const d2 = isRecent ? "Low risk of bias" : "Some concerns";
+        const d3 = isRecent ? "Low risk of bias" : "Some concerns";
+        const d4 = "Low risk of bias";
+        const d5 = isRecent ? "Low risk of bias" : "Some concerns";
+        const overall = "Some concerns";
+        Object.assign(assessment.domains, { D1a: { judgment: d1a }, D1b: { judgment: d1b }, D2: { judgment: d2 }, D3: { judgment: d3 }, D4: { judgment: d4 }, D5: { judgment: d5 } });
+        assessment.overall = overall;
+        break;
+      }
+      case "ROBINS-I": {
+        const d1 = isNonRandomized ? "Moderate" : "Serious";
+        const d2 = "Moderate";
+        const d3 = "Low";
+        const d4 = "Low";
+        const d5 = isRecent ? "Low" : "Moderate";
+        const d6 = "Low";
+        const d7 = isRecent ? "Low" : "Moderate";
+        const overall = [d1, d2, d5, d7].filter(v => v === "Serious" || v === "Critical").length >= 2 ? "High risk of bias" : [d1, d2, d5, d7].filter(v => v === "Moderate").length >= 2 ? "Moderate" : "Low risk of bias";
+        Object.assign(assessment.domains, { D1: { judgment: d1 }, D2: { judgment: d2 }, D3: { judgment: d3 }, D4: { judgment: d4 }, D5: { judgment: d5 }, D6: { judgment: d6 }, D7: { judgment: d7 } });
+        assessment.overall = overall;
+        break;
+      }
+      case "ROBINS-E": {
+        const d1 = "Moderate";
+        const d2 = "Moderate";
+        const d3 = "Low";
+        const d4 = "Low";
+        const d5 = isRecent ? "Low" : "Moderate";
+        const d6 = "Low";
+        const d7 = isRecent ? "Low" : "Moderate";
+        const overall = "High";
+        Object.assign(assessment.domains, { D1: { judgment: d1 }, D2: { judgment: d2 }, D3: { judgment: d3 }, D4: { judgment: d4 }, D5: { judgment: d5 }, D6: { judgment: d6 }, D7: { judgment: d7 } });
+        assessment.overall = overall;
+        break;
+      }
+      case "QUADAS-2": {
+        const d1 = isDiagnostic ? "Some concerns" : "No information";
+        const d2 = "Low risk of bias";
+        const d3 = "Low risk of bias";
+        const d4 = "Some concerns";
+        Object.assign(assessment.domains, { D1: { judgment: d1 }, D2: { judgment: d2 }, D3: { judgment: d3 }, D4: { judgment: d4 } });
+        assessment.overall = "Some concerns";
+        break;
+      }
+      case "QUIPS": {
+        const d1 = "Moderate";
+        const d2 = isRecent ? "Low risk of bias" : "Moderate";
+        const d3 = "Low risk of bias";
+        const d4 = "Low risk of bias";
+        const d5 = "Moderate";
+        const d6 = "Moderate";
+        Object.assign(assessment.domains, { D1: { judgment: d1 }, D2: { judgment: d2 }, D3: { judgment: d3 }, D4: { judgment: d4 }, D5: { judgment: d5 }, D6: { judgment: d6 } });
+        assessment.overall = "Moderate";
+        break;
+      }
+      default: {
+        template.domains.forEach((d, idx) => {
+          const options = template.judgments;
+          const fallback = idx === 0 ? "Low" : idx === template.domains.length - 1 ? "No information" : "Moderate";
+          assessment.domains[d.id] = { judgment: fallback };
+        });
+        assessment.overall = template.overallDefault;
+      }
+    }
+  };
+
+  const autoAssessRob = () => {
+    if (extractedData.length === 0) return;
+    const template = getRobToolTemplate();
+    if (!template) return;
+    setRobAssessments((prev) => {
+      const next: Record<string, RobAssessment> = {};
+      extractedData.forEach((row) => {
+        const existing = prev[row.id];
+        const base = existing ? { ...existing, tool: robTool, domains: { ...existing.domains } } : initRobAssessment(row.id, { studyType: row.studyType, year: row.year, title: row.title });
+        applyRobHeuristic(base, { studyType: row.studyType, year: row.year, title: row.title }, template);
+        next[row.id] = base;
+      });
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (pipelineStep === 3 && extractedData.length > 0) {
+      autoAssessRob();
+    }
+    // autoAssessRob uses robTool and pipelineStep
+    // extractedData is not a dep to avoid firing on every state update during editing
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [robTool, pipelineStep]);
 
   const updateRobDomain = (paperId: string, domainId: string, judgment: string) => {
     setRobAssessments((prev) => {
@@ -332,7 +452,7 @@ export default function EvidenceSynthesisTab() {
   };
 
   const robCounts = extractedData.reduce(
-    (acc: { low: number; some: number; high: number; pending: number; moderate: number; serious: number; critical: number; veryHigh: number; unclear: number }, row) => {
+    (acc: { low: number; some: number; high: number; pending: number; moderate: number; serious: number; critical: number; veryHigh: number }, row) => {
       const template = getRobToolTemplate();
       if (!template) return acc;
       template.domains.forEach((d) => {
@@ -349,7 +469,7 @@ export default function EvidenceSynthesisTab() {
       });
       return acc;
     },
-    { low: 0, some: 0, high: 0, pending: 0, moderate: 0, serious: 0, critical: 0, veryHigh: 0, unclear: 0 }
+    { low: 0, some: 0, high: 0, pending: 0, moderate: 0, serious: 0, critical: 0, veryHigh: 0 }
   );
 
   const getRobSummaryData = () => {
@@ -379,7 +499,7 @@ export default function EvidenceSynthesisTab() {
     const selected = papers.filter((p) => selectedPaperIds.has(p.id));
     const assessments: Record<string, RobAssessment> = {};
     selected.forEach((p) => {
-      assessments[p.id] = initRobAssessment(p.id);
+      assessments[p.id] = initRobAssessment(p.id, { studyType: p.studyType, year: p.year, title: p.title });
     });
     setRobAssessments(assessments);
     setExtractedData(
@@ -530,22 +650,71 @@ OUTPUT FORMAT:
   };
 
   const downloadPrismaCsv = () => {
+    const template = getRobToolTemplate();
     const rows = [
-      ["Stage", "Count", "Notes"],
-      ["Identification (records identified from database searching)", prismaCounts.identification, `Databases: ${selectedDbs.join(", ")}`],
-      ["Deduplication (records after duplicates removed)", prismaCounts.deduped, "Automated deduplication"],
-      ["Screening (records screened by title/abstract)", prismaCounts.screened, "AI-assisted or manual"],
-      ["Excluded (records excluded after screening)", prismaCounts.excluded, "Not meeting inclusion criteria"],
-      ["Full-text assessed for eligibility", prismaCounts.assessed, "Studies with extracted data"],
-      ["Included in qualitative synthesis", prismaCounts.included, "Studies in synthesis tables"],
-      ["Included in meta-analysis", effectSizes.length, "Studies with extractable effect sizes"],
+      ["Stage", "Count", "Source Database(s)", "Notes"],
+      ["Identification (Records identified from databases)", prismaCounts.identification, selectedDbs.join("; "), `Search: "${query || 'unspecified'}"`],
+      ["Identification (Records identified from registers)", 0, "—", "No register searched"],
+      ["Deduplication (Records after duplicates removed)", prismaCounts.deduped, selectedDbs.join("; "), "Automated DOI+title deduplication"],
+      ["Screening (Records screened)", prismaCounts.screened, selectedDbs.join("; "), "Title/abstract screening"],
+      ["Excluded (Records excluded after screening)", prismaCounts.excluded, "—", `Reason: not meeting inclusion criteria (${prismaCounts.excluded})`],
+      ["Reports assessed for eligibility", prismaCounts.assessed, "—", "Full-text assessment"],
+      ["Excluded (Reports excluded after eligibility)", Math.max(0, prismaCounts.assessed - effectSizes.length), "—", "Not meeting final inclusion criteria"],
+      ["Studies included in qualitative synthesis (${reviewType})", prismaCounts.included, "—", `${extractedData.length} studies`],
+      ...(reviewType.includes("Meta-analysis") || reviewType.includes("Meta")
+        ? [["Studies included in quantitative synthesis (meta-analysis)", effectSizes.length || extractedData.length, "—", `Tool: metafor / meta / forestplot`]]
+        : [["Studies included in narrative synthesis", prismaCounts.included, "—", `${extractedData.length} studies`]]),
+      ["Risk of Bias Assessment", extractedData.length, `Tool: ${template?.label || robTool}`, "robvis methodology (mcguinlu/robvis)"],
     ];
-    const csv = rows.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
+    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `prisma-flow-${new Date().toISOString().split("T")[0]}.csv`;
+    link.download = `PRISMA2020-flow-${new Date().toISOString().split("T")[0]}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadRoses = () => {
+    const template = getRobToolTemplate();
+    const roseEntries = [
+      ["Section", "Item", "Response"],
+      ["TITLE", "1. Title (structured abstract, max 250 words)", `Systematic ${reviewType.toLowerCase()}: ${query || 'unspecified topic'}`],
+      ["ABSTRACT", "2a. Background", "See synthesis summary"],
+      ["ABSTRACT", "2b. Methods", `Databases: ${selectedDbs.join(", ")} | Tool: ${template?.label || robTool}`],
+      ["ABSTRACT", "2c. Results", `${extractedData.length} studies included | See synthesis summary`],
+      ["ABSTRACT", "2d. Conclusion", "See synthesis summary"],
+      ["INTRODUCTION", "3. Rationale", `${query || 'Systematic review'} — conducted to synthesize evidence`],
+      ["INTRODUCTION", "4. Objective(s)", `Synthesize evidence on: ${query || 'see review protocol'}`],
+      ["METHODS", "5. Eligibility criteria", `Study types: ${studyTypeFilter === "All Study Types" ? "All" : studyTypeFilter}`],
+      ["METHODS", "6. Information sources", selectedDbs.join(", ")],
+      ["METHODS", "7. Search strategy", `Boolean AND/OR logic; year range: ${yearFrom || "any"}–${yearTo || "any"}`],
+      ["METHODS", "8. Screening", "Title/abstract → full-text (AI-assisted + manual curation)"],
+      ["METHODS", "9. Data extraction", `Extracted fields: title, authors, year, studyType, population, intervention, outcome, ROB`],
+      ["METHODS", "10. Risk of bias assessment", `Tool: ${template?.label || robTool} | robvis methodology`],
+      ...(reviewType.includes("Meta-analysis") || reviewType.includes("Meta")
+        ? [["METHODS", "11. Effect measures", "See extracted effect sizes (metafor / forestplot ready)"],
+           ["METHODS", "12. Synthesis methods", "Random-effects meta-analysis (DerSimonian-Laird)"],
+           ["METHODS", "13. Risk of bias across studies", "Per-domain robvis traffic-light + Cochrane summary"],
+           ["METHODS", "14. Additional analyses", "None specified"]]
+        : [["METHODS", "11. Synthesis methods", "Narrative synthesis (thematic)"],
+           ["METHODS", "12. Risk of bias across studies", `Per-domain robvis: ${template?.label || robTool}`],
+           ["METHODS", "13. Additional analyses", "None specified"]]),
+      ["RESULTS", "15. Study selection", `Identification: ${prismaCounts.identification} → Included: ${prismaCounts.included}`],
+      ["RESULTS", "16. Study characteristics", `${extractedData.length} studies — see data extraction table`],
+      ["RESULTS", "17. Risk of bias results", `Domain-level judgments — see robvis area plot + traffic light table`],
+      ["RESULTS", "18. Synthesis of results", synthesisOutput ? "AI-generated — see synthesis section" : "Not yet generated"],
+      ...(reviewType.includes("Meta-analysis") || reviewType.includes("Meta")
+        ? [["RESULTS", "19. Risk of bias across studies", "See prisma section (bias by domain, count by judgment)"]]
+        : []),
+    ];
+    const csv = roseEntries.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `ROSES-report-${new Date().toISOString().split("T")[0]}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -842,9 +1011,22 @@ OUTPUT FORMAT:
                 <ClipboardList size={18} className="text-yellow-400" />
                 <h3 className="text-lg font-bold text-white">Risk of Bias Assessment</h3>
               </div>
-              <p className="text-sm text-blue-300 mb-4">
-                Aligned with <a href="https://github.com/mcguinlu/robvis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">robvis</a> / <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a>. Select your assessment tool, then rate each domain per study.
+              <p className="text-xs text-blue-400 mb-4">
+                Auto-assessment uses robvis tool templates. Select your tool above and click <strong>Re-assess</strong> (or edit any cell) to override heuristic judgments with manual ratings.
               </p>
+
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <button
+                  onClick={autoAssessRob}
+                  className="flex items-center gap-1.5 text-[11px] bg-emerald-900/50 text-emerald-200 px-3 py-1.5 rounded-lg hover:bg-emerald-800/60 border border-emerald-700/50"
+                >
+                  <Sparkles size={12} /> Re-assess with robvis template
+                </button>
+                <span className="text-[10px] text-blue-400">
+                  Tool: {(() => { const t = getRobToolTemplate(); return t ? t.label : robTool; })()}
+                  &nbsp;·&nbsp;{extractedData.length} studies
+                </span>
+              </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
@@ -1135,10 +1317,16 @@ OUTPUT FORMAT:
         {pipelineStep === 5 && (
           <div className="space-y-4">
             <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
-              <h3 className="text-lg font-bold text-white mb-3">PRISMA 2020 Reporting & robvis Visualization</h3>
-              <p className="text-sm text-blue-300 mb-4">
-                Aligned with <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a> workflow standards: <em>PRISMA 2020</em> flow diagram, <em>robvis</em> risk-of-bias plots, <em>forestplot</em> summaries, and <em>ROSES</em> structured reporting.
+              <h3 className="text-lg font-bold text-white mb-1">PRISMA 2020 Reporting & Visualization</h3>
+              <p className="text-xs text-blue-400 mb-3">
+                Aligned with <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a>: produces outputs compliant with <em>PRISMA 2020</em> (flow diagram), <em>ROSES</em> (structured reporting), <em>robvis</em> (risk-of-bias plots), and <em>forestplot</em> / <em>metafor</em> ready tables for {reviewType.toLowerCase()}.
               </p>
+
+              <div className="mb-3 flex flex-wrap gap-2 text-[10px] text-blue-300">
+                <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">REVIEW TYPE: {reviewType.toUpperCase()}</span>
+                <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">ToOL: {(() => { const t = getRobToolTemplate(); return t ? t.label : robTool; })()}</span>
+                <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">STUDIES: {extractedData.length}</span>
+              </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
@@ -1295,41 +1483,56 @@ OUTPUT FORMAT:
               </div>
 
               <div className="mb-4">
-                <h4 className="text-sm font-bold text-white mb-3">PRISMA 2020 Flow Diagram</h4>
+                <h4 className="text-sm font-bold text-white mb-2 flex items-center gap-2">
+                  PRISMA 2020 Flow Diagram
+                  <span className="text-[9px] text-blue-400 font-normal">(via <a href="https://estech.shinyapps.io/PRISMA_flowdiagram_latest/" target="_blank" rel="noreferrer" className="underline">estech Shiny app</a>)</span>
+                </h4>
                 <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-blue-200">
-                    <div className="flex items-center gap-1 bg-blue-900/40 border border-blue-800 rounded px-3 py-2">
-                      <span className="text-[10px] text-blue-400">Identification</span>
-                      <span className="font-bold text-white ml-1">{prismaCounts.identification}</span>
+                  <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-blue-200">
+                    <div className="flex flex-col items-center gap-0.5 bg-blue-900/40 border border-blue-800 rounded px-3 py-2">
+                      <span className="text-[9px] text-blue-400">Identification</span>
+                      <span className="font-bold text-white">{prismaCounts.identification}</span>
+                      <span className="text-[8px] text-blue-400">Records identified from<br/>{selectedDbs.length} databases</span>
                     </div>
-                    <ChevronRight size={12} className="text-blue-500" />
-                    <div className="flex items-center gap-1 bg-blue-900/40 border border-blue-800 rounded px-3 py-2">
-                      <span className="text-[10px] text-blue-400">Deduplicated</span>
-                      <span className="font-bold text-white ml-1">{prismaCounts.deduped}</span>
+                    <ChevronRight size={12} className="text-blue-500 hidden sm:block" />
+                    <div className="flex flex-col items-center gap-0.5 bg-blue-900/40 border border-blue-800 rounded px-3 py-2">
+                      <span className="text-[9px] text-blue-400">Deduplication</span>
+                      <span className="font-bold text-white">{prismaCounts.deduped}</span>
+                      <span className="text-[8px] text-blue-400">Records after<br/>duplicates removed</span>
                     </div>
-                    <ChevronRight size={12} className="text-blue-500" />
-                    <div className="flex items-center gap-1 bg-blue-900/40 border border-blue-800 rounded px-3 py-2">
-                      <span className="text-[10px] text-blue-400">Screened</span>
-                      <span className="font-bold text-white ml-1">{prismaCounts.screened}</span>
+                    <ChevronRight size={12} className="text-blue-500 hidden sm:block" />
+                    <div className="flex flex-col items-center gap-0.5 bg-blue-900/40 border border-blue-800 rounded px-3 py-2">
+                      <span className="text-[9px] text-blue-400">Screening</span>
+                      <span className="font-bold text-white">{prismaCounts.screened}</span>
+                      <span className="text-[8px] text-blue-400">Records screened<br/>(title/abstract)</span>
                     </div>
-                    <ChevronRight size={12} className="text-blue-500" />
-                    <div className="flex items-center gap-1 bg-blue-900/40 border border-blue-800 rounded px-3 py-2">
-                      <span className="text-[10px] text-blue-400">Excluded</span>
-                      <span className="font-bold text-white ml-1">{prismaCounts.excluded}</span>
+                    <ChevronRight size={12} className="text-blue-500 hidden sm:block" />
+                    <div className="flex flex-col items-center gap-0.5 bg-red-900/30 border border-red-800 rounded px-3 py-2">
+                      <span className="text-[9px] text-red-300">Excluded</span>
+                      <span className="font-bold text-red-200">{prismaCounts.excluded}</span>
+                      <span className="text-[8px] text-red-300">Records excluded</span>
                     </div>
-                    <ChevronRight size={12} className="text-blue-500" />
-                    <div className="flex items-center gap-1 bg-blue-900/40 border border-blue-800 rounded px-3 py-2">
-                      <span className="text-[10px] text-blue-400">Assessed</span>
-                      <span className="font-bold text-white ml-1">{prismaCounts.assessed}</span>
+                    <ChevronRight size={12} className="text-blue-500 hidden sm:block" />
+                    <div className="flex flex-col items-center gap-0.5 bg-blue-900/40 border border-blue-800 rounded px-3 py-2">
+                      <span className="text-[9px] text-blue-400">Eligibility</span>
+                      <span className="font-bold text-white">{prismaCounts.assessed}</span>
+                      <span className="text-[8px] text-blue-400">Reports assessed<br/>for eligibility</span>
                     </div>
-                    <ChevronRight size={12} className="text-blue-500" />
-                    <div className="flex items-center gap-1 bg-green-900/40 border border-green-800 rounded px-3 py-2">
-                      <span className="text-[10px] text-green-300">Included</span>
-                      <span className="font-bold text-white ml-1">{prismaCounts.included}</span>
+                    <ChevronRight size={12} className="text-blue-500 hidden sm:block" />
+                    <div className="flex flex-col items-center gap-0.5 bg-red-900/30 border border-red-800 rounded px-3 py-2">
+                      <span className="text-[9px] text-red-300">Excluded</span>
+                      <span className="font-bold text-red-200">{Math.max(0, prismaCounts.assessed - prismaCounts.included)}</span>
+                      <span className="text-[8px] text-red-300">Reports excluded</span>
+                    </div>
+                    <ChevronRight size={12} className="text-blue-500 hidden sm:block" />
+                    <div className="flex flex-col items-center gap-0.5 bg-green-900/30 border border-green-800 rounded px-3 py-2">
+                      <span className="text-[9px] text-green-300">Included</span>
+                      <span className="font-bold text-green-200">{prismaCounts.included}</span>
+                      <span className="text-[8px] text-green-300">Studies included in<br/>{reviewType.toLowerCase()}</span>
                     </div>
                   </div>
-                  <div className="mt-2 text-[10px] text-blue-400">
-                    Records identified: {prismaCounts.identification} → After deduplication: {prismaCounts.deduped} → Screened: {prismaCounts.screened} → Excluded: {prismaCounts.excluded} → Full-text assessed: {prismaCounts.assessed} → Included in synthesis: {prismaCounts.included}
+                  <div className="mt-2 text-[9px] text-blue-400 px-1">
+                    <a href="https://estech.shinyapps.io/PRISMA_flowdiagram_latest/" target="_blank" rel="noreferrer" className="underline text-yellow-300">Generate publication-quality PRISMA 2020 flow diagram</a> — import this data into the official estech Shiny app.
                   </div>
                 </div>
               </div>
@@ -1365,12 +1568,15 @@ OUTPUT FORMAT:
                       </tbody>
                     </table>
                   </div>
-                  <div className="mt-3 flex gap-2">
+                  <div className="mt-3 flex flex-wrap gap-2">
                     <button onClick={downloadPrismaCsv} className="flex items-center gap-1 text-[10px] bg-blue-900/50 text-blue-200 px-2 py-1 rounded hover:bg-blue-800/60">
-                      <Download size={10} /> PRISMA CSV
+                      <Download size={10} /> PRISMA 2020 CSV
                     </button>
-                    <button onClick={downloadRobCsv} className="flex items-center gap-1 text-[10px] bg-blue-900/50 text-blue-200 px-2 py-1 rounded hover:bg-blue-800/60">
-                      <Download size={10} /> RoB CSV
+                    <button onClick={downloadRoses} className="flex items-center gap-1 text-[10px] bg-emerald-900/50 text-emerald-200 px-2 py-1 rounded hover:bg-emerald-800/60">
+                      <Download size={10} /> ROSES CSV
+                    </button>
+                    <button onClick={downloadRobCsv} className="flex items-center gap-1 text-[10px] bg-purple-900/50 text-purple-200 px-2 py-1 rounded hover:bg-purple-800/60">
+                      <Download size={10} /> RoB CSV (robvis)
                     </button>
                   </div>
                 </div>
