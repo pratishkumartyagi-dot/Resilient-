@@ -297,7 +297,36 @@ The systematic review tab now contains a full 8-step systematic review / meta-an
 - Microbiome & other modalities: scikit-bio, FlowIO, pyOpenMS, Neuropixels/Kilosort4
 - All outputs formatted for manuscript figures and methods sections
 
-## Bug Fix — OmicsBioinformaticsTab duplicate declaration (2026-06-27)
+## robvis Integration — EvidenceSynthesisTab Risk of Bias (2026-06-27)
+
+**Feature**: Integrated [mcguinlu/robvis](https://github.com/mcguinlu/robvis) methodology (publication-quality RoB visualisation) into the Systematic Review & Meta-analysis pipeline, Step 3 (Risk of Bias) and Step 5 (Reporting).
+
+### Files Modified
+- `src/components/tabs/EvidenceSynthesisTab.tsx` — full RoB per-domain upgrade
+
+### Data Structure
+- Replaced flat `RobAssessment { rob: string; notes: string }` with per-domain structure
+- `RobAssessment { tool: string; overall: string; notes: string; domains: Record<domainId, DomainJudgment> }`
+- 7 tool templates: ROB2, ROB2-Cluster, ROBINS-I, ROBINS-E, QUADAS-2, QUIPS, Generic
+- Each template defines domain names + valid judgment levels (e.g. ROB2: Low/Some concerns/High/No Information)
+
+### Step 3 Changes
+- Added tool-type selector dropdown with full robvis tool catalogue
+- Replaced single RoB dropdown with per-domain judgment table (cols = tool domains + Overall + Notes)
+- Each cell shows colored swatch preview and dropdown for the judgment level
+- `initRobAssessment`, `updateRobDomain`, `updateRobOverall`, `updateRobNotes` helper functions
+- `saveRobAssessments` and `downloadRobCsv` updated for per-domain data
+
+### Step 5 Changes  
+- Replaced CSS progress-bar summary with Recharts stacked horizontal bar chart (`BarChart`) per robvis domain + Overall
+- Replaced static traffic-light table with proper per-domain judgments (colored cells per domain per study)
+- Tool template label displayed below traffic light plot
+
+### Recharts
+- Uses `BarChart`, `Bar`, `XAxis`, `YAxis`, `CartesianGrid`, `Tooltip`, `ResponsiveContainer`, `Legend`
+- Color scheme: Cochrane (green/yellow/red/blue) matching robvis R defaults
+
+### Bug Fix — OmicsBioinformaticsTab duplicate declaration (2026-06-27)
 
 - [x] Fixed "createInitialMessages is defined multiple times" build error in `src/components/tabs/OmicsBioinformaticsTab.tsx`
 - [x] Removed orphaned duplicate `createInitialMessages` declaration at module scope (line 42)
