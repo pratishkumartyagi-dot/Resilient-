@@ -1,48 +1,24 @@
 export async function callGemini(apiKey: string, prompt: string): Promise<string> {
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=${encodeURIComponent(apiKey)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-      }),
-    }
-  );
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Gemini API error: ${res.status} — ${text}`);
-  }
-
+  const res = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider: "gemini", prompt, apiKey }),
+  });
   const data = await res.json();
-  const candidate = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!candidate) throw new Error("Gemini returned empty content");
-  return candidate;
+  if (!res.ok) throw new Error(data?.error || `Gemini request failed: ${res.status}`);
+  return data.content as string;
 }
 
 export async function callOpenRouter(apiKey: string, prompt: string, model = "gpt-oss-120b"): Promise<string> {
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const provider = model === "deepseek/deepseek-r1" ? "deepseek" : "openrouter";
+  const res = await fetch("/api/chat", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${encodeURIComponent(apiKey)}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: "user", content: prompt }],
-    }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider, prompt, apiKey, model }),
   });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`OpenRouter API error: ${res.status} — ${text}`);
-  }
-
   const data = await res.json();
-  const content = data?.choices?.[0]?.message?.content;
-  if (!content) throw new Error("OpenRouter returned empty content");
-  return content;
+  if (!res.ok) throw new Error(data?.error || `OpenRouter request failed: ${res.status}`);
+  return data.content as string;
 }
 
 export async function callDeepSeek(apiKey: string, prompt: string): Promise<string> {

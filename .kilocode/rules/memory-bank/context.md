@@ -331,3 +331,25 @@ The systematic review tab now contains a full 8-step systematic review / meta-an
 - [x] Fixed "createInitialMessages is defined multiple times" build error in `src/components/tabs/OmicsBioinformaticsTab.tsx`
 - [x] Removed orphaned duplicate `createInitialMessages` declaration at module scope (line 42)
 - [x] Kept the single wired declaration at line 99 (used by `useState` and `handleClear`)
+
+## Step 4 Local Synthesis (API-key-free) + API Routing (2026-06-27)
+
+**Feature**: Step 4 ("Synthesis & Meta-analysis") now works without any API key. When no DeepSeek/Gemini/OpenRouter key is configured, `generateLocalSynthesis()` produces a structured PRISMA/ROSES-ready report from `extractedData` + `robAssessments` only.
+
+### Local Synthesis Details
+- Review-type-aware sections:
+  - **Systematic Review / Narrative Review**: thematic/narrative synthesis, study findings by study, heterogeneity note
+  - **Systematic Review & Meta-analysis / Meta-Analysis**: random-effects guidance, forest-plot-ready effect table, heterogeneity (I², τ²) pointers, metafor/meta/OpenMEE references
+- Robvis commentary auto-generated from domain-level counts (Low/Some/High/Pending)
+- Effect Size table populated from existing `effectSizes` entries or placeholder rows
+- Explicit "Generated locally using awesome-evidence-synthesis open-source workflow standards" footer
+- Button label switches between "Generate Local Synthesis" and "Generate AI Synthesis" based on key presence
+
+### API Routing Fix
+- `src/lib/ai.ts` `callGemini`/`callOpenRouter`/`callDeepSeek` now route through `src/app/api/chat/route.ts` (server-side Next.js API route)
+- Client-side browser calls no longer hit AI providers directly; avoids CORS and inadvertent key leakage in client bundles
+- Server route accepts `{ provider, prompt, apiKey, model? }` and returns `{ content }` or `{ error }`
+
+### Bug Fix API Key Test
+- `testGeminiKey`/`testOpenRouterKey`/`testDeepSeekKey` previously checked `result.toLowerCase().includes("ok")` causing false failures when provider replied without the literal "ok" substring
+- Fixed: test now returns `true` on any successful HTTP call with non-empty content; `false` only on caught exception / HTTP error
