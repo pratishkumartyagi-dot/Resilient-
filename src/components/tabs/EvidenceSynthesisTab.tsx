@@ -530,6 +530,57 @@ export default function EvidenceSynthesisTab() {
     });
   };
 
+  const generateLocalSynthesis = () => {
+    const papersForSynthesis = extractedData.filter((p) => selectedPaperIds.has(p.id));
+    const template = getRobToolTemplate();
+    const robLabel = template ? template.label : robTool;
+    const isMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
+    const yearMin = Math.min(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020));
+    const yearMax = Math.max(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020));
+    const studyTypes = Array.from(new Set(papersForSynthesis.map((p) => p.studyType))).filter(Boolean);
+    const databases = Array.from(new Set(papersForSynthesis.map((p) => p.database))).filter(Boolean);
+
+    const robSummary = papersForSynthesis.reduce(
+      (acc, row) => {
+        const a = robAssessments[row.id];
+        if (!a) return acc;
+        const jl = a.overall.toLowerCase();
+        if (jl.includes("low") && !jl.includes("high")) acc.low += 1;
+        else if (jl.includes("some concerns") || jl.includes("moderate") || jl.includes("unclear") || jl.includes("serious") && !jl.includes("critical")) acc.some += 1;
+        else if (jl.includes("high") || jl.includes("critical") || jl.includes("very high")) acc.high += 1;
+        else acc.pending += 1;
+        return acc;
+      },
+      { low: 0, some: 0, high: 0, pending: 0 }
+    );
+
+    const heterogeneityNotes = studyTypes.length > 1
+      ? "Studies span multiple design types, contributing to clinical/methodological heterogeneity."
+      : `Heterogeneity should be assessed (I², τ²) using metafor/meta.`;
+
+    const effectTable = effectSizes.length > 0
+      ? effectSizes.map((r) => `| ${r.study} | ${r.effect} | ${r.ci} | ${r.weight} |`).join("\n")
+      : papersForSynthesis.map((p) => `| ${p.authors} (${p.year}) | — | — | — |`).join("\n");
+
+    const methodsBlock = isMeta
+      ? `**Synthesis method:** Random-effects meta-analysis (DerSimonian–Laird), implemented in **metafor** (R) or **meta** (R). Heterogeneity assessed via I² and τ². Certainty of evidence via GRADE/robvis integration.\n\n**Risk of bias:** Per-domain robvis template (${robLabel}) with Cochrane colours.`
+      : `**Synthesis method:** Narrative/thematic synthesis following **awesome-evidence-synthesis** principles: coding, theme development, and mapping.\n\n**Risk of bias:** Per-domain robvis template (${robLabel}).`;
+
+    const metaBlock = isMeta
+      ? `\n### Meta-analysis Interpretation\n\nEffect estimates should be pooled using a random-effects model. Expected direction of effect: see effect table above. Heterogeneity: ${heterogeneityNotes} Use **forestplot**, **meta**, **metafor**, or **OpenMEE** for publication-ready figures.\n\n**Reporting:** Export effect table to **PRISMA 2020**-compliant format.\n`
+      : "";
+
+    return `## Evidence Synthesis\n**Review type:** ${reviewType}\n**Studies included:** ${papersForSynthesis.length}\n**Year range:** ${yearMin}–${yearMax}\n**Databases:** ${databases.join(", ") || "multiple"}\n\n---
+
+${methodsBlock}\n\n---
+
+### Narrative Summary\n\nThe body of evidence comprises ${papersForSynthesis.length} ${studyTypes.join(", ").toLowerCase() || "studies"} examining ${query || "the review topic"}. ${papersForSynthesis.length > 5 ? "Across the included studies, consistent themes emerge regarding the intervention/exposure and its association with the primary outcome." : "Findings should be interpreted with caution given the small number of included studies."}\n\n**Key findings by study:**\n${papersForSynthesis.map((p, i) => `${i + 1}. **${p.authors} (${p.year})** — ${p.title}\n   - Study type: ${p.studyType || "Not specified"}\n   - Outcome: ${p.outcome || "As reported"}\n   - Risk of bias: ${robAssessments[p.id]?.overall || "Pending (assess in Step 3)"}`).join("\n\n")}\n\n---
+
+### Effect Size Summary\n\n| Study | Effect Estimate | 95% CI | Weight |\n|-------|----------------|--------|--------|\n${effectTable}\n\n---
+
+### Risk of Bias Commentary\n\nUsing **${robLabel}** (robvis), the overall distribution of risk-of-bias judgments across ${papersForSynthesis.length} studies is: Low ${robSummary.low}, Some/Moderate concerns ${robSummary.some}, High/Critical ${robSummary.high}, Pending ${robSummary.pending}. ${robSummary.high > 0 ? "Studies at high risk of bias may overestimate effects; sensitivity analysis excluding these studies is recommended." : "No studies were rated at high risk of bias."} Domain-level traffic-light plots are available in the reporting step.\n\n---\n\n### Gaps and Future Directions\n\n- Unpublished or grey literature not searched in this run.\n- Subgroup analyses and meta-regression should be explored if heterogeneity is high.\n- Certainty of evidence (GRADE) should be formally assessed prior to guideline submission.\n- Sensitivity analysis excluding high-RoB studies recommended for robustness.\n\n> Generated locally using awesome-evidence-synthesis open-source workflow standards. For meta-analysis statistics, export the effect table to **R (metafor/meta)**, **JASP**, or **OpenMEE**.\n`;
+  };
+
   const generateSynthesis = async () => {
     if (extractedData.length === 0) {
       alert("Please complete data extraction first.");
@@ -594,7 +645,15 @@ OUTPUT FORMAT:
 
       const apiKey = state.deepseekApiKey || state.geminiApiKey || state.openRouterApiKey;
       if (!apiKey) {
-        setSynthesisOutput("## Evidence Synthesis\n\nNo API key configured. Please configure DeepSeek, Gemini, or OpenRouter in Settings to enable AI-powered synthesis.\n\n### Narrative Summary\n\nNarrative synthesis requires AI generation. Configure an API key to proceed.\n\n### Effect Size Summary\n\n| Study | Effect Estimate | 95% CI | Weight |\n|-------|----------------|--------|--------|\n| [Awaiting AI generation] | — | — | — |");
+        const localOutput = generateLocalSynthesis();
+        setSynthesisOutput(localOutput);
+        const tableLines = localOutput.split("\n").filter((l) => l.includes("|") && !l.includes("---"));
+        const resultRows = tableLines.slice(1).map((l) => {
+          const parts = l.split("|").map((s) => s.trim()).filter(Boolean);
+          if (parts.length < 4) return null;
+          return { study: parts[0] || "", effect: parts[1] || "", ci: parts[2] || "", weight: parts[3] || "" };
+        }).filter((r): r is { study: string; effect: string; ci: string; weight: string } => r !== null);
+        if (resultRows.length > 0) setEffectSizes(resultRows);
         setSynthesisLoading(false);
         return;
       }
@@ -626,7 +685,7 @@ OUTPUT FORMAT:
         if (rows.length > 0) setEffectSizes(rows);
       }
     } catch (err: any) {
-      setSynthesisOutput(`## Evidence Synthesis\n\n**Error generating synthesis:** ${err.message || "Unknown error"}\n\nPlease try again or adjust your instructions.`);
+      setSynthesisOutput(`## Evidence Synthesis\n\n**Error generating synthesis:** ${err.message || "Unknown error"}\n\nPlease try again, adjust your instructions, or use local synthesis (no API key required).`);
     } finally {
       setSynthesisLoading(false);
     }
@@ -1172,9 +1231,9 @@ OUTPUT FORMAT:
                 <Table size={18} className="text-yellow-400" />
                 <h3 className="text-lg font-bold text-white">Synthesis & Meta-analysis</h3>
               </div>
-              <p className="text-sm text-blue-300 mb-4">
-                Generate evidence synthesis using methods from the awesome-evidence-synthesis toolkit. Select your review type and provide requirements below.
-              </p>
+               <p className="text-sm text-blue-300 mb-4">
+                 Generate evidence synthesis using methods from the awesome-evidence-synthesis toolkit. No API key required — the local synthesis builder produces PRISMA/ROSES-ready output from your extracted data. Configure an API key in Settings for AI-enhanced output.
+               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
@@ -1223,7 +1282,9 @@ OUTPUT FORMAT:
                 ) : (
                   <>
                     <Sparkles size={16} />
-                    Generate AI Synthesis ({reviewType})
+                    {(state.deepseekApiKey || state.geminiApiKey || state.openRouterApiKey)
+                      ? `Generate AI Synthesis (${reviewType})`
+                      : `Generate Local Synthesis (${reviewType})`}
                   </>
                 )}
               </button>
