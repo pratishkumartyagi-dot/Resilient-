@@ -51,8 +51,8 @@ export async function callDeepSeek(apiKey: string, prompt: string): Promise<stri
 
 export async function testGeminiKey(apiKey: string): Promise<boolean> {
   try {
-    const result = await callGemini(apiKey, "Hello, this is a test message. Please respond with OK.");
-    return result.toLowerCase().includes("ok");
+    await callGemini(apiKey, "Hello, this is a test message. Please respond with OK.");
+    return true;
   } catch {
     return false;
   }
@@ -60,8 +60,8 @@ export async function testGeminiKey(apiKey: string): Promise<boolean> {
 
 export async function testOpenRouterKey(apiKey: string): Promise<boolean> {
   try {
-    const result = await callOpenRouter(apiKey, "Hello, this is a test message. Please respond with OK.");
-    return result.toLowerCase().includes("ok");
+    await callOpenRouter(apiKey, "Hello, this is a test message. Please respond with OK.");
+    return true;
   } catch {
     return false;
   }
@@ -69,8 +69,8 @@ export async function testOpenRouterKey(apiKey: string): Promise<boolean> {
 
 export async function testDeepSeekKey(apiKey: string): Promise<boolean> {
   try {
-    const result = await callDeepSeek(apiKey, "Hello, this is a test message. Please respond with OK.");
-    return result.toLowerCase().includes("ok");
+    await callDeepSeek(apiKey, "Hello, this is a test message. Please respond with OK.");
+    return true;
   } catch {
     return false;
   }
