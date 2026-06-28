@@ -112,7 +112,7 @@ export default function PredictiveAnalysisTab() {
       if (state.geminiApiKey) response = await callGemini(apiKey, prompt);
       else if (state.groqApiKey) response = await callGroq(apiKey, prompt);
       else if (state.deepseekApiKey) response = await callDeepSeek(apiKey, prompt);
-      else response = await callGroq(apiKey, prompt);
+      else throw new Error("No API key configured. Please open Settings (gear icon).");
 
       setAiOutput(response);
     } catch (e) {

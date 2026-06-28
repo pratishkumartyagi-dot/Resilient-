@@ -855,19 +855,19 @@ OUTPUT FORMAT:
         return;
       }
 
-       let text: string;
-       if (state.geminiApiKey) {
-         text = await callGemini(state.geminiApiKey, prompt);
-       } else if (state.groqApiKey) {
-         text = await callGroq(state.groqApiKey!, prompt);
-       } else if (state.deepseekApiKey) {
-         text = await callDeepSeek(state.deepseekApiKey, prompt);
-       } else {
-         text = await callGroq(state.groqApiKey!, prompt);
-       }
+        let text: string;
+        if (state.geminiApiKey) {
+          text = await callGemini(state.geminiApiKey, prompt);
+        } else if (state.groqApiKey) {
+          text = await callGroq(state.groqApiKey!, prompt);
+        } else if (state.deepseekApiKey) {
+          text = await callDeepSeek(state.deepseekApiKey, prompt);
+        } else {
+          throw new Error("No API key configured. Please open Settings (gear icon).");
+        }
 
-       const cleaned = text.replace(/```markdown/g, "").replace(/```/g, "").trim();
-       setSynthesisOutput(cleaned);
+        const cleaned = text.replace(/```markdown/g, "").replace(/```/g, "").trim();
+        setSynthesisOutput(cleaned);
 
       const tableMatch = cleaned.match(/\| Study[\s\S]*?\|/);
       if (tableMatch) {
