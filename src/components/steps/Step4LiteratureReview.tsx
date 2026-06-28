@@ -33,15 +33,15 @@ export default function Step4LiteratureReview() {
 
       let review: string = "";
 
-      if (state.deepseekApiKey) {
-        const prompt = buildStep4Prompt(selected, "") + synthesisContext;
-        review = await callDeepSeek(state.deepseekApiKey, prompt);
-      } else if (state.geminiApiKey) {
+      if (state.geminiApiKey) {
         const prompt = buildStep4Prompt(selected, "") + synthesisContext;
         review = await callGemini(state.geminiApiKey, prompt);
       } else if (state.groqApiKey) {
         const prompt = buildStep4Prompt(selected, "") + synthesisContext;
         review = await callGroq(state.groqApiKey, prompt);
+      } else if (state.deepseekApiKey) {
+        const prompt = buildStep4Prompt(selected, "") + synthesisContext;
+        review = await callDeepSeek(state.deepseekApiKey, prompt);
       } else {
         review = generateLocalLiteratureReview(
           selected.map((p) => ({

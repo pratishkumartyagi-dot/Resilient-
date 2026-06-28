@@ -100,7 +100,7 @@ export default function PredictiveAnalysisTab() {
         prompt = "Provide guidance for this step.";
     }
 
-    const apiKey = state.deepseekApiKey || state.geminiApiKey || state.groqApiKey;
+    const apiKey = state.geminiApiKey || state.groqApiKey || state.deepseekApiKey;
     if (!apiKey) {
       setAiOutput("Please configure an AI provider in Settings first.");
       setLocalLoading(false);
@@ -109,9 +109,11 @@ export default function PredictiveAnalysisTab() {
 
     try {
       let response: string;
-      if (state.deepseekApiKey) response = await callDeepSeek(apiKey, prompt);
-      else if (state.geminiApiKey) response = await callGemini(apiKey, prompt);
+      if (state.geminiApiKey) response = await callGemini(apiKey, prompt);
+      else if (state.groqApiKey) response = await callGroq(apiKey, prompt);
+      else if (state.deepseekApiKey) response = await callDeepSeek(apiKey, prompt);
       else response = await callGroq(apiKey, prompt);
+
       setAiOutput(response);
     } catch (e) {
       setAiOutput(`AI assistance failed: ${e instanceof Error ? e.message : "Unknown error"}`);

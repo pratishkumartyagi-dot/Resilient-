@@ -60,12 +60,12 @@ export default function Step9Methodology() {
       const prompt = buildStep9Prompt(state.aimObjectives, state.papers, state.studyType);
 
       let responseText: string = "";
-      if (state.deepseekApiKey) {
-        responseText = await callDeepSeek(state.deepseekApiKey, prompt);
-      } else if (state.geminiApiKey) {
+      if (state.geminiApiKey) {
         responseText = await callGemini(state.geminiApiKey, prompt);
       } else if (state.groqApiKey) {
         responseText = await callGroq(state.groqApiKey, prompt);
+      } else if (state.deepseekApiKey) {
+        responseText = await callDeepSeek(state.deepseekApiKey, prompt);
       } else {
         throw new Error("No API key configured. Please open Settings (gear icon).");
       }

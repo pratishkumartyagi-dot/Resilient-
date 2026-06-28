@@ -15,9 +15,9 @@ export default function SettingsModal() {
   const [testingGemini, setTestingGemini] = useState(false);
   const [testingGroq, setTestingGroq] = useState(false);
   const [testingDeepSeek, setTestingDeepSeek] = useState(false);
-  const [geminiResult, setGeminiResult] = useState<boolean | null>(null);
-  const [groqResult, setGroqResult] = useState<boolean | null>(null);
-  const [deepseekResult, setDeepseekResult] = useState<boolean | null>(null);
+  const [geminiResult, setGeminiResult] = useState<{ ok: boolean; error?: string } | null>(null);
+  const [groqResult, setGroqResult] = useState<{ ok: boolean; error?: string } | null>(null);
+  const [deepseekResult, setDeepseekResult] = useState<{ ok: boolean; error?: string } | null>(null);
 
   React.useEffect(() => {
     if (typeof window !== "undefined" && !loadedFromStorage) {
@@ -64,24 +64,24 @@ export default function SettingsModal() {
   const handleTestGemini = async () => {
     setTestingGemini(true);
     setGeminiResult(null);
-    const ok = await testGeminiKey(geminiKey);
-    setGeminiResult(ok);
+    const result = await testGeminiKey(geminiKey);
+    setGeminiResult(result);
     setTestingGemini(false);
   };
 
   const handleTestGroq = async () => {
     setTestingGroq(true);
     setGroqResult(null);
-    const ok = await testGroqKey(groqKey);
-    setGroqResult(ok);
+    const result = await testGroqKey(groqKey);
+    setGroqResult(result);
     setTestingGroq(false);
   };
 
   const handleTestDeepSeek = async () => {
     setTestingDeepSeek(true);
     setDeepseekResult(null);
-    const ok = await testDeepSeekKey(deepseekKey);
-    setDeepseekResult(ok);
+    const result = await testDeepSeekKey(deepseekKey);
+    setDeepseekResult(result);
     setTestingDeepSeek(false);
   };
 
@@ -125,14 +125,14 @@ export default function SettingsModal() {
                 {testingGemini ? <Loader2 size={12} className="animate-spin" /> : null}
                 Test Connection
               </button>
-              {geminiResult === true && (
+              {geminiResult && geminiResult.ok && (
                 <span className="text-xs text-green-300 flex items-center gap-1">
                   <CheckCircle2 size={12} /> Connected
                 </span>
               )}
-              {geminiResult === false && (
+              {geminiResult && !geminiResult.ok && (
                 <span className="text-xs text-red-300 flex items-center gap-1">
-                  <XCircle size={12} /> Failed
+                  <XCircle size={12} /> Failed: {geminiResult.error || "Check key and network"}
                 </span>
               )}
             </div>
@@ -159,14 +159,14 @@ export default function SettingsModal() {
                 {testingGroq ? <Loader2 size={12} className="animate-spin" /> : null}
                 Test Connection
               </button>
-              {groqResult === true && (
+              {groqResult && groqResult.ok && (
                 <span className="text-xs text-green-300 flex items-center gap-1">
                   <CheckCircle2 size={12} /> Connected
                 </span>
               )}
-              {groqResult === false && (
+              {groqResult && !groqResult.ok && (
                 <span className="text-xs text-red-300 flex items-center gap-1">
-                  <XCircle size={12} /> Failed
+                  <XCircle size={12} /> Failed: {groqResult.error || "Check key and network"}
                 </span>
               )}
             </div>
@@ -193,14 +193,14 @@ export default function SettingsModal() {
                 {testingDeepSeek ? <Loader2 size={12} className="animate-spin" /> : null}
                 Test Connection
               </button>
-              {deepseekResult === true && (
+              {deepseekResult && deepseekResult.ok && (
                 <span className="text-xs text-green-300 flex items-center gap-1">
                   <CheckCircle2 size={12} /> Connected
                 </span>
               )}
-              {deepseekResult === false && (
+              {deepseekResult && !deepseekResult.ok && (
                 <span className="text-xs text-red-300 flex items-center gap-1">
-                  <XCircle size={12} /> Failed
+                  <XCircle size={12} /> Failed: {deepseekResult.error || "Check key and network"}
                 </span>
               )}
             </div>
@@ -208,7 +208,7 @@ export default function SettingsModal() {
 
           <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-3">
             <p className="text-xs text-blue-300">
-               Keys are stored locally in the application state. DeepSeek-R1 is used as the primary deep reasoning engine for evidence synthesis. Gemini 3.5 Flash and Groq DeepSeek-R1-Distill-Llama-70B serve as fallback providers.
+               Keys are stored locally in the application state. Gemini 3.1 Flash is the primary AI provider for general synthesis. Groq is the next fallback, and DeepSeek API Key (DeepSeek-R1 reasoning model) is the third fallback.
             </p>
           </div>
         </div>

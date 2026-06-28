@@ -67,12 +67,12 @@ export default function Step8AimObjectives() {
       const prompt = buildStep8Prompt(state.researchQuestions, state.themes, state.papers);
 
       let responseText: string = "";
-      if (state.deepseekApiKey) {
-        responseText = await callDeepSeek(state.deepseekApiKey, prompt);
-      } else if (state.geminiApiKey) {
+      if (state.geminiApiKey) {
         responseText = await callGemini(state.geminiApiKey, prompt);
       } else if (state.groqApiKey) {
         responseText = await callGroq(state.groqApiKey, prompt);
+      } else if (state.deepseekApiKey) {
+        responseText = await callDeepSeek(state.deepseekApiKey, prompt);
       } else {
         throw new Error("No API key configured. Please open Settings (gear icon).");
       }

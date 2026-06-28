@@ -42,7 +42,7 @@
 - [x] Step1: made "Select All" a true toggle (selects all databases when partial, deselects all when all are selected)
 - [x] Step1: removed artificial cap on mock paper count; now scales dynamically by selected databases (dbs.length × 15, no upper limit)
 - [x] Step1: app now auto-advances to Step 2 immediately after search completes
-- [x] Step3: fixed invalid Gemini model name to `gemini-3.5-flash` so real AI synthesis works
+- [x] Step3: fixed invalid Gemini model name to `gemini-3.1-flash` so real AI synthesis works
 - [x] Step3: error handling surfaces API key requirement instead of silently falling back to mock data
 - [x] Steps 3–10: integrated AIPOCH Medical Research Skills prompts from github.com/aipoch/medical-research-skills
   - Step 3: tooluniverse-literature-deep-research (evidence-graded synthesis table)
@@ -58,7 +58,7 @@
 - [x] Step3: fixed loading spinner condition to show during all loading states
 - [x] Header rebrand: removed "Resilient Researcher Assistant" and "Systematic Review & Evidence Synthesis"; replaced center subtitle with "Powered Research Intelligence Platform"
 - [x] Added Settings gear icon to header, triggering API key configuration modal
-- [x] Created API settings modal (`SettingsModal`) supporting Gemini 3.5 Flash (primary) and Groq/DeepSeek fallback, with test-connection buttons
+- [x] Created API settings modal (`SettingsModal`) supporting Gemini 3.1 Flash (primary) and Groq/DeepSeek fallback, with test-connection buttons
 - [x] Added `src/lib/ai.ts` with wrapper functions for Gemini and OpenRouter REST endpoints
 - [x] Updated `AppContext` with `geminiApiKey` and `openRouterApiKey` state fields
 - [x] Fixed `selectedPapers` state sync bug in reducer (was always empty, blocking Step 3 generation)
@@ -211,31 +211,31 @@ The systematic review tab now contains a full 8-step systematic review / meta-an
 
 ## DeepSeek R1 Integration — Deep Reasoning Engine (2026-06-26)
 
-**New AI provider**: DeepSeek R1 (`deepseek/deepseek-r1`) via OpenRouter API as the primary deep reasoning engine for evidence synthesis throughout the research pipeline.
+**New AI provider**: DeepSeek R1 (`deepseek/deepseek-r1`) via DeepSeek API as the tertiary fallback deep reasoning engine for evidence synthesis throughout the research pipeline. Priority order is: Gemini 3.1 Flash (primary) → Groq (secondary) → DeepSeek API Key (tertiary).
 
 ### Files Modified
-- `src/lib/ai.ts` — Added `callDeepSeek()` (wraps OpenRouter with `deepseek/deepseek-r1` model) and `testDeepSeekKey()`
+- `src/lib/ai.ts` — Added `callDeepSeek()` (wraps DeepSeek API with `deepseek-reasoner` model) and `testDeepSeekKey()`
 - `src/context/AppContext.tsx` — Added `deepseekApiKey` state field and `SET_DEEPSEEK_KEY` reducer action
 - `src/components/SettingsModal.tsx` — Added DeepSeek API key input with Test Connection button; localStorage key `resilient_deepseek_api_key`
-- `src/components/steps/Step3Synthesis.tsx` — DeepSeek R1 primary for synthesis generation
-- `src/components/steps/Step4LiteratureReview.tsx` — DeepSeek R1 primary for literature review generation
-- `src/components/steps/Step5Themes.tsx` — DeepSeek R1 primary for theme generation
-- `src/components/steps/Step6ResearchQuestions.tsx` — DeepSeek R1 primary for research question generation
-- `src/components/steps/Step7ResearchTitles.tsx` — DeepSeek R1 primary for title optimization
-- `src/components/steps/Step8AimObjectives.tsx` — DeepSeek R1 primary for aims/hypotheses generation
-- `src/components/steps/Step9Methodology.tsx` — DeepSeek R1 primary for methods section writing
-- `src/components/steps/Step10Protocol.tsx` — DeepSeek R1 primary for protocol generation
-- `src/components/tabs/ProtocolChatTab.tsx` — DeepSeek R1 primary for deep reasoning chat and protocol generation
+- `src/components/steps/Step3Synthesis.tsx` — Updated: Gemini 3.1 Flash primary for synthesis generation
+- `src/components/steps/Step4LiteratureReview.tsx` — Updated: Gemini 3.1 Flash primary for literature review generation
+- `src/components/steps/Step5Themes.tsx` — Updated: Gemini 3.1 Flash primary for theme generation
+- `src/components/steps/Step6ResearchQuestions.tsx` — Updated: Gemini 3.1 Flash primary for research question generation
+- `src/components/steps/Step7ResearchTitles.tsx` — Updated: Gemini 3.1 Flash primary for title optimization
+- `src/components/steps/Step8AimObjectives.tsx` — Updated: Gemini 3.1 Flash primary for aims/hypotheses generation
+- `src/components/steps/Step9Methodology.tsx` — Updated: Gemini 3.1 Flash primary for methods section writing
+- `src/components/steps/Step10Protocol.tsx` — Updated: Gemini 3.1 Flash primary for protocol generation
+- `src/components/tabs/ProtocolChatTab.tsx` — Updated: Gemini 3.1 Flash primary for deep reasoning chat and protocol generation
 
 ### AI Provider Priority (updated)
-1. **DeepSeek R1** (`deepseek/deepseek-r1`) — primary for deep reasoning with papers
-2. **Gemini 3.5 Flash** — fallback
-3. **Groq DeepSeek-R1-Distill-Llama-70B** — secondary fallback
+1. **Gemini 3.1 Flash** — primary AI provider for general synthesis
+2. **Groq DeepSeek-R1-Distill-Llama-70B** — secondary fallback
+3. **DeepSeek API Key (DeepSeek-R1 reasoning model)** — tertiary fallback
 
 ### Model Selection
-- DeepSeek R1 is accessed via OpenRouter API using model identifier `deepseek/deepseek-r1`
-- Users can provide their OpenRouter API key in the DeepSeek field; the same key works for both models
-- All steps 3–10 and the Protocol Generator chat now prefer DeepSeek R1 when a key is configured
+- DeepSeek R1 is accessed via DeepSeek API (`api.deepseek.com`) using model identifier `deepseek-reasoner`
+- Users should provide their DeepSeek API key in the DeepSeek field
+- All steps 3–10 and the Protocol Generator chat now prefer Gemini 3.1 Flash when a key is configured
 
 ## Evidence Synthesis & Meta-analysis Tab Overhaul (2026-06-26)
 
@@ -257,7 +257,7 @@ The systematic review tab now contains a full 8-step systematic review / meta-an
 - Added **Review Type** selector: Systematic Review, Systematic Review & Meta-analysis, Narrative Review, Umbrella Review, Scoping Review, Rapid Review, Mixed Methods Review, Diagnostic Test Accuracy Review
 - Added **Specific Requirements** textbox for user-defined review instructions (subgroups, study design filters, GRADE, meta-regression, etc.)
 - Added **Additional Synthesis Instructions** textbox for fine-tuning the synthesis approach
-- AI generates narrative synthesis using DeepSeek R1 (primary) / Gemini / OpenRouter
+- AI generates narrative synthesis using Gemini 3.1 Flash (primary) / Groq (secondary) / DeepSeek R1 (fallback)
   - Prompt incorporates review type, user requirements, and extracted studies
   - Meta-analysis steps included when review type contains "Meta-analysis"
 - Parsed effect-size table rendered as editable inputs (Study, Effect Estimate, 95% CI, Weight)
@@ -334,7 +334,7 @@ The systematic review tab now contains a full 8-step systematic review / meta-an
 
 ## Step 4 Local Synthesis (API-key-free) + API Routing (2026-06-27)
 
-**Feature**: Step 4 ("Synthesis & Meta-analysis") now works without any API key. When no DeepSeek/Gemini/OpenRouter key is configured, `generateLocalSynthesis()` produces a structured PRISMA/ROSES-ready report from `extractedData` + `robAssessments` only.
+**Feature**: Step 4 ("Synthesis & Meta-analysis") now works without any API key. When no Gemini/Groq/DeepSeek key is configured, `generateLocalSynthesis()` produces a structured PRISMA/ROSES-ready report from `extractedData` + `robAssessments` only.
 
 ### Local Synthesis Details
 - Review-type-aware sections:
@@ -346,12 +346,12 @@ The systematic review tab now contains a full 8-step systematic review / meta-an
 - Button label switches between "Generate Local Synthesis" and "Generate AI Synthesis" based on key presence
 
 ### API Routing Fix
-- `src/lib/ai.ts` `callGemini`/`callOpenRouter`/`callDeepSeek` now route through `src/app/api/chat/route.ts` (server-side Next.js API route)
+- `src/lib/ai.ts` `callGemini`/`callGroq`/`callDeepSeek` now route through `src/app/api/chat/route.ts` (server-side Next.js API route)
 - Client-side browser calls no longer hit AI providers directly; avoids CORS and inadvertent key leakage in client bundles
 - Server route accepts `{ provider, prompt, apiKey, model? }` and returns `{ content }` or `{ error }`
 
 ### Bug Fix API Key Test
-- `testGeminiKey`/`testOpenRouterKey`/`testDeepSeekKey` previously checked `result.toLowerCase().includes("ok")` causing false failures when provider replied without the literal "ok" substring
+- `testGeminiKey`/`testGroqKey`/`testDeepSeekKey` previously checked `result.toLowerCase().includes("ok")` causing false failures when provider replied without the literal "ok" substring
 - Fixed: test now returns `true` on any successful HTTP call with non-empty content; `false` only on caught exception / HTTP error
 
 ## Step 6 Writing Review & Meta-analysis — Narrative Review Example Added (2026-06-27)
@@ -389,8 +389,8 @@ The AI-generated narrative review follows a strict heading structure:
 6. References (auto-populated from selected papers)
 
 ### AI Integration
-- Uses DeepSeek R1 (primary) for deep reasoning via `callDeepSeek`
-- Falls back to Gemini / OpenRouter if configured
+- Uses Gemini 3.1 Flash (primary) for general synthesis via `callGemini`
+- Falls back to Groq / DeepSeek API if configured
 - Prompt incorporates janhq/jan-inspired Long CoT methodology:
   - Step-by-step reasoning before drafting each section
   - Explicit uncertainty acknowledgment
@@ -420,12 +420,11 @@ The AI-generated narrative review follows a strict heading structure:
 
 ## Replace OpenRouter with Groq (DeepSeek-R1-Distill-Llama-70B) (2026-06-28)
 
-**Feature**: Removed OpenRouter / `gpt-oss-120b` fallback and replaced it with Groq using `deepseek-r1-distill-llama-70b`.
+**Feature**: Removed OpenRouter / `gpt-oss-120b` fallback and replaced it with Groq using `deepseek-r1-distill-llama-70b`. DeepSeek R1 reasoning model now uses `deepseek-reasoner` via the official DeepSeek API (`api.deepseek.com`).
 
 ### Files Modified
-- `src/app/api/chat/route.ts` — Replaced OpenRouter endpoint with Groq endpoint (`https://api.groq.com/openai/v1/chat/completions`), model `deepseek-r1-distill-llama-70b`, updated provider type from `"openrouter"` to `"groq"`
-- `src/lib/ai.ts` — Renamed `callOpenRouter` → `callGroq`, `testOpenRouterKey` → `testGroqKey`; `callDeepSeek` now routes through Groq as well
-- `src/context/AppContext.tsx` — Renamed `openRouterApiKey` → `groqApiKey`, `SET_OPENROUTER_KEY` → `SET_GROQ_KEY`
+- `src/app/api/chat/route.ts` — Separated DeepSeek and Groq backends: DeepSeek uses `https://api.deepseek.com/v1/chat/completions` with model `deepseek-reasoner`; Groq uses `https://api.groq.com/openai/v1/chat/completions` with model `deepseek-r1-distill-llama-70b`
+- `src/lib/ai.ts` — Renamed `callOpenRouter` → `callGroq`, `testOpenRouterKey` → `testGroqKey`; `callDeepSeek` now routes through DeepSeek API directly
 - `src/components/SettingsModal.tsx` — UI label changed from "OpenRouter API Key" to "Groq API Key (DeepSeek-R1-Distill-Llama-70B fallback)"
 - `src/components/steps/Step3Synthesis.tsx` — Updated imports and fallback chain
 - `src/components/steps/Step4LiteratureReview.tsx` — Updated imports and fallback chain
@@ -437,13 +436,12 @@ The AI-generated narrative review follows a strict heading structure:
 - `src/components/steps/Step10Protocol.tsx` — Updated imports and fallback chain
 - `src/components/tabs/ProtocolChatTab.tsx` — Updated imports and fallback chain
 - `src/components/tabs/EvidenceSynthesisTab.tsx` — Updated imports, fallback chain, and user-facing copy
+- `src/components/tabs/PredictiveAnalysisTab.tsx` — Updated imports and fallback chain
 
-### AI Provider Priority (updated)
-1. **DeepSeek R1** (`deepseek-r1-distill-llama-70b`) — primary deep reasoning engine (via Groq)
-2. **Gemini 3.5 Flash** — fallback
-3. **Groq DeepSeek-R1-Distill-Llama-70B** — secondary fallback (was OpenRouter `gpt-oss-120b`)
-
-## Predictive Analysis Tab — 13-Step Clinical Prediction Pipeline (2026-06-28)
+### AI Provider Priority (corrected)
+1. **Gemini 3.1 Flash** — primary AI provider for general synthesis
+2. **Groq DeepSeek-R1-Distill-Llama-70B** — secondary fallback
+3. **DeepSeek API Key (DeepSeek-R1 reasoning model)** — tertiary fallback
 
 **New tab added**: "Predictive Analysis" in `TopTabs` (between "Sample Size Calculator" and "Evidence Synthesis & Meta-analysis")
 

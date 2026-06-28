@@ -735,24 +735,26 @@ Do NOT use Markdown formatting like # or ##. Do NOT add extra headings.`;
           conclusion: "",
           references: numberedRefs,
         });
-        setLiteratureReviewLoading(false);
-        return;
-      }
+         setLiteratureReviewLoading(false);
+         return;
+       }
 
-      let text: string;
-      if (state.deepseekApiKey) {
-        text = await callDeepSeek(state.deepseekApiKey, prompt);
-      } else if (state.geminiApiKey) {
-        text = await callGemini(state.geminiApiKey, prompt);
-      } else {
-        text = await callGroq(state.groqApiKey!, prompt);
-      }
+       let text: string;
+       if (state.geminiApiKey) {
+         text = await callGemini(state.geminiApiKey, prompt);
+       } else if (state.groqApiKey) {
+         text = await callGroq(state.groqApiKey!, prompt);
+       } else if (state.deepseekApiKey) {
+         text = await callDeepSeek(state.deepseekApiKey, prompt);
+       } else {
+         throw new Error("No API key configured. Please open Settings (gear icon).");
+       }
 
-      const cleaned = text.replace(/```/g, "").trim();
-      const parsed = parseLiteratureReview(cleaned);
-      setLiteratureReviewSections({
-        introduction: parsed.introduction || "",
-        problemGlobal: parsed.problemGlobal || parsed.problem || "",
+       const cleaned = text.replace(/```/g, "").trim();
+       const parsed = parseLiteratureReview(cleaned);
+       setLiteratureReviewSections({
+         introduction: parsed.introduction || "",
+         problemGlobal: parsed.problemGlobal || parsed.problem || "",
         problemSEA: parsed.problemSEA || "",
         problemIndia: parsed.problemIndia || "",
         gaps: parsed.gaps || "",
@@ -853,17 +855,19 @@ OUTPUT FORMAT:
         return;
       }
 
-      let text: string;
-      if (state.deepseekApiKey) {
-        text = await callDeepSeek(state.deepseekApiKey, prompt);
-      } else if (state.geminiApiKey) {
-        text = await callGemini(state.geminiApiKey, prompt);
-      } else {
-        text = await callGroq(state.groqApiKey!, prompt);
-      }
+       let text: string;
+       if (state.geminiApiKey) {
+         text = await callGemini(state.geminiApiKey, prompt);
+       } else if (state.groqApiKey) {
+         text = await callGroq(state.groqApiKey!, prompt);
+       } else if (state.deepseekApiKey) {
+         text = await callDeepSeek(state.deepseekApiKey, prompt);
+       } else {
+         text = await callGroq(state.groqApiKey!, prompt);
+       }
 
-      const cleaned = text.replace(/```markdown/g, "").replace(/```/g, "").trim();
-      setSynthesisOutput(cleaned);
+       const cleaned = text.replace(/```markdown/g, "").replace(/```/g, "").trim();
+       setSynthesisOutput(cleaned);
 
       const tableMatch = cleaned.match(/\| Study[\s\S]*?\|/);
       if (tableMatch) {
