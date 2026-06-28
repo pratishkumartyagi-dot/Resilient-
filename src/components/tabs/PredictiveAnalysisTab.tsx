@@ -61,40 +61,40 @@ export default function PredictiveAnalysisTab() {
         prompt = `Draft a clinical prediction model protocol based on: target population: ${state.predictionPopulation || "not specified"}, outcome: ${state.predictionOutcome || "not specified"}, setting: general hospital. Follow TRIPOD reporting guidelines.`;
         break;
       case 2:
-        prompt = "Recommend whether to develop a new prediction model or update an existing one. Justify with 3 bullets.";
+        prompt = `Recommend whether to develop a new prediction model or update an existing one, following the step-by-step guide in Efthimiou et al. (BMJ 2024, PMC11369751). If data is limited, note that PyHealth trainers with penalisation (ridge/LASSO) can help prevent overfitting. Justify with 3 bullets.`;
         break;
       case 3:
-        prompt = `For a ${state.predictionOutcomeType} outcome named "${state.predictionOutcome || "outcome"}", suggest the best definition and measurement approach. Include time-to-event considerations if relevant.`;
+        prompt = `For a ${state.predictionOutcomeType} outcome named "${state.predictionOutcome || "outcome"}", suggest the best definition and measurement approach following the PROGRESS/TRIPOD framework (Efthimiou et al., BMJ 2024). Include guidance on when to prefer time-to-event over binary outcomes to avoid loss of information.`;
         break;
       case 4:
-        prompt = `Given outcome "${state.predictionOutcome || "clinical outcome"}", suggest 8-10 candidate baseline predictors that are routinely available in clinical practice. Explain why each should be included.`;
+        prompt = `Given outcome "${state.predictionOutcome || "clinical outcome"}", suggest 8-10 candidate baseline predictors that are routinely available in clinical practice, aligned with predictor-selection guidance in Efthimiou et al. (BMJ 2024, PMC11369751). Explain why each should be included and reference PyHealth standardised code maps (ICD, ATC, RxNorm) where applicable.`;
         break;
       case 5:
-        prompt = "Review uploaded data (if any) or summarize best practices for collecting and examining data for clinical prediction models. Include handling of measurement errors and variable distributions.";
+        prompt = `Review uploaded data (if any) or summarize best practices for collecting and examining data for clinical prediction models, following steps 5 and 7 in Efthimiou et al. (BMJ 2024, PMC11369751). Include handling of measurement errors, variable distributions, and missing data patterns. Reference PyHealth dataset formats (MIMIC-IV, eICU, OMOP) where relevant.`;
         break;
       case 6:
-        prompt = `Estimate sample size requirements. Assume binary outcome, 20% event rate, R²=0.2, 10 candidate predictors. Provide Riley-style guidance and note if ML models require larger samples.`;
+        prompt = `Estimate sample size requirements for a binary outcome with 20% event rate, R²=0.2, and 10 candidate predictors, following Riley-style guidance referenced in Efthimiou et al. (BMJ 2024, PMC11369751). Note that ML models require several times larger samples than standard statistical models, and that PyHealth Trainer with early stopping/penalisation can mitigate overfitting.`;
         break;
       case 7:
-        prompt = "Compare missing data strategies (multiple imputation vs single imputation vs complete case). Recommend one and explain how to implement it in a prediction model pipeline using PyHealth best practices.";
+        prompt = "Compare missing data strategies (multiple imputation vs single imputation vs complete case vs model-based handling), following step 7 in Efthimiou et al. (BMJ 2024, PMC11369751). Recommend one strategy and explain how to implement it in a prediction pipeline using PyHealth-compatible preprocessing (e.g., sklearn.impute.IterativeImputer or native model handling).";
         break;
       case 8:
-        prompt = `Recommend a modelling strategy for a ${state.predictionOutcomeType} outcome. Suggest 2-3 candidate models from PyHealth (e.g., Transformer, RETAIN, logistic regression) and provide hyperparameter guidance.`;
+        prompt = `Recommend a modelling strategy for a ${state.predictionOutcomeType} outcome, following step 8 in Efthimiou et al. (BMJ 2024, PMC11369751). Suggest 2-3 candidate models from PyHealth (e.g., Transformer, RETAIN, logistic regression, Cox, RF, XGBoost) and provide hyperparameter guidance, penalisation strategy (ridge/LASSO), and validation approach.`;
         break;
       case 9:
-        prompt = `For a ${state.predictionOutcomeType} prediction model, list the key performance measures (discrimination and calibration) and how to calculate them. Include AUC, calibration slope, Brier score, and decision curve analysis guidance.`;
+        prompt = `For a ${state.predictionOutcomeType} prediction model, list the key performance measures (discrimination and calibration) and how to calculate them, following step 9 in Efthimiou et al. (BMJ 2024, PMC11369751) and PyHealth metrics conventions. Include AUC, calibration slope, Brier score, and internal validation guidance (bootstrap or k-fold) for optimism correction.`;
         break;
       case 10:
-        prompt = "Explain how to select the final model using internal validation (bootstrap or k-fold). Include advice on the bias-variance trade-off and penalisation.";
+        prompt = "Explain how to select the final model using internal validation (bootstrap or k-fold), following step 10 in Efthimiou et al. (BMJ 2024, PMC11369751). Include advice on the bias-variance trade-off, penalisation, and Occam's razor. Reference PyHealth Trainer output comparison across models.";
         break;
       case 11:
-        prompt = "Explain how to perform and interpret a decision curve analysis for a clinical prediction model. Include net benefit calculation and how to identify the optimal threshold probability.";
+        prompt = "Explain how to perform and interpret a decision curve analysis for a clinical prediction model, following step 11 in Efthimiou et al. (BMJ 2024, PMC11369751). Include net benefit calculation, how to identify the optimal threshold probability, and how to combine this with PyHealth predict_proba() outputs for downstream packages like dcurves.";
         break;
       case 12:
-        prompt = "Describe how to assess individual predictor importance using SHAP and permutation importance. Explain how to interpret these for a clinical audience.";
+        prompt = "Describe how to assess individual predictor importance using SHAP and permutation importance, following the optional step 12 guidance in Efthimiou et al. (BMJ 2024, PMC11369751). Explain how to extract predictions from PyHealth models (predict_proba) and apply these methods for a clinical audience.";
         break;
       case 13:
-        prompt = "Generate a TRIPOD checklist summary for reporting this clinical prediction model study. Include key sections that must be covered in the final manuscript.";
+        prompt = "Generate a TRIPOD checklist summary for reporting this clinical prediction model study, following step 13 in Efthimiou et al. (BMJ 2024, PMC11369751). Include model equation, code, and deployment guidance (e.g., FastAPI + HTML calculator). Reference PyHealth export patterns.";
         break;
       default:
         prompt = "Provide guidance for this step.";
@@ -196,9 +196,9 @@ export default function PredictiveAnalysisTab() {
                 <input
                   type="radio"
                   name="modelStrategy"
-                  defaultChecked
+                  checked={state.predictionModelStrategy === "new"}
+                  onChange={() => dispatch({ type: "SET_PREDICTION_MODEL_STRATEGY", payload: "new" })}
                   className="text-yellow-500"
-                  onChange={() => {}}
                 />
                 <div>
                   <p className="text-sm font-bold text-white">Develop New Model</p>
@@ -209,8 +209,9 @@ export default function PredictiveAnalysisTab() {
                 <input
                   type="radio"
                   name="modelStrategy"
+                  checked={state.predictionModelStrategy === "update"}
+                  onChange={() => dispatch({ type: "SET_PREDICTION_MODEL_STRATEGY", payload: "update" })}
                   className="text-yellow-500"
-                  onChange={() => {}}
                 />
                 <div>
                   <p className="text-sm font-bold text-white">Update Existing Model</p>
@@ -494,6 +495,15 @@ export default function PredictiveAnalysisTab() {
                 </ul>
               </div>
             </div>
+            <div>
+              <label className="block text-sm font-medium text-blue-200 mb-2">Performance Notes</label>
+              <textarea
+                value={state.predictionPerformance}
+                onChange={(e) => dispatch({ type: "SET_PREDICTION_PERFORMANCE", payload: e.target.value })}
+                placeholder="Enter observed AUC, calibration slope, Brier score, or notes from internal validation..."
+                className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2.5 text-sm h-24"
+              />
+            </div>
             <button
               onClick={handleAiAssist}
               disabled={localLoading}
@@ -515,6 +525,15 @@ export default function PredictiveAnalysisTab() {
           <div className="space-y-4">
             <h3 className="text-lg font-bold text-white">Step 10: Decide on Final Model</h3>
             <p className="text-sm text-blue-300">Select the final model based on validation performance, simplicity, and clinical utility (Occam&apos;s razor).</p>
+            <div>
+              <label className="block text-sm font-medium text-blue-200 mb-2">Model Selection Rationale</label>
+              <textarea
+                value={state.predictionModelResult}
+                onChange={(e) => dispatch({ type: "SET_PREDICTION_MODEL_RESULT", payload: e.target.value })}
+                placeholder="Summarise the chosen model, validation metric, and reasons for preferring it over alternatives..."
+                className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2.5 text-sm h-24"
+              />
+            </div>
             <button
               onClick={handleAiAssist}
               disabled={localLoading}
@@ -541,7 +560,8 @@ export default function PredictiveAnalysisTab() {
                 <label className="block text-sm font-medium text-blue-200 mb-2">Min Threshold (%)</label>
                 <input
                   type="number"
-                  defaultValue="5"
+                  value={state.predictionDcaMinThreshold}
+                  onChange={(e) => dispatch({ type: "SET_PREDICTION_DCA_MIN", payload: e.target.value })}
                   className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2.5 text-sm"
                 />
               </div>
@@ -549,7 +569,8 @@ export default function PredictiveAnalysisTab() {
                 <label className="block text-sm font-medium text-blue-200 mb-2">Max Threshold (%)</label>
                 <input
                   type="number"
-                  defaultValue="50"
+                  value={state.predictionDcaMaxThreshold}
+                  onChange={(e) => dispatch({ type: "SET_PREDICTION_DCA_MAX", payload: e.target.value })}
                   className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2.5 text-sm"
                 />
               </div>
@@ -575,6 +596,19 @@ export default function PredictiveAnalysisTab() {
           <div className="space-y-4">
             <h3 className="text-lg font-bold text-white">Step 12: Assess Individual Predictors (Optional)</h3>
             <p className="text-sm text-blue-300">Use SHAP or permutation importance to understand predictor contribution.</p>
+            <div>
+              <label className="block text-sm font-medium text-blue-200 mb-2">Method</label>
+              <select
+                value={state.predictionImportanceMethod || ""}
+                onChange={(e) => dispatch({ type: "SET_PREDICTION_IMPORTANCE_METHOD", payload: e.target.value ? (e.target.value as "shap" | "permutation" | "both") : null })}
+                className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2.5 text-sm"
+              >
+                <option value="">Select method...</option>
+                <option value="shap">SHAP</option>
+                <option value="permutation">Permutation Importance</option>
+                <option value="both">Both</option>
+              </select>
+            </div>
             <button
               onClick={handleAiAssist}
               disabled={localLoading}
@@ -596,6 +630,15 @@ export default function PredictiveAnalysisTab() {
           <div className="space-y-4">
             <h3 className="text-lg font-bold text-white">Step 13: Report & Publish</h3>
             <p className="text-sm text-blue-300">Generate a TRIPOD-compliant report draft and provide model access instructions.</p>
+            <div>
+              <label className="block text-sm font-medium text-blue-200 mb-2">Report Notes</label>
+              <textarea
+                value={state.predictionReportNotes}
+                onChange={(e) => dispatch({ type: "SET_PREDICTION_REPORT_NOTES", payload: e.target.value })}
+                placeholder="Add manuscript notes, model equation highlights, or deployment instructions..."
+                className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2.5 text-sm h-24"
+              />
+            </div>
             <button
               onClick={handleAiAssist}
               disabled={localLoading}

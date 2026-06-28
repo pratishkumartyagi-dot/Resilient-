@@ -131,6 +131,11 @@ export interface AppState {
   predictionDecisionCurve: string;
   predictionReport: string;
   predictionLoading: boolean;
+  predictionModelStrategy: "new" | "update" | null;
+  predictionDcaMinThreshold: string;
+  predictionDcaMaxThreshold: string;
+  predictionImportanceMethod: "shap" | "permutation" | "both" | null;
+  predictionReportNotes: string;
 }
 
 type Action =
@@ -189,7 +194,12 @@ type Action =
   | { type: "SET_PREDICTION_PERFORMANCE"; payload: string }
   | { type: "SET_PREDICTION_DECISION_CURVE"; payload: string }
   | { type: "SET_PREDICTION_REPORT"; payload: string }
-  | { type: "SET_PREDICTION_LOADING"; payload: boolean };
+  | { type: "SET_PREDICTION_LOADING"; payload: boolean }
+  | { type: "SET_PREDICTION_MODEL_STRATEGY"; payload: "new" | "update" | null }
+  | { type: "SET_PREDICTION_DCA_MIN"; payload: string }
+  | { type: "SET_PREDICTION_DCA_MAX"; payload: string }
+  | { type: "SET_PREDICTION_IMPORTANCE_METHOD"; payload: "shap" | "permutation" | "both" | null }
+  | { type: "SET_PREDICTION_REPORT_NOTES"; payload: string };
 
 const initialState: AppState = {
   currentTab: "main",
@@ -276,6 +286,11 @@ const initialState: AppState = {
   predictionDecisionCurve: "",
   predictionReport: "",
   predictionLoading: false,
+  predictionModelStrategy: null,
+  predictionDcaMinThreshold: "5",
+  predictionDcaMaxThreshold: "50",
+  predictionImportanceMethod: null,
+  predictionReportNotes: "",
 };
 
 function appReducer(state: AppState, action: Action): AppState {
@@ -445,6 +460,16 @@ function appReducer(state: AppState, action: Action): AppState {
       return { ...state, predictionReport: action.payload };
     case "SET_PREDICTION_LOADING":
       return { ...state, predictionLoading: action.payload };
+    case "SET_PREDICTION_MODEL_STRATEGY":
+      return { ...state, predictionModelStrategy: action.payload };
+    case "SET_PREDICTION_DCA_MIN":
+      return { ...state, predictionDcaMinThreshold: action.payload };
+    case "SET_PREDICTION_DCA_MAX":
+      return { ...state, predictionDcaMaxThreshold: action.payload };
+    case "SET_PREDICTION_IMPORTANCE_METHOD":
+      return { ...state, predictionImportanceMethod: action.payload };
+    case "SET_PREDICTION_REPORT_NOTES":
+      return { ...state, predictionReportNotes: action.payload };
     case "RESET_STATE":
       return { ...initialState };
     default:
