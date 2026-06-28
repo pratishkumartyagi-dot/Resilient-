@@ -157,7 +157,7 @@ export default function SettingsModal() {
 
           <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-3">
             <p className="text-xs text-blue-300">
-               Keys are stored locally in the application state. Gemini 2.0 Flash is the primary AI provider. Groq (Llama 3.3 70B) is the fallback.
+               Keys are stored locally in the application state. Gemini 3.1 Flash Lite is the primary AI provider. Groq (Llama 3.3 70B) is the fallback.
             </p>
           </div>
         </div>

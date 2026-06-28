@@ -42,7 +42,7 @@
 - [x] Step1: made "Select All" a true toggle (selects all databases when partial, deselects all when all are selected)
 - [x] Step1: removed artificial cap on mock paper count; now scales dynamically by selected databases (dbs.length × 15, no upper limit)
 - [x] Step1: app now auto-advances to Step 2 immediately after search completes
-- [x] Step3: fixed invalid Gemini model name to `gemini-3.1-flash` so real AI synthesis works
+- [x] Step3: fixed invalid Gemini model name to `gemini-3.1-flash-lite` so real AI synthesis works
 - [x] Step3: error handling surfaces API key requirement instead of silently falling back to mock data
 - [x] Steps 3–10: integrated AIPOCH Medical Research Skills prompts from github.com/aipoch/medical-research-skills
   - Step 3: tooluniverse-literature-deep-research (evidence-graded synthesis table)
@@ -58,7 +58,7 @@
 - [x] Step3: fixed loading spinner condition to show during all loading states
 - [x] Header rebrand: removed "Resilient Researcher Assistant" and "Systematic Review & Evidence Synthesis"; replaced center subtitle with "Powered Research Intelligence Platform"
 - [x] Added Settings gear icon to header, triggering API key configuration modal
-- [x] Created API settings modal (`SettingsModal`) supporting Gemini 3.1 Flash (primary) and Groq/DeepSeek fallback, with test-connection buttons
+- [x] Created API settings modal (`SettingsModal`) supporting Gemini 3.1 Flash Lite (primary) and Groq/DeepSeek fallback, with test-connection buttons
 - [x] Added `src/lib/ai.ts` with wrapper functions for Gemini and OpenRouter REST endpoints
 - [x] Updated `AppContext` with `geminiApiKey` and `openRouterApiKey` state fields
 - [x] Fixed `selectedPapers` state sync bug in reducer (was always empty, blocking Step 3 generation)
@@ -211,31 +211,31 @@ The systematic review tab now contains a full 8-step systematic review / meta-an
 
 ## DeepSeek R1 Integration — Deep Reasoning Engine (2026-06-26)
 
-**New AI provider**: DeepSeek R1 (`deepseek/deepseek-r1`) via DeepSeek API as the tertiary fallback deep reasoning engine for evidence synthesis throughout the research pipeline. Priority order is: Gemini 3.1 Flash (primary) → Groq (secondary) → DeepSeek API Key (tertiary).
+**New AI provider**: DeepSeek R1 (`deepseek/deepseek-r1`) via DeepSeek API as the tertiary fallback deep reasoning engine for evidence synthesis throughout the research pipeline. Priority order is: Gemini 3.1 Flash Lite (primary) → Groq (secondary) → DeepSeek API Key (tertiary).
 
 ### Files Modified
 - `src/lib/ai.ts` — Added `callDeepSeek()` (wraps DeepSeek API with `deepseek-reasoner` model) and `testDeepSeekKey()`
 - `src/context/AppContext.tsx` — Added `deepseekApiKey` state field and `SET_DEEPSEEK_KEY` reducer action
 - `src/components/SettingsModal.tsx` — Added DeepSeek API key input with Test Connection button; localStorage key `resilient_deepseek_api_key`
-- `src/components/steps/Step3Synthesis.tsx` — Updated: Gemini 3.1 Flash primary for synthesis generation
-- `src/components/steps/Step4LiteratureReview.tsx` — Updated: Gemini 3.1 Flash primary for literature review generation
-- `src/components/steps/Step5Themes.tsx` — Updated: Gemini 3.1 Flash primary for theme generation
-- `src/components/steps/Step6ResearchQuestions.tsx` — Updated: Gemini 3.1 Flash primary for research question generation
-- `src/components/steps/Step7ResearchTitles.tsx` — Updated: Gemini 3.1 Flash primary for title optimization
-- `src/components/steps/Step8AimObjectives.tsx` — Updated: Gemini 3.1 Flash primary for aims/hypotheses generation
-- `src/components/steps/Step9Methodology.tsx` — Updated: Gemini 3.1 Flash primary for methods section writing
-- `src/components/steps/Step10Protocol.tsx` — Updated: Gemini 3.1 Flash primary for protocol generation
-- `src/components/tabs/ProtocolChatTab.tsx` — Updated: Gemini 3.1 Flash primary for deep reasoning chat and protocol generation
+- `src/components/steps/Step3Synthesis.tsx` — Updated: Gemini 3.1 Flash Lite primary for synthesis generation
+- `src/components/steps/Step4LiteratureReview.tsx` — Updated: Gemini 3.1 Flash Lite primary for literature review generation
+- `src/components/steps/Step5Themes.tsx` — Updated: Gemini 3.1 Flash Lite primary for theme generation
+- `src/components/steps/Step6ResearchQuestions.tsx` — Updated: Gemini 3.1 Flash Lite primary for research question generation
+- `src/components/steps/Step7ResearchTitles.tsx` — Updated: Gemini 3.1 Flash Lite primary for title optimization
+- `src/components/steps/Step8AimObjectives.tsx` — Updated: Gemini 3.1 Flash Lite primary for aims/hypotheses generation
+- `src/components/steps/Step9Methodology.tsx` — Updated: Gemini 3.1 Flash Lite primary for methods section writing
+- `src/components/steps/Step10Protocol.tsx` — Updated: Gemini 3.1 Flash Lite primary for protocol generation
+- `src/components/tabs/ProtocolChatTab.tsx` — Updated: Gemini 3.1 Flash Lite primary for deep reasoning chat and protocol generation
 
 ### AI Provider Priority (updated)
-1. **Gemini 3.1 Flash** — primary AI provider for general synthesis
+1. **Gemini 3.1 Flash Lite** — primary AI provider for general synthesis
 2. **Groq DeepSeek-R1-Distill-Llama-70B** — secondary fallback
 3. **DeepSeek API Key (DeepSeek-R1 reasoning model)** — tertiary fallback
 
 ### Model Selection
 - DeepSeek R1 is accessed via DeepSeek API (`api.deepseek.com`) using model identifier `deepseek-reasoner`
 - Users should provide their DeepSeek API key in the DeepSeek field
-- All steps 3–10 and the Protocol Generator chat now prefer Gemini 3.1 Flash when a key is configured
+- All steps 3–10 and the Protocol Generator chat now prefer Gemini 3.1 Flash Lite when a key is configured
 
 ## Evidence Synthesis & Meta-analysis Tab Overhaul (2026-06-26)
 
@@ -257,7 +257,7 @@ The systematic review tab now contains a full 8-step systematic review / meta-an
 - Added **Review Type** selector: Systematic Review, Systematic Review & Meta-analysis, Narrative Review, Umbrella Review, Scoping Review, Rapid Review, Mixed Methods Review, Diagnostic Test Accuracy Review
 - Added **Specific Requirements** textbox for user-defined review instructions (subgroups, study design filters, GRADE, meta-regression, etc.)
 - Added **Additional Synthesis Instructions** textbox for fine-tuning the synthesis approach
-- AI generates narrative synthesis using Gemini 3.1 Flash (primary) / Groq (secondary) / DeepSeek R1 (fallback)
+- AI generates narrative synthesis using Gemini 3.1 Flash Lite (primary) / Groq (secondary) / DeepSeek R1 (fallback)
   - Prompt incorporates review type, user requirements, and extracted studies
   - Meta-analysis steps included when review type contains "Meta-analysis"
 - Parsed effect-size table rendered as editable inputs (Study, Effect Estimate, 95% CI, Weight)
@@ -389,7 +389,7 @@ The AI-generated narrative review follows a strict heading structure:
 6. References (auto-populated from selected papers)
 
 ### AI Integration
-- Uses Gemini 3.1 Flash (primary) for general synthesis via `callGemini`
+- Uses Gemini 3.1 Flash Lite (primary) for general synthesis via `callGemini`
 - Falls back to Groq / DeepSeek API if configured
 - Prompt incorporates janhq/jan-inspired Long CoT methodology:
   - Step-by-step reasoning before drafting each section
@@ -439,7 +439,7 @@ The AI-generated narrative review follows a strict heading structure:
 - `src/components/tabs/PredictiveAnalysisTab.tsx` — Updated imports and fallback chain
 
 ### AI Provider Priority (corrected)
-1. **Gemini 3.1 Flash** — primary AI provider for general synthesis
+1. **Gemini 3.1 Flash Lite** — primary AI provider for general synthesis
 2. **Groq DeepSeek-R1-Distill-Llama-70B** — secondary fallback
 3. **DeepSeek API Key (DeepSeek-R1 reasoning model)** — tertiary fallback
 

@@ -17,11 +17,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (provider === "gemini") {
-       const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:sendMessage?key=${encodeURIComponent(apiKey)}`;
+       const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${encodeURIComponent(apiKey)}`;
        const res = await fetch(url, {
          method: "POST",
          headers: { "Content-Type": "application/json" },
-         body: JSON.stringify({ messages: [{ role: "user", parts: [{ text: prompt }] }] }),
+         body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }] }),
        });
 
        if (!res.ok) {
