@@ -37,28 +37,53 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ content: candidate });
     }
 
-    if (provider === "groq" || provider === "deepseek") {
-      const model = provider === "deepseek" ? "deepseek-r1-distill-llama-70b" : "deepseek-r1-distill-llama-70b";
-      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    if (provider === "deepseek") {
+      const deepseekModel = "deepseek-reasoner";
+      const deepseekUrl = "https://api.deepseek.com/v1/chat/completions";
+      const deepseekRes = await fetch(deepseekUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${apiKey}`,
         },
-        body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ model: deepseekModel, messages: [{ role: "user", content: prompt }] }),
       });
 
-      if (!res.ok) {
-        const text = await res.text();
-        return NextResponse.json({ error: `Groq API error: ${res.status} — ${text}` }, { status: res.status });
+      if (!deepseekRes.ok) {
+        const text = await deepseekRes.text();
+        return NextResponse.json({ error: `DeepSeek API error: ${deepseekRes.status} — ${text}` }, { status: deepseekRes.status });
       }
 
-      const data = await res.json();
-      const content = data?.choices?.[0]?.message?.content;
-      if (!content) {
+      const deepseekData = await deepseekRes.json();
+      const deepseekContent = deepseekData?.choices?.[0]?.message?.content;
+      if (!deepseekContent) {
+        return NextResponse.json({ error: "DeepSeek returned empty content" }, { status: 502 });
+      }
+      return NextResponse.json({ content: deepseekContent });
+    }
+
+    if (provider === "groq") {
+      const groqModel = "deepseek-r1-distill-llama-70b";
+      const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({ model: groqModel, messages: [{ role: "user", content: prompt }] }),
+      });
+
+      if (!groqRes.ok) {
+        const text = await groqRes.text();
+        return NextResponse.json({ error: `Groq API error: ${groqRes.status} — ${text}` }, { status: groqRes.status });
+      }
+
+      const groqData = await groqRes.json();
+      const groqContent = groqData?.choices?.[0]?.message?.content;
+      if (!groqContent) {
         return NextResponse.json({ error: "Groq returned empty content" }, { status: 502 });
       }
-      return NextResponse.json({ content });
+      return NextResponse.json({ content: groqContent });
     }
 
     return NextResponse.json({ error: `Unsupported provider: ${provider}` }, { status: 400 });
