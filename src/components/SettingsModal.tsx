@@ -208,7 +208,7 @@ export default function SettingsModal() {
 
           <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-3">
             <p className="text-xs text-blue-300">
-               Keys are stored locally in the application state. DeepSeek-R1 is used as the primary deep reasoning engine for evidence synthesis. Gemini 3.1 Flash Lite and Groq DeepSeek-R1-Distill-Llama-70B serve as fallback providers.
+               Keys are stored locally in the application state. DeepSeek-R1 is used as the primary deep reasoning engine for evidence synthesis. Gemini 3.5 Flash and Groq DeepSeek-R1-Distill-Llama-70B serve as fallback providers.
             </p>
           </div>
         </div>
