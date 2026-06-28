@@ -17,20 +17,20 @@ export async function POST(request: NextRequest) {
     }
 
     if (provider === "gemini") {
-       const url = `https://generativelanguage.googleapis.com/v1/models/gemini-3.1-flash-lite:generateContent?key=${encodeURIComponent(apiKey)}`;
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-      });
+       const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:sendMessage?key=${encodeURIComponent(apiKey)}`;
+       const res = await fetch(url, {
+         method: "POST",
+         headers: { "Content-Type": "application/json" },
+         body: JSON.stringify({ messages: [{ role: "user", parts: [{ text: prompt }] }] }),
+       });
 
-      if (!res.ok) {
-        const text = await res.text();
-        return NextResponse.json({ error: `Gemini API error: ${res.status} — ${text}` }, { status: res.status });
-      }
+       if (!res.ok) {
+         const text = await res.text();
+         return NextResponse.json({ error: `Gemini API error: ${res.status} — ${text}` }, { status: res.status });
+       }
 
-      const data = await res.json();
-      const candidate = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+       const data = await res.json();
+       const candidate = data?.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!candidate) {
         return NextResponse.json({ error: "Gemini returned empty content" }, { status: 502 });
       }
