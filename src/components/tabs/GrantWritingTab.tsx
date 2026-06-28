@@ -18,9 +18,7 @@ const FUNDERS = [
 ];
 
 const generateMockGrantProposal = (state: any): string => {
-  const title = state.userTitleInput || state.aimObjectives.aim
-    ? state.userTitleInput || "Implementation and Cost-Effectiveness of Annual IGRA-Based LTBI Screening Among Healthcare Workers"
-    : "Research Study";
+  const title = state.userTitleInput || state.aimObjectives.aim || "Implementation and Cost-Effectiveness of Annual IGRA-Based LTBI Screening Among Healthcare Workers";
 
   const aim = state.aimObjectives.aim || "To evaluate the implementation and cost-effectiveness of an annual IGRA-based LTBI screening program for HCWs in tertiary care hospitals.";
 
