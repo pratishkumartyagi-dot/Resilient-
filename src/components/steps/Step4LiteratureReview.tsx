@@ -3,12 +3,12 @@
 import React, { useState } from "react";
 import { Sparkles, BookOpen, RotateCcw } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callOpenRouter, callDeepSeek } from "@/lib/ai";
+import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
 import { buildStep4Prompt } from "@/lib/research-skills";
 import { generateLocalLiteratureReview } from "@/lib/local-synthesis";
 
 const generateMockLiteratureReview = (): string => {
-  return `# Literature Review\n\n> **Note:** This review was generated using local NLP analysis because no API key is configured. Add a Gemini or OpenRouter API key in Settings for a richer AI-generated review.\n\n---\n\nNo papers selected or available. Please select papers in Step 2 and generate a synthesis table in Step 3 before proceeding to Step 4.`;
+  return `# Literature Review\n\n> **Note:** This review was generated using local NLP analysis because no API key is configured. Add a Gemini or Groq API key in Settings for a richer AI-generated review.\n\n---\n\nNo papers selected or available. Please select papers in Step 2 and generate a synthesis table in Step 3 before proceeding to Step 4.`;
 };
 
 export default function Step4LiteratureReview() {
@@ -39,9 +39,9 @@ export default function Step4LiteratureReview() {
       } else if (state.geminiApiKey) {
         const prompt = buildStep4Prompt(selected, "") + synthesisContext;
         review = await callGemini(state.geminiApiKey, prompt);
-      } else if (state.openRouterApiKey) {
+      } else if (state.groqApiKey) {
         const prompt = buildStep4Prompt(selected, "") + synthesisContext;
-        review = await callOpenRouter(state.openRouterApiKey, prompt);
+        review = await callGroq(state.groqApiKey, prompt);
       } else {
         review = generateLocalLiteratureReview(
           selected.map((p) => ({

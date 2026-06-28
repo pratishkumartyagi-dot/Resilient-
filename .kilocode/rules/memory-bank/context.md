@@ -417,3 +417,28 @@ The AI-generated narrative review follows a strict heading structure:
 - Escaped unescaped quotes in narrative review example text
 - Fixed JSX nesting issues and duplicate closing tags from prior edits
 - Verified `bun typecheck`, `bun lint`, and `bun run build` all pass cleanly
+
+## Replace OpenRouter with Groq (DeepSeek-R1-Distill-Llama-70B) (2026-06-28)
+
+**Feature**: Removed OpenRouter / `gpt-oss-120b` fallback and replaced it with Groq using `deepseek-r1-distill-llama-70b`.
+
+### Files Modified
+- `src/app/api/chat/route.ts` — Replaced OpenRouter endpoint with Groq endpoint (`https://api.groq.com/openai/v1/chat/completions`), model `deepseek-r1-distill-llama-70b`, updated provider type from `"openrouter"` to `"groq"`
+- `src/lib/ai.ts` — Renamed `callOpenRouter` → `callGroq`, `testOpenRouterKey` → `testGroqKey`; `callDeepSeek` now routes through Groq as well
+- `src/context/AppContext.tsx` — Renamed `openRouterApiKey` → `groqApiKey`, `SET_OPENROUTER_KEY` → `SET_GROQ_KEY`
+- `src/components/SettingsModal.tsx` — UI label changed from "OpenRouter API Key" to "Groq API Key (DeepSeek-R1-Distill-Llama-70B fallback)"
+- `src/components/steps/Step3Synthesis.tsx` — Updated imports and fallback chain
+- `src/components/steps/Step4LiteratureReview.tsx` — Updated imports and fallback chain
+- `src/components/steps/Step5Themes.tsx` — Updated imports and fallback chain
+- `src/components/steps/Step6ResearchQuestions.tsx` — Updated imports and fallback chain
+- `src/components/steps/Step7ResearchTitles.tsx` — Updated imports and fallback chain
+- `src/components/steps/Step8AimObjectives.tsx` — Updated imports and fallback chain
+- `src/components/steps/Step9Methodology.tsx` — Updated imports and fallback chain
+- `src/components/steps/Step10Protocol.tsx` — Updated imports and fallback chain
+- `src/components/tabs/ProtocolChatTab.tsx` — Updated imports and fallback chain
+- `src/components/tabs/EvidenceSynthesisTab.tsx` — Updated imports, fallback chain, and user-facing copy
+
+### AI Provider Priority (updated)
+1. **DeepSeek R1** (`deepseek-r1-distill-llama-70b`) — primary deep reasoning engine (via Groq)
+2. **Gemini 3.1 Flash Lite** — fallback
+3. **Groq DeepSeek-R1-Distill-Llama-70B** — secondary fallback (was OpenRouter `gpt-oss-120b`)

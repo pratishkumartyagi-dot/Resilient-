@@ -6,7 +6,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { provider, prompt, apiKey, test = false } = body as {
-      provider: "gemini" | "openrouter" | "deepseek";
+      provider: "gemini" | "groq" | "deepseek";
       prompt: string;
       apiKey: string;
       test?: boolean;
@@ -37,9 +37,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ content: candidate });
     }
 
-    if (provider === "openrouter" || provider === "deepseek") {
-      const model = provider === "deepseek" ? "deepseek/deepseek-r1" : "gpt-oss-120b";
-      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    if (provider === "groq" || provider === "deepseek") {
+      const model = provider === "deepseek" ? "deepseek-r1-distill-llama-70b" : "deepseek-r1-distill-llama-70b";
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -50,13 +50,13 @@ export async function POST(request: NextRequest) {
 
       if (!res.ok) {
         const text = await res.text();
-        return NextResponse.json({ error: `OpenRouter API error: ${res.status} — ${text}` }, { status: res.status });
+        return NextResponse.json({ error: `Groq API error: ${res.status} — ${text}` }, { status: res.status });
       }
 
       const data = await res.json();
       const content = data?.choices?.[0]?.message?.content;
       if (!content) {
-        return NextResponse.json({ error: "OpenRouter returned empty content" }, { status: 502 });
+        return NextResponse.json({ error: "Groq returned empty content" }, { status: 502 });
       }
       return NextResponse.json({ content });
     }

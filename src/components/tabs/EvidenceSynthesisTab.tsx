@@ -8,7 +8,7 @@ import {
   FileJson, BarChart3, PenTool, BookOpen
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callDeepSeek, callGemini, callOpenRouter } from "@/lib/ai";
+import { callDeepSeek, callGemini, callGroq } from "@/lib/ai";
 import { fetchRealPapers, generateMockLegacy, type Paper } from "@/lib/database-apis";
 import { downloadLiteratureReviewPDF, downloadLiteratureReviewWord } from "@/lib/exporters";
 import {
@@ -723,10 +723,10 @@ References
 
 Do NOT use Markdown formatting like # or ##. Do NOT add extra headings.`;
 
-      const apiKey = state.deepseekApiKey || state.geminiApiKey || state.openRouterApiKey;
+      const apiKey = state.deepseekApiKey || state.geminiApiKey || state.groqApiKey;
       if (!apiKey) {
         setLiteratureReviewSections({
-          introduction: "No API key configured. Please add your DeepSeek, Gemini, or OpenRouter API key in Settings to generate the literature review.",
+          introduction: "No API key configured. Please add your DeepSeek, Gemini, or Groq API key in Settings to generate the literature review.",
           problemGlobal: "",
           problemSEA: "",
           problemIndia: "",
@@ -745,7 +745,7 @@ Do NOT use Markdown formatting like # or ##. Do NOT add extra headings.`;
       } else if (state.geminiApiKey) {
         text = await callGemini(state.geminiApiKey, prompt);
       } else {
-        text = await callOpenRouter(state.openRouterApiKey!, prompt);
+        text = await callGroq(state.groqApiKey!, prompt);
       }
 
       const cleaned = text.replace(/```/g, "").trim();
@@ -838,7 +838,7 @@ OUTPUT FORMAT:
 ### Gaps and Future Directions
 [Remaining uncertainties]`;
 
-      const apiKey = state.deepseekApiKey || state.geminiApiKey || state.openRouterApiKey;
+      const apiKey = state.deepseekApiKey || state.geminiApiKey || state.groqApiKey;
       if (!apiKey) {
         const localOutput = generateLocalSynthesis();
         setSynthesisOutput(localOutput);
@@ -859,7 +859,7 @@ OUTPUT FORMAT:
       } else if (state.geminiApiKey) {
         text = await callGemini(state.geminiApiKey, prompt);
       } else {
-        text = await callOpenRouter(state.openRouterApiKey!, prompt);
+        text = await callGroq(state.groqApiKey!, prompt);
       }
 
       const cleaned = text.replace(/```markdown/g, "").replace(/```/g, "").trim();
@@ -1856,7 +1856,7 @@ Mobile: [Number]
                 ) : (
                   <>
                     <Sparkles size={16} />
-                    {(state.deepseekApiKey || state.geminiApiKey || state.openRouterApiKey)
+                    {(state.deepseekApiKey || state.geminiApiKey || state.groqApiKey)
                       ? `Generate AI Synthesis (${reviewType})`
                       : `Generate Local Synthesis (${reviewType})`}
                   </>

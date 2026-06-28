@@ -108,7 +108,7 @@ export interface AppState {
   showPrisma: boolean;
   selectedDatabases: string[];
   geminiApiKey: string;
-  openRouterApiKey: string;
+  groqApiKey: string;
   deepseekApiKey: string;
   srStudyTypeCategory: "systematic" | "meta" | null;
   dedupPapers: Paper[];
@@ -150,7 +150,7 @@ type Action =
   | { type: "SET_SELECTED_DATABASES"; payload: string[] }
   | { type: "SET_SELECTED_PAPERS"; payload: Paper[] }
   | { type: "SET_GEMINI_KEY"; payload: string }
-  | { type: "SET_OPENROUTER_KEY"; payload: string }
+  | { type: "SET_GROQ_KEY"; payload: string }
   | { type: "SET_DEEPSEEK_KEY"; payload: string }
   | { type: "SET_SYSTEMATIC_STEP"; payload: number }
   | { type: "SET_SR_CATEGORY"; payload: "systematic" | "meta" | null }
@@ -223,7 +223,7 @@ const initialState: AppState = {
     "Clarivate",
   ],
   geminiApiKey: "",
-  openRouterApiKey: "",
+  groqApiKey: "",
   deepseekApiKey: "",
   srStudyTypeCategory: null,
   dedupPapers: [],
@@ -352,8 +352,8 @@ function appReducer(state: AppState, action: Action): AppState {
       return { ...state, selectedPapers: action.payload };
     case "SET_GEMINI_KEY":
       return { ...state, geminiApiKey: action.payload };
-    case "SET_OPENROUTER_KEY":
-      return { ...state, openRouterApiKey: action.payload };
+    case "SET_GROQ_KEY":
+      return { ...state, groqApiKey: action.payload };
     case "SET_DEEPSEEK_KEY":
       return { ...state, deepseekApiKey: action.payload };
     case "SET_SYSTEMATIC_STEP":

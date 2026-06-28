@@ -3,7 +3,7 @@
 import React, { useState, useRef } from "react";
 import { Download, FileUp, Sparkles, Trash2, ChevronDown, FileText, AlertCircle, Loader2 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callOpenRouter, callDeepSeek } from "@/lib/ai";
+import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
 import { downloadCSV, downloadExcel, downloadPDF, downloadWord, parseCSVText } from "@/lib/exporters";
 import { buildStep3Prompt } from "@/lib/research-skills";
 import { generateLocalSynthesis, type SynthesisRow } from "@/lib/local-synthesis";
@@ -51,7 +51,7 @@ export default function Step3Synthesis() {
     try {
       let synthesis: SynthesisRow[] = [];
 
-      if (state.deepseekApiKey || state.geminiApiKey || state.openRouterApiKey) {
+      if (state.deepseekApiKey || state.geminiApiKey || state.groqApiKey) {
           const prompt = buildStep3Prompt(filteredPapers, uploadedText);
         try {
           let responseText = "";
@@ -60,7 +60,7 @@ export default function Step3Synthesis() {
           } else if (state.geminiApiKey) {
             responseText = await callGemini(state.geminiApiKey, prompt);
           } else {
-            responseText = await callOpenRouter(state.openRouterApiKey, prompt);
+            responseText = await callGroq(state.groqApiKey, prompt);
           }
           const cleaned = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
           synthesis = JSON.parse(cleaned);
