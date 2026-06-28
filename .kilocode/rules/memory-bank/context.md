@@ -42,7 +42,7 @@
 - [x] Step1: made "Select All" a true toggle (selects all databases when partial, deselects all when all are selected)
 - [x] Step1: removed artificial cap on mock paper count; now scales dynamically by selected databases (dbs.length × 15, no upper limit)
 - [x] Step1: app now auto-advances to Step 2 immediately after search completes
-- [x] Step3: fixed invalid Gemini model name to `gemini-3.1-flash-lite-preview` so real AI synthesis works
+- [x] Step3: fixed invalid Gemini model name to `gemini-3.5-flash` so real AI synthesis works
 - [x] Step3: error handling surfaces API key requirement instead of silently falling back to mock data
 - [x] Steps 3–10: integrated AIPOCH Medical Research Skills prompts from github.com/aipoch/medical-research-skills
   - Step 3: tooluniverse-literature-deep-research (evidence-graded synthesis table)
@@ -58,7 +58,7 @@
 - [x] Step3: fixed loading spinner condition to show during all loading states
 - [x] Header rebrand: removed "Resilient Researcher Assistant" and "Systematic Review & Evidence Synthesis"; replaced center subtitle with "Powered Research Intelligence Platform"
 - [x] Added Settings gear icon to header, triggering API key configuration modal
-- [x] Created API settings modal (`SettingsModal`) supporting Gemini 3.1 Flash Lite (primary) and OpenRouter gpt-oss-120b (fallback), with test-connection buttons
+- [x] Created API settings modal (`SettingsModal`) supporting Gemini 3.5 Flash (primary) and Groq/DeepSeek fallback, with test-connection buttons
 - [x] Added `src/lib/ai.ts` with wrapper functions for Gemini and OpenRouter REST endpoints
 - [x] Updated `AppContext` with `geminiApiKey` and `openRouterApiKey` state fields
 - [x] Fixed `selectedPapers` state sync bug in reducer (was always empty, blocking Step 3 generation)
@@ -229,8 +229,8 @@ The systematic review tab now contains a full 8-step systematic review / meta-an
 
 ### AI Provider Priority (updated)
 1. **DeepSeek R1** (`deepseek/deepseek-r1`) — primary for deep reasoning with papers
-2. **Gemini 3.1 Flash Lite** — fallback
-3. **OpenRouter gpt-oss-120b** — secondary fallback
+2. **Gemini 3.5 Flash** — fallback
+3. **Groq DeepSeek-R1-Distill-Llama-70B** — secondary fallback
 
 ### Model Selection
 - DeepSeek R1 is accessed via OpenRouter API using model identifier `deepseek/deepseek-r1`
@@ -440,7 +440,7 @@ The AI-generated narrative review follows a strict heading structure:
 
 ### AI Provider Priority (updated)
 1. **DeepSeek R1** (`deepseek-r1-distill-llama-70b`) — primary deep reasoning engine (via Groq)
-2. **Gemini 3.1 Flash Lite** — fallback
+2. **Gemini 3.5 Flash** — fallback
 3. **Groq DeepSeek-R1-Distill-Llama-70B** — secondary fallback (was OpenRouter `gpt-oss-120b`)
 
 ## Predictive Analysis Tab — 13-Step Clinical Prediction Pipeline (2026-06-28)
