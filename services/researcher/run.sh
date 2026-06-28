@@ -13,7 +13,7 @@ PYTHON_VERSION="$(python3 -c 'import sys; print("{}.{}".format(*sys.version_info
 echo "Detected Python ${PYTHON_VERSION}"
 
 # Install dependencies
-pip3 install --quiet -r "${SCRIPT_DIR}/requirements.txt"
+pip3 install -r "${SCRIPT_DIR}/requirements.txt"
 
 # Ensure .env loaded if present
 if [ -f "${SCRIPT_DIR}/.env" ]; then
@@ -22,13 +22,16 @@ if [ -f "${SCRIPT_DIR}/.env" ]; then
   set +a
 fi
 
+PORT="${PORT:-8080}"
+HOST="${HOST:-0.0.0.0}"
+
 echo ""
 echo "Starting researcher service..."
-echo "Docs:       http://127.0.0.1:6082/docs"
-echo "SSE:        http://127.0.0.1:6082/research/stream"
-echo "Health:     http://127.0.0.1:6082/health"
+echo "Docs:       http://127.0.0.1:${PORT}/docs"
+echo "SSE:        http://127.0.0.1:${PORT}/research/stream"
+echo "Health:     http://127.0.0.1:${PORT}/health"
 echo "Chroma DB:  /tmp/researcher_chroma.db"
 echo ""
 
 cd "${SCRIPT_DIR}"
-exec python3 -m uvicorn app:app --host 127.0.0.1 --port 6082 --reload
+exec python3 -m uvicorn app:app --host "${HOST}" --port "${PORT}"
