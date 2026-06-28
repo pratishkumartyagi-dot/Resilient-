@@ -8,7 +8,7 @@ import {
   FileJson, BarChart3, PenTool, BookOpen
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callDeepSeek, callGemini, callGroq } from "@/lib/ai";
+import { callGemini, callGroq } from "@/lib/ai";
 import { fetchRealPapers, generateMockLegacy, type Paper } from "@/lib/database-apis";
 import { downloadLiteratureReviewPDF, downloadLiteratureReviewWord } from "@/lib/exporters";
 import {
@@ -723,10 +723,10 @@ References
 
 Do NOT use Markdown formatting like # or ##. Do NOT add extra headings.`;
 
-      const apiKey = state.deepseekApiKey || state.geminiApiKey || state.groqApiKey;
+      const apiKey = state.geminiApiKey || state.groqApiKey;
       if (!apiKey) {
         setLiteratureReviewSections({
-          introduction: "No API key configured. Please add your DeepSeek, Gemini, or Groq API key in Settings to generate the literature review.",
+          introduction: "No API key configured. Please add your Gemini or Groq API key in Settings to generate the literature review.",
           problemGlobal: "",
           problemSEA: "",
           problemIndia: "",
@@ -744,8 +744,6 @@ Do NOT use Markdown formatting like # or ##. Do NOT add extra headings.`;
          text = await callGemini(state.geminiApiKey, prompt);
        } else if (state.groqApiKey) {
          text = await callGroq(state.groqApiKey!, prompt);
-       } else if (state.deepseekApiKey) {
-         text = await callDeepSeek(state.deepseekApiKey, prompt);
        } else {
          throw new Error("No API key configured. Please open Settings (gear icon).");
        }
@@ -840,7 +838,7 @@ OUTPUT FORMAT:
 ### Gaps and Future Directions
 [Remaining uncertainties]`;
 
-      const apiKey = state.deepseekApiKey || state.geminiApiKey || state.groqApiKey;
+      const apiKey = state.geminiApiKey || state.groqApiKey;
       if (!apiKey) {
         const localOutput = generateLocalSynthesis();
         setSynthesisOutput(localOutput);
@@ -855,16 +853,14 @@ OUTPUT FORMAT:
         return;
       }
 
-        let text: string;
-        if (state.geminiApiKey) {
-          text = await callGemini(state.geminiApiKey, prompt);
-        } else if (state.groqApiKey) {
-          text = await callGroq(state.groqApiKey!, prompt);
-        } else if (state.deepseekApiKey) {
-          text = await callDeepSeek(state.deepseekApiKey, prompt);
-        } else {
-          throw new Error("No API key configured. Please open Settings (gear icon).");
-        }
+         let text: string;
+         if (state.geminiApiKey) {
+           text = await callGemini(state.geminiApiKey, prompt);
+         } else if (state.groqApiKey) {
+           text = await callGroq(state.groqApiKey!, prompt);
+         } else {
+           throw new Error("No API key configured. Please open Settings (gear icon).");
+         }
 
         const cleaned = text.replace(/```markdown/g, "").replace(/```/g, "").trim();
         setSynthesisOutput(cleaned);
@@ -1709,7 +1705,7 @@ Mobile: [Number]
                 <h3 className="text-lg font-bold text-white">Literature Review</h3>
               </div>
               <p className="text-xs text-blue-400 mb-4">
-                Generate a structured narrative literature review using deep reasoning (DeepSeek R1). All selected papers are automatically included as references. Edit each section below. Inline citations are shown in brackets [N]. References are serially numbered in Vancouver style.
+                 Generate a structured narrative literature review using deep reasoning (Long CoT). All selected papers are automatically included as references. Edit each section below. Inline citations are shown in brackets [N]. References are serially numbered in Vancouver style.
               </p>
 
               <div className="flex flex-wrap items-center gap-3 mb-4">
@@ -1860,7 +1856,7 @@ Mobile: [Number]
                 ) : (
                   <>
                     <Sparkles size={16} />
-                    {(state.deepseekApiKey || state.geminiApiKey || state.groqApiKey)
+                    {(state.geminiApiKey || state.groqApiKey)
                       ? `Generate AI Synthesis (${reviewType})`
                       : `Generate Local Synthesis (${reviewType})`}
                   </>

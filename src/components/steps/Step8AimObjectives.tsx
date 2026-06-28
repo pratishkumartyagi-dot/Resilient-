@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { ChevronRight, Sparkles } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
+import { callGemini, callGroq } from "@/lib/ai";
 import { buildStep8Prompt } from "@/lib/research-skills";
 
 export default function Step8AimObjectives() {
@@ -71,8 +71,6 @@ export default function Step8AimObjectives() {
         responseText = await callGemini(state.geminiApiKey, prompt);
       } else if (state.groqApiKey) {
         responseText = await callGroq(state.groqApiKey, prompt);
-      } else if (state.deepseekApiKey) {
-        responseText = await callDeepSeek(state.deepseekApiKey, prompt);
       } else {
         throw new Error("No API key configured. Please open Settings (gear icon).");
       }

@@ -6,7 +6,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { provider, prompt, apiKey, test = false } = body as {
-      provider: "gemini" | "groq" | "deepseek";
+      provider: "gemini" | "groq";
       prompt: string;
       apiKey: string;
       test?: boolean;
@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (provider === "gemini") {
-       const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+       const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -37,33 +37,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ content: candidate });
     }
 
-    if (provider === "deepseek") {
-      const deepseekModel = "deepseek-reasoner";
-      const deepseekUrl = "https://api.deepseek.com/v1/chat/completions";
-      const deepseekRes = await fetch(deepseekUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({ model: deepseekModel, messages: [{ role: "user", content: prompt }] }),
-      });
-
-      if (!deepseekRes.ok) {
-        const text = await deepseekRes.text();
-        return NextResponse.json({ error: `DeepSeek API error: ${deepseekRes.status} — ${text}` }, { status: deepseekRes.status });
-      }
-
-      const deepseekData = await deepseekRes.json();
-      const deepseekContent = deepseekData?.choices?.[0]?.message?.content;
-      if (!deepseekContent) {
-        return NextResponse.json({ error: "DeepSeek returned empty content" }, { status: 502 });
-      }
-      return NextResponse.json({ content: deepseekContent });
-    }
-
     if (provider === "groq") {
-      const groqModel = "deepseek-r1-distill-llama-70b";
+      const groqModel = "llama-3.3-70b-versatile";
       const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {

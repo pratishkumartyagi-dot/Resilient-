@@ -16,7 +16,7 @@ import {
   FileCheck2,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
+import { callGemini, callGroq } from "@/lib/ai";
 import { buildStep10Prompt } from "@/lib/research-skills";
 import { parseUploadedDocument, ALLOWED_DOCUMENT_TYPES } from "@/lib/document-parser";
 
@@ -170,8 +170,6 @@ export default function ProtocolChatTab() {
           );
         } else if (state.groqApiKey) {
           responseText = await callGroq(state.groqApiKey, prompt);
-        } else if (state.deepseekApiKey) {
-          responseText = await callDeepSeek(state.deepseekApiKey, prompt);
         } else {
           responseText = generateProtocolResponse(currentInput, documentContent);
         }
@@ -234,11 +232,6 @@ export default function ProtocolChatTab() {
         responseText = await callGroq(
           state.groqApiKey,
           `${DEEP_REASONING_SYSTEM_PROMPT}\n\n${documentContent ? `Uploaded document:\n${documentContent.substring(0, 20000)}\n\n` : ""}Generate a complete AIPOCH-structured research protocol (Sections A–L) in markdown format.${!documentContent ? " Use a generic clinical research template." : ""}`
-        );
-      } else if (state.deepseekApiKey) {
-        responseText = await callDeepSeek(
-          state.deepseekApiKey,
-          `${DEEP_REASONING_SYSTEM_PROMPT}\n\n${documentContent ? `## UPLOADED DOCUMENT:\n${documentContent.substring(0, 20000)}\n\n` : ""}TASK: Generate a complete AIPOCH-structured research protocol (Sections A–L) in markdown format based on the uploaded document.${!documentContent ? "\n\nNote: No document uploaded. Generate a template protocol structure." : ""}`
         );
       } else {
         responseText = generateDefaultProtocol(documentContent);

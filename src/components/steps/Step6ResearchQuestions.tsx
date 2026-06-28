@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { Sparkles, Plus, Trash2, FlaskConical, Beaker } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
+import { callGemini, callGroq } from "@/lib/ai";
 import { buildStep6Prompt } from "@/lib/research-skills";
 
 const generateMockQuestions = (type: "qualitative" | "quantitative") => {
@@ -60,8 +60,6 @@ export default function Step6ResearchQuestions() {
         responseText = await callGemini(state.geminiApiKey, prompt);
       } else if (state.groqApiKey) {
         responseText = await callGroq(state.groqApiKey, prompt);
-      } else if (state.deepseekApiKey) {
-        responseText = await callDeepSeek(state.deepseekApiKey, prompt);
       } else {
         throw new Error("No API key configured. Please open Settings (gear icon).");
       }

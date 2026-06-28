@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { Sparkles, ChevronRight, RotateCcw } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
+import { callGemini, callGroq } from "@/lib/ai";
 import { buildStep7Prompt } from "@/lib/research-skills";
 
 const generateMockTitles = () => [
@@ -62,8 +62,6 @@ export default function Step7ResearchTitles() {
         responseText = await callGemini(state.geminiApiKey, prompt);
       } else if (state.groqApiKey) {
         responseText = await callGroq(state.groqApiKey, prompt);
-      } else if (state.deepseekApiKey) {
-        responseText = await callDeepSeek(state.deepseekApiKey, prompt);
       } else {
         throw new Error("No API key configured.");
       }

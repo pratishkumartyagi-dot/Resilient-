@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { Sparkles, BookOpen, RotateCcw } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
+import { callGemini, callGroq } from "@/lib/ai";
 import { buildStep4Prompt } from "@/lib/research-skills";
 import { generateLocalLiteratureReview } from "@/lib/local-synthesis";
 
@@ -39,9 +39,6 @@ export default function Step4LiteratureReview() {
       } else if (state.groqApiKey) {
         const prompt = buildStep4Prompt(selected, "") + synthesisContext;
         review = await callGroq(state.groqApiKey, prompt);
-      } else if (state.deepseekApiKey) {
-        const prompt = buildStep4Prompt(selected, "") + synthesisContext;
-        review = await callDeepSeek(state.deepseekApiKey, prompt);
       } else {
         review = generateLocalLiteratureReview(
           selected.map((p) => ({

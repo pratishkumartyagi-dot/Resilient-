@@ -6,7 +6,7 @@ import {
   Brain, Upload, BarChart3, LineChart, FileText, Sparkles, ArrowRight, ArrowLeft, Target, Calculator
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callDeepSeek, callGemini, callGroq } from "@/lib/ai";
+import { callGemini, callGroq } from "@/lib/ai";
 
 const PREDICTION_STEPS = [
   { num: 1, label: "Aims & Protocol", icon: FileText },
@@ -100,7 +100,7 @@ export default function PredictiveAnalysisTab() {
         prompt = "Provide guidance for this step.";
     }
 
-    const apiKey = state.geminiApiKey || state.groqApiKey || state.deepseekApiKey;
+    const apiKey = state.geminiApiKey || state.groqApiKey;
     if (!apiKey) {
       setAiOutput("Please configure an AI provider in Settings first.");
       setLocalLoading(false);
@@ -111,7 +111,6 @@ export default function PredictiveAnalysisTab() {
       let response: string;
       if (state.geminiApiKey) response = await callGemini(apiKey, prompt);
       else if (state.groqApiKey) response = await callGroq(apiKey, prompt);
-      else if (state.deepseekApiKey) response = await callDeepSeek(apiKey, prompt);
       else throw new Error("No API key configured. Please open Settings (gear icon).");
 
       setAiOutput(response);

@@ -35,21 +35,6 @@ export async function callGroq(apiKey: string, prompt: string): Promise<string> 
   return data.content as string;
 }
 
-export async function callDeepSeek(apiKey: string, prompt: string): Promise<string> {
-  const res = await withTimeout(fetch("/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ provider: "deepseek", prompt, apiKey }),
-  }));
-  if (!res.ok) {
-    let message = `DeepSeek request failed: ${res.status}`;
-    try { const data = await res.json(); message = data?.error || message; } catch { /* ignore parse errors */ }
-    throw new Error(message);
-  }
-  const data = await res.json();
-  return data.content as string;
-}
-
 export async function testGeminiKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
   try {
     await callGemini(apiKey, "Hello, this is a test message. Please respond with OK.");
@@ -68,11 +53,4 @@ export async function testGroqKey(apiKey: string): Promise<{ ok: boolean; error?
   }
 }
 
-export async function testDeepSeekKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
-  try {
-    await callDeepSeek(apiKey, "Hello, this is a test message. Please respond with OK.");
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Unknown error" };
-  }
-}
+
