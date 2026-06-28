@@ -10,6 +10,7 @@ const MAIN_TABS = [
   { id: "chat", label: "Resilient Chat", icon: MessageSquare },
   { id: "stats", label: "Statistical Analysis", icon: BarChart3 },
   { id: "samplesize", label: "Sample Size Calculator", icon: Sigma },
+  { id: "predictive", label: "Predictive Analysis", icon: BarChart3 },
   { id: "systematic", label: "Evidence Synthesis & Meta-analysis", icon: FileText },
   { id: "paperwriter", label: "Paper Writer & Reviewer", icon: PenLine },
   { id: "protocol", label: "Protocol Generator", icon: ScrollText },

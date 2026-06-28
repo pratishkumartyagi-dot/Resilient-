@@ -418,6 +418,116 @@ async def chroma_purge() -> PurgeResponse:
 
 
 # ---------------------------------------------------------------------------
+# Predictive Analysis endpoints (PyHealth-guided clinical prediction models)
+# ---------------------------------------------------------------------------
+class PredictiveAssistRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    step: int = Field(..., ge=1, le=13)
+    population: Optional[str] = None
+    outcome: Optional[str] = None
+    outcome_type: Optional[str] = "binary"
+    predictors: Optional[str] = None
+    model_type: Optional[str] = None
+    missing_strategy: Optional[str] = None
+    events: Optional[int] = None
+    n_predictors: Optional[int] = None
+
+
+class PredictiveAssistResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    step: int
+    guidance: str
+    pyhealth_hint: str
+
+
+PYHEALTH_STEP_GUIDANCE: dict[int, dict[str, str]] = {
+    1: {
+        "guidance": "Define target population, outcome, setting, users, and clinical decisions. Write a protocol following TRIPOD.",
+        "pyhealth_hint": "Use pyhealth.datasets to select a dataset (MIMIC-IV, eICU, OMOP) aligned with your population.",
+    },
+    2: {
+        "guidance": "Decide between developing a new model or updating an existing one via recalibration, revision, or extension.",
+        "pyhealth_hint": "If updating, use pyhealth to load the original model architecture and fine-tune on new data.",
+    },
+    3: {
+        "guidance": "Define the outcome. Prefer time-to-event over binary when follow-up varies.",
+        "pyhealth_hint": "PyHealth tasks support binary, multilabel, and time-to-event (survival) outcomes.",
+    },
+    4: {
+        "guidance": "Identify baseline predictors available at the time of prediction. Avoid categorising continuous predictors.",
+        "pyhealth_hint": "Use pyhealth.medcode.InnerMap and CrossMap to standardise medical codes (ICD, ATC, NDC, RxNorm).",
+    },
+    5: {
+        "guidance": "Collect and examine data. Check distribution, outliers, and measurement errors.",
+        "pyhealth_hint": "PyHealth dataset objects (e.g., MIMIC4Dataset) handle common EHR table formats. Use sample() to inspect.",
+    },
+    6: {
+        "guidance": "Calculate minimum sample size using Riley formulas. Ensure EPV >= 10-20; ML models need larger samples.",
+        "pyhealth_hint": "Use pyhealth.trainer.Trainer with early stopping and penalisation to mitigate overfitting on small datasets.",
+    },
+    7: {
+        "guidance": "Handle missing data. Multiple imputation is preferred; complete case risks bias.",
+        "pyhealth_hint": "PyHealth does not include built-in MICE; pre-process with sklearn.impute.IterativeImputer or use model-based handling.",
+    },
+    8: {
+        "guidance": "Fit models. Start with standard models (logistic/Cox), then try ML (RF, XGBoost, Transformer).",
+        "pyhealth_hint": "PyHealth provides 33+ models. Example: from pyhealth.models import Transformer; model = Transformer(dataset=sample).",
+    },
+    9: {
+        "guidance": "Assess discrimination (AUC, C-index) and calibration (slope, Brier, calibration curve). Use bootstrap for optimism correction.",
+        "pyhealth_hint": "Use pyhealth.metrics for binary_metrics_fn or survival_metrics_fn. Compute AUC, PR-AUC, and calibration.",
+    },
+    10: {
+        "guidance": "Select the final model using internal validation. Prefer simpler models if performance is comparable (Occam's razor).",
+        "pyhealth_hint": "Compare PyHealth Trainer outputs across models; choose the one with highest validation metric and lowest complexity.",
+    },
+    11: {
+        "guidance": "Perform decision curve analysis to evaluate clinical utility across threshold probabilities.",
+        "pyhealth_hint": "PyHealth does not include DCA; use the net-benefit formula or Python packages like dcurves after PyHealth inference.",
+    },
+    12: {
+        "guidance": "Assess individual predictor importance using SHAP or permutation importance.",
+        "pyhealth_hint": "Extract predictions from pyhealth.models with predict_proba(), then apply shap.TreeExplainer or sklearn permutation_importance.",
+    },
+    13: {
+        "guidance": "Write up following TRIPOD. Share model equation, code, and an interactive web calculator.",
+        "pyhealth_hint": "Export the trained PyHealth model and scaler; deploy with FastAPI + a simple HTML form for bedside use.",
+    },
+}
+
+
+@app.post("/predictive/assist", response_model=PredictiveAssistResponse)
+async def predictive_assist(req: PredictiveAssistRequest) -> PredictiveAssistResponse:
+    step = req.step
+    hint = PYHEALTH_STEP_GUIDANCE.get(step, {"guidance": "Proceed to the next step.", "pyhealth_hint": "No specific PyHealth hint for this step."})
+    guidance = hint["guidance"]
+    pyhealth_hint = hint["pyhealth_hint"]
+
+    if req.population:
+        guidance += f" Population: {req.population}."
+    if req.outcome:
+        guidance += f" Outcome: {req.outcome} ({req.outcome_type or 'binary'})."
+    if req.predictors:
+        guidance += f" Predictors: {req.predictors[:200]}."
+    if req.model_type:
+        guidance += f" Model: {req.model_type}."
+    if req.missing_strategy:
+        guidance += f" Missing data strategy: {req.missing_strategy}."
+    if req.events and req.n_predictors:
+        epv = round(req.events / max(1, req.n_predictors), 1)
+        guidance += f" EPV={epv}."
+        if epv < 10:
+            guidance += " WARNING: EPV < 10 increases overfitting risk. Consider fewer predictors or penalisation."
+
+    return PredictiveAssistResponse(step=step, guidance=guidance, pyhealth_hint=pyhealth_hint)
+
+
+@app.get("/predictive/health")
+async def predictive_health():
+    return {"status": "ok", "service": "predictive-analysis", "pyhealth_available": True}
+
+
+# ---------------------------------------------------------------------------
 # Error handlers (convert exceptions to JSON via HTTPException pattern)
 # We use a lightweight wrapper for raise statements in endpoints.
 # ---------------------------------------------------------------------------

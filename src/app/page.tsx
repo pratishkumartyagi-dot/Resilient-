@@ -19,6 +19,7 @@ import Step11Impact from "@/components/steps/Step11Impact";
 import ResilientChatTab from "@/components/tabs/ResilientChatTab";
 import StatisticalAnalysisTab from "@/components/tabs/StatisticalAnalysisTab";
 import SampleSizeTab from "@/components/tabs/SampleSizeTab";
+import PredictiveAnalysisTab from "@/components/tabs/PredictiveAnalysisTab";
 import EvidenceSynthesisTab from "@/components/tabs/EvidenceSynthesisTab";
 import PaperWriterTab from "@/components/tabs/PaperWriterTab";
 import ProtocolChatTab from "@/components/tabs/ProtocolChatTab";
@@ -53,6 +54,7 @@ function AppContent() {
       case "chat": return <ResilientChatTab />;
       case "stats": return <StatisticalAnalysisTab />;
       case "samplesize": return <SampleSizeTab />;
+      case "predictive": return <PredictiveAnalysisTab />;
       case "systematic": return <EvidenceSynthesisTab />;
       case "paperwriter": return <PaperWriterTab />;
       case "protocol": return <ProtocolChatTab />;

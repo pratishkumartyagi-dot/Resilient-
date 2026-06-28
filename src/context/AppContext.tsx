@@ -116,6 +116,21 @@ export interface AppState {
   citationValidationResults: Record<string, { valid: boolean; title?: string; message: string }>;
   citationValidationStatus: "idle" | "running" | "done";
   omicsEnabled: boolean;
+  predictionStep: number;
+  predictionAim: string;
+  predictionPopulation: string;
+  predictionOutcome: string;
+  predictionOutcomeType: "binary" | "continuous" | "survival" | "competing_risk";
+  predictionPredictors: string;
+  predictionModelType: string;
+  predictionDataFile: File | null;
+  predictionSampleSize: string;
+  predictionMissingDataStrategy: string;
+  predictionModelResult: string;
+  predictionPerformance: string;
+  predictionDecisionCurve: string;
+  predictionReport: string;
+  predictionLoading: boolean;
 }
 
 type Action =
@@ -159,7 +174,22 @@ type Action =
   | { type: "SET_CITATION_RESULTS"; payload: Record<string, { valid: boolean; title?: string; message: string }> }
   | { type: "SET_CITATION_STATUS"; payload: "idle" | "running" | "done" }
   | { type: "RESET_STATE" }
-  | { type: "TOGGLE_OMICS"; payload: boolean };
+  | { type: "TOGGLE_OMICS"; payload: boolean }
+  | { type: "SET_PREDICTION_STEP"; payload: number }
+  | { type: "SET_PREDICTION_AIM"; payload: string }
+  | { type: "SET_PREDICTION_POPULATION"; payload: string }
+  | { type: "SET_PREDICTION_OUTCOME"; payload: string }
+  | { type: "SET_PREDICTION_OUTCOME_TYPE"; payload: "binary" | "continuous" | "survival" | "competing_risk" }
+  | { type: "SET_PREDICTION_PREDICTORS"; payload: string }
+  | { type: "SET_PREDICTION_MODEL"; payload: string }
+  | { type: "SET_PREDICTION_DATA"; payload: File | null }
+  | { type: "SET_PREDICTION_SAMPLE_SIZE"; payload: string }
+  | { type: "SET_PREDICTION_MISSING"; payload: string }
+  | { type: "SET_PREDICTION_MODEL_RESULT"; payload: string }
+  | { type: "SET_PREDICTION_PERFORMANCE"; payload: string }
+  | { type: "SET_PREDICTION_DECISION_CURVE"; payload: string }
+  | { type: "SET_PREDICTION_REPORT"; payload: string }
+  | { type: "SET_PREDICTION_LOADING"; payload: boolean };
 
 const initialState: AppState = {
   currentTab: "main",
@@ -231,6 +261,21 @@ const initialState: AppState = {
   citationValidationResults: {},
   citationValidationStatus: "idle",
   omicsEnabled: false,
+  predictionStep: 1,
+  predictionAim: "",
+  predictionPopulation: "",
+  predictionOutcome: "",
+  predictionOutcomeType: "binary",
+  predictionPredictors: "",
+  predictionModelType: "",
+  predictionDataFile: null,
+  predictionSampleSize: "",
+  predictionMissingDataStrategy: "",
+  predictionModelResult: "",
+  predictionPerformance: "",
+  predictionDecisionCurve: "",
+  predictionReport: "",
+  predictionLoading: false,
 };
 
 function appReducer(state: AppState, action: Action): AppState {
@@ -370,6 +415,36 @@ function appReducer(state: AppState, action: Action): AppState {
       return { ...state, citationValidationStatus: action.payload };
     case "TOGGLE_OMICS":
       return { ...state, omicsEnabled: action.payload };
+    case "SET_PREDICTION_STEP":
+      return { ...state, predictionStep: action.payload };
+    case "SET_PREDICTION_AIM":
+      return { ...state, predictionAim: action.payload };
+    case "SET_PREDICTION_POPULATION":
+      return { ...state, predictionPopulation: action.payload };
+    case "SET_PREDICTION_OUTCOME":
+      return { ...state, predictionOutcome: action.payload };
+    case "SET_PREDICTION_OUTCOME_TYPE":
+      return { ...state, predictionOutcomeType: action.payload };
+    case "SET_PREDICTION_PREDICTORS":
+      return { ...state, predictionPredictors: action.payload };
+    case "SET_PREDICTION_MODEL":
+      return { ...state, predictionModelType: action.payload };
+    case "SET_PREDICTION_DATA":
+      return { ...state, predictionDataFile: action.payload };
+    case "SET_PREDICTION_SAMPLE_SIZE":
+      return { ...state, predictionSampleSize: action.payload };
+    case "SET_PREDICTION_MISSING":
+      return { ...state, predictionMissingDataStrategy: action.payload };
+    case "SET_PREDICTION_MODEL_RESULT":
+      return { ...state, predictionModelResult: action.payload };
+    case "SET_PREDICTION_PERFORMANCE":
+      return { ...state, predictionPerformance: action.payload };
+    case "SET_PREDICTION_DECISION_CURVE":
+      return { ...state, predictionDecisionCurve: action.payload };
+    case "SET_PREDICTION_REPORT":
+      return { ...state, predictionReport: action.payload };
+    case "SET_PREDICTION_LOADING":
+      return { ...state, predictionLoading: action.payload };
     case "RESET_STATE":
       return { ...initialState };
     default:

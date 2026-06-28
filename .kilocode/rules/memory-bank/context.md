@@ -442,3 +442,50 @@ The AI-generated narrative review follows a strict heading structure:
 1. **DeepSeek R1** (`deepseek-r1-distill-llama-70b`) — primary deep reasoning engine (via Groq)
 2. **Gemini 3.1 Flash Lite** — fallback
 3. **Groq DeepSeek-R1-Distill-Llama-70B** — secondary fallback (was OpenRouter `gpt-oss-120b`)
+
+## Predictive Analysis Tab — 13-Step Clinical Prediction Pipeline (2026-06-28)
+
+**New tab added**: "Predictive Analysis" in `TopTabs` (between "Sample Size Calculator" and "Evidence Synthesis & Meta-analysis")
+
+### New Component: `PredictiveAnalysisTab`
+- 13-step wizard based on Efthimiou et al. (BMJ 2024) "Developing clinical prediction models: a step-by-step guide"
+- Uses PyHealth (sunlabuiuc/pyhealth) concepts and code references throughout
+- AI assistance via existing DeepSeek / Gemini / Groq providers on every step
+- State managed via `predictionStep` and related prediction fields in `AppContext`
+
+### Pipeline Steps
+
+| Step | Label | PyHealth / AI Integration |
+|------|-------|---------------------------|
+| 1 | Aims & Protocol | AI drafts TRIPOD protocol from population/outcome inputs |
+| 2 | Model Strategy | AI recommends develop-new vs update-existing |
+| 3 | Outcome Definition | Outome type selector + AI guidance on time-to-event vs binary |
+| 4 | Predictor Selection | Textarea + AI suggestions; references `pyhealth.medcode` for standardisation |
+| 5 | Data Collection | CSV upload with preview + AI data quality guidance |
+| 6 | Sample Size | Events/predictors/R² inputs + AI Riley-style guidance + EPV warning |
+| 7 | Missing Data | Strategy selector (MICE/single/complete case/model-based) + AI recommendation |
+| 8 | Model Fitting | PyHealth model selector (33+ models: Transformer, RETAIN, RF, etc.) + AI configuration |
+| 9 | Performance | Discrimination/calibration checklist + AI interpretation guidance |
+| 10 | Final Model | AI recommendation + Occam&apos;s razor advice |
+| 11 | Decision Curve | Threshold inputs + AI DCA guidance (net benefit, optimal threshold) |
+| 12 | Predictor Importance | AI SHAP/permutation importance explanation |
+| 13 | Report & Publish | AI generates TRIPOD checklist summary + deployment guidance |
+
+### Files Created / Modified
+
+**New files:**
+- `src/components/tabs/PredictiveAnalysisTab.tsx` — full 13-step predictive analysis wizard
+
+**Modified files:**
+- `src/context/AppContext.tsx` — Added 16 prediction state fields + 15 prediction reducer actions
+- `src/components/TopTabs.tsx` — Inserted `{ id: "predictive", label: "Predictive Analysis", icon: BarChart3 }` before systematic
+- `src/app/page.tsx` — Added `PredictiveAnalysisTab` import and `case "predictive"` render
+- `services/researcher/requirements.txt` — Added `pyhealth==2.0.1`, `numpy`, `pandas`, `scikit-learn`
+- `services/researcher/app.py` — Added `/predictive/assist` endpoint with step-specific PyHealth guidance and `/predictive/health` endpoint
+
+### Key Design Decisions
+- Frontend AI assistance uses existing `/api/chat` route (DeepSeek/Gemini/Groq) so it works without the researcher service running
+- Backend `/predictive/assist` provides step-specific structured guidance and PyHealth hints (e.g., `pyhealth.datasets`, `pyhealth.models`, `pyhealth.trainer`, `pyhealth.metrics`)
+- Step 6 uses `events|predictors` pipe-delimited state to keep two related numbers in one field
+- Step 8 references `pyhealth.trainer.Trainer` with early stopping and penalisation (ridge/LASSO) to prevent overfitting
+- Step 11 notes that DCA can be computed via external Python packages (`dcurves`) after PyHealth `predict_proba()` output
