@@ -1,3 +1,5 @@
+import { marked } from "marked";
+
 export function downloadCSV(synthesis: any[], fileName = "synthesis-table.csv") {
   const headers = ["Reference (Vancouver)", "Key Findings", "Synopsis / Takeaway", "Study Conducted", "Research Gaps"];
   const rows = synthesis.map((row) => [
@@ -345,4 +347,93 @@ export function downloadLiteratureReviewWord(sections: Record<string, string>, t
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+export function downloadMarkdownAsWord(markdown: string, filename = "document.docx") {
+  const htmlContent = `<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+  <head>
+    <meta charset="utf-8">
+    <title>Document</title>
+    <style>
+      body { font-family: Arial, sans-serif; }
+      h1 { font-size: 18pt; margin-bottom: 10px; }
+      h2 { font-size: 14pt; margin-top: 20px; margin-bottom: 8px; }
+      h3 { font-size: 12pt; margin-top: 16px; margin-bottom: 6px; }
+      p { font-size: 11pt; margin-bottom: 10px; }
+      ul, ol { font-size: 11pt; margin-bottom: 10px; padding-left: 25px; }
+      li { margin-bottom: 4px; }
+      table { border-collapse: collapse; width: 100%; margin: 15px 0; }
+      th, td { border: 1px solid #000; padding: 8px; text-align: left; }
+      th { background: #1e3a8a; color: #fff; }
+      blockquote { border-left: 4px solid #1e3a8a; padding-left: 15px; color: #333; margin: 15px 0; }
+      code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-family: monospace; }
+      pre { background: #f3f4f6; padding: 15px; border-radius: 5px; overflow-x: auto; }
+    </style>
+  </head>
+  <body>
+    ${marked.parse(markdown) as string}
+  </body>
+</html>`;
+  const blob = new Blob([htmlContent], { type: "application/msword;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+export function downloadMarkdownAsPDF(markdown: string, filename = "document.pdf") {
+  const htmlContent = marked.parse(markdown) as string;
+
+  const printWindow = window.open("", "_blank");
+  if (!printWindow) {
+    alert("Please allow popups to download PDF.");
+    return;
+  }
+
+  const htmlDoc = `
+    <html>
+      <head>
+        <title>${filename.replace(".pdf", "")}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 40px; color: #000; line-height: 1.6; }
+          h1 { font-size: 18pt; margin-bottom: 10px; text-align: center; }
+          h2 { font-size: 14pt; margin-top: 20px; margin-bottom: 8px; }
+          h3 { font-size: 12pt; margin-top: 16px; margin-bottom: 6px; }
+          p { font-size: 11pt; margin-bottom: 10px; }
+          ul, ol { font-size: 11pt; margin-bottom: 10px; padding-left: 25px; }
+          li { margin-bottom: 4px; }
+          table { border-collapse: collapse; width: 100%; margin: 15px 0; }
+          th, td { border: 1px solid #333; padding: 8px; text-align: left; }
+          th { background: #1e3a8a; color: #fff; }
+          blockquote { border-left: 4px solid #1e3a8a; padding-left: 15px; color: #333; margin: 15px 0; }
+          code { background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-family: monospace; }
+          pre { background: #f3f4f6; padding: 15px; border-radius: 5px; overflow-x: auto; }
+          @media print {
+            body { padding: 20mm; }
+            h1 { page-break-after: avoid; }
+            h2 { page-break-after: avoid; }
+            h3 { page-break-after: avoid; }
+          }
+        </style>
+      </head>
+      <body>
+        ${htmlContent}
+        <script>
+          window.onload = function() {
+            window.print();
+            setTimeout(() => window.close(), 100);
+          };
+        <\/script>
+      </body>
+    </html>
+  `;
+
+  printWindow.document.open();
+  printWindow.document.write(htmlDoc);
+  printWindow.document.close();
 }

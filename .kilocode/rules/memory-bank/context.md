@@ -487,3 +487,30 @@ The AI-generated narrative review follows a strict heading structure:
 - Step 6 uses `events|predictors` pipe-delimited state to keep two related numbers in one field
 - Step 8 references `pyhealth.trainer.Trainer` with early stopping and penalisation (ridge/LASSO) to prevent overfitting
 - Step 11 notes that DCA can be computed via external Python packages (`dcurves`) after PyHealth `predict_proba()` output
+
+## Step 14 — CSV Upload & Relationship Prediction (2026-06-29)
+
+**New step added**: `src/components/tabs/PredictiveAnalysisTab.tsx` extended from 13 to 14 steps, adding a toggleable "CSV Prediction" step after "Report & Publish".
+
+### Step 14 — CSV Upload & Relationship Prediction
+- **Toggle**: Enable/disable the feature with a toggle switch in the step header
+- **CSV Upload**: Upload `.csv` files; parsed locally and previewed (headers + first 10 rows)
+- **AI Relationship Analysis**: Uses existing `/api/chat` route (Gemini/Groq/DeepSeek) to analyze column relationships and predict outcome variables from uploaded data
+- **Results Display**: Shows AI-generated structured analysis (correlations, causal hints, prediction guidance)
+- **Downloads**: Both Word (`.docx` via HTML-based Office document) and PDF (print-window) buttons available for the analysis results
+
+### Step 13 — Report & Publish (enhanced)
+- **Word Download**: "Download Word" button converts AI-generated TRIPOD report draft to a `.docx` file
+- **PDF Download**: "Download PDF" button converts the same report to PDF via print dialog
+- Both buttons are visible after the AI report is generated or when `predictionReport` state is populated
+
+### Files Modified
+- `src/lib/exporters.ts` — Added `downloadMarkdownAsWord` and `downloadMarkdownAsPDF` using `marked` for markdown-to-HTML conversion
+- `src/components/tabs/PredictiveAnalysisTab.tsx` — Added step 14 toggle, CSV upload, AI analysis, and download buttons; updated step 13 with Word/PDF exports
+- `package.json` — Added `@mohtasham/md-to-docx` and `marked` dependencies
+
+### Referenced Open-Source Projects
+- `Krishnadev-cmd/Casual-Competitor` — DoWhy-based causal discovery from CSV upload
+- `ChunkyTortoise/insight-engine` — CSV/Excel upload → predictive models → PDF reports
+- `Ananyaa-Tanwar/multi-agent-data-pipeline` — Multi-agent CSV/Excel analysis with relationship detection
+- `SagarSreekumarPillai/insightpredictor` — Next.js + FastAPI CSV prediction with ML insights and PDF export

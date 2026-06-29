@@ -3,10 +3,12 @@
 import React, { useState } from "react";
 import {
   FlaskConical, Key, CheckCircle2, Loader2,
-  Brain, Upload, BarChart3, LineChart, FileText, Sparkles, ArrowRight, ArrowLeft, Target, Calculator
+  Brain, Upload, BarChart3, LineChart, FileText, Sparkles, ArrowRight, ArrowLeft, Target, Calculator,
+  Download, Table, ToggleLeft, FileSpreadsheet, AlertCircle
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq } from "@/lib/ai";
+import { downloadMarkdownAsWord, downloadMarkdownAsPDF } from "@/lib/exporters";
 
 const PREDICTION_STEPS = [
   { num: 1, label: "Aims & Protocol", icon: FileText },
@@ -22,6 +24,7 @@ const PREDICTION_STEPS = [
   { num: 11, label: "Decision Curve", icon: ArrowRight },
   { num: 12, label: "Predictor Importance", icon: Sparkles },
   { num: 13, label: "Report & Publish", icon: FileText },
+  { num: 14, label: "CSV Prediction", icon: FileSpreadsheet },
 ];
 
 const OUTCOME_TYPES = ["binary", "continuous", "survival", "competing_risk"];
@@ -41,11 +44,17 @@ export default function PredictiveAnalysisTab() {
   const [localLoading, setLocalLoading] = useState(false);
   const [aiOutput, setAiOutput] = useState("");
   const [dataPreview, setDataPreview] = useState<string | null>(null);
+  const [relationshipEnabled, setRelationshipEnabled] = useState(false);
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [csvPreview, setCsvPreview] = useState<string | null>(null);
+  const [relationshipResults, setRelationshipResults] = useState<string | null>(null);
+  const [relationshipLoading, setRelationshipLoading] = useState(false);
+  const [relationshipHeaders, setRelationshipHeaders] = useState<string[]>([]);
 
   const step = state.predictionStep;
 
   const handleNext = () => {
-    if (step < 13) dispatch({ type: "SET_PREDICTION_STEP", payload: step + 1 });
+    if (step < 14) dispatch({ type: "SET_PREDICTION_STEP", payload: step + 1 });
   };
 
   const handlePrev = () => {
@@ -128,6 +137,62 @@ export default function PredictiveAnalysisTab() {
       reader.onload = () => setDataPreview(reader.result as string);
       reader.readAsText(file);
     }
+  };
+
+  const parseSimpleCSV = (text: string): { headers: string[]; rows: string[][] } => {
+    const lines = text.split(/\r?\n/).filter((l) => l.trim());
+    if (lines.length === 0) return { headers: [], rows: [] };
+    const headers = lines[0].split(",").map((h) => h.trim().replace(/^["']|["']$/g, ""));
+    const rows = lines.slice(1, 11).map((line) => line.split(",").map((cell) => cell.trim().replace(/^["']|["']$/g, "")));
+    return { headers, rows };
+  };
+
+  const handleRelationshipCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] || null;
+    if (!file) return;
+    setCsvFile(file);
+    setRelationshipResults(null);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = reader.result as string;
+      const { headers, rows } = parseSimpleCSV(text);
+      setRelationshipHeaders(headers);
+      setCsvPreview("Headers: " + headers.join(", ") + "\n\nFirst rows:\n" + rows.map((r) => r.join(", ")).join("\n"));
+    };
+    reader.readAsText(file);
+  };
+
+  const handleRelationshipAnalysis = async () => {
+    if (!csvFile) return;
+    setRelationshipLoading(true);
+    setRelationshipResults(null);
+    const apiKey = state.geminiApiKey || state.groqApiKey;
+    if (!apiKey) {
+      setRelationshipResults("Please configure an AI provider in Settings first.");
+      setRelationshipLoading(false);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const text = reader.result as string;
+      const { headers, rows } = parseSimpleCSV(text);
+      const csvContext = `Columns: ${headers.join(", ")}\nSample rows:\n${rows.map((r) => r.join(", ")).join("\n")}`;
+      const prompt = `You are a data science assistant. Based on the following uploaded dataset columns and sample rows, identify the relationships between these factors and predict the likely outcome variable. Columns: ${headers.join(", ")}. Sample data: ${csvContext}. Explain which columns are likely predictors, which is the outcome, and what relationships exist. Provide a structured analysis (correlations, causal hints, and prediction guidance) in Markdown format.`;
+
+      try {
+        let response: string;
+        if (state.geminiApiKey) response = await callGemini(apiKey, prompt);
+        else if (state.groqApiKey) response = await callGroq(apiKey, prompt);
+        else throw new Error("No API key configured. Please open Settings (gear icon).");
+
+        setRelationshipResults(response);
+      } catch (e) {
+        setRelationshipResults(`Analysis failed: ${e instanceof Error ? e.message : "Unknown error"}`);
+      }
+      setRelationshipLoading(false);
+    };
+    reader.readAsText(csvFile);
   };
 
   const renderStepContent = () => {
@@ -653,11 +718,107 @@ export default function PredictiveAnalysisTab() {
                 <pre className="text-xs text-blue-200 whitespace-pre-wrap">{aiOutput}</pre>
               </div>
             )}
+            {(aiOutput || state.predictionReport) && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                <button
+                  onClick={() => downloadMarkdownAsWord(state.predictionReport || aiOutput, "predictive-report.docx")}
+                  className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1.5 rounded text-xs flex items-center gap-1"
+                >
+                  <Download size={12} /> Download Word
+                </button>
+                <button
+                  onClick={() => downloadMarkdownAsPDF(state.predictionReport || aiOutput, "predictive-report.pdf")}
+                  className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1.5 rounded text-xs flex items-center gap-1"
+                >
+                  <Download size={12} /> Download PDF
+                </button>
+              </div>
+            )}
             <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-3">
               <p className="text-xs text-blue-300">
                 Provide model equation, code, and an online calculator (e.g., Shiny, Streamlit, or Gradio) so others can reproduce and validate your model independently.
               </p>
             </div>
+          </div>
+        );
+
+      case 14:
+        return (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-white">Step 14: CSV Upload & Relationship Prediction</h3>
+                <p className="text-sm text-blue-300">Upload a CSV file to let AI analyze relationships between factors and predict outcomes.</p>
+              </div>
+              <button
+                onClick={() => setRelationshipEnabled(!relationshipEnabled)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
+                  relationshipEnabled ? "border-yellow-400 bg-yellow-400/20 text-yellow-300" : "border-blue-800 bg-blue-900/30 text-blue-300"
+                }`}
+              >
+                <ToggleLeft size={14} className={relationshipEnabled ? "text-yellow-400" : "text-blue-400"} />
+                {relationshipEnabled ? "Enabled" : "Enable Feature"}
+              </button>
+            </div>
+
+            {!relationshipEnabled ? (
+              <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-4 text-center">
+                <AlertCircle className="mx-auto mb-2 text-blue-400" size={28} />
+                <p className="text-sm text-blue-300">Toggle the switch above to enable CSV upload and relationship-based prediction.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="border-2 border-dashed border-blue-800 rounded-lg p-6 text-center">
+                  <FileSpreadsheet className="mx-auto mb-2 text-blue-400" size={32} />
+                  <p className="text-sm text-blue-300 mb-2">Upload your dataset (CSV)</p>
+                  <input
+                    type="file"
+                    accept=".csv,.xls,.xlsx"
+                    onChange={handleRelationshipCsvUpload}
+                    className="text-sm text-blue-300"
+                  />
+                  {csvPreview && (
+                    <div className="mt-4 text-left bg-blue-950/50 rounded p-3">
+                      <p className="text-xs text-blue-300 mb-2">Preview:</p>
+                      <pre className="text-xs text-blue-200 whitespace-pre-wrap">{csvPreview}</pre>
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  onClick={handleRelationshipAnalysis}
+                  disabled={relationshipLoading || !csvFile}
+                  className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-4 py-2 rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"
+                >
+                  {relationshipLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                  Analyze Relationships & Predict (AI)
+                </button>
+
+                {relationshipResults && (
+                  <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
+                    <h4 className="text-sm font-bold text-white mb-2">Relationship & Prediction Analysis</h4>
+                    <pre className="text-xs text-blue-200 whitespace-pre-wrap">{relationshipResults}</pre>
+                  </div>
+                )}
+
+                {relationshipResults && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    <button
+                      onClick={() => downloadMarkdownAsWord(relationshipResults, "relationship-prediction.docx")}
+                      className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1.5 rounded text-xs flex items-center gap-1"
+                    >
+                      <Download size={12} /> Download Word
+                    </button>
+                    <button
+                      onClick={() => downloadMarkdownAsPDF(relationshipResults, "relationship-prediction.pdf")}
+                      className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1.5 rounded text-xs flex items-center gap-1"
+                    >
+                      <Download size={12} /> Download PDF
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         );
 
@@ -674,7 +835,7 @@ export default function PredictiveAnalysisTab() {
           <h2 className="text-xl font-bold text-white">Predictive Analysis Pipeline</h2>
         </div>
         <p className="text-sm text-blue-300 mb-6">
-          Guided 13-step clinical prediction model development based on Efthimiou et al. (BMJ 2024) and PyHealth. AI assists where indicated.
+          Guided 14-step clinical prediction model development based on Efthimiou et al. (BMJ 2024) and PyHealth. AI assists where indicated.
         </p>
 
         <div className="flex flex-wrap gap-2 mb-6">
@@ -713,11 +874,11 @@ export default function PredictiveAnalysisTab() {
             <ArrowLeft size={14} /> Previous Step
           </button>
           <span className="text-xs text-blue-400">
-            Step {step} of 13
+            Step {step} of 14
           </span>
           <button
             onClick={handleNext}
-            disabled={step === 13}
+            disabled={step === 14}
             className="text-sm bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-4 py-2 rounded-lg flex items-center gap-1 disabled:opacity-50"
           >
             Next Step <ArrowRight size={14} />
