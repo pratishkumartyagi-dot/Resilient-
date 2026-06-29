@@ -132,17 +132,20 @@ export default function PredictiveAnalysisTab() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
     if (!file) return;
-    dispatch({ type: "SET_PREDICTION_DATA", payload: file });
 
     const name = file.name.toLowerCase();
     try {
+      dispatch({ type: "SET_PREDICTION_DATA", payload: file });
+      setCsvFile(file);
+      setCsvPreview(null);
+
       if (name.endsWith(".csv")) {
         const text = await file.text();
         setDataPreview(text);
       } else if (name.endsWith(".xls") || name.endsWith(".xlsx")) {
         const XLSX = await import("xlsx");
         const buffer = await file.arrayBuffer();
-        const workbook = XLSX.read(new Uint8Array(buffer), { type: "array" });
+        const workbook = XLSX.read(buffer, { type: "array" });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         const csv = XLSX.utils.sheet_to_csv(worksheet);
@@ -179,7 +182,7 @@ export default function PredictiveAnalysisTab() {
       } else if (name.endsWith(".xls") || name.endsWith(".xlsx")) {
         const XLSX = await import("xlsx");
         const buffer = await file.arrayBuffer();
-        const workbook = XLSX.read(new Uint8Array(buffer), { type: "array" });
+        const workbook = XLSX.read(buffer, { type: "array" });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         text = XLSX.utils.sheet_to_csv(worksheet);
@@ -216,7 +219,7 @@ export default function PredictiveAnalysisTab() {
       } else if (name.endsWith(".xls") || name.endsWith(".xlsx")) {
         const XLSX = await import("xlsx");
         const buffer = await csvFile.arrayBuffer();
-        const workbook = XLSX.read(new Uint8Array(buffer), { type: "array" });
+        const workbook = XLSX.read(buffer, { type: "array" });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         text = XLSX.utils.sheet_to_csv(worksheet);
@@ -438,8 +441,9 @@ export default function PredictiveAnalysisTab() {
               <p className="text-sm text-blue-300 mb-2">Upload your dataset (CSV or Excel)</p>
               <p className="text-xs text-blue-400 mb-3">Supported: .csv, .xls, .xlsx</p>
               <input
+                key={`step5-file-${step}`}
                 type="file"
-                accept=".csv,.xls,.xlsx"
+                accept="text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 onChange={handleFileUpload}
                 className="text-sm text-blue-300"
               />
@@ -826,8 +830,9 @@ export default function PredictiveAnalysisTab() {
                   <p className="text-sm text-blue-300 mb-2">Upload your dataset (CSV or Excel)</p>
                   <p className="text-xs text-blue-400 mb-3">Supported: .csv, .xls, .xlsx</p>
                   <input
+                    key={`step14-file-${step}-${relationshipEnabled}`}
                     type="file"
-                    accept=".csv,.xls,.xlsx"
+                    accept="text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     onChange={handleRelationshipCsvUpload}
                     className="text-sm text-blue-300"
                   />
@@ -841,7 +846,7 @@ export default function PredictiveAnalysisTab() {
 
                 <button
                   onClick={handleRelationshipAnalysis}
-                  disabled={relationshipLoading || !csvFile}
+                  disabled={relationshipLoading || !(csvFile || state.predictionDataFile)}
                   className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-4 py-2 rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"
                 >
                   {relationshipLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
