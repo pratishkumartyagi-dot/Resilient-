@@ -133,7 +133,6 @@ export default function PredictiveAnalysisTab() {
     const file = e.target.files?.[0] || null;
     if (!file) return;
     dispatch({ type: "SET_PREDICTION_DATA", payload: file });
-    setDataPreview(null);
 
     const name = file.name.toLowerCase();
     try {
@@ -436,13 +435,13 @@ export default function PredictiveAnalysisTab() {
             <p className="text-sm text-blue-300">Upload your dataset (CSV or Excel) or proceed with AI-guided data quality checks.</p>
             <div className="border-2 border-dashed border-blue-800 rounded-lg p-6 text-center">
               <Upload className="mx-auto mb-2 text-blue-400" size={32} />
-              <p className="text-sm text-blue-300 mb-2">Click to upload or drag and drop</p>
-              <p className="text-xs text-blue-400 mb-3">CSV or Excel (.csv, .xls, .xlsx)</p>
+              <p className="text-sm text-blue-300 mb-2">Upload your dataset (CSV or Excel)</p>
+              <p className="text-xs text-blue-400 mb-3">Supported: .csv, .xls, .xlsx</p>
               <input
                 type="file"
-                accept=".csv,.xls,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                accept=".csv,.xls,.xlsx"
                 onChange={handleFileUpload}
-                className="block mx-auto text-sm text-blue-300 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700"
+                className="text-sm text-blue-300"
               />
               {dataPreview && (
                 <div className="mt-4 text-left bg-blue-950/50 rounded p-3">
@@ -800,10 +799,10 @@ export default function PredictiveAnalysisTab() {
         return (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-white">Step 14: CSV Upload & Relationship Prediction</h3>
-                <p className="text-sm text-blue-300">Upload a CSV file to let AI analyze relationships between factors and predict outcomes.</p>
-              </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Step 14: CSV/Excel Upload & Relationship Prediction</h3>
+                  <p className="text-sm text-blue-300">Upload a CSV or Excel file to let AI analyze relationships between factors and predict outcomes.</p>
+                </div>
               <button
                 onClick={() => setRelationshipEnabled(!relationshipEnabled)}
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
@@ -824,13 +823,13 @@ export default function PredictiveAnalysisTab() {
               <div className="space-y-4">
                 <div className="border-2 border-dashed border-blue-800 rounded-lg p-6 text-center">
                   <FileSpreadsheet className="mx-auto mb-2 text-blue-400" size={32} />
-                  <p className="text-sm text-blue-300 mb-2">Click to upload or drag and drop</p>
-                  <p className="text-xs text-blue-400 mb-3">CSV or Excel (.csv, .xls, .xlsx)</p>
+                  <p className="text-sm text-blue-300 mb-2">Upload your dataset (CSV or Excel)</p>
+                  <p className="text-xs text-blue-400 mb-3">Supported: .csv, .xls, .xlsx</p>
                   <input
                     type="file"
-                    accept=".csv,.xls,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                    accept=".csv,.xls,.xlsx"
                     onChange={handleRelationshipCsvUpload}
-                    className="block mx-auto text-sm text-blue-300 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700"
+                    className="text-sm text-blue-300"
                   />
                   {csvPreview && (
                     <div className="mt-4 text-left bg-blue-950/50 rounded p-3">
