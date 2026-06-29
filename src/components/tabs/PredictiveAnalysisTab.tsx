@@ -129,13 +129,32 @@ export default function PredictiveAnalysisTab() {
     setLocalLoading(false);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
-    if (file) {
-      dispatch({ type: "SET_PREDICTION_DATA", payload: file });
-      const reader = new FileReader();
-      reader.onload = () => setDataPreview(reader.result as string);
-      reader.readAsText(file);
+    if (!file) return;
+    dispatch({ type: "SET_PREDICTION_DATA", payload: file });
+
+    const name = file.name.toLowerCase();
+    if (name.endsWith(".csv") || name.endsWith(".xls") || name.endsWith(".xlsx")) {
+      try {
+        let text = "";
+        if (name.endsWith(".csv")) {
+          text = await file.text();
+        } else {
+          const XLSX = await import("xlsx");
+          const buffer = await file.arrayBuffer();
+          const workbook = XLSX.read(new Uint8Array(buffer), { type: "array" });
+          const sheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[sheetName];
+          text = XLSX.utils.sheet_to_csv(worksheet);
+        }
+        setDataPreview(text);
+      } catch (err) {
+        console.error("Failed to parse file:", err);
+        setDataPreview("Failed to parse file. Please try another file.");
+      }
+    } else {
+      setDataPreview("Unsupported file type. Please upload CSV or Excel.");
     }
   };
 
@@ -147,19 +166,36 @@ export default function PredictiveAnalysisTab() {
     return { headers, rows };
   };
 
-  const handleRelationshipCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleRelationshipCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
     if (!file) return;
     setCsvFile(file);
     setRelationshipResults(null);
-    const reader = new FileReader();
-    reader.onload = () => {
-      const text = reader.result as string;
+
+    try {
+      let text = "";
+      const name = file.name.toLowerCase();
+      if (name.endsWith(".csv")) {
+        text = await file.text();
+      } else if (name.endsWith(".xls") || name.endsWith(".xlsx")) {
+        const XLSX = await import("xlsx");
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(new Uint8Array(buffer), { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        text = XLSX.utils.sheet_to_csv(worksheet);
+      } else {
+        setCsvPreview("Unsupported file type. Please upload CSV or Excel.");
+        return;
+      }
+
       const { headers, rows } = parseSimpleCSV(text);
       setRelationshipHeaders(headers);
       setCsvPreview("Headers: " + headers.join(", ") + "\n\nFirst rows:\n" + rows.map((r) => r.join(", ")).join("\n"));
-    };
-    reader.readAsText(file);
+    } catch (err) {
+      console.error("Failed to parse file:", err);
+      setCsvPreview("Failed to parse file. Please try another file.");
+    }
   };
 
   const handleRelationshipAnalysis = async () => {
@@ -173,9 +209,24 @@ export default function PredictiveAnalysisTab() {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const text = reader.result as string;
+    try {
+      let text = "";
+      const name = csvFile.name.toLowerCase();
+      if (name.endsWith(".csv")) {
+        text = await csvFile.text();
+      } else if (name.endsWith(".xls") || name.endsWith(".xlsx")) {
+        const XLSX = await import("xlsx");
+        const buffer = await csvFile.arrayBuffer();
+        const workbook = XLSX.read(new Uint8Array(buffer), { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        text = XLSX.utils.sheet_to_csv(worksheet);
+      } else {
+        setRelationshipResults("Unsupported file type. Please upload CSV or Excel.");
+        setRelationshipLoading(false);
+        return;
+      }
+
       const { headers, rows } = parseSimpleCSV(text);
       const csvContext = `Columns: ${headers.join(", ")}\nSample rows:\n${rows.map((r) => r.join(", ")).join("\n")}`;
       const prompt = `You are a data science assistant. Based on the following uploaded dataset columns and sample rows, identify the relationships between these factors and predict the likely outcome variable. Columns: ${headers.join(", ")}. Sample data: ${csvContext}. Explain which columns are likely predictors, which is the outcome, and what relationships exist. Provide a structured analysis (correlations, causal hints, and prediction guidance) in Markdown format.`;
@@ -190,9 +241,10 @@ export default function PredictiveAnalysisTab() {
       } catch (e) {
         setRelationshipResults(`Analysis failed: ${e instanceof Error ? e.message : "Unknown error"}`);
       }
-      setRelationshipLoading(false);
-    };
-    reader.readAsText(csvFile);
+    } catch (err) {
+      setRelationshipResults(`Failed to read file: ${err instanceof Error ? err.message : "Unknown error"}`);
+    }
+    setRelationshipLoading(false);
   };
 
   const renderStepContent = () => {
@@ -381,14 +433,17 @@ export default function PredictiveAnalysisTab() {
         return (
           <div className="space-y-4">
             <h3 className="text-lg font-bold text-white">Step 5: Collect & Examine Data</h3>
-            <p className="text-sm text-blue-300">Upload your dataset (CSV) or proceed with AI-guided data quality checks.</p>
-            <div className="border-2 border-dashed border-blue-800 rounded-lg p-6 text-center">
+            <p className="text-sm text-blue-300">Upload your dataset (CSV or Excel) or proceed with AI-guided data quality checks.</p>
+            <div className="border-2 border-dashed border-blue-800 rounded-lg p-6 text-center relative">
               <Upload className="mx-auto mb-2 text-blue-400" size={32} />
+              <p className="text-sm text-blue-300 mb-2">Click to upload or drag and drop</p>
+              <p className="text-xs text-blue-400 mb-3">CSV or Excel (.csv, .xls, .xlsx)</p>
               <input
+                id="step5-file-upload"
                 type="file"
-                accept=".csv"
+                accept=".csv,.xls,.xlsx"
                 onChange={handleFileUpload}
-                className="text-sm text-blue-300"
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
               />
               {dataPreview && (
                 <div className="mt-4 text-left bg-blue-950/50 rounded p-3">
@@ -768,14 +823,16 @@ export default function PredictiveAnalysisTab() {
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="border-2 border-dashed border-blue-800 rounded-lg p-6 text-center">
+                <div className="border-2 border-dashed border-blue-800 rounded-lg p-6 text-center relative">
                   <FileSpreadsheet className="mx-auto mb-2 text-blue-400" size={32} />
-                  <p className="text-sm text-blue-300 mb-2">Upload your dataset (CSV)</p>
+                  <p className="text-sm text-blue-300 mb-2">Click to upload or drag and drop</p>
+                  <p className="text-xs text-blue-400 mb-3">CSV or Excel (.csv, .xls, .xlsx)</p>
                   <input
+                    id="step14-file-upload"
                     type="file"
                     accept=".csv,.xls,.xlsx"
                     onChange={handleRelationshipCsvUpload}
-                    className="text-sm text-blue-300"
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   />
                   {csvPreview && (
                     <div className="mt-4 text-left bg-blue-950/50 rounded p-3">
