@@ -10,6 +10,20 @@ import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq } from "@/lib/ai";
 import { downloadMarkdownAsWord, downloadMarkdownAsPDF } from "@/lib/exporters";
 
+const renderMarkdown = (text: string): string => {
+  let html = text;
+  html = html.replace(/^### (.+)$/gm, "<h3>$1</h3>");
+  html = html.replace(/^## (.+)$/gm, "<h2>$1</h2>");
+  html = html.replace(/^# (.+)$/gm, "<h1>$1</h1>");
+  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
+  html = html.replace(/^- (.+)$/gm, "<li>$1</li>");
+  html = html.replace(/`{3}(\w*)\n([\s\S]*?)`{3}/g, '<pre class="bg-black/30 p-2 rounded text-xs overflow-x-auto"><code>$2</code></pre>');
+  html = html.replace(/`(.+?)`/g, "<code>$1</code>");
+  html = html.replace(/\n/g, "<br/>");
+  return html;
+};
+
 const PREDICTION_STEPS = [
   { num: 1, label: "Aims & Protocol", icon: FileText },
   { num: 2, label: "Model Strategy", icon: Brain },
@@ -301,7 +315,7 @@ export default function PredictiveAnalysisTab() {
             </button>
             {aiOutput && (
               <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
-                <pre className="text-xs text-blue-200 whitespace-pre-wrap">{aiOutput}</pre>
+                <div className="text-xs text-blue-200 prose prose-xs prose-invert" dangerouslySetInnerHTML={{ __html: renderMarkdown(aiOutput) }} />
               </div>
             )}
           </div>
@@ -350,7 +364,7 @@ export default function PredictiveAnalysisTab() {
             </button>
             {aiOutput && (
               <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
-                <pre className="text-xs text-blue-200 whitespace-pre-wrap">{aiOutput}</pre>
+                <div className="text-xs text-blue-200 prose prose-xs prose-invert" dangerouslySetInnerHTML={{ __html: renderMarkdown(aiOutput) }} />
               </div>
             )}
           </div>
@@ -394,7 +408,7 @@ export default function PredictiveAnalysisTab() {
             </button>
             {aiOutput && (
               <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
-                <pre className="text-xs text-blue-200 whitespace-pre-wrap">{aiOutput}</pre>
+                <div className="text-xs text-blue-200 prose prose-xs prose-invert" dangerouslySetInnerHTML={{ __html: renderMarkdown(aiOutput) }} />
               </div>
             )}
           </div>
@@ -421,7 +435,7 @@ export default function PredictiveAnalysisTab() {
             </button>
             {aiOutput && (
               <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
-                <pre className="text-xs text-blue-200 whitespace-pre-wrap">{aiOutput}</pre>
+                <div className="text-xs text-blue-200 prose prose-xs prose-invert" dangerouslySetInnerHTML={{ __html: renderMarkdown(aiOutput) }} />
               </div>
             )}
             <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-3">
@@ -465,7 +479,7 @@ export default function PredictiveAnalysisTab() {
             </button>
             {aiOutput && (
               <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
-                <pre className="text-xs text-blue-200 whitespace-pre-wrap">{aiOutput}</pre>
+                <div className="text-xs text-blue-200 prose prose-xs prose-invert" dangerouslySetInnerHTML={{ __html: renderMarkdown(aiOutput) }} />
               </div>
             )}
           </div>
@@ -517,7 +531,7 @@ export default function PredictiveAnalysisTab() {
             </button>
             {aiOutput && (
               <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
-                <pre className="text-xs text-blue-200 whitespace-pre-wrap">{aiOutput}</pre>
+                <div className="text-xs text-blue-200 prose prose-xs prose-invert" dangerouslySetInnerHTML={{ __html: renderMarkdown(aiOutput) }} />
               </div>
             )}
             <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-3">
@@ -554,7 +568,7 @@ export default function PredictiveAnalysisTab() {
             </button>
             {aiOutput && (
               <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
-                <pre className="text-xs text-blue-200 whitespace-pre-wrap">{aiOutput}</pre>
+                <div className="text-xs text-blue-200 prose prose-xs prose-invert" dangerouslySetInnerHTML={{ __html: renderMarkdown(aiOutput) }} />
               </div>
             )}
           </div>
@@ -619,12 +633,12 @@ export default function PredictiveAnalysisTab() {
             {state.predictionCaptumEnabled && aiOutput && (
               <div className="bg-yellow-950/30 border border-yellow-800/50 rounded-lg p-4">
                 <p className="text-xs font-bold text-yellow-300 mb-2">Captum Reasoning Guidance</p>
-                <pre className="text-xs text-blue-200 whitespace-pre-wrap">{aiOutput}</pre>
+                <div className="text-xs text-blue-200 prose prose-xs prose-invert" dangerouslySetInnerHTML={{ __html: renderMarkdown(aiOutput) }} />
               </div>
             )}
             {!state.predictionCaptumEnabled && aiOutput && (
               <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
-                <pre className="text-xs text-blue-200 whitespace-pre-wrap">{aiOutput}</pre>
+                <div className="text-xs text-blue-200 prose prose-xs prose-invert" dangerouslySetInnerHTML={{ __html: renderMarkdown(aiOutput) }} />
               </div>
             )}
             <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-3">
@@ -678,7 +692,7 @@ export default function PredictiveAnalysisTab() {
             </button>
             {aiOutput && (
               <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
-                <pre className="text-xs text-blue-200 whitespace-pre-wrap">{aiOutput}</pre>
+                <div className="text-xs text-blue-200 prose prose-xs prose-invert" dangerouslySetInnerHTML={{ __html: renderMarkdown(aiOutput) }} />
               </div>
             )}
           </div>
@@ -708,7 +722,7 @@ export default function PredictiveAnalysisTab() {
             </button>
             {aiOutput && (
               <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
-                <pre className="text-xs text-blue-200 whitespace-pre-wrap">{aiOutput}</pre>
+                <div className="text-xs text-blue-200 prose prose-xs prose-invert" dangerouslySetInnerHTML={{ __html: renderMarkdown(aiOutput) }} />
               </div>
             )}
           </div>
@@ -749,7 +763,7 @@ export default function PredictiveAnalysisTab() {
             </button>
             {aiOutput && (
               <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
-                <pre className="text-xs text-blue-200 whitespace-pre-wrap">{aiOutput}</pre>
+                <div className="text-xs text-blue-200 prose prose-xs prose-invert" dangerouslySetInnerHTML={{ __html: renderMarkdown(aiOutput) }} />
               </div>
             )}
           </div>
@@ -792,7 +806,7 @@ export default function PredictiveAnalysisTab() {
             </button>
             {aiOutput && (
               <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
-                <pre className="text-xs text-blue-200 whitespace-pre-wrap">{aiOutput}</pre>
+                <div className="text-xs text-blue-200 prose prose-xs prose-invert" dangerouslySetInnerHTML={{ __html: renderMarkdown(aiOutput) }} />
               </div>
             )}
           </div>
@@ -822,7 +836,7 @@ export default function PredictiveAnalysisTab() {
             </button>
             {aiOutput && (
               <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
-                <pre className="text-xs text-blue-200 whitespace-pre-wrap">{aiOutput}</pre>
+                <div className="text-xs text-blue-200 prose prose-xs prose-invert" dangerouslySetInnerHTML={{ __html: renderMarkdown(aiOutput) }} />
               </div>
             )}
             {(aiOutput || state.predictionReport) && (
@@ -906,7 +920,7 @@ export default function PredictiveAnalysisTab() {
                 {relationshipResults && (
                   <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
                     <h4 className="text-sm font-bold text-white mb-2">Relationship & Prediction Analysis</h4>
-                    <pre className="text-xs text-blue-200 whitespace-pre-wrap">{relationshipResults}</pre>
+                    <div className="text-xs text-blue-200 prose prose-xs prose-invert" dangerouslySetInnerHTML={{ __html: renderMarkdown(relationshipResults || "") }} />
                   </div>
                 )}
 
