@@ -514,3 +514,31 @@ The AI-generated narrative review follows a strict heading structure:
 - `ChunkyTortoise/insight-engine` — CSV/Excel upload → predictive models → PDF reports
 - `Ananyaa-Tanwar/multi-agent-data-pipeline` — Multi-agent CSV/Excel analysis with relationship detection
 - `SagarSreekumarPillai/insightpredictor` — Next.js + FastAPI CSV prediction with ML insights and PDF export
+
+## Document Exporter Upgrade — DOCX/XLSX/PPTX (2026-06-30)
+
+**Feature**: Replaced HTML-blob document exports with professional-grade generation using the same tech stack as https://github.com/Duds/md-converter (docx, exceljs, pptxgenjs). Chose Duds/md-converter over vace/markdown-docx because it supports DOCX, PPTX, and XLSX, and maintains consistent content/formatting across on-screen markdown and downloaded documents.
+
+### New Dependencies Added
+- `docx@9.7.1` — true DOCX generation with proper styles, headings, tables, and paragraph formatting
+- `exceljs@4.4.0` — true XLSX with header formatting, frozen rows, auto-width columns, and cell wrap
+- `pptxgenjs@4.0.1` — PPTX generation from markdown (headings → slides, lists → bullets, tables → slide tables)
+
+### File Rewritten
+- `src/lib/exporters.ts` — Full rewrite of document export functions:
+  - `downloadWord()` — HTML blob hack replaced with DOCX (`docx` library, styled table headers, proper margins)
+  - `downloadLiteratureReviewWord()` — replaced with DOCX generation using structured section mapping and markdown token parsing
+  - `downloadMarkdownAsWord()` — replaced with `docx`-based markdown token-to-paragraph conversion (headings, bold, italic, lists, code blocks, tables, blockquotes)
+  - `downloadExcel()` — replaced legacy `.xls` HTML blob with true `.xlsx` via `exceljs` (frozen header row, white-on-blue header styling, wrap text, auto-width columns)
+  - `downloadPPTX()` — **NEW** export for PPTX from markdown (headings → title/section/content slides, bullet lists, code blocks, tables, blockquotes)
+  - `downloadCSV()`, `downloadPDF()`, `downloadLiteratureReviewPDF()`, `downloadMarkdownAsPDF()`, `parseCSVText()` — preserved unchanged
+
+### Markdown Parsing
+- Uses `marked.lexer()` for token-based parsing (not vace/markdown-docx's token-to-docx pipeline, but same parser: `marked`)
+- Inline formatting (bold, italic, code, links) rendered as native `TextRun` elements in DOCX and PPTX
+- Tables rendered as `docx.Table` and `pptxgenjs` slide tables with header formatting
+
+### Rationale for Library Choice
+- **Duds/md-converter** selected because it covers all three formats (DOCX, PPTX, XLSX) required by the app
+- **vace/markdown-docx** rejected because it is DOCX-only (no PPTX/XLSX support)
+- Duds/md-converter's underlying libraries (`docx`, `exceljs`, `pptxgenjs`, `markdown-it`) are browser-compatible and were integrated directly into the Next.js client-side export layer
