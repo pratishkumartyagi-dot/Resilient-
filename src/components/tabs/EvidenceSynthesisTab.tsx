@@ -214,6 +214,7 @@ export default function EvidenceSynthesisTab() {
   const [selectedDbs, setSelectedDbs] = useState<string[]>(["PubMed", "OpenAlex", "Europe PMC"]);
   const [papers, setPapers] = useState<Paper[]>([]);
   const [selectedPaperIds, setSelectedPaperIds] = useState<Set<string>>(new Set());
+  const [robSelectedPaperIds, setRobSelectedPaperIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [extractedData, setExtractedData] = useState<any[]>([]);
   const [robAssessments, setRobAssessments] = useState<Record<string, RobAssessment>>({});
@@ -277,6 +278,23 @@ export default function EvidenceSynthesisTab() {
       setSelectedPaperIds(new Set());
     } else {
       setSelectedPaperIds(new Set(papers.map((p) => p.id)));
+    }
+  };
+
+  const toggleRobPaper = (id: string) => {
+    setRobSelectedPaperIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllRobPapers = () => {
+    const robPaperIds = extractedData.map((p) => p.id);
+    if (robSelectedPaperIds.size === robPaperIds.length) {
+      setRobSelectedPaperIds(new Set());
+    } else {
+      setRobSelectedPaperIds(new Set(robPaperIds));
     }
   };
 
@@ -659,10 +677,19 @@ ${methodsBlock}\n\n---
   };
 
   const generateLiteratureReview = async () => {
-    if (extractedData.length === 0 && selectedPaperIds.size === 0) {
-      alert("Please select papers first.");
+    const reviewPapers = robSelectedPaperIds.size > 0
+      ? papers.filter((p) => robSelectedPaperIds.has(p.id))
+      : papers.filter((p) => selectedPaperIds.has(p.id));
+
+    if (reviewPapers.length === 0 && extractedData.length === 0) {
+      alert("Please select papers in Risk of Bias Assessment first.");
       return;
     }
+    const selectedPapers = reviewPapers;
+    const references = selectedPapers
+      .map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || p.database}.${p.doi ? ` doi:${p.doi}` : ""}`)
+      .join("\n");
+
     setLiteratureReviewLoading(true);
     setLiteratureReviewSections({
       introduction: "",
@@ -675,16 +702,11 @@ ${methodsBlock}\n\n---
       references: "",
     });
     try {
-      const selectedPapers = papers.filter((p) => selectedPaperIds.has(p.id));
-      const references = selectedPapers
-        .map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.database}.${p.doi ? ` https://doi.org/${p.doi}` : ""}`)
-        .join("\n");
-
       const numberedRefs = selectedPapers
-        .map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.database}.${p.doi ? ` https://doi.org/${p.doi}` : ""}`)
+        .map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || p.database}.${p.doi ? ` doi:${p.doi}` : ""}`)
         .join("\n");
 
-      const prompt = `You are an expert academic writer using deep reasoning methodology inspired by janhq/jan (long chain-of-thought reflection). Write a comprehensive, publication-ready narrative literature review based ONLY on the selected studies provided below.
+      const prompt = `You are an expert academic writer using deep reasoning methodology. Write a comprehensive, publication-ready narrative literature review based ONLY on the selected studies provided below.
 
 Follow this exact structure and headings:
 - Introduction / Background
@@ -695,36 +717,36 @@ Follow this exact structure and headings:
 - References
 
 CITATION RULES:
-- Cite papers inline using bracketed numbers in square brackets, e.g. [1], [2], [3].
-- The numbering MUST match the numbered references list below.
-- Do NOT use author-year citations. Use ONLY bracketed numbers.
+- Cite papers inline using author-year in parentheses, e.g. (Smith 2020), (Jones et al 2022).
+- The author-year MUST match one of the numbered references below.
 - Aim for 2-4 inline citations per paragraph.
 
-REFERENCES (use these EXACT numbers in your inline citations):
-${numberedRefs}
+REFERENCES (use these exact author-year strings in your inline citations):
+${selectedPapers.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || p.database}.${p.doi ? ` doi:${p.doi}` : ""}`).join("\n")}
 
 SELECTED STUDIES:
 ${selectedPapers.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. Type: ${p.studyType || "Not specified"}. Database: ${p.database}.${p.doi ? ` DOI: ${p.doi}` : ""}`).join("\n\n")}
 
 EXTRACTED DATA:
-${extractedData.filter((p) => selectedPaperIds.has(p.id)).map((p) => `- ${p.title}: ${p.outcome || "Outcome not specified"}`).join("\n")}
+${extractedData.filter((p) => selectedPapers.some((sp) => sp.id === p.id)).map((p) => `- ${p.title}: ${p.outcome || "Outcome not specified"}`).join("\n")}
 
 DEEP REASONING RULES:
 1. Think step-by-step before drafting each section.
 2. Explicitly acknowledge conflicting or limited evidence.
 3. Ensure global, South-East Asia, and India perspectives are all addressed where relevant.
-4. Use ONLY inline numeric citations [N]. Do NOT add a separate bibliography beyond the numbered references list.
+4. Use ONLY author-year inline citations (Author Year). Include a complete References section at the end.
 
 OUTPUT FORMAT:
-Use ONLY plain text with these exact headings on their own lines:
+Use plain text with these exact headings on their own lines:
 Introduction / Background
-Problem Statement
+Problem Statement (Global, South-East Asia, India)
 Research Gaps
 Future Studies to Be Carried Out
 Conclusion
 References
 
-Do NOT use Markdown formatting like # or ##. Do NOT add extra headings.`;
+At the end, include a References section with all papers in Vancouver style:
+1. Author(s) (Year). Title. Journal. doi:DOI`;
 
       const apiKey = state.geminiApiKey || state.groqApiKey;
       if (!apiKey) {
@@ -736,33 +758,33 @@ Do NOT use Markdown formatting like # or ##. Do NOT add extra headings.`;
           gaps: "",
           future: "",
           conclusion: "",
-          references: numberedRefs,
+          references: references,
         });
          setLiteratureReviewLoading(false);
          return;
-       }
+      }
 
-        let text: string;
-        const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
-        if (state.geminiApiKey) {
-          text = await callGemini(state.geminiApiKey, prompt, searchOptions);
-        } else if (state.groqApiKey) {
-          text = await callGroq(state.groqApiKey!, prompt, searchOptions);
-       } else {
-         throw new Error("No API key configured. Please open Settings (gear icon).");
-       }
+      let text: string;
+      const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
+      if (state.geminiApiKey) {
+        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
+      } else if (state.groqApiKey) {
+        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
+      } else {
+        throw new Error("No API key configured. Please open Settings (gear icon).");
+      }
 
-       const cleaned = text.replace(/```/g, "").trim();
-       const parsed = parseLiteratureReview(cleaned);
-       setLiteratureReviewSections({
-         introduction: parsed.introduction || "",
-         problemGlobal: parsed.problemGlobal || parsed.problem || "",
+      const cleaned = text.replace(/```/g, "").trim();
+      const parsed = parseLiteratureReview(cleaned);
+      setLiteratureReviewSections({
+        introduction: parsed.introduction || "",
+        problemGlobal: parsed.problemGlobal || parsed.problem || "",
         problemSEA: parsed.problemSEA || "",
         problemIndia: parsed.problemIndia || "",
         gaps: parsed.gaps || "",
         future: parsed.future || "",
         conclusion: parsed.conclusion || "",
-        references: parsed.references || numberedRefs,
+        references: parsed.references || references,
       });
     } catch (err: any) {
       setLiteratureReviewSections({
@@ -773,7 +795,7 @@ Do NOT use Markdown formatting like # or ##. Do NOT add extra headings.`;
         gaps: "",
         future: "",
         conclusion: "",
-        references: "",
+        references: references,
       });
     } finally {
       setLiteratureReviewLoading(false);
@@ -1548,22 +1570,28 @@ Mobile: [Number]
                 <ClipboardList size={18} className="text-yellow-400" />
                 <h3 className="text-lg font-bold text-white">Risk of Bias Assessment</h3>
               </div>
-              <p className="text-xs text-blue-400 mb-4">
-                Auto-assessment uses robvis tool templates. Select your tool above and click <strong>Re-assess</strong> (or edit any cell) to override heuristic judgments with manual ratings.
-              </p>
+               <p className="text-xs text-blue-400 mb-4">
+                 Auto-assessment uses robvis tool templates. Select papers using the checkboxes and click <strong>Re-assess</strong> (or edit any cell) to override heuristic judgments with manual ratings. Use <strong>Select All</strong> to toggle all papers.
+               </p>
 
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                <button
-                  onClick={autoAssessRob}
-                  className="flex items-center gap-1.5 text-[11px] bg-emerald-900/50 text-emerald-200 px-3 py-1.5 rounded-lg hover:bg-emerald-800/60 border border-emerald-700/50"
-                >
-                  <Sparkles size={12} /> Re-assess with robvis template
-                </button>
-                <span className="text-[10px] text-blue-400">
-                  Tool: {(() => { const t = getRobToolTemplate(); return t ? t.label : robTool; })()}
-                  &nbsp;·&nbsp;{extractedData.length} studies
-                </span>
-              </div>
+               <div className="mb-3 flex flex-wrap items-center gap-2">
+                 <button
+                   onClick={autoAssessRob}
+                   className="flex items-center gap-1.5 text-[11px] bg-emerald-900/50 text-emerald-200 px-3 py-1.5 rounded-lg hover:bg-emerald-800/60 border border-emerald-700/50"
+                 >
+                   <Sparkles size={12} /> Re-assess with robvis template
+                 </button>
+                 <button
+                   onClick={selectAllRobPapers}
+                   className="text-[11px] bg-blue-900/50 text-blue-200 px-3 py-1.5 rounded-lg hover:bg-blue-800/60 border border-blue-700/50"
+                 >
+                   {robSelectedPaperIds.size === extractedData.length && extractedData.length > 0 ? "Deselect All" : "Select All"}
+                 </button>
+                 <span className="text-[10px] text-blue-400">
+                   Tool: {(() => { const t = getRobToolTemplate(); return t ? t.label : robTool; })()}
+                   &nbsp;·&nbsp;{extractedData.length} studies · {robSelectedPaperIds.size} selected for review
+                 </span>
+               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
@@ -1595,9 +1623,17 @@ Mobile: [Number]
                 return (
                   <div className="mb-4 overflow-x-auto">
                     <table className="w-full border-collapse text-xs">
-                      <thead>
-                        <tr className="bg-blue-900/60 text-left">
-                          <th className="border border-blue-800 px-3 py-2 text-yellow-200 sticky left-0 bg-blue-900/90 z-10">Study</th>
+                       <thead>
+                         <tr className="bg-blue-900/60 text-left">
+                           <th className="border border-blue-800 px-2 py-2 text-yellow-200 sticky left-0 bg-blue-900/90 z-10">
+                             <input
+                               type="checkbox"
+                               checked={robSelectedPaperIds.size === extractedData.length && extractedData.length > 0}
+                               onChange={selectAllRobPapers}
+                               className="rounded border-blue-700 bg-blue-950 text-yellow-500 focus:ring-yellow-500"
+                             />
+                           </th>
+                           <th className="border border-blue-800 px-3 py-2 text-yellow-200">Study</th>
                           {template.domains.map((d) => (
                             <th key={d.id} className="border border-blue-800 px-2 py-2 text-yellow-200 min-w-[100px]" title={d.label}>
                               {d.id}
@@ -1613,6 +1649,14 @@ Mobile: [Number]
                           if (!assessment) return null;
                           return (
                             <tr key={row.id} className="hover:bg-blue-900/20">
+                              <td className="border border-blue-800 px-2 py-2 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={robSelectedPaperIds.has(row.id)}
+                                  onChange={() => toggleRobPaper(row.id)}
+                                  className="rounded border-blue-700 bg-blue-950 text-yellow-500 focus:ring-yellow-500"
+                                />
+                              </td>
                               <td className="border border-blue-800 px-3 py-2 text-blue-100">
                                 <span className="truncate block max-w-[200px]" title={row.title}>{row.title}</span>
                                 <span className="text-[10px] text-blue-400">{row.authors} ({row.year})</span>
@@ -1709,16 +1753,16 @@ Mobile: [Number]
                 <BookOpen size={18} className="text-yellow-400" />
                 <h3 className="text-lg font-bold text-white">Literature Review</h3>
               </div>
-              <p className="text-xs text-blue-400 mb-4">
-                 Generate a structured narrative literature review using deep reasoning (Long CoT). All selected papers are automatically included as references. Edit each section below. Inline citations are shown in brackets [N]. References are serially numbered in Vancouver style.
-              </p>
+               <p className="text-xs text-blue-400 mb-4">
+                  Generate a structured narrative literature review using deep reasoning (Long CoT). Papers selected in Risk of Bias are included. Inline citations are in (Author Year) format. References are shown in Vancouver style.
+               </p>
 
-              <div className="flex flex-wrap items-center gap-3 mb-4">
-                <button
-                  onClick={generateLiteratureReview}
-                  disabled={literatureReviewLoading || (selectedPaperIds.size === 0 && extractedData.length === 0)}
-                  className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
-                >
+               <div className="flex flex-wrap items-center gap-3 mb-4">
+                 <button
+                   onClick={generateLiteratureReview}
+                   disabled={literatureReviewLoading || (robSelectedPaperIds.size === 0 && selectedPaperIds.size === 0 && extractedData.length === 0)}
+                   className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
+                 >
                   {literatureReviewLoading ? (
                     <>
                       <div className="w-4 h-4 border-2 border-[#0a1a3a] border-t-transparent rounded-full animate-spin" />
@@ -1750,7 +1794,7 @@ Mobile: [Number]
                   </>
                 )}
                 <span className="text-xs text-blue-300">
-                  {selectedPaperIds.size} selected papers · {extractedData.length} extracted
+                  {robSelectedPaperIds.size || selectedPaperIds.size} selected papers · {extractedData.length} extracted
                 </span>
               </div>
 
