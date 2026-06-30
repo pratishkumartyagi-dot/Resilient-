@@ -227,12 +227,10 @@ export default function EvidenceSynthesisTab() {
   const [manuscriptLoading, setManuscriptLoading] = useState(false);
   const [literatureReviewSections, setLiteratureReviewSections] = useState({
     introduction: "",
-    problemGlobal: "",
-    problemSEA: "",
-    problemIndia: "",
+    globalIndian: "",
     gaps: "",
-    future: "",
-    conclusion: "",
+    futureAdvice: "",
+    summary: "",
     references: "",
   });
   const [literatureReviewLoading, setLiteratureReviewLoading] = useState(false);
@@ -621,12 +619,10 @@ ${methodsBlock}\n\n---
   const parseLiteratureReview = (text: string): Record<string, string> => {
     const sections: Record<string, string> = {
       introduction: "",
-      problemGlobal: "",
-      problemSEA: "",
-      problemIndia: "",
+      globalIndian: "",
       gaps: "",
-      future: "",
-      conclusion: "",
+      futureAdvice: "",
+      summary: "",
       references: "",
     };
 
@@ -637,14 +633,7 @@ ${methodsBlock}\n\n---
     const assign = () => {
       if (!currentKey) return;
       const content = buffer.join("\n").trim();
-      if (currentKey === "problem" && content) {
-        const globalMatch = content.match(/\*\*Global:\*\*([\s\S]*?)(?=\*\*South-East Asia:\*\*|\*\*India:\*\*|$)/i);
-        const seaMatch = content.match(/\*\*South-East Asia:\*\*([\s\S]*?)(?=\*\*India:\*\*|$)/i);
-        const indiaMatch = content.match(/\*\*India:\*\*([\s\S]*?)$/i);
-        sections.problemGlobal = (globalMatch?.[1] || "").trim();
-        sections.problemSEA = (seaMatch?.[1] || "").trim();
-        sections.problemIndia = (indiaMatch?.[1] || "").trim();
-      } else if (content) {
+      if (content && currentKey) {
         sections[currentKey] = content;
       }
       buffer = [];
@@ -654,19 +643,16 @@ ${methodsBlock}\n\n---
       const trimmed = line.trim().toLowerCase();
       let matched: string | null = null;
 
-      if (/^(introduction|background|introduction\s*\/\s*background)$/.test(trimmed)) matched = "introduction";
-      else if (/^(problem\s+statement|problem\s+statement\s*[-–—]?\s*global)$/.test(trimmed)) matched = "problem";
-      else if (/^(problem\s+statement\s*[-–—]?\s*south[- ]?east\s+asia|south[- ]?east\s+asia)$/.test(trimmed)) matched = "problemSEADirect";
-      else if (/^(problem\s+statement\s*[-–—]?\s*india|india)$/.test(trimmed)) matched = "problemIndiaDirect";
-      else if (/^problem\s+statement\s*[-–—]?\s*global$/.test(trimmed)) matched = "problemGlobalDirect";
-      else if (/^research\s+gaps|^gaps$/.test(trimmed)) matched = "gaps";
-      else if (/^future\s+studies\s+to\s+be\s+carried\s+out|^future\s+studies|^future$/.test(trimmed)) matched = "future";
-      else if (/^conclusion$/.test(trimmed)) matched = "conclusion";
-      else if (/^references|^bibliography$/.test(trimmed)) matched = "references";
+      if (/^(1\.\s*introduction|introduction|background|introduction\s*\/\s*background)$/i.test(trimmed)) matched = "introduction";
+      else if (/^(2\.\s*global\s*&\s*indian\s*situation|global\s*&\s*indian\s*situation|global\s*indian|global\s+situation)$/i.test(trimmed)) matched = "globalIndian";
+      else if (/^(3\.\s*research\s*gaps|research\s*gaps\s*\/\s*limitations|research\s*gaps|gaps\s*\/\s*limitations|gaps|limitations)$/i.test(trimmed)) matched = "gaps";
+      else if (/^(4\.\s*advice\s*for\s*future\s*research|advice\s*for\s*future\s*research|future\s*research\s*advice|future\s*advice)$/i.test(trimmed)) matched = "futureAdvice";
+      else if (/^(5\.\s*summary|summary|summary\s*of\s*all\s*studies)$/i.test(trimmed)) matched = "summary";
+      else if (/^(6\.\s*references|references|bibliography)$/i.test(trimmed)) matched = "references";
 
       if (matched) {
         assign();
-        currentKey = matched === "problemSEADirect" ? "problemSEA" : matched === "problemIndiaDirect" ? "problemIndia" : matched === "problemGlobalDirect" ? "problemGlobal" : matched;
+        currentKey = matched;
       } else {
         buffer.push(line);
       }
@@ -693,12 +679,10 @@ ${methodsBlock}\n\n---
     setLiteratureReviewLoading(true);
     setLiteratureReviewSections({
       introduction: "",
-      problemGlobal: "",
-      problemSEA: "",
-      problemIndia: "",
+      globalIndian: "",
       gaps: "",
-      future: "",
-      conclusion: "",
+      futureAdvice: "",
+      summary: "",
       references: "",
     });
     try {
@@ -752,17 +736,15 @@ At the end, include a References section with all papers in Vancouver style:
       if (!apiKey) {
         setLiteratureReviewSections({
           introduction: "No API key configured. Please add your Gemini or Groq API key in Settings to generate the literature review.",
-          problemGlobal: "",
-          problemSEA: "",
-          problemIndia: "",
+          globalIndian: "",
           gaps: "",
-          future: "",
-          conclusion: "",
+          futureAdvice: "",
+          summary: "",
           references: references,
         });
          setLiteratureReviewLoading(false);
          return;
-      }
+       }
 
       let text: string;
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
@@ -778,23 +760,19 @@ At the end, include a References section with all papers in Vancouver style:
       const parsed = parseLiteratureReview(cleaned);
       setLiteratureReviewSections({
         introduction: parsed.introduction || "",
-        problemGlobal: parsed.problemGlobal || parsed.problem || "",
-        problemSEA: parsed.problemSEA || "",
-        problemIndia: parsed.problemIndia || "",
+        globalIndian: parsed.globalIndian || "",
         gaps: parsed.gaps || "",
-        future: parsed.future || "",
-        conclusion: parsed.conclusion || "",
+        futureAdvice: parsed.futureAdvice || "",
+        summary: parsed.summary || "",
         references: parsed.references || references,
       });
     } catch (err: any) {
       setLiteratureReviewSections({
         introduction: `Error generating review: ${err.message || "Unknown error"}. Please ensure your API key is valid and try again.`,
-        problemGlobal: "",
-        problemSEA: "",
-        problemIndia: "",
+        globalIndian: "",
         gaps: "",
-        future: "",
-        conclusion: "",
+        futureAdvice: "",
+        summary: "",
         references: references,
       });
     } finally {
@@ -1754,7 +1732,7 @@ Mobile: [Number]
                 <h3 className="text-lg font-bold text-white">Literature Review</h3>
               </div>
                <p className="text-xs text-blue-400 mb-4">
-                  Generate a structured narrative literature review using deep reasoning (Long CoT). Papers selected in Risk of Bias are included. Inline citations are in (Author Year) format. References are shown in Vancouver style.
+                  Generate a structured narrative literature review using AI. Papers selected in Risk of Bias are included. Inline citations are in [1] format. References are shown in Vancouver style.
                </p>
 
                <div className="flex flex-wrap items-center gap-3 mb-4">
@@ -1801,14 +1779,12 @@ Mobile: [Number]
               {(literatureReviewSections.introduction || literatureReviewSections.references || literatureReviewLoading) ? (
                 <div className="space-y-4">
                   {[
-                    { key: "introduction", label: "Introduction / Background", placeholder: "Context, significance, and current landscape of the research topic." },
-                    { key: "problemGlobal", label: "Problem Statement — Global", placeholder: "Scale and burden of the problem at the global level." },
-                    { key: "problemSEA", label: "Problem Statement — South-East Asia", placeholder: "Regional patterns, challenges, and specific contexts in South-East Asia." },
-                    { key: "problemIndia", label: "Problem Statement — India", placeholder: "India-specific situation, policies, epidemiology, infrastructure, and unique challenges." },
-                    { key: "gaps", label: "Research Gaps", placeholder: "What is missing from the literature? Understudied subpopulations, settings, methodologies, or outcomes." },
-                    { key: "future", label: "Future Studies to Be Carried Out", placeholder: "Specific, actionable future research directions and recommendations." },
-                    { key: "conclusion", label: "Conclusion", placeholder: "Key takeaways and implications for researchers, clinicians, or policymakers." },
-                    { key: "references", label: "References (Vancouver style, serially numbered)", placeholder: "1. Author(s) (Year). Title. Database. DOI", isReferences: true },
+                    { key: "introduction", label: "1. Introduction", placeholder: "Context, significance, and current landscape of the research topic." },
+                    { key: "globalIndian", label: "2. Global & Indian Situation", placeholder: "Scale and burden of the problem at the global and Indian level." },
+                    { key: "gaps", label: "3. Research Gaps / Limitations", placeholder: "What is missing from the literature? Understudied subpopulations, settings, methodologies, or outcomes." },
+                    { key: "futureAdvice", label: "4. Advice for Future Research", placeholder: "Specific, actionable future research directions and recommendations." },
+                    { key: "summary", label: "5. Summary", placeholder: "Key takeaways and implications for researchers, clinicians, or policymakers." },
+                    { key: "references", label: "6. References (Vancouver style, serially numbered)", placeholder: "1. Author(s) (Year). Title. Database. DOI", isReferences: true },
                   ].map(({ key, label, placeholder, isReferences }) => (
                     <div key={key} className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
                       <label className="block text-sm font-medium text-yellow-200 mb-2">{label}</label>
