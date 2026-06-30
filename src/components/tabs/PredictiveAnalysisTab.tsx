@@ -1194,7 +1194,7 @@ Format the response with clear sections using ### headers, **bold** for key term
           Guided {PREDICTION_STEPS.length}-step clinical prediction model development based on Efthimiou et al. (BMJ 2024) and PyHealth. AI assists where indicated.
         </p>
 
-        <div className="flex flex-wrap gap-2 mb-6">
+        <div className="flex overflow-x-auto no-scrollbar gap-2 mb-6 pb-2">
           {PREDICTION_STEPS.map((s) => {
             const Icon = s.icon;
             const isActive = step === s.num;
@@ -1203,7 +1203,7 @@ Format the response with clear sections using ### headers, **bold** for key term
               <button
                 key={s.num}
                 onClick={() => dispatch({ type: "SET_PREDICTION_STEP", payload: s.num })}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium border transition-colors whitespace-nowrap flex-shrink-0 ${
                   isActive
                     ? "border-yellow-400 bg-yellow-400/20 text-yellow-300"
                     : isDone
