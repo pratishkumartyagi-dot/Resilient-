@@ -542,3 +542,71 @@ The AI-generated narrative review follows a strict heading structure:
 - **Duds/md-converter** selected because it covers all three formats (DOCX, PPTX, XLSX) required by the app
 - **vace/markdown-docx** rejected because it is DOCX-only (no PPTX/XLSX support)
 - Duds/md-converter's underlying libraries (`docx`, `exceljs`, `pptxgenjs`, `markdown-it`) are browser-compatible and were integrated directly into the Next.js client-side export layer
+
+## OpenClaw-Medical-Skills Integration (2026-06-30)
+
+**Source**: https://github.com/FreedomIntelligence/OpenClaw-Medical-Skills
+**License**: MIT
+**Skills integrated**: 19 curated skills across 4 categories
+
+### Integration Approach
+Added as an add-on layer to the existing app — does not modify existing step numbering, tab layout, or prompt architecture. All core steps (1–11) and pipeline behavior remain unchanged.
+
+### New Files Created
+- `src/lib/medical-skills/skills-registry.ts` — Registry of 19 integrated OpenClaw medical skills with categories, descriptions, source repo paths, and integration status
+- `src/lib/medical-skills/evidence-grading.ts` — T1–T4 evidence grading utilities (Mechanistic → Functional → Associational → Mention) used across synthesis and literature review prompts
+- `src/lib/medical-skills/prisma-utils.ts` — PRISMA flow diagram builder, search strategy document builder, inclusion/exclusion criteria builder, quality assessment builder, evidence grading summary used in systematic review workflows
+- `src/lib/medical-skills/index.ts` — Barrel export for all medical skill modules
+
+### Files Enhanced
+- `src/lib/research-skills.ts` — Step 3 (Synthesis table) and Step 4 (Literature Review) prompts now embed PRISMA compliance requirements, evidence grading (T1/T2/T3/T4), quality assessment methodology, and thematic synthesis rules from `literature-review` and `literature-deep-research` skills
+- `src/lib/database-apis.ts` — Added import for `MEDICAL_SKILLS_REGISTRY`; added `getDatabaseBackendMapping()` and `getOpenClawSkillDatabaseMapping()` to document which OpenClaw skills map to which live API backends
+- `src/components/tabs/ProtocolChatTab.tsx` — System prompt now references `clinical-trial-protocol-skill` methodology; welcome message shows skill name and description when loaded; default protocol generator includes regulatory note from the skill's required disclaimers; output annotated with skill attribution
+- `src/components/tabs/OmicsBioinformaticsTab.tsx` — Imports `OPENCLAW_OMICS_SKILLS` from registry; omics response generator now shows "Powered by: [skill name] ([source repo])" attribution per topic (single-cell, bulk RNA-seq, pathway, etc.); help message lists integrated OpenClaw skills
+- `src/components/tabs/EvidenceSynthesisTab.tsx` — Description paragraph now references both `awesome-evidence-synthesis` and `OpenClaw-Medical-Skills` (literature-review, literature-deep-research, clinical-trials-database)
+
+### Integrated Skills by Category
+
+**Research Pipeline (add-ons)**
+| Skill | ID | Description |
+|-------|----|-------------|
+| Systematc Literature Review | `literature-review` | PRISMA-compliant systematic reviews with multi-database search, citation verification, and PDF export |
+| Literature Deep Research | `literature-deep-research` | Target disambiguation, evidence grading (T1–T4), structured theme extraction, biological model synthesis, testable hypotheses |
+| Biomedical Semantic Search | `biomedical-search` | Unified search across PubMed, bioRxiv, medRxiv, ClinicalTrials.gov, FDA drug labels via Valyu |
+| Clinical Trial Protocol Designer | `clinical-trial-protocol` | Modular waypoint-based protocol generation for medical devices/drugs with FDA guidance |
+
+**Omics & Bioinformatics**
+| Skill | ID | Description |
+|-------|----|-------------|
+| RNA-seq Differential Expression | `rnaseq-deseq2` | PyDESeq2 analysis: normalization, dispersion, Wald/LRT, LFC shrinkage, pathway enrichment |
+| Single-cell RNA-seq | `single-cell` | Scanpy/scVI: QC, normalization, PCA, UMAP, Leiden clustering, trajectory, cell type annotation |
+| Spatial Transcriptomics | `spatial-transcriptomics` | 10x Visium, MERFISH, seqFISH, Slide-seq tissue architecture mapping |
+| Multi-Omics Integration | `multi-omics-integration` | Transcriptomics + proteomics + epigenomics + genomics + metabolomics integration |
+| GWAS Study Explorer | `gwas-study-explorer` | Cross-study GWAS meta-analysis using NHGRI-EBI GWAS Catalog and Open Targets Genetics |
+| GWAS Trait-to-Gene | `gwas-trait-to-gene` | 500k+ GWAS associations with Open Targets locus-to-gene predictions |
+| Gene Set Enrichment | `gene-enrichment` | GO/KEGG via gseapy, PANTHER, STRING, Reactome |
+| Proteomics & Mass Spec | `proteomics-analysis` | Protein quantification, DE, PTMs, PPI networks |
+| Metabolomics Analysis | `metabolomics-analysis` | LC-MS/GC-MS/NMR metabolite ID, quantification, pathway analysis |
+| Epigenomics & Chromatin | `epigenomics` | Methylation arrays, chromatin accessibility, histone modifications |
+
+**Evidence Synthesis & Meta-analysis**
+| Skill | ID | Description |
+|-------|----|-------------|
+| Literature Review | `literature-review` | Full systematic review workflow (see above) |
+| Literature Deep Research | `literature-deep-research` | Evidence-graded research reports with completeness checklist (see above) |
+
+**Protocol Generator**
+| Skill | ID | Description |
+|-------|----|-------------|
+| Clinical Trial Protocol | `clinical-trial-protocol` | Research Only (Steps 0–1) or Full Protocol (Steps 0–5) modes; waypoint-based architecture; FDA guidance |
+
+**Databases**
+| Skill | ID | Description |
+|-------|----|-------------|
+| ClinicalTrials.gov | `clinical-trials-database` | API v2 search by condition/drug/location/status/phase |
+| ChEMBL | `chembl-search` | Bioactive molecules, assay data, bioactivity |
+| GWAS Catalog | `gwas-database` | SNP-trait associations, p-values, summary statistics |
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes

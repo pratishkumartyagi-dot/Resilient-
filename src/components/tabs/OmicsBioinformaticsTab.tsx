@@ -3,6 +3,9 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Send, User, Bot, Trash2, FlaskConical, Paperclip, X, Download, FileText, Loader2, Dna, BarChart3, Network, Shield, Search, GitBranch, Bug, Table2, FileJson, FileType2, Printer } from "lucide-react";
 import { parseOmicsDataFile, ALLOWED_OMICS_TYPES } from "@/lib/document-parser";
+import { getSkillsByCategory, MEDICAL_SKILLS_REGISTRY } from "@/lib/medical-skills/skills-registry";
+
+const OPENCLAW_OMICS_SKILLS = getSkillsByCategory("omics-bioinformatics").filter(s => s.integrated);
 
 interface Message {
   id: string;
@@ -62,19 +65,23 @@ const generateOmicsResponse = (userMessage: string): string => {
   const q = userMessage.toLowerCase();
 
   if (q.includes("single-cell") || q.includes("scanpy") || q.includes("scrna")) {
-    return `**Single-cell RNA-seq (Scanpy/scVI) pipeline**\n\n1. **QC & filtering**: remove low-gene, low-count, high-mt cells\n2. **Normalization**: log-normalize or scran scaling\n3. **Feature selection**: highly variable genes (HVGs)\n4. **Scaling + PCA**: regress out unwanted variation\n5. **Batch integration**: scVI-tools probabilistic integration\n6. **Clustering**: Leiden / Louvain graph clustering\n7. **Visualization**: UMAP / t-SNE\n8. **Cell type annotation**: marker-based or automated\n9. **Spatial mapping**: 10x Visium / Xenium integration\n\nI can guide you through any step in detail.`;
+    const relevantSkill = OPENCLAW_OMICS_SKILLS.find(s => s.id === "single-cell");
+    return `**Single-cell RNA-seq (Scanpy/scVI) pipeline**\n\n${relevantSkill ? `*Powered by: ${relevantSkill.name} (${relevantSkill.sourceRepo})*` : ""}\n\n1. **QC & filtering**: remove low-gene, low-count, high-mt cells\n2. **Normalization**: log-normalize or scran scaling\n3. **Feature selection**: highly variable genes (HVGs)\n4. **Scaling + PCA**: regress out unwanted variation\n5. **Batch integration**: scVI-tools probabilistic integration\n6. **Clustering**: Leiden / Louvain graph clustering\n7. **Visualization**: UMAP / t-SNE\n8. **Cell type annotation**: marker-based or automated\n9. **Spatial mapping**: 10x Visium / Xenium integration\n\nI can guide you through any step in detail.`;
   }
 
   if (q.includes("bulk") || q.includes("differential expression") || q.includes("deg") || q.includes("deseq2") || q.includes("limma")) {
-    return `**Bulk RNA-seq & Differential Expression**\n\n- **PyDESeq2 / DESeq2**: Wald/LRT, lfcShrink, padj < 0.05\n- **limma-voom**: precision weights for log-CPM\n- **edgeR**: GLM-based, exact test, quasi-likelihood\n- **Visualization**: volcano plots, clustered heatmaps, PCA/MDS\n- **Batch correction**: limma removeBatchEffect, ComBat-seq\n- **Normalization**: TPM, RPKM/FPKM, TMM, RLE\n\nTell me your experimental design and I’ll suggest the most appropriate workflow.`;
+    const relevantSkill = OPENCLAW_OMICS_SKILLS.find(s => s.id === "rnaseq-deseq2");
+    return `**Bulk RNA-seq & Differential Expression**\n\n${relevantSkill ? `*Powered by: ${relevantSkill.name} (${relevantSkill.sourceRepo})*` : ""}\n\n- **PyDESeq2 / DESeq2**: Wald/LRT, lfcShrink, padj < 0.05\n- **limma-voom**: precision weights for log-CPM\n- **edgeR**: GLM-based, exact test, quasi-likelihood\n- **Visualization**: volcano plots, clustered heatmaps, PCA/MDS\n- **Batch correction**: limma removeBatchEffect, ComBat-seq\n- **Normalization**: TPM, RPKM/FPKM, TMM, RLE\n\nTell me your experimental design and I'll suggest the most appropriate workflow.`;
   }
 
   if (q.includes("pathway") || q.includes("enrichment") || q.includes("go") || q.includes("kegg") || q.includes("gsea")) {
-    return `**Pathway & Network Analysis**\n\n- **Enrichment**: GO/KEGG via gseapy or enrichr\n- **GSEA**: preranked or gene-set mode, leading-edge analysis\n- **GSVA**: sample-level pathway scoring + limma differential analysis\n- **Immune**: ssGSEA immune gene-set scoring\n- **Networks**:\n  - WGCNA co-expression modules\n  - STRING PPI networks\n  - ceRNA / lncRNA-mRNA / TF-target networks\n- **Visualization**: Sankey diagrams, dot plots, bar plots\n\nWhich approach matches your data and question?`;
+    const relevantSkill = OPENCLAW_OMICS_SKILLS.find(s => s.id === "gene-enrichment");
+    return `**Pathway & Network Analysis**\n\n${relevantSkill ? `*Powered by: ${relevantSkill.name} (${relevantSkill.sourceRepo})*` : ""}\n\n- **Enrichment**: GO/KEGG via gseapy or enrichr\n- **GSEA**: preranked or gene-set mode, leading-edge analysis\n- **GSVA**: sample-level pathway scoring + limma differential analysis\n- **Immune**: ssGSEA immune gene-set scoring\n- **Networks**:\n  - WGCNA co-expression modules\n  - STRING PPI networks\n  - ceRNA / lncRNA-mRNA / TF-target networks\n- **Visualization**: Sankey diagrams, dot plots, bar plots\n\nWhich approach matches your data and question?`;
   }
 
   if (q.includes("immune") || q.includes("infiltration") || q.includes("cibersort") || q.includes("estimate")) {
-    return `**Immune Infiltration Profiling**\n\n- **CIBERSORTx / EPIC**: deconvolve 22 immune cell subsets from bulk RNA-seq\n- **MCPcounter / xCell / TIMER**: alternative deconvolution strategies\n- **ssGSEA**: immune signature scoring at sample level\n- **ESTIMATE**: ImmuneScore, StromalScore, ESTIMATEScore\n- **scRNA-seq**: cluster-level immune profiling, trajectory inference\n- **Outputs**: proportions, correlations with survival/response, publication-ready visualizations\n\nI can help you pick signatures, run QC, or format results for your manuscript.`;
+    const relevantSkill = OPENCLAW_OMICS_SKILLS.find(s => s.id === "proteomics-analysis") || OPENCLAW_OMICS_SKILLS[0];
+    return `**Immune Infiltration Profiling**\n\n${relevantSkill ? `*Powered by: ${relevantSkill.name} (${relevantSkill.sourceRepo})*` : ""}\n\n- **CIBERSORTx / EPIC**: deconvolve 22 immune cell subsets from bulk RNA-seq\n- **MCPcounter / xCell / TIMER**: alternative deconvolution strategies\n- **ssGSEA**: immune signature scoring at sample level\n- **ESTIMATE**: ImmuneScore, StromalScore, ESTIMATEScore\n- **scRNA-seq**: cluster-level immune profiling, trajectory inference\n- **Outputs**: proportions, correlations with survival/response, publication-ready visualizations\n\nI can help you pick signatures, run QC, or format results for your manuscript.`;
   }
 
   if (q.includes("genomics") || q.includes("blast") || q.includes("seq") || q.includes("biopython") || q.includes("vcf") || q.includes("bam") || q.includes("crispr")) {
@@ -90,7 +97,7 @@ const generateOmicsResponse = (userMessage: string): string => {
   }
 
   if (q.includes("help") || q.includes("how") || q.includes("start")) {
-    return `**Omics & Bioinformatics — Capability Overview**\n\nBased on [aipoch/medical-research-skills](https://github.com/aipoch/medical-research-skills):\n\n🧬 **Single-cell RNA-seq** — Scanpy end-to-end, scVI integration, cell typing, spatial mapping\n🧫 **Bulk transcriptomics** — DESeq2/limma/edgeR, DEG screening, volcano/heatmap, batch correction\n🕸️ **Pathway & network** — GO/KEGG, GSEA, GSVA, WGCNA, ceRNA, PPI, Sankey\n🛡️ **Immune infiltration** — CIBERSORTx, ssGSEA, ESTIMATE\n🧬 **Genomics & sequence** — Biopython, BLAST, SAM/BAM/CRAM/VCF, CRISPR, Circos, deepTools\n📐 **Dimensionality reduction** — PCA, UMAP, t-SNE, consensus clustering, KNN imputation\n🦠 **Microbiome & others** — diversity, mass spec, flow cytometry, Neuropixels/Kilosort4\n\nAsk me about a specific tool, pipeline step, or data format.`;
+    return `**Omics & Bioinformatics — Capability Overview**\n\n${OPENCLAW_OMICS_SKILLS.length > 0 ? `Integrated OpenClaw-Medical-Skills (${OPENCLAW_OMICS_SKILLS.map(s => s.name).join(", ")}):` : "Based on medical-research-skills:"}\n\n🧬 **Single-cell RNA-seq** — Scanpy end-to-end, scVI integration, cell typing, spatial mapping\n🧫 **Bulk transcriptomics** — DESeq2/limma/edgeR, DEG screening, volcano/heatmap, batch correction\n🕸️ **Pathway & network** — GO/KEGG, GSEA, GSVA, WGCNA, ceRNA, PPI, Sankey\n🛡️ **Immune infiltration** — CIBERSORTx, ssGSEA, ESTIMATE\n🧬 **Genomics & sequence** — Biopython, BLAST, SAM/BAM/CRAM/VCF, CRISPR, Circos, deepTools\n📐 **Dimensionality reduction** — PCA, UMAP, t-SNE, consensus clustering, KNN imputation\n🦠 **Microbiome & others** — diversity, mass spec, flow cytometry, Neuropixels/Kilosort4\n\nAsk me about a specific tool, pipeline step, or data format.`;
   }
 
   return `**Omics & Bioinformatics mode active**\n\nI can assist with:\n- single-cell / bulk RNA-seq pipelines\n- pathway and network analysis\n- immune deconvolution\n- genomics and sequence analysis\n- microbiome and proteomics workflows\n\nWhat would you like to work on?`;

@@ -1,3 +1,5 @@
+import { getSkillById, MEDICAL_SKILLS_REGISTRY } from "./medical-skills/skills-registry";
+
 export interface Paper {
   id: string;
   title: string;
@@ -413,6 +415,61 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
   }
 
   return enriched;
+}
+
+export function getDatabaseBackendMapping(): Record<string, string> {
+  return {
+    "OpenAlex": "OpenAlex API",
+    "PubMed": "NCBI E-utilities",
+    "Europe PMC": "Europe PMC REST API",
+    "ERIC": "Europe PMC (education filtered)",
+    "Google Scholar": "OpenAlex (scholar query)",
+    "Shodhganga": "OpenAlex (thesis query, India)",
+    "CTRI – India": "Europe PMC (clinical trial India)",
+    "scite.ai": "OpenAlex",
+    "WHO IRIS": "Europe PMC (WHO filtered)",
+    "Semantic Scholar": "OpenAlex",
+    "ClinicalTrials.gov": "Europe PMC (clinical trial)",
+    "DOAJ": "OpenAlex (open access)",
+    "Prospero": "Europe PMC (systematic review protocol)",
+    "ScienceDirect": "OpenAlex",
+    "Clarivate": "OpenAlex",
+  };
+}
+
+export function getOpenClawSkillDatabaseMapping(): Array<{ skill: string; supportedDatabases: string[]; notes: string }> {
+  return [
+    {
+      skill: "literature-review",
+      supportedDatabases: ["PubMed", "OpenAlex", "Europe PMC", "ERIC", "Google Scholar", "semantic scholar", "arXiv", "bioRxiv"],
+      notes: "PubMed and Europe PMC provide direct API access; arXiv/bioRxiv require separate fetch layers",
+    },
+    {
+      skill: "biomedical-search",
+      supportedDatabases: ["PubMed", "bioRxiv", "medRxiv", "ClinicalTrials.gov", "FDA drug labels"],
+      notes: "Requires Valyu API key for semantic search layer",
+    },
+    {
+      skill: "clinicaltrials-database",
+      supportedDatabases: ["ClinicalTrials.gov"],
+      notes: "Direct API v2 support; currently routed through Europe PMC with clinical trial filter",
+    },
+    {
+      skill: "literature-deep-research",
+      supportedDatabases: ["PubMed", "Europe PMC", "OpenAlex", "Semantic Scholar", "PMC", "bioRxiv"],
+      notes: "Citation chaining and full-text verification supported via PubMed/Europe PMC",
+    },
+    {
+      skill: "gwas-database",
+      supportedDatabases: ["GWAS Catalog (NHGRI-EBI)"],
+      notes: "Requires dedicated API endpoint integration",
+    },
+    {
+      skill: "gene-enrichment",
+      supportedDatabases: ["PANTHER", "STRING", "Reactome"],
+      notes: "Requires pathway analysis service integration",
+    },
+  ];
 }
 
 export async function validateDoiViaCrossref(doi: string): Promise<{ valid: boolean; title?: string; message: string }> {

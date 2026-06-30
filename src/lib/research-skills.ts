@@ -67,7 +67,7 @@ export interface ProtocolSection {
 }
 
 export function buildStep3Prompt(papers: Paper[], uploadedContext: string): string {
-  return `You are an expert systematic review research analyst performing deep evidence synthesis on selected academic papers, using Long Chain-of-Thought (Long CoT) reasoning methodology.
+  return `You are an expert systematic review research analyst performing deep evidence synthesis on selected academic papers, using Long Chain-of-Thought (Long CoT) reasoning methodology integrated with OpenClaw Medical Skills evidence-grading framework.
 
 ## Research Program Context
 Supplementary evidence and web/academic search results may be provided below. Synthesize from both the selected papers and supplementary evidence. Grade all findings by strength: T1 Mechanistic, T2 Functional, T3 Associational, T4 Mention. If evidence is insufficient, explicitly state what is missing rather than speculate.
@@ -112,6 +112,7 @@ SYNTHESIS RULES:
 - Study Conducted: explicitly state Population, Setting, Time period of study, and any Intervention or diagnostic method tested.
 - Research Gaps: identify (1) author-acknowledged limitations, (2) contradictions or conflicting evidence, (3) exclusion criteria if stated, (4) underexplored areas the authors highlight. If the abstract does not specify, infer plausible gaps based on study design and scope.
 - Grade every claim by evidence strength.
+- Avoid study-by-study summaries: synthesize across papers thematically when producing higher-level outputs.
 
 OUTPUT FORMAT — strict JSON array only:
 [
@@ -137,7 +138,12 @@ ${papers
 
 export function buildStep4Prompt(papers: Paper[], uploadedContext: string): string {
   const selectedPapers = papers.filter((p) => p.selected);
-  return `You are an expert biomedical researcher writing a systematic literature review, using Long Chain-of-Thought (Long CoT) reasoning methodology for deep structured analysis.
+  const prismaFlow = `PRISMA-style flow:
+Initial search → n=${selectedPapers.length} (plus broader search results) → Deduplication → Title screening → Abstract screening → Full-text screening → Included in review: ${selectedPapers.length} papers`;
+  return `You are an expert biomedical researcher writing a systematic literature review, using Long Chain-of-Thought (Long CoT) reasoning methodology for deep structured analysis, integrated with OpenClaw Medical Skills systematic review methodology.
+
+## Research Program Context
+Supplementary evidence and web/academic search results may be provided below. Synthesize from both the selected papers and supplementary evidence. Grade all findings by strength: T1 Mechanistic, T2 Functional, T3 Associational, T4 Mention. If evidence is insufficient, explicitly state what is missing rather than speculate.
 
 ## Long CoT Reasoning Protocol
 
@@ -146,15 +152,18 @@ Before writing the final review, you MUST follow this structured reasoning chain
 ### Deep Reasoning Phase 1 — Planning/Scoping
 - Define PICO framework: Population, Intervention/Exposure, Comparator, Outcomes
 - Clarify the exact research boundary and scope
+- Establish inclusion/exclusion criteria and document search strategy
 
 ### Deep Reasoning Phase 2 — Evidence Mapping
 - Map each selected paper to evidence themes
 - Identify study designs and their relative weight in the evidence hierarchy
 - Note publication dates and any temporal trends
+- Assess study quality using appropriate tools (Cochrane RoB for RCTs, Newcastle-Ottawa for observational, AMSTAR 2 for reviews)
 
 ### Deep Reasoning Phase 3 — Thematic Synthesis
 - Group findings into coherent themes (not study-by-study)
 - For each theme: (a) summarize convergent findings, (b) highlight divergent results, (c) identify the strongest evidence tier
+- Require minimum 3 papers per theme or note as "limited evidence"
 
 ### Deep Reasoning Phase 4 — Feasible Reflection (Self-Critique)
 Before finalizing the document:
@@ -162,18 +171,22 @@ Before finalizing the document:
 - Are there contradictions I need to acknowledge explicitly?
 - Which claims are evidence-limited vs. well-supported?
 - What are the most important knowledge gaps I've identified?
+- Have I verified all citations and included a PRISMA-compliant flow note?
+- Have I included quality assessment for the included studies?
 
 TASK: Write a comprehensive, thematic literature review based on the ${selectedPapers.length} selected papers.
 
 REQUIREMENTS:
 - Write a professional narrative literature review in markdown format
 - Organize Results section by THEMES or research questions, NOT individual studies
-- Include a PRISMA-style flow note at the start showing: Initial search → Deduplication → Screening → Included (${selectedPapers.length} papers)
+- Include a PRISMA-style flow note at the start showing: ${prismaFlow}
+- Include Methods section documenting: search strategy, databases searched, search strings, date range, inclusion/exclusion criteria, quality assessment approach, and PRISMA compliance
 - Be objective, systematic, and specific; acknowledge limitations
-- Use Vancouver-style in-text citations and a complete reference list
-- Include Introduction, Methods, Results (thematic), Discussion, Conclusion sections
+- Use Vancouver-style in-text citations and a complete reference list with DOIs
+- Include Introduction, Methods (with PRISMA flow and search strategy), Results (thematic), Discussion, Conclusion sections
 - Synthesize findings across studies within each theme — compare and contrast approaches and results
 - Highlight the strongest evidence and identify knowledge gaps
+- Grade every claim by evidence strength (T1/T2/T3/T4)
 
 FORMAT — markdown only (no JSON):
 # Literature Review: [Topic]
@@ -185,13 +198,22 @@ FORMAT — markdown only (no JSON):
 [Research context and objectives using PICO framework]
 
 ## Methods
-[Search strategy, databases used, inclusion/exclusion criteria, quality assessment approach, PRISMA flow]
+### Search Strategy
+[Databases searched, search strings, date range]
+### Inclusion / Exclusion Criteria
+[Clear criteria applied]
+### Quality Assessment
+[Approach used — Cochrane RoB, Newcastle-Ottawa, or AMSTAR 2]
+### PRISMA Flow
+[${prismaFlow}]
 
 ## Results
 [Organize into 3-5 thematic subsections based on the selected papers]
+[For each theme, indicate evidence quality: Strong / Moderate / Limited]
 
 ### Theme 1: [Theme Name]
 [Synthesis of papers addressing this theme — compare and contrast]
+**Evidence Quality**: [Strong (N mechanistic + N functional + N association) / Moderate / Limited]
 
 ### Theme 2: [Theme Name]
 [Synthesis of papers addressing this theme]
@@ -207,7 +229,7 @@ SELECTED PAPERS:
 ${selectedPapers
   .map(
     (p, i) =>
-      `${i + 1}. ${p.authors} (${p.year}). ${p.title}. <em>${p.journal}</em>. doi:${p.doi}\n   Abstract: ${p.abstract}`
+      `${i + 1}. ${p.authors} (${p.year}). ${p.title}. <em>${p.journal}</em>. doi:${p.doi}\n   Study Type: ${p.studyType}\n   Abstract: ${p.abstract}`
   )
   .join("\n\n")}`;
 }

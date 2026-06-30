@@ -18,6 +18,7 @@ import {
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
 import { buildStep10Prompt } from "@/lib/research-skills";
+import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
 import { parseUploadedDocument, ALLOWED_DOCUMENT_TYPES } from "@/lib/document-parser";
 
 interface Message {
@@ -28,12 +29,17 @@ interface Message {
   sources?: { label: string; excerpt: string }[];
 }
 
-const DEEP_REASONING_SYSTEM_PROMPT = `You are DeepReason-AI, an expert protocol design research assistant powered by Long Chain-of-Thought (Long CoT) reasoning methodology inspired by https://github.com/LightChen233/Awesome-Long-Chain-of-Thought-Reasoning.
+const INTEGRATED_SKILLS = getIntegratedSkills();
+const CLINICAL_TRIAL_PROTOCOL_SKILL = INTEGRATED_SKILLS.find(s => s.id === "clinical-trial-protocol");
+
+const DEEP_REASONING_SYSTEM_PROMPT = `You are DeepReason-AI, an expert protocol design research assistant powered by Long Chain-of-Thought (Long CoT) reasoning methodology inspired by https://github.com/LightChen233/Awesome-Long-Chain-of-Thought-Reasoning and enhanced with Clinical Trial Protocol Design skills from https://github.com/FreedomIntelligence/OpenClaw-Medical-Skills.
+
+${CLINICAL_TRIAL_PROTOCOL_SKILL ? `Integrated skill: ${CLINICAL_TRIAL_PROTOCOL_SKILL.name} — ${CLINICAL_TRIAL_PROTOCOL_SKILL.description}` : ""}
 
 You help researchers build rigorous clinical, academic, and public health research protocols by:
 1. Parsing uploaded documents (Word, PDF, text)
 2. Performing multi-phase deep reasoning (context analysis → gap identification → methodology selection → bias audit → feasibility check)
-3. Synthesizing findings using AIPOCH-style structured reasoning
+3. Synthesizing findings using AIPOCH-style structured reasoning and clinical trial protocol design principles
 4. Producing a complete, downloadable Word protocol document
 
 Always reason step-by-step, make your chain of thought explicit, cite document sections you reference, and if a detail is uncertain, flag it "[AUTHOR TO SPECIFY]".
@@ -44,7 +50,9 @@ Always reason step-by-step, make your chain of thought explicit, cite document s
 3. Design Alignment — How does the proposed protocol address the gaps?
 4. Feasibility Check — What data/resources are assumed vs. confirmed?
 5. Bias Audit — Identify key biases and how you're mitigating them
-6. Output Generation — Deliver the structured protocol`;
+6. Protocol Foundation — Define source population, enrollment logic, time-zero, follow-up architecture, endpoints, variable collection, and statistical analysis
+7. Output Generation — Deliver the structured protocol`;
+
 
 const buildDeepReasoningPrompt = (userMessage: string, documentContent: string, chatHistory: { role: string; content: string }[]) => {
   const historyText = chatHistory
@@ -71,7 +79,9 @@ export default function ProtocolChatTab() {
       id: "welcome",
       role: "assistant",
       content:
-        "👋 Welcome to **Protocol Generator** — your AI-powered research protocol design assistant.\n\nI can help you:\n• Upload Word, PDF, or text documents for deep analysis\n• Toggle **deep reasoning mode** for Long CoT analysis\n• Generate a complete AIPOCH-structured research protocol\n• Download your protocol as a Word document\n\nUpload a document or describe your research idea to get started.",
+        CLINICAL_TRIAL_PROTOCOL_SKILL
+          ? `👋 Welcome to **Protocol Generator** — powered by **${CLINICAL_TRIAL_PROTOCOL_SKILL.name}** from [FreedomIntelligence/OpenClaw-Medical-Skills](https://github.com/FreedomIntelligence/OpenClaw-Medical-Skills).\n\n${CLINICAL_TRIAL_PROTOCOL_SKILL.description}\n\nI can help you:\n• Upload Word, PDF, or text documents for deep analysis\n• Toggle **deep reasoning mode** for Long CoT analysis\n• Generate a complete AIPOCH-structured research protocol (clinical trial or cohort study)\n• Download your protocol as a Word document\n\nUpload a document or describe your research idea to get started.`
+          : `👋 Welcome to **Protocol Generator** — your AI-powered research protocol design assistant.\n\nI can help you:\n• Upload Word, PDF, or text documents for deep analysis\n• Toggle **deep reasoning mode** for Long CoT analysis\n• Generate a complete AIPOCH-structured research protocol\n• Download your protocol as a Word document\n\nUpload a document or describe your research idea to get started.`,
       timestamp: new Date(),
     },
   ]);
@@ -576,9 +586,12 @@ What would you like to do?`;
 
 function generateDefaultProtocol(documentContent: string): string {
   const contextNote = documentContent ? `\n\nBased on the uploaded document content:\n${documentContent.substring(0, 5000)}` : "\n\n(No document uploaded — using generic clinical research protocol template)";
+  const skillNote = CLINICAL_TRIAL_PROTOCOL_SKILL
+    ? `\n\n*Methodology informed by: ${CLINICAL_TRIAL_PROTOCOL_SKILL.name} — ${CLINICAL_TRIAL_PROTOCOL_SKILL.description}*`
+    : "";
 
   return `## A. Study Intent Summary
-This protocol establishes a structured clinical cohort study designed to investigate the research question informed by uploaded documents and AI-assisted deep reasoning analysis.${contextNote}
+This protocol establishes a structured clinical cohort study designed to investigate the research question informed by uploaded documents and AI-assisted deep reasoning analysis.${contextNote}${skillNote}
 
 ## B. Why Cohort Design Fits
 A cohort design is appropriate for this research question because it allows for prospective or retrospective follow-up of exposed and unexposed populations, enabling the assessment of temporal relationships and incidence-based outcomes.${contextNote}
@@ -666,9 +679,10 @@ Lead protocol: **Retrospective-prospective cohort** with primary analysis based 
 3. [CLARIFY] Specific inclusion/exclusion criteria from uploaded document
 4. [CLARIFY] Primary outcome measurement instrument and adjudication process
 5. [CLARIFY] Ethical approvals and data governance framework status
+${CLINICAL_TRIAL_PROTOCOL_SKILL ? `\n\n*Regulatory Note:* Before proceeding with this clinical study, professional consultation with biostatisticians, regulatory affairs specialists, and IRB is strongly recommended. This tool does not constitute official FDA or regulatory approval.` : ""}
 
 ---
-*Protocol generated by Resilient Research App Protocol Generator using AIPOCH Long CoT methodology.*`;
+*Protocol generated by Resilient Research App Protocol Generator using AIPOCH Long CoT methodology.*${skillNote}`;
 }
 
 function formatMarkdownToWord(md: string): string {
