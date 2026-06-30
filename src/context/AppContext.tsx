@@ -133,8 +133,10 @@ export interface AppState {
   predictionModelStrategy: "new" | "update" | null;
   predictionDcaMinThreshold: string;
   predictionDcaMaxThreshold: string;
-  predictionImportanceMethod: "shap" | "permutation" | "both" | null;
+  predictionImportanceMethod: "shap" | "permutation" | "captum" | "both" | "all" | null;
   predictionReportNotes: string;
+  predictionCaptumEnabled: boolean;
+  predictionCaptumResults: string;
 }
 
 type Action =
@@ -196,8 +198,10 @@ type Action =
   | { type: "SET_PREDICTION_MODEL_STRATEGY"; payload: "new" | "update" | null }
   | { type: "SET_PREDICTION_DCA_MIN"; payload: string }
   | { type: "SET_PREDICTION_DCA_MAX"; payload: string }
-  | { type: "SET_PREDICTION_IMPORTANCE_METHOD"; payload: "shap" | "permutation" | "both" | null }
-  | { type: "SET_PREDICTION_REPORT_NOTES"; payload: string };
+  | { type: "SET_PREDICTION_IMPORTANCE_METHOD"; payload: "shap" | "permutation" | "captum" | "both" | "all" | null }
+  | { type: "SET_PREDICTION_REPORT_NOTES"; payload: string }
+  | { type: "SET_PREDICTION_CAPTUM_ENABLED"; payload: boolean }
+  | { type: "SET_PREDICTION_CAPTUM_RESULTS"; payload: string };
 
 const initialState: AppState = {
   currentTab: "main",
@@ -288,6 +292,8 @@ const initialState: AppState = {
   predictionDcaMaxThreshold: "50",
   predictionImportanceMethod: null,
   predictionReportNotes: "",
+  predictionCaptumEnabled: false,
+  predictionCaptumResults: "",
 };
 
 function appReducer(state: AppState, action: Action): AppState {
@@ -465,6 +471,10 @@ function appReducer(state: AppState, action: Action): AppState {
       return { ...state, predictionImportanceMethod: action.payload };
     case "SET_PREDICTION_REPORT_NOTES":
       return { ...state, predictionReportNotes: action.payload };
+    case "SET_PREDICTION_CAPTUM_ENABLED":
+      return { ...state, predictionCaptumEnabled: action.payload };
+    case "SET_PREDICTION_CAPTUM_RESULTS":
+      return { ...state, predictionCaptumResults: action.payload };
     case "RESET_STATE":
       return { ...initialState };
     default:

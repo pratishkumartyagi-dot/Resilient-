@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import {
   FlaskConical, Key, CheckCircle2, Loader2,
   Brain, Upload, BarChart3, LineChart, FileText, Sparkles, ArrowRight, ArrowLeft, Target, Calculator,
-  Download, Table, ToggleLeft, FileSpreadsheet, AlertCircle
+  Download, Table, ToggleLeft, FileSpreadsheet, AlertCircle, Zap
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq } from "@/lib/ai";
@@ -50,6 +50,7 @@ export default function PredictiveAnalysisTab() {
   const [relationshipResults, setRelationshipResults] = useState<string | null>(null);
   const [relationshipLoading, setRelationshipLoading] = useState(false);
   const [relationshipHeaders, setRelationshipHeaders] = useState<string[]>([]);
+  const [captumMethod, setCaptumMethod] = useState<string>("integrated_gradients");
 
   const step = state.predictionStep;
 
@@ -88,19 +89,19 @@ export default function PredictiveAnalysisTab() {
         prompt = "Compare missing data strategies (multiple imputation vs single imputation vs complete case vs model-based handling), following step 7 in Efthimiou et al. (BMJ 2024, PMC11369751). Recommend one strategy and explain how to implement it in a prediction pipeline using PyHealth-compatible preprocessing (e.g., sklearn.impute.IterativeImputer or native model handling).";
         break;
       case 8:
-        prompt = `Recommend a modelling strategy for a ${state.predictionOutcomeType} outcome, following step 8 in Efthimiou et al. (BMJ 2024, PMC11369751). Suggest 2-3 candidate models from PyHealth (e.g., Transformer, RETAIN, logistic regression, Cox, RF, XGBoost) and provide hyperparameter guidance, penalisation strategy (ridge/LASSO), and validation approach.`;
+        prompt = `Recommend a modelling strategy for a ${state.predictionOutcomeType} outcome, following step 8 in Efthimiou et al. (BMJ 2024, PMC11369751). Suggest 2-3 candidate models from PyHealth (e.g., Transformer, RETAIN, logistic regression, Cox, RF, XGBoost) and provide hyperparameter guidance, penalisation strategy (ridge/LASSO), and validation approach. For deep learning models (Transformer, RNN/LSTM/GRU, MLP, RETAIN), explain how to use Captum (https://github.com/meta-pytorch/captum) for model interpretability and reasoning — including Integrated Gradients, DeepLift, and feature ablation to understand predictor contributions.`;
         break;
       case 9:
-        prompt = `For a ${state.predictionOutcomeType} prediction model, list the key performance measures (discrimination and calibration) and how to calculate them, following step 9 in Efthimiou et al. (BMJ 2024, PMC11369751) and PyHealth metrics conventions. Include AUC, calibration slope, Brier score, and internal validation guidance (bootstrap or k-fold) for optimism correction.`;
+        prompt = `For a ${state.predictionOutcomeType} prediction model, list the key performance measures (discrimination and calibration) and how to calculate them, following step 9 in Efthimiou et al. (BMJ 2024, PMC11369751) and PyHealth metrics conventions. Include AUC, calibration slope, Brier score, and internal validation guidance (bootstrap or k-fold) for optimism correction. For deep learning models, mention how Captum (https://github.com/meta-pytorch/captum) reasoning can complement traditional performance metrics by providing attribution-based confidence explanations.`;
         break;
       case 10:
-        prompt = "Explain how to select the final model using internal validation (bootstrap or k-fold), following step 10 in Efthimiou et al. (BMJ 2024, PMC11369751). Include advice on the bias-variance trade-off, penalisation, and Occam's razor. Reference PyHealth Trainer output comparison across models.";
+        prompt = "Explain how to select the final model using internal validation (bootstrap or k-fold), following step 10 in Efthimiou et al. (BMJ 2024, PMC11369751). Include advice on the bias-variance trade-off, penalisation, and Occam's razor. Reference PyHealth Trainer output comparison across models. For neural models selected as final, outline a Captum (https://github.com/meta-pytorch/captum) reasoning workflow (Integrated Gradients / DeepLift) to generate explanation artifacts for model deployment and clinical validation.";
         break;
       case 11:
         prompt = "Explain how to perform and interpret a decision curve analysis for a clinical prediction model, following step 11 in Efthimiou et al. (BMJ 2024, PMC11369751). Include net benefit calculation, how to identify the optimal threshold probability, and how to combine this with PyHealth predict_proba() outputs for downstream packages like dcurves.";
         break;
       case 12:
-        prompt = "Describe how to assess individual predictor importance using SHAP and permutation importance, following the optional step 12 guidance in Efthimiou et al. (BMJ 2024, PMC11369751). Explain how to extract predictions from PyHealth models (predict_proba) and apply these methods for a clinical audience.";
+        prompt = "Describe how to assess individual predictor importance using SHAP, permutation importance, and Captum (https://github.com/meta-pytorch/captum), following the optional step 12 guidance in Efthimiou et al. (BMJ 2024, PMC11369751). Explain how to extract predictions from PyHealth models (predict_proba) and apply these methods for a clinical audience. For deep learning models, emphasize Captum's Integrated Gradients and DeepLift for attribution-based reasoning over SHAP when model gradients are available.";
         break;
       case 13:
         prompt = "Generate a TRIPOD checklist summary for reporting this clinical prediction model study, following step 13 in Efthimiou et al. (BMJ 2024, PMC11369751). Include model equation, code, and deployment guidance (e.g., FastAPI + HTML calculator). Reference PyHealth export patterns.";
@@ -574,6 +575,39 @@ export default function PredictiveAnalysisTab() {
                 <option key={m} value={m}>{m}</option>
               ))}
             </select>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Zap size={16} className="text-yellow-400" />
+                <span className="text-sm font-medium text-white">Captum Model Reasoning</span>
+                <span className="text-xs text-blue-300">(Deep Learning models)</span>
+              </div>
+              <button
+                onClick={() => dispatch({ type: "SET_PREDICTION_CAPTUM_ENABLED", payload: !state.predictionCaptumEnabled })}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
+                  state.predictionCaptumEnabled ? "border-yellow-400 bg-yellow-400/20 text-yellow-300" : "border-blue-800 bg-blue-900/30 text-blue-300"
+                }`}
+              >
+                <ToggleLeft size={14} className={state.predictionCaptumEnabled ? "text-yellow-400" : "text-blue-400"} />
+                {state.predictionCaptumEnabled ? "Enabled" : "Enable Captum Reasoning"}
+              </button>
+            </div>
+            {state.predictionCaptumEnabled && (
+              <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-3">
+                <label className="block text-sm font-medium text-blue-200 mb-2">Captum Method</label>
+                <select
+                  value={captumMethod}
+                  onChange={(e) => setCaptumMethod(e.target.value)}
+                  className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2.5 text-sm"
+                >
+                  <option value="integrated_gradients">Integrated Gradients</option>
+                  <option value="deep_lift">DeepLift</option>
+                  <option value="saliency">Saliency</option>
+                  <option value="input_x_gradient">Input X Gradient</option>
+                  <option value="feature_ablation">Feature Ablation</option>
+                  <option value="guided_backprop">Guided Backpropagation</option>
+                </select>
+              </div>
+            )}
             <button
               onClick={handleAiAssist}
               disabled={localLoading}
@@ -582,7 +616,13 @@ export default function PredictiveAnalysisTab() {
               {localLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
               AI Model Configuration & PyHealth Guidance
             </button>
-            {aiOutput && (
+            {state.predictionCaptumEnabled && aiOutput && (
+              <div className="bg-yellow-950/30 border border-yellow-800/50 rounded-lg p-4">
+                <p className="text-xs font-bold text-yellow-300 mb-2">Captum Reasoning Guidance</p>
+                <pre className="text-xs text-blue-200 whitespace-pre-wrap">{aiOutput}</pre>
+              </div>
+            )}
+            {!state.predictionCaptumEnabled && aiOutput && (
               <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
                 <pre className="text-xs text-blue-200 whitespace-pre-wrap">{aiOutput}</pre>
               </div>
@@ -590,6 +630,7 @@ export default function PredictiveAnalysisTab() {
             <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-3">
               <p className="text-xs text-blue-300">
                 PyHealth pipeline: Dataset → Task → Model → Trainer → Metrics. Use <code>pyhealth.trainer.Trainer</code> with early stopping and penalisation (ridge/LASSO) to prevent overfitting.
+                {state.predictionCaptumEnabled && <> When Captum is enabled, reasoning summaries are generated using <code>captum.attr.{captumMethod.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase()).replace(" ", "")}</code> for neural models.</>}
               </p>
             </div>
           </div>
@@ -718,20 +759,29 @@ export default function PredictiveAnalysisTab() {
         return (
           <div className="space-y-4">
             <h3 className="text-lg font-bold text-white">Step 12: Assess Individual Predictors (Optional)</h3>
-            <p className="text-sm text-blue-300">Use SHAP or permutation importance to understand predictor contribution.</p>
+            <p className="text-sm text-blue-300">Use SHAP, permutation importance, or Captum to understand predictor contribution.</p>
             <div>
               <label className="block text-sm font-medium text-blue-200 mb-2">Method</label>
               <select
                 value={state.predictionImportanceMethod || ""}
-                onChange={(e) => dispatch({ type: "SET_PREDICTION_IMPORTANCE_METHOD", payload: e.target.value ? (e.target.value as "shap" | "permutation" | "both") : null })}
+                onChange={(e) => dispatch({ type: "SET_PREDICTION_IMPORTANCE_METHOD", payload: e.target.value ? (e.target.value as "shap" | "permutation" | "captum" | "both" | "all") : null })}
                 className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2.5 text-sm"
               >
                 <option value="">Select method...</option>
                 <option value="shap">SHAP</option>
                 <option value="permutation">Permutation Importance</option>
-                <option value="both">Both</option>
+                <option value="captum">Captum (Deep Learning Attribution)</option>
+                <option value="both">SHAP + Permutation</option>
+                <option value="all">SHAP + Permutation + Captum</option>
               </select>
             </div>
+            {(state.predictionImportanceMethod === "captum" || state.predictionImportanceMethod === "all") && (
+              <div className="bg-yellow-950/20 border border-yellow-800/50 rounded-lg p-3">
+                <p className="text-xs text-yellow-300">
+                  Captum reasoning will use <code>captum.attr.IntegratedGradients</code> or <code>DeepLift</code> for neural models (Transformer, RNN/LSTM/GRU, MLP, RETAIN) to generate attribution-based explanations. Results are displayed as predictor importance rankings.
+                </p>
+              </div>
+            )}
             <button
               onClick={handleAiAssist}
               disabled={localLoading}
