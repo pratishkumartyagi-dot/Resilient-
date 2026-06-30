@@ -8,7 +8,7 @@ import {
   FileJson, BarChart3, PenTool, BookOpen
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq } from "@/lib/ai";
+import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
 import { fetchRealPapers, generateMockLegacy, type Paper } from "@/lib/database-apis";
 import { downloadLiteratureReviewPDF, downloadLiteratureReviewWord } from "@/lib/exporters";
 import {
@@ -739,11 +739,12 @@ Do NOT use Markdown formatting like # or ##. Do NOT add extra headings.`;
          return;
        }
 
-       let text: string;
-       if (state.geminiApiKey) {
-         text = await callGemini(state.geminiApiKey, prompt);
-       } else if (state.groqApiKey) {
-         text = await callGroq(state.groqApiKey!, prompt);
+        let text: string;
+        const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
+        if (state.geminiApiKey) {
+          text = await callGemini(state.geminiApiKey, prompt, searchOptions);
+        } else if (state.groqApiKey) {
+          text = await callGroq(state.groqApiKey!, prompt, searchOptions);
        } else {
          throw new Error("No API key configured. Please open Settings (gear icon).");
        }
@@ -853,11 +854,12 @@ OUTPUT FORMAT:
         return;
       }
 
-         let text: string;
-         if (state.geminiApiKey) {
-           text = await callGemini(state.geminiApiKey, prompt);
-         } else if (state.groqApiKey) {
-           text = await callGroq(state.groqApiKey!, prompt);
+          let text: string;
+          const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
+          if (state.geminiApiKey) {
+            text = await callGemini(state.geminiApiKey, prompt, searchOptions);
+          } else if (state.groqApiKey) {
+            text = await callGroq(state.groqApiKey!, prompt, searchOptions);
          } else {
            throw new Error("No API key configured. Please open Settings (gear icon).");
          }

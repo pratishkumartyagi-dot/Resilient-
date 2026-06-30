@@ -16,7 +16,7 @@ import {
   FileCheck2,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq } from "@/lib/ai";
+import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
 import { buildStep10Prompt } from "@/lib/research-skills";
 import { parseUploadedDocument, ALLOWED_DOCUMENT_TYPES } from "@/lib/document-parser";
 
@@ -163,13 +163,15 @@ export default function ProtocolChatTab() {
 
       if (isDeepReasoning || documentContent) {
         const prompt = buildDeepReasoningPrompt(currentInput, documentContent, historyForPrompt);
+        const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: currentInput };
         if (state.geminiApiKey) {
           responseText = await callGemini(
             state.geminiApiKey,
-            `[SYSTEM]\n${DEEP_REASONING_SYSTEM_PROMPT}\n\n[USER]\n${currentInput}\n\n${documentContent ? `[DOCUMENT CONTEXT]\n${documentContent.substring(0, 15000)}` : ""}`
+            `[SYSTEM]\n${DEEP_REASONING_SYSTEM_PROMPT}\n\n[USER]\n${currentInput}\n\n${documentContent ? `[DOCUMENT CONTEXT]\n${documentContent.substring(0, 15000)}` : ""}`,
+            searchOptions
           );
         } else if (state.groqApiKey) {
-          responseText = await callGroq(state.groqApiKey, prompt);
+          responseText = await callGroq(state.groqApiKey, prompt, searchOptions);
         } else {
           responseText = generateProtocolResponse(currentInput, documentContent);
         }
@@ -222,16 +224,19 @@ export default function ProtocolChatTab() {
         []
       );
 
-      let responseText: string;
+       let responseText: string;
+      const genSearchOptions: AICallOptions = { searchEnabled: true, searchQuery: input.trim() };
       if (state.geminiApiKey) {
         responseText = await callGemini(
           state.geminiApiKey,
-          `${DEEP_REASONING_SYSTEM_PROMPT}\n\n${documentContent ? `## UPLOADED DOCUMENT:\n${documentContent.substring(0, 20000)}\n\n` : ""}TASK: Generate a complete AIPOCH-structured research protocol (Sections A–L) in markdown format based on the uploaded document.${!documentContent ? "\n\nNote: No document uploaded. Generate a template protocol structure." : ""}`
+          `${DEEP_REASONING_SYSTEM_PROMPT}\n\n${documentContent ? `## UPLOADED DOCUMENT:\n${documentContent.substring(0, 20000)}\n\n` : ""}TASK: Generate a complete AIPOCH-structured research protocol (Sections A–L) in markdown format based on the uploaded document.${!documentContent ? "\n\nNote: No document uploaded. Generate a template protocol structure." : ""}`,
+          genSearchOptions
         );
       } else if (state.groqApiKey) {
         responseText = await callGroq(
           state.groqApiKey,
-          `${DEEP_REASONING_SYSTEM_PROMPT}\n\n${documentContent ? `Uploaded document:\n${documentContent.substring(0, 20000)}\n\n` : ""}Generate a complete AIPOCH-structured research protocol (Sections A–L) in markdown format.${!documentContent ? " Use a generic clinical research template." : ""}`
+          `${DEEP_REASONING_SYSTEM_PROMPT}\n\n${documentContent ? `Uploaded document:\n${documentContent.substring(0, 20000)}\n\n` : ""}Generate a complete AIPOCH-structured research protocol (Sections A–L) in markdown format.${!documentContent ? " Use a generic clinical research template." : ""}`,
+          genSearchOptions
         );
       } else {
         responseText = generateDefaultProtocol(documentContent);

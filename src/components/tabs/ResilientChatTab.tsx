@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Send, MessageSquare, User, Bot, Trash2, FlaskConical, Stethoscope } from "lucide-react";
 import { useApp } from "@/context/AppContext";
+import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
 
 interface Message {
   id: string;
@@ -144,17 +145,71 @@ export default function ResilientChatTab() {
     setInput("");
     setIsTyping(true);
 
-    setTimeout(() => {
-      const responseContent = generateMockResponse(input, state, state.omicsEnabled);
-      const assistantMsg: Message = {
-        id: `assistant-${Date.now()}`,
-        role: "assistant",
-        content: responseContent,
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
-      setIsTyping(false);
-    }, 1200 + Math.random() * 1000);
+    const apiKey = state.geminiApiKey || state.groqApiKey;
+
+    if (apiKey) {
+      try {
+        const pipelineContext = `
+Current research pipeline state:
+- Step: ${state.currentStep}
+- Search query: ${state.searchQuery || "None"}
+- Selected papers: ${state.papers.filter((p: any) => p.selected).length}
+- Themes: ${state.themes.filter((t: any) => t.selected).length} selected
+- Research questions: ${state.researchQuestions.filter((q: any) => q.selected).length} selected
+- Omics mode: ${state.omicsEnabled ? "On" : "Off"}`;
+
+        const prompt = `You are a research assistant helping with a systematic review pipeline.
+
+${pipelineContext}
+
+## Research Program
+Search for evidence when needed. Base answers on retrieved context. Grade evidence by strength (T1-T4). Distinguish between retrieved evidence and reasoning. If insufficient, say so explicitly.
+
+## User Question
+${input.trim()}
+
+## Instructions
+Answer the user's question based on the pipeline state above. If they ask about synthesis, themes, questions, titles, methodology, or impact assessment, reference the specific counts and state shown. Offer to help them navigate to the relevant step or expand on any area.`;
+
+        const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: input.trim() };
+        let responseText = "";
+        if (state.geminiApiKey) {
+          responseText = await callGemini(state.geminiApiKey, prompt, searchOptions);
+        } else if (state.groqApiKey) {
+          responseText = await callGroq(state.groqApiKey, prompt, searchOptions);
+        }
+
+        const assistantMsg: Message = {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: responseText,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
+      } catch (err: any) {
+        const errorMsg: Message = {
+          id: `error-${Date.now()}`,
+          role: "assistant",
+          content: `Error: ${err.message || "Something went wrong."}`,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, errorMsg]);
+      } finally {
+        setIsTyping(false);
+      }
+    } else {
+      setTimeout(() => {
+        const responseContent = generateMockResponse(input, state, state.omicsEnabled);
+        const assistantMsg: Message = {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: responseContent,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
+        setIsTyping(false);
+      }, 1200 + Math.random() * 1000);
+    }
   };
 
   const handleClear = () => {

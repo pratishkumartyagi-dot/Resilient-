@@ -1,19 +1,78 @@
 import { NextRequest, NextResponse } from "next/server";
+import { quickSearch } from "@/lib/database-apis";
 
 export const runtime = "nodejs";
+
+async function performSearch(query: string): Promise<string> {
+  const tavilyKey = process.env.TAVILY_API_KEY;
+  const results: string[] = [];
+
+  if (tavilyKey) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      const resp = await fetch("https://api.tavily.com/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: tavilyKey, query, max_results: 3, search_depth: "basic" }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (resp.ok) {
+        const data = await resp.json();
+        const summaries = (data.results || [])
+          .slice(0, 3)
+          .map((r: any) => (r.content || r.title || "").trim())
+          .filter(Boolean);
+        if (summaries.length) {
+          results.push("### Web Search Results\n" + summaries.map((s: string, i: number) => `[${i + 1}] ${s}`).join("\n\n"));
+        }
+      }
+    } catch {
+      // ignore search failure
+    }
+  }
+
+  try {
+    const papers = await quickSearch(query, 5);
+    if (papers.length > 0) {
+      const summary = papers
+        .map((p, i) => `[${i + 1}] ${p.authors} (${p.year}). ${p.title}. ${p.abstract.substring(0, 180)}...`)
+        .join("\n\n");
+      results.push("### Academic Search Results\n" + summary);
+    }
+  } catch {
+    // ignore search failure
+  }
+
+  return results.join("\n\n---\n\n");
+}
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { provider, prompt, apiKey, test = false } = body as {
+    const { provider, prompt, apiKey, test = false, searchQuery, searchEnabled = false } = body as {
       provider: "gemini" | "groq";
       prompt: string;
       apiKey: string;
       test?: boolean;
+      searchQuery?: string;
+      searchEnabled?: boolean;
     };
 
     if (!apiKey || !prompt) {
       return NextResponse.json({ error: "Missing apiKey or prompt" }, { status: 400 });
+    }
+
+    let finalPrompt = prompt;
+    let searchPerformed = false;
+
+    if (searchEnabled && searchQuery && searchQuery.trim().length > 0) {
+      const searchResults = await performSearch(searchQuery.trim());
+      if (searchResults) {
+        finalPrompt = `[Supplementary Search Context]\n${searchResults}\n\n[Research Program Instructions]\n- Search results are provided as grounded evidence. Synthesize from both the user's selected papers and these supplementary results.\n- Grade findings by evidence strength (T1 Mechanistic, T2 Functional, T3 Associational, T4 Mention).\n- If evidence is insufficient, explicitly state what is missing rather than speculate.\n\n[Original Prompt]\n${prompt}`;
+        searchPerformed = true;
+      }
     }
 
     if (provider === "gemini") {
@@ -21,7 +80,7 @@ export async function POST(request: NextRequest) {
        const res = await fetch(url, {
          method: "POST",
          headers: { "Content-Type": "application/json" },
-         body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }] }),
+         body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: finalPrompt }] }] }),
        });
 
        if (!res.ok) {
@@ -34,7 +93,7 @@ export async function POST(request: NextRequest) {
       if (!candidate) {
         return NextResponse.json({ error: "Gemini returned empty content" }, { status: 502 });
       }
-      return NextResponse.json({ content: candidate });
+      return NextResponse.json({ content: candidate, searchPerformed });
     }
 
     if (provider === "groq") {
@@ -45,7 +104,7 @@ export async function POST(request: NextRequest) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${apiKey}`,
         },
-        body: JSON.stringify({ model: groqModel, messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ model: groqModel, messages: [{ role: "user", content: finalPrompt }] }),
       });
 
       if (!groqRes.ok) {
@@ -58,7 +117,7 @@ export async function POST(request: NextRequest) {
       if (!groqContent) {
         return NextResponse.json({ error: "Groq returned empty content" }, { status: 502 });
       }
-      return NextResponse.json({ content: groqContent });
+      return NextResponse.json({ content: groqContent, searchPerformed });
     }
 
     return NextResponse.json({ error: `Unsupported provider: ${provider}` }, { status: 400 });

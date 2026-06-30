@@ -69,6 +69,9 @@ export interface ProtocolSection {
 export function buildStep3Prompt(papers: Paper[], uploadedContext: string): string {
   return `You are an expert systematic review research analyst performing deep evidence synthesis on selected academic papers, using Long Chain-of-Thought (Long CoT) reasoning methodology.
 
+## Research Program Context
+Supplementary evidence and web/academic search results may be provided below. Synthesize from both the selected papers and supplementary evidence. Grade all findings by strength: T1 Mechanistic, T2 Functional, T3 Associational, T4 Mention. If evidence is insufficient, explicitly state what is missing rather than speculate.
+
 ## Long CoT Reasoning Protocol
 
 Before producing the final JSON, you MUST follow this structured deep reasoning chain:

@@ -5,34 +5,34 @@ async function withTimeout<T>(promise: Promise<T>): Promise<T> {
   return Promise.race([promise, timeout]);
 }
 
-export async function callGemini(apiKey: string, prompt: string): Promise<string> {
-  const res = await withTimeout(fetch("/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ provider: "gemini", prompt, apiKey }),
-  }));
-  if (!res.ok) {
-    let message = `Gemini request failed: ${res.status}`;
-    try { const data = await res.json(); message = data?.error || message; } catch { /* ignore parse errors */ }
-    throw new Error(message);
-  }
-  const data = await res.json();
-  return data.content as string;
+export interface AICallOptions {
+  searchQuery?: string;
+  searchEnabled?: boolean;
 }
 
-export async function callGroq(apiKey: string, prompt: string): Promise<string> {
+async function postChat(provider: "gemini" | "groq", apiKey: string, prompt: string, options?: AICallOptions): Promise<{ content: string; searchPerformed: boolean }> {
   const res = await withTimeout(fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ provider: "groq", prompt, apiKey }),
+    body: JSON.stringify({ provider, prompt, apiKey, searchQuery: options?.searchQuery, searchEnabled: options?.searchEnabled }),
   }));
   if (!res.ok) {
-    let message = `Groq request failed: ${res.status}`;
+    let message = `AI request failed: ${res.status}`;
     try { const data = await res.json(); message = data?.error || message; } catch { /* ignore parse errors */ }
     throw new Error(message);
   }
   const data = await res.json();
-  return data.content as string;
+  return { content: data.content as string, searchPerformed: data.searchPerformed || false };
+}
+
+export async function callGemini(apiKey: string, prompt: string, options?: AICallOptions): Promise<string> {
+  const result = await postChat("gemini", apiKey, prompt, options);
+  return result.content;
+}
+
+export async function callGroq(apiKey: string, prompt: string, options?: AICallOptions): Promise<string> {
+  const result = await postChat("groq", apiKey, prompt, options);
+  return result.content;
 }
 
 export async function testGeminiKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
@@ -52,5 +52,3 @@ export async function testGroqKey(apiKey: string): Promise<{ ok: boolean; error?
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error" };
   }
 }
-
-

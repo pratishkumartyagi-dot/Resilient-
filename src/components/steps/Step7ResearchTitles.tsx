@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { Sparkles, ChevronRight, RotateCcw } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq } from "@/lib/ai";
+import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
 import { buildStep7Prompt } from "@/lib/research-skills";
 
 const generateMockTitles = () => [
@@ -56,12 +56,13 @@ export default function Step7ResearchTitles() {
 
     try {
       const prompt = buildStep7Prompt(state.researchQuestions, state.synthesisTable, state.themes);
+      const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: state.searchQuery };
 
       let responseText: string = "";
       if (state.geminiApiKey) {
-        responseText = await callGemini(state.geminiApiKey, prompt);
+        responseText = await callGemini(state.geminiApiKey, prompt, searchOptions);
       } else if (state.groqApiKey) {
-        responseText = await callGroq(state.groqApiKey, prompt);
+        responseText = await callGroq(state.groqApiKey, prompt, searchOptions);
       } else {
         throw new Error("No API key configured.");
       }

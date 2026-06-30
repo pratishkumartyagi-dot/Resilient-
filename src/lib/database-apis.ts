@@ -465,3 +465,12 @@ export function generateMockLegacy(query: string, dbs: string[]): Paper[] {
   }
   return papers;
 }
+
+export async function quickSearch(query: string, maxResults: number = 8): Promise<Paper[]> {
+  try {
+    const papers = await fetchOpenAlex(query, undefined, undefined, undefined);
+    return papers.slice(0, maxResults);
+  } catch {
+    return [];
+  }
+}

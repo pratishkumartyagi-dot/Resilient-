@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { Sparkles, BookOpen, RotateCcw } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq } from "@/lib/ai";
+import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
 import { buildStep4Prompt } from "@/lib/research-skills";
 import { generateLocalLiteratureReview } from "@/lib/local-synthesis";
 
@@ -35,10 +35,10 @@ export default function Step4LiteratureReview() {
 
       if (state.geminiApiKey) {
         const prompt = buildStep4Prompt(selected, "") + synthesisContext;
-        review = await callGemini(state.geminiApiKey, prompt);
+        review = await callGemini(state.geminiApiKey, prompt, { searchEnabled: true, searchQuery: state.searchQuery });
       } else if (state.groqApiKey) {
         const prompt = buildStep4Prompt(selected, "") + synthesisContext;
-        review = await callGroq(state.groqApiKey, prompt);
+        review = await callGroq(state.groqApiKey, prompt, { searchEnabled: true, searchQuery: state.searchQuery });
       } else {
         review = generateLocalLiteratureReview(
           selected.map((p) => ({

@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { Sparkles, Plus, Trash2, Lightbulb } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq } from "@/lib/ai";
+import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
 import { buildStep5Prompt } from "@/lib/research-skills";
 
 const generateMockThemes = () => {
@@ -98,12 +98,13 @@ export default function Step5Themes() {
 
     try {
       const prompt = buildStep5Prompt(state.papers, state.synthesisTable);
+      const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: state.searchQuery };
 
       let responseText: string = "";
       if (state.geminiApiKey) {
-        responseText = await callGemini(state.geminiApiKey, prompt);
+        responseText = await callGemini(state.geminiApiKey, prompt, searchOptions);
       } else if (state.groqApiKey) {
-        responseText = await callGroq(state.groqApiKey, prompt);
+        responseText = await callGroq(state.groqApiKey, prompt, searchOptions);
       } else {
         throw new Error("No API key configured. Please open Settings (gear icon).");
       }
