@@ -148,10 +148,11 @@ function normalizeOpenAlexWork(work: any): Paper {
   };
 }
 
-async function fetchOpenAlex(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+async function fetchOpenAlex(query: string, yearFrom?: string, yearTo?: string, studyType?: string, additionalFilters?: string[]): Promise<Paper[]> {
   const filterParts: string[] = [];
   if (yearFrom) filterParts.push(`publication_year:>${yearFrom}`);
   if (yearTo) filterParts.push(`publication_year:<${yearTo}`);
+  if (additionalFilters) filterParts.push(...additionalFilters);
   const filterStr = filterParts.length ? `&filter=${filterParts.join(",")}` : "";
 
   const baseUrl = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=100&mailto=research@example.com${filterStr}`;
@@ -364,7 +365,7 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
     "Europe PMC": () => fetchEuropePMC(query, yearFrom, yearTo, studyType),
     "ERIC": () => fetchEuropePMC(`education ${query}`, yearFrom, yearTo, studyType),
     "Google Scholar": () => fetchOpenAlex(`scholar ${query}`, yearFrom, yearTo, studyType),
-    "Shodhganga": () => fetchOpenAlex(`thesis ${query} India`, yearFrom, yearTo, studyType),
+    "Shodhganga": () => fetchOpenAlex(`thesis ${query}`, yearFrom, yearTo, studyType, ["type:dissertation", "authorships.institutions.country_code:IN"]),
     "CTRI – India": () => fetchEuropePMC(`clinical trial India ${query}`, yearFrom, yearTo, studyType),
     "scite.ai": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
     "WHO IRIS": () => fetchEuropePMC(`WHO ${query}`, yearFrom, yearTo, studyType),
