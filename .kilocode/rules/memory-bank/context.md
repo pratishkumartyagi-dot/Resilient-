@@ -297,6 +297,36 @@ The systematic review tab now contains a full 8-step systematic review / meta-an
 - Microbiome & other modalities: scikit-bio, FlowIO, pyOpenMS, Neuropixels/Kilosort4
 - All outputs formatted for manuscript figures and methods sections
 
+## Omics & Bioinformatics — Full OpenClaw-Medical-Skills Integration (2026-06-30)
+
+**Feature**: Expanded `OmicsBioinformaticsTab` from a simple chat to a comprehensive Omics & Bioinformatics workbench integrating 869 skills from [FreedomIntelligence/OpenClaw-Medical-Skills](https://github.com/FreedomIntelligence/OpenClaw-Medical-Skills) across 5 major categories.
+
+### Files Modified
+- `src/lib/medical-skills/skills-registry.ts` — Added 850+ new skills across 5 new categories; added `subcategory` field to `MedicalSkill` interface; added `getSkillsBySubcategory()` and `getAllCategories()` helper functions
+- `src/components/tabs/OmicsBioinformaticsTab.tsx` — Full rewrite: collapsible sidebar category tree, skill-aware chat, real AI integration (Gemini/Groq via `/api/chat`), file upload for omics data, skill-specific context injection, download buttons (CSV/Word/PDF)
+
+### New Categories in Registry
+1. **Scientific Databases** (40 skills) — Genomics & Variants, Proteins/Pathways/Drugs, Cancer Genomics, Genomic & Molecular, Structural Biology & Drug Discovery
+2. **Bioinformatics (gptomics bio-* suite)** (200+ skills) — Tools & Pipelines, Clinical Databases & Variant Analysis, Sequencing & Read QC, Differential Expression, Pathway & Network, Single-Cell & Spatial, Epigenomics & Chromatin, Metagenomics & Microbiome, Immunoinformatics & Flow Cytometry, Multi-Omics Integration, Proteomics & Metabolomics, Structural Biology & Cheminformatics, Epidemiological & Causal Genomics
+3. **Omics & Computational Biology** (40+ skills) — Single-Cell & Spatial Omics, Single-Cell & Trajectory Analysis, Proteomics & Mass Spectrometry, Cheminformatics & Drug Discovery, Protein Structure & Design, Phylogenetics & Network Analysis
+4. **ClawBio Pipelines** (21 skills) — Bioinformatics Orchestration, Genomics/Ancestry/Pharmacogenomics, Structural Biology & Literature
+5. **BioOS Extended Suite** (285+ skills) — Extended Bioinformatics, Oncology & Precision Medicine, Hematology & Blood Disorders, Immunology & Cell Therapy, Single-Cell & Spatial Agents, Drug Discovery & Design, Clinical AI & Healthcare, Research Infrastructure & Agents
+
+### Tab Features
+- **Collapsible sidebar**: Browse all 869 skills organized by category and subcategory; search/filter skills
+- **Skill selection**: Click any skill to inject its methodology into the AI prompt
+- **Chat interface**: Real AI responses (Gemini primary, Groq fallback, local mock fallback)
+- **File upload**: `.csv`, `.tsv`, `.xlsx`, `.txt`, `.md` omics data files with preview
+- **AI context**: Selected skill metadata automatically prepended to prompts
+- **Downloads**: CSV export for tables, Word/PDF for analysis results
+- **Session management**: Clear chat, reset skill selection
+- **Status bar**: Shows active skill, AI provider mode, total skill count
+
+### AI Integration
+- Uses existing `/api/chat` route with Gemini 3.1 Flash Lite (primary) and Groq (fallback)
+- No API key required: falls back to local rule-based responses
+- Prompts include skill name, description, and source repo for specialized guidance
+
 ## robvis Integration — EvidenceSynthesisTab Risk of Bias (2026-06-27)
 
 **Feature**: Integrated [mcguinlu/robvis](https://github.com/mcguinlu/robvis) methodology (publication-quality RoB visualisation) into the Systematic Review & Meta-analysis pipeline, Step 3 (Risk of Bias) and Step 5 (Reporting).
