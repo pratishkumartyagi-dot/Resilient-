@@ -1,30 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import dynamic from "next/dynamic";
 import { AppProvider, useApp } from "@/context/AppContext";
 import Header from "@/components/Header";
 import TopTabs from "@/components/TopTabs";
 import StepNavigator from "@/components/StepNavigator";
-import Step1Search from "@/components/steps/Step1Search";
-import Step2Results from "@/components/steps/Step2Results";
-import Step3Synthesis from "@/components/steps/Step3Synthesis";
-import Step4LiteratureReview from "@/components/steps/Step4LiteratureReview";
-import Step5Themes from "@/components/steps/Step5Themes";
-import Step6ResearchQuestions from "@/components/steps/Step6ResearchQuestions";
-import Step7ResearchTitles from "@/components/steps/Step7ResearchTitles";
-import Step8AimObjectives from "@/components/steps/Step8AimObjectives";
-import Step9Methodology from "@/components/steps/Step9Methodology";
-import Step10Protocol from "@/components/steps/Step10Protocol";
-import Step11Impact from "@/components/steps/Step11Impact";
-import ResilientChatTab from "@/components/tabs/ResilientChatTab";
-import StatisticalAnalysisTab from "@/components/tabs/StatisticalAnalysisTab";
-import SampleSizeTab from "@/components/tabs/SampleSizeTab";
-import PredictiveAnalysisTab from "@/components/tabs/PredictiveAnalysisTab";
-import EvidenceSynthesisTab from "@/components/tabs/EvidenceSynthesisTab";
-import PaperWriterTab from "@/components/tabs/PaperWriterTab";
-import ProtocolChatTab from "@/components/tabs/ProtocolChatTab";
-import GrantWritingTab from "@/components/tabs/GrantWritingTab";
-import OmicsBioinformaticsTab from "@/components/tabs/OmicsBioinformaticsTab";
+
+const Step1Search = dynamic(() => import("@/components/steps/Step1Search"));
+const Step2Results = dynamic(() => import("@/components/steps/Step2Results"));
+const Step3Synthesis = dynamic(() => import("@/components/steps/Step3Synthesis"));
+const Step4LiteratureReview = dynamic(() => import("@/components/steps/Step4LiteratureReview"));
+const Step5Themes = dynamic(() => import("@/components/steps/Step5Themes"));
+const Step6ResearchQuestions = dynamic(() => import("@/components/steps/Step6ResearchQuestions"));
+const Step7ResearchTitles = dynamic(() => import("@/components/steps/Step7ResearchTitles"));
+const Step8AimObjectives = dynamic(() => import("@/components/steps/Step8AimObjectives"));
+const Step9Methodology = dynamic(() => import("@/components/steps/Step9Methodology"));
+const Step10Protocol = dynamic(() => import("@/components/steps/Step10Protocol"));
+const Step11Impact = dynamic(() => import("@/components/steps/Step11Impact"));
+
+const ResilientChatTab = dynamic(() => import("@/components/tabs/ResilientChatTab"));
+const StatisticalAnalysisTab = dynamic(() => import("@/components/tabs/StatisticalAnalysisTab"));
+const SampleSizeTab = dynamic(() => import("@/components/tabs/SampleSizeTab"));
+const PredictiveAnalysisTab = dynamic(() => import("@/components/tabs/PredictiveAnalysisTab"));
+const EvidenceSynthesisTab = dynamic(() => import("@/components/tabs/EvidenceSynthesisTab"));
+const PaperWriterTab = dynamic(() => import("@/components/tabs/PaperWriterTab"));
+const ProtocolChatTab = dynamic(() => import("@/components/tabs/ProtocolChatTab"));
+const GrantWritingTab = dynamic(() => import("@/components/tabs/GrantWritingTab"));
+const OmicsBioinformaticsTab = dynamic(() => import("@/components/tabs/OmicsBioinformaticsTab"));
+
 import SettingsModal from "@/components/SettingsModal";
 
 function AppContent() {
