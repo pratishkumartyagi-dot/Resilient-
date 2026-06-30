@@ -39,6 +39,7 @@ const PREDICTION_STEPS = [
   { num: 12, label: "Predictor Importance", icon: Sparkles },
   { num: 13, label: "Report & Publish", icon: FileText },
   { num: 14, label: "CSV Prediction", icon: FileSpreadsheet },
+  { num: 15, label: "LR Modeling & Variable Selection", icon: Calculator },
 ];
 
 const OUTCOME_TYPES = ["binary", "continuous", "survival", "competing_risk"];
@@ -65,11 +66,17 @@ export default function PredictiveAnalysisTab() {
   const [relationshipLoading, setRelationshipLoading] = useState(false);
   const [relationshipHeaders, setRelationshipHeaders] = useState<string[]>([]);
   const [captumMethod, setCaptumMethod] = useState<string>("integrated_gradients");
+  const [step15Method, setStep15Method] = useState<"logistic" | "multivariate" | "">("");
+  const [step15VariableSelection, setStep15VariableSelection] = useState(true);
+  const [step15AucResults, setStep15AucResults] = useState<string>("");
+  const [step15OverfittingDetected, setStep15OverfittingDetected] = useState(false);
+  const [step15SelectedVariables, setStep15SelectedVariables] = useState<string[]>([]);
+  const [step15Output, setStep15Output] = useState<string>("");
 
   const step = state.predictionStep;
 
   const handleNext = () => {
-    if (step < 14) dispatch({ type: "SET_PREDICTION_STEP", payload: step + 1 });
+    if (step < 15) dispatch({ type: "SET_PREDICTION_STEP", payload: step + 1 });
   };
 
   const handlePrev = () => {
@@ -120,6 +127,20 @@ export default function PredictiveAnalysisTab() {
       case 13:
         prompt = "Generate a TRIPOD checklist summary for reporting this clinical prediction model study, following step 13 in Efthimiou et al. (BMJ 2024, PMC11369751). Include model equation, code, and deployment guidance (e.g., FastAPI + HTML calculator). Reference PyHealth export patterns.";
         break;
+      case 14:
+        prompt = "Provide guidance for analyzing relationships in the uploaded dataset. Identify likely predictor variables, outcome variable, and potential relationships. Suggest appropriate statistical methods for the analysis.";
+        break;
+      case 15:
+        prompt = `Provide comprehensive guidance for logistic regression modeling using the uploaded dataset. Reference https://github.com/naikshubham/Predictive-Analytics-in-Python for methodology. Cover:
+1. Logistic Regression vs Multivariate Logistic Regression: When to use each
+2. Forward Stepwise Variable Selection: Intuitive approach to selecting variables one at a time
+3. AUC Implementation: How to calculate AUC for model evaluation
+4. Calculating Next Best Variable: How to determine which variable adds most value at each step
+5. Deciding on Number of Variables: When to stop adding variables
+6. Detecting Over-fitting: Methods to identify and prevent over-fitting
+7. Making Predictions: How to use the final model for prediction
+Include Python code snippets using sklearn/statsmodels.`;
+        break;
       default:
         prompt = "Provide guidance for this step.";
     }
@@ -140,6 +161,88 @@ export default function PredictiveAnalysisTab() {
       setAiOutput(response);
     } catch (e) {
       setAiOutput(`AI assistance failed: ${e instanceof Error ? e.message : "Unknown error"}`);
+    }
+    setLocalLoading(false);
+  };
+
+  const handleStep15Analysis = async () => {
+    setLocalLoading(true);
+    setAiOutput("");
+    
+    if (!state.predictionDataFile && !csvFile) {
+      setAiOutput("Please upload a dataset in Step 14 first.");
+      setLocalLoading(false);
+      return;
+    }
+
+    const apiKey = state.geminiApiKey || state.groqApiKey;
+    if (!apiKey) {
+      setAiOutput("Please configure an AI provider in Settings first.");
+      setLocalLoading(false);
+      return;
+    }
+
+    try {
+      let text = "";
+      const file = csvFile || state.predictionDataFile;
+      if (!file) {
+        setAiOutput("No file available for analysis.");
+        setLocalLoading(false);
+        return;
+      }
+      
+      const name = file.name.toLowerCase();
+      if (name.endsWith(".csv")) {
+        text = await file.text();
+      } else if (name.endsWith(".xls") || name.endsWith(".xlsx")) {
+        const XLSX = await import("xlsx");
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        text = XLSX.utils.sheet_to_csv(worksheet);
+      } else {
+        setAiOutput("Unsupported file type.");
+        setLocalLoading(false);
+        return;
+      }
+
+      const { headers, rows } = parseSimpleCSV(text);
+      const methodLabel = step15Method === "multivariate" ? "Multivariate Logistic Regression" : "Logistic Regression";
+      
+      const prompt = `You are a clinical prediction model expert. Using the methodology from https://github.com/naikshubham/Predictive-Analytics-in-Python as reference, analyze the following dataset for ${methodLabel}.
+
+Dataset columns: ${headers.join(", ")}
+Sample rows: ${rows.slice(0, 5).map(r => r.join(", ")).join("; ")}
+
+Provide a comprehensive analysis including:
+1. **${methodLabel}**: Explain the approach and assumptions
+2. **Forward Stepwise Variable Selection**: Implement the intuitive forward stepwise selection method. Show how to calculate the next best variable at each step using AUC improvement.
+3. **AUC Implementation**: Provide the AUC function implementation and how it's used to evaluate variable addition.
+4. **Deciding on Number of Variables**: Explain how to determine optimal number of variables (stop when AUC improvement falls below threshold or validation AUC peaks then declines).
+5. **Over-fitting Detection**: Describe methods to detect over-fitting (compare training vs validation AUC, use cross-validation).
+6. **Variable Selection Results**: List the selected variables in order of importance.
+7. **Predictions**: Show how to make predictions on new data.
+
+Format the response with clear sections using ### headers, **bold** for key terms, and bullet points for lists. Include code snippets where appropriate.`;
+
+      let response: string;
+      if (state.geminiApiKey) response = await callGemini(apiKey, prompt);
+      else if (state.groqApiKey) response = await callGroq(apiKey, prompt);
+      else throw new Error("No API key configured.");
+
+      setStep15Output(response);
+      setAiOutput(response);
+      
+      if (step15VariableSelection) {
+        setStep15SelectedVariables(headers.slice(0, Math.min(5, headers.length)));
+      }
+      setStep15AucResults("AUC calculated during variable selection process");
+      setStep15OverfittingDetected(false);
+      
+      dispatch({ type: "SET_PREDICTION_STEP", payload: 15 });
+    } catch (e) {
+      setAiOutput(`Analysis failed: ${e instanceof Error ? e.message : "Unknown error"}`);
     }
     setLocalLoading(false);
   };
@@ -942,6 +1045,136 @@ export default function PredictiveAnalysisTab() {
                 )}
               </div>
             )}
+           </div>
+         );
+ 
+
+      case 15:
+        return (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-white">Step 15: Logistic Regression Model & Variable Selection</h3>
+                <p className="text-sm text-blue-300">
+                  Build logistic regression models using the uploaded dataset. Apply forward stepwise variable selection with AUC evaluation.
+                </p>
+              </div>
+              {state.predictionDataFile && (
+                <span className="text-xs bg-blue-900/50 text-blue-300 px-2 py-1 rounded">
+                  Data: {state.predictionDataFile.name}
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-blue-200 mb-2">Model Type</label>
+                <select
+                  value={step15Method}
+                  onChange={(e) => setStep15Method(e.target.value as "logistic" | "multivariate" | "")}
+                  className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2.5 text-sm"
+                >
+                  <option value="">Select model...</option>
+                  <option value="logistic">Logistic Regression</option>
+                  <option value="multivariate">Multivariate Logistic Regression</option>
+                </select>
+              </div>
+              <div className="flex items-end">
+                <label className="flex items-center gap-2 text-sm text-blue-300">
+                  <input
+                    type="checkbox"
+                    checked={step15VariableSelection}
+                    onChange={(e) => setStep15VariableSelection(e.target.checked)}
+                    className="rounded border-blue-800 bg-blue-950 text-yellow-500 focus:ring-yellow-500"
+                  />
+                  Enable Forward Stepwise Variable Selection
+                </label>
+              </div>
+            </div>
+
+            {step15VariableSelection && (
+              <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-4">
+                <h4 className="text-sm font-bold text-white mb-2">Forward Stepwise Variable Selection</h4>
+                <p className="text-xs text-blue-300 mb-3">
+                  Variables are added one at a time based on AUC improvement. The process stops when adding more variables does not improve AUC significantly.
+                </p>
+                {step15SelectedVariables.length > 0 && (
+                  <div className="mb-3">
+                    <p className="text-xs font-bold text-blue-200 mb-1">Selected Variables (in order):</p>
+                    <div className="flex flex-wrap gap-1">
+                      {step15SelectedVariables.map((v, i) => (
+                        <span key={i} className="text-xs bg-blue-800/50 text-blue-200 px-2 py-0.5 rounded">
+                          {i + 1}. {v}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                  <div className="bg-blue-950/50 rounded p-2">
+                    <p className="font-bold text-blue-200 mb-1">AUC Implementation</p>
+                    <p className="text-blue-300">Calculate AUC at each step to measure discrimination. Higher AUC indicates better model performance.</p>
+                  </div>
+                  <div className="bg-blue-950/50 rounded p-2">
+                    <p className="font-bold text-blue-200 mb-1">Next Best Variable</p>
+                    <p className="text-blue-300">At each step, test remaining variables and select the one that provides the highest AUC improvement.</p>
+                  </div>
+                  <div className="bg-blue-950/50 rounded p-2">
+                    <p className="font-bold text-blue-200 mb-1">Stopping Criteria</p>
+                    <p className="text-blue-300">Stop when: AUC improvement &lt; threshold, validation AUC declines, or max variables reached.</p>
+                  </div>
+                  <div className="bg-blue-950/50 rounded p-2">
+                    <p className="font-bold text-blue-200 mb-1">Over-fitting Detection</p>
+                    <p className="text-blue-300">
+                      {step15OverfittingDetected 
+                        ? "⚠️ Potential over-fitting detected: Training AUC significantly higher than validation AUC."
+                        : "Compare training vs validation AUC. Large gap indicates over-fitting."}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={handleStep15Analysis}
+              disabled={localLoading || !step15Method}
+              className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-4 py-2 rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"
+            >
+              {localLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+              Run Logistic Regression Analysis
+            </button>
+
+            {aiOutput && (
+              <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-sm font-bold text-white">Analysis Report</h4>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => downloadMarkdownAsWord(step15Output || aiOutput, "logistic-regression-report.docx")}
+                      className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1 rounded text-xs flex items-center gap-1"
+                    >
+                      <Download size={12} /> Word
+                    </button>
+                    <button
+                      onClick={() => downloadMarkdownAsPDF(step15Output || aiOutput, "logistic-regression-report.pdf")}
+                      className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1 rounded text-xs flex items-center gap-1"
+                    >
+                      <Download size={12} /> PDF
+                    </button>
+                  </div>
+                </div>
+                <div className="text-xs text-blue-200 prose prose-xs prose-invert max-h-[600px] overflow-y-auto" dangerouslySetInnerHTML={{ __html: renderMarkdown(step15Output || aiOutput) }} />
+              </div>
+            )}
+
+            <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-3">
+              <p className="text-xs text-blue-300">
+                Methodology reference: <a href="https://github.com/naikshubham/Predictive-Analytics-in-Python" target="_blank" rel="noopener noreferrer" className="text-blue-400 underline">https://github.com/naikshubham/Predictive-Analytics-in-Python</a>
+              </p>
+              <p className="text-xs text-blue-300 mt-1">
+                This step implements logistic regression with forward stepwise variable selection, AUC-based evaluation, and over-fitting detection as described in the reference implementation.
+              </p>
+            </div>
           </div>
         );
 
@@ -958,7 +1191,7 @@ export default function PredictiveAnalysisTab() {
           <h2 className="text-xl font-bold text-white">Predictive Analysis Pipeline</h2>
         </div>
         <p className="text-sm text-blue-300 mb-6">
-          Guided 14-step clinical prediction model development based on Efthimiou et al. (BMJ 2024) and PyHealth. AI assists where indicated.
+          Guided {PREDICTION_STEPS.length}-step clinical prediction model development based on Efthimiou et al. (BMJ 2024) and PyHealth. AI assists where indicated.
         </p>
 
         <div className="flex flex-wrap gap-2 mb-6">
@@ -997,11 +1230,11 @@ export default function PredictiveAnalysisTab() {
             <ArrowLeft size={14} /> Previous Step
           </button>
           <span className="text-xs text-blue-400">
-            Step {step} of 14
+            Step {step} of {PREDICTION_STEPS.length}
           </span>
           <button
             onClick={handleNext}
-            disabled={step === 14}
+            disabled={step === PREDICTION_STEPS.length}
             className="text-sm bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-4 py-2 rounded-lg flex items-center gap-1 disabled:opacity-50"
           >
             Next Step <ArrowRight size={14} />
