@@ -128,15 +128,7 @@ export default function PredictiveAnalysisTab() {
         prompt = "Provide guidance for analyzing relationships in the uploaded dataset. Identify likely predictor variables, outcome variable, and potential relationships. Suggest appropriate statistical methods for the analysis.";
         break;
       case 15:
-        prompt = `Provide comprehensive guidance for logistic regression modeling using the uploaded dataset. Reference https://github.com/naikshubham/Predictive-Analytics-in-Python for methodology. Cover:
-1. Logistic Regression vs Multivariate Logistic Regression: When to use each
-2. Forward Stepwise Variable Selection: Intuitive approach to selecting variables one at a time
-3. AUC Implementation: How to calculate AUC for model evaluation
-4. Calculating Next Best Variable: How to determine which variable adds most value at each step
-5. Deciding on Number of Variables: When to stop adding variables
-6. Detecting Over-fitting: Methods to identify and prevent over-fitting
-7. Making Predictions: How to use the final model for prediction
-Include Python code snippets using sklearn/statsmodels.`;
+        prompt = `Provide comprehensive guidance for logistic regression modeling using AutoPrognosis-style methodology. Cover forward stepwise variable selection, AUC-based evaluation, over-fitting detection, and predictor insights graphs (PIG tables) for clinical prediction models.`;
         break;
       default:
         prompt = "Provide guidance for this step.";
@@ -1005,134 +997,56 @@ Include Python code snippets using sklearn/statsmodels.`;
          );
  
 
-      case 15:
-        return (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-white">Step 15: Logistic Regression Model & Variable Selection</h3>
-                <p className="text-sm text-blue-300">
-                  Build logistic regression models using the uploaded dataset. Apply forward stepwise variable selection with AUC evaluation.
-                </p>
-              </div>
-              {state.predictionDataFile && (
-                <span className="text-xs bg-blue-900/50 text-blue-300 px-2 py-1 rounded">
-                  Data: {state.predictionDataFile.name}
-                </span>
-              )}
-            </div>
+       case 15:
+         return (
+           <div className="space-y-4">
+             <div className="flex items-center justify-between">
+               <div>
+                 <h3 className="text-lg font-bold text-white">Step 15: Automated Prognosis & Variable Selection</h3>
+                 <p className="text-sm text-blue-300">
+                   Run AutoPrognosis-style analysis on the dataset uploaded in Step 14. The optimal predictors are evaluated using Forward Stepwise Selection and PIG table metrics.
+                 </p>
+               </div>
+               {(csvFile || state.predictionDataFile) && (
+                 <span className="text-xs bg-blue-900/50 text-blue-300 px-2 py-1 rounded">
+                   Data: {(csvFile || state.predictionDataFile)?.name}
+                 </span>
+               )}
+             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-blue-200 mb-2">Model Type</label>
-                <select
-                  value={step15Method}
-                  onChange={(e) => setStep15Method(e.target.value as "logistic" | "multivariate" | "")}
-                  className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2.5 text-sm"
-                >
-                  <option value="">Select model...</option>
-                  <option value="logistic">Logistic Regression</option>
-                  <option value="multivariate">Multivariate Logistic Regression</option>
-                </select>
-              </div>
-              <div className="flex items-end">
-                <label className="flex items-center gap-2 text-sm text-blue-300">
-                  <input
-                    type="checkbox"
-                    checked={step15VariableSelection}
-                    onChange={(e) => setStep15VariableSelection(e.target.checked)}
-                    className="rounded border-blue-800 bg-blue-950 text-yellow-500 focus:ring-yellow-500"
-                  />
-                  Enable Forward Stepwise Variable Selection
-                </label>
-              </div>
-            </div>
+             <button
+               onClick={runAutoPrognosis}
+               disabled={autoPrognosisLoading || !(csvFile || state.predictionDataFile)}
+               className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-4 py-2 rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"
+             >
+               {autoPrognosisLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+               Run AutoPrognosis Analysis
+             </button>
 
-            {step15VariableSelection && (
-              <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-4">
-                <h4 className="text-sm font-bold text-white mb-2">Forward Stepwise Variable Selection</h4>
-                <p className="text-xs text-blue-300 mb-3">
-                  Variables are added one at a time based on AUC improvement. The process stops when adding more variables does not improve AUC significantly.
-                </p>
-                {step15SelectedVariables.length > 0 && (
-                  <div className="mb-3">
-                    <p className="text-xs font-bold text-blue-200 mb-1">Selected Variables (in order):</p>
-                    <div className="flex flex-wrap gap-1">
-                      {step15SelectedVariables.map((v, i) => (
-                        <span key={i} className="text-xs bg-blue-800/50 text-blue-200 px-2 py-0.5 rounded">
-                          {i + 1}. {v}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                  <div className="bg-blue-950/50 rounded p-2">
-                    <p className="font-bold text-blue-200 mb-1">AUC Implementation</p>
-                    <p className="text-blue-300">Calculate AUC at each step to measure discrimination. Higher AUC indicates better model performance.</p>
-                  </div>
-                  <div className="bg-blue-950/50 rounded p-2">
-                    <p className="font-bold text-blue-200 mb-1">Next Best Variable</p>
-                    <p className="text-blue-300">At each step, test remaining variables and select the one that provides the highest AUC improvement.</p>
-                  </div>
-                  <div className="bg-blue-950/50 rounded p-2">
-                    <p className="font-bold text-blue-200 mb-1">Stopping Criteria</p>
-                    <p className="text-blue-300">Stop when: AUC improvement &lt; threshold, validation AUC declines, or max variables reached.</p>
-                  </div>
-                  <div className="bg-blue-950/50 rounded p-2">
-                    <p className="font-bold text-blue-200 mb-1">Over-fitting Detection</p>
-                    <p className="text-blue-300">
-                      {step15OverfittingDetected 
-                        ? "⚠️ Potential over-fitting detected: Training AUC significantly higher than validation AUC."
-                        : "Compare training vs validation AUC. Large gap indicates over-fitting."}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <button
-              onClick={handleStep15Analysis}
-              disabled={localLoading || !step15Method}
-              className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-4 py-2 rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"
-            >
-              {localLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-              Run Logistic Regression Analysis
-            </button>
-
-            {aiOutput && (
-              <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="text-sm font-bold text-white">Analysis Report</h4>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => downloadMarkdownAsWord(step15Output || aiOutput, "logistic-regression-report.docx")}
-                      className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1 rounded text-xs flex items-center gap-1"
-                    >
-                      <Download size={12} /> Word
-                    </button>
-                    <button
-                      onClick={() => downloadMarkdownAsPDF(step15Output || aiOutput, "logistic-regression-report.pdf")}
-                      className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1 rounded text-xs flex items-center gap-1"
-                    >
-                      <Download size={12} /> PDF
-                    </button>
-                  </div>
-                </div>
-                <div className="text-xs text-blue-200 prose prose-xs prose-invert max-h-[600px] overflow-y-auto" dangerouslySetInnerHTML={{ __html: renderMarkdown(step15Output || aiOutput) }} />
-              </div>
-            )}
-
-            <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-3">
-              <p className="text-xs text-blue-300">
-                Methodology reference: <a href="https://github.com/naikshubham/Predictive-Analytics-in-Python" target="_blank" rel="noopener noreferrer" className="text-blue-400 underline">https://github.com/naikshubham/Predictive-Analytics-in-Python</a>
-              </p>
-              <p className="text-xs text-blue-300 mt-1">
-                This step implements logistic regression with forward stepwise variable selection, AUC-based evaluation, and over-fitting detection as described in the reference implementation.
-              </p>
-            </div>
-          </div>
-        );
+             {autoPrognosisReportHtml && (
+               <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
+                 <div className="flex items-center justify-between mb-2">
+                   <h4 className="text-sm font-bold text-white">AutoPrognosis Report</h4>
+                   <div className="flex gap-2">
+                     <button
+                       onClick={() => downloadMarkdownAsWord(autoPrognosisReportText, "autoprognosis-report.docx")}
+                       className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1 rounded text-xs flex items-center gap-1"
+                     >
+                       <Download size={12} /> Download Word
+                     </button>
+                     <button
+                       onClick={() => downloadMarkdownAsPDF(autoPrognosisReportText, "autoprognosis-report.pdf")}
+                       className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1 rounded text-xs flex items-center gap-1"
+                     >
+                       <Download size={12} /> Download PDF
+                     </button>
+                   </div>
+                 </div>
+                 <div className="max-h-[600px] overflow-y-auto" dangerouslySetInnerHTML={{ __html: autoPrognosisReportHtml }} />
+               </div>
+             )}
+           </div>
+         );
 
       default:
         return null;
