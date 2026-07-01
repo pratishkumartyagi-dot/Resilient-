@@ -595,12 +595,17 @@ class PigRow(BaseModel):
 
 
 class AutoprognosisRunResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     study_name: str
     method: str
     selected_pipeline: str
     outcome_type: str
     selected_variables: List[str]
     optimal_predictors: List[str]
+    autoprognosis_ran: bool
+    autoprognosis_pipeline: Optional[str] = None
+    autoprognosis_auc: Optional[float] = None
     stepwise_metrics: List[AutoprognosisStepMetric]
     train_auc: float
     test_auc: float
@@ -747,6 +752,7 @@ def _generate_report_html(body: Dict[str, Any]) -> str:
         <div>Selected pipeline: {esc(body.get('selected_pipeline'))}</div>
         <div>Outcome: {esc(body.get('outcome_type'))}</div>
         <div>Selected variables: {esc(", ".join(body.get('selected_variables') or []))}</div>
+        {f"<div>AutoPrognosis AUC: {esc(body.get('autoprognosis_auc'))}</div>" if body.get('autoprognosis_ran') else ""}
       </div>
       <div class="callout">
         <div>Train AUC: <strong>{esc(body.get('train_auc'))}</strong></div>
@@ -776,9 +782,70 @@ def _generate_report_html(body: Dict[str, Any]) -> str:
     """
 
 
+def _run_autoprognosis_real(df: pd.DataFrame, target: str, study_name: str, num_iter: int, timeout_seconds: int) -> Dict[str, Any]:
+    try:
+        from pathlib import Path
+        from autoprognosis.studies.classifiers import ClassifierStudy
+        from autoprognosis.utils.tester import evaluate_estimator
+
+        workspace = Path("/tmp") / f"autoprognosis_{study_name}"
+        workspace.mkdir(parents=True, exist_ok=True)
+
+        classifiers = [
+            "logistic_regression",
+            "random_forest",
+            "xgboost",
+            "catboost",
+            "gradient_boosting",
+        ]
+
+        study = ClassifierStudy(
+            study_name=study_name,
+            dataset=df,
+            target=target,
+            num_iter=num_iter,
+            num_study_iter=1,
+            timeout=min(timeout_seconds, 60),
+            workspace=workspace,
+            classifiers=classifiers,
+            imputers=["mean"],
+            feature_scaling=["scaler"],
+            feature_selection=["nop"],
+        )
+        model = study.fit()
+
+        x = df.drop(columns=[target]).fillna(0)
+        y = df[target]
+        metrics = evaluate_estimator(model, x, y, n_folds=3, seed=42, pretrained=True)
+        aucroc = float(metrics.get("raw", {}).get("aucroc", [0.0])[0])
+        selected_pipeline = model.name()
+
+        return {
+            "autoprognosis_ran": True,
+            "selected_pipeline": selected_pipeline,
+            "autoprognosis_auc": round(aucroc, 4),
+        }
+    except Exception as exc:
+        logger.warning("AutoPrognosis run failed: %s", exc)
+        return {
+            "autoprognosis_ran": False,
+            "error": str(exc),
+        }
+
+
 def _autoprognosis_style_run(df: pd.DataFrame, request: AutoprognosisRunRequest) -> Dict[str, Any]:
     target = _infer_target(df, request.target_column)
     outcome_type = "binary"
+
+    autoprognosis_result = _run_autoprognosis_real(
+        df=df,
+        target=target,
+        study_name=request.study_name,
+        num_iter=request.num_iter,
+        timeout_seconds=request.timeout,
+    )
+    use_autoprognosis = autoprognosis_result.get("autoprognosis_ran", False)
+
     optimal_predictors, stepwise_metrics, train_auc, test_auc = _run_fss(df, target, request.max_variables, request.test_size)
     selected_variables = list(optimal_predictors)
     overfitting_detected = train_auc - test_auc > 0.05
@@ -787,24 +854,35 @@ def _autoprognosis_style_run(df: pd.DataFrame, request: AutoprognosisRunRequest)
         if overfitting_detected
         else "Train/test performance is consistent. Lower overfitting risk."
     )
-    selected_pipeline = f"AutoPrognosis-style LogisticRegression-based {request.method} pipeline with {len(selected_variables)} predictors"
+
+    autoprognosis_label = (
+        autoprognosis_result.get("selected_pipeline", "AutoPrognosis ClassifierStudy")
+        if use_autoprognosis
+        else "AutoPrognosis-style LogisticRegression-based fallback"
+    )
+    selected_pipeline = f"{autoprognosis_label} + {request.method} pipeline with {len(selected_variables)} predictors (FSS/PIG evaluated)"
+
     pig_tables = {variable: _create_pig_table(df, target, variable) for variable in selected_variables}
 
     report_text = "\n".join([
         f"Study: {request.study_name}",
         f"Method: {request.method}",
         f"Outcome: {outcome_type}",
+        f"AutoPrognosis used: {use_autoprognosis}",
         f"Selected Pipeline: {selected_pipeline}",
         f"Selected Variables: {', '.join(selected_variables)}",
         f"Train AUC: {train_auc}",
         f"Test AUC: {test_auc}",
+        f"AutoPrognosis AUC: {autoprognosis_result.get('autoprognosis_auc', 'N/A') if use_autoprognosis else 'N/A (fallback)'}",
         f"Overfitting detected: {overfitting_detected} — {overfitting_note}",
         "",
         "Forward Stepwise Selection:",
     ] + [f"Step {m['order']}: added {m['added_variable']} — model_score={m['model_score']}, train AUC={m['train_auc']}, test AUC={m['test_auc']}" for m in stepwise_metrics] + [
         "",
         "PIG Table Metrics:",
-    ] + [f"{var}: {rows}" for var, rows in pig_tables.items()])
+    ] + [f"{var}: {rows}" for var, rows in pig_tables.items()] + (
+        ["", f"AutoPrognosis error: {autoprognosis_result.get('error')}"] if not use_autoprognosis and autoprognosis_result.get("error") else []
+    ))
 
     payload = {
         "study_name": request.study_name,
@@ -813,6 +891,9 @@ def _autoprognosis_style_run(df: pd.DataFrame, request: AutoprognosisRunRequest)
         "outcome_type": outcome_type,
         "selected_variables": selected_variables,
         "optimal_predictors": optimal_predictors,
+        "autoprognosis_ran": use_autoprognosis,
+        "autoprognosis_pipeline": autoprognosis_result.get("selected_pipeline") if use_autoprognosis else None,
+        "autoprognosis_auc": autoprognosis_result.get("autoprognosis_auc") if use_autoprognosis else None,
         "stepwise_metrics": [
             AutoprognosisStepMetric(
                 order=m["order"],
