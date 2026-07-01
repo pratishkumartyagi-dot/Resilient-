@@ -66,12 +66,9 @@ export default function PredictiveAnalysisTab() {
   const [relationshipLoading, setRelationshipLoading] = useState(false);
   const [relationshipHeaders, setRelationshipHeaders] = useState<string[]>([]);
   const [captumMethod, setCaptumMethod] = useState<string>("integrated_gradients");
-  const [step15Method, setStep15Method] = useState<"logistic" | "multivariate" | "">("");
-  const [step15VariableSelection, setStep15VariableSelection] = useState(true);
-  const [step15AucResults, setStep15AucResults] = useState<string>("");
-  const [step15OverfittingDetected, setStep15OverfittingDetected] = useState(false);
-  const [step15SelectedVariables, setStep15SelectedVariables] = useState<string[]>([]);
-  const [step15Output, setStep15Output] = useState<string>("");
+  const [autoPrognosisReportHtml, setAutoPrognosisReportHtml] = useState<string>("");
+  const [autoPrognosisReportText, setAutoPrognosisReportText] = useState<string>("");
+  const [autoPrognosisLoading, setAutoPrognosisLoading] = useState(false);
 
   const step = state.predictionStep;
 
@@ -165,86 +162,45 @@ Include Python code snippets using sklearn/statsmodels.`;
     setLocalLoading(false);
   };
 
-  const handleStep15Analysis = async () => {
-    setLocalLoading(true);
-    setAiOutput("");
-    
-    if (!state.predictionDataFile && !csvFile) {
-      setAiOutput("Please upload a dataset in Step 14 first.");
-      setLocalLoading(false);
+  const runAutoPrognosis = async () => {
+    const file = csvFile || state.predictionDataFile;
+    if (!file) {
+      setAutoPrognosisReportHtml('<p class="text-red-400">Please upload a dataset in Step 14 first.</p>');
       return;
     }
-
-    const apiKey = state.geminiApiKey || state.groqApiKey;
-    if (!apiKey) {
-      setAiOutput("Please configure an AI provider in Settings first.");
-      setLocalLoading(false);
-      return;
-    }
+    setAutoPrognosisLoading(true);
+    setAutoPrognosisReportHtml("");
+    setAutoPrognosisReportText("");
 
     try {
-      let text = "";
-      const file = csvFile || state.predictionDataFile;
-      if (!file) {
-        setAiOutput("No file available for analysis.");
-        setLocalLoading(false);
-        return;
-      }
-      
-      const name = file.name.toLowerCase();
-      if (name.endsWith(".csv")) {
-        text = await file.text();
-      } else if (name.endsWith(".xls") || name.endsWith(".xlsx")) {
-        const XLSX = await import("xlsx");
-        const buffer = await file.arrayBuffer();
-        const workbook = XLSX.read(buffer, { type: "array" });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        text = XLSX.utils.sheet_to_csv(worksheet);
-      } else {
-        setAiOutput("Unsupported file type.");
-        setLocalLoading(false);
-        return;
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("study_name", "step15-autoprognosis");
+      formData.append("method", "auto_classifier");
+      formData.append("max_variables", "10");
+      formData.append("test_size", "0.4");
+      formData.append("num_iter", "50");
+
+      const res = await fetch("/api/researcher/run-autoprognosis", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`AutoPrognosis failed: ${text}`);
       }
 
-      const { headers, rows } = parseSimpleCSV(text);
-      const methodLabel = step15Method === "multivariate" ? "Multivariate Logistic Regression" : "Logistic Regression";
-      
-      const prompt = `You are a clinical prediction model expert. Using the methodology from https://github.com/naikshubham/Predictive-Analytics-in-Python as reference, analyze the following dataset for ${methodLabel}.
-
-Dataset columns: ${headers.join(", ")}
-Sample rows: ${rows.slice(0, 5).map(r => r.join(", ")).join("; ")}
-
-Provide a comprehensive analysis including:
-1. **${methodLabel}**: Explain the approach and assumptions
-2. **Forward Stepwise Variable Selection**: Implement the intuitive forward stepwise selection method. Show how to calculate the next best variable at each step using AUC improvement.
-3. **AUC Implementation**: Provide the AUC function implementation and how it's used to evaluate variable addition.
-4. **Deciding on Number of Variables**: Explain how to determine optimal number of variables (stop when AUC improvement falls below threshold or validation AUC peaks then declines).
-5. **Over-fitting Detection**: Describe methods to detect over-fitting (compare training vs validation AUC, use cross-validation).
-6. **Variable Selection Results**: List the selected variables in order of importance.
-7. **Predictions**: Show how to make predictions on new data.
-
-Format the response with clear sections using ### headers, **bold** for key terms, and bullet points for lists. Include code snippets where appropriate.`;
-
-      let response: string;
-      if (state.geminiApiKey) response = await callGemini(apiKey, prompt);
-      else if (state.groqApiKey) response = await callGroq(apiKey, prompt);
-      else throw new Error("No API key configured.");
-
-      setStep15Output(response);
-      setAiOutput(response);
-      
-      if (step15VariableSelection) {
-        setStep15SelectedVariables(headers.slice(0, Math.min(5, headers.length)));
-      }
-      setStep15AucResults("AUC calculated during variable selection process");
-      setStep15OverfittingDetected(false);
-      
-      dispatch({ type: "SET_PREDICTION_STEP", payload: 15 });
+      const data = await res.json();
+      setAutoPrognosisReportHtml(data.report_html || "");
+      setAutoPrognosisReportText(data.report_text || "");
     } catch (e) {
-      setAiOutput(`Analysis failed: ${e instanceof Error ? e.message : "Unknown error"}`);
+      const message = e instanceof Error ? e.message : "Unknown error";
+      setAutoPrognosisReportHtml(`<p class="text-red-400">Analysis failed: ${message}</p>`);
+      setAutoPrognosisReportText(`Analysis failed: ${message}`);
+    } finally {
+      setAutoPrognosisLoading(false);
     }
-    setLocalLoading(false);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
