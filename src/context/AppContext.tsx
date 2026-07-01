@@ -137,12 +137,9 @@ export interface AppState {
   predictionReportNotes: string;
   predictionCaptumEnabled: boolean;
   predictionCaptumResults: string;
-  step15Output: string;
-  step15Method: "logistic" | "multivariate" | null;
-  step15VariableSelection: boolean;
-  step15AucResults: string;
-  step15OverfittingDetected: boolean;
-  step15SelectedVariables: string[];
+  predictionAutoPrognosisReportHtml: string;
+  predictionAutoPrognosisReportText: string;
+  predictionAutoPrognosisLoading: boolean;
 }
 
 type Action =
@@ -208,12 +205,9 @@ type Action =
   | { type: "SET_PREDICTION_REPORT_NOTES"; payload: string }
   | { type: "SET_PREDICTION_CAPTUM_ENABLED"; payload: boolean }
   | { type: "SET_PREDICTION_CAPTUM_RESULTS"; payload: string }
-  | { type: "SET_STEP15_OUTPUT"; payload: string }
-  | { type: "SET_STEP15_METHOD"; payload: "logistic" | "multivariate" | null }
-  | { type: "SET_STEP15_VARIABLE_SELECTION"; payload: boolean }
-  | { type: "SET_STEP15_AUC_RESULTS"; payload: string }
-  | { type: "SET_STEP15_OVERFITTING"; payload: boolean }
-  | { type: "SET_STEP15_SELECTED_VARIABLES"; payload: string[] };
+  | { type: "SET_PREDICTION_AUTOPROGNOSIS_REPORT_HTML"; payload: string }
+  | { type: "SET_PREDICTION_AUTOPROGNOSIS_REPORT_TEXT"; payload: string }
+  | { type: "SET_PREDICTION_AUTOPROGNOSIS_LOADING"; payload: boolean };
 
 const initialState: AppState = {
   currentTab: "main",
@@ -306,12 +300,9 @@ const initialState: AppState = {
   predictionReportNotes: "",
   predictionCaptumEnabled: false,
   predictionCaptumResults: "",
-  step15Output: "",
-  step15Method: null,
-  step15VariableSelection: true,
-  step15AucResults: "",
-  step15OverfittingDetected: false,
-  step15SelectedVariables: [],
+  predictionAutoPrognosisReportHtml: "",
+  predictionAutoPrognosisReportText: "",
+  predictionAutoPrognosisLoading: false,
 };
 
 function appReducer(state: AppState, action: Action): AppState {
@@ -493,18 +484,12 @@ function appReducer(state: AppState, action: Action): AppState {
       return { ...state, predictionCaptumEnabled: action.payload };
     case "SET_PREDICTION_CAPTUM_RESULTS":
       return { ...state, predictionCaptumResults: action.payload };
-    case "SET_STEP15_OUTPUT":
-      return { ...state, step15Output: action.payload };
-    case "SET_STEP15_METHOD":
-      return { ...state, step15Method: action.payload };
-    case "SET_STEP15_VARIABLE_SELECTION":
-      return { ...state, step15VariableSelection: action.payload };
-    case "SET_STEP15_AUC_RESULTS":
-      return { ...state, step15AucResults: action.payload };
-    case "SET_STEP15_OVERFITTING":
-      return { ...state, step15OverfittingDetected: action.payload };
-    case "SET_STEP15_SELECTED_VARIABLES":
-      return { ...state, step15SelectedVariables: action.payload };
+    case "SET_PREDICTION_AUTOPROGNOSIS_REPORT_HTML":
+      return { ...state, predictionAutoPrognosisReportHtml: action.payload };
+    case "SET_PREDICTION_AUTOPROGNOSIS_REPORT_TEXT":
+      return { ...state, predictionAutoPrognosisReportText: action.payload };
+    case "SET_PREDICTION_AUTOPROGNOSIS_LOADING":
+      return { ...state, predictionAutoPrognosisLoading: action.payload };
     case "RESET_STATE":
       return { ...initialState };
     default:

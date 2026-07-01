@@ -66,10 +66,6 @@ export default function PredictiveAnalysisTab() {
   const [relationshipLoading, setRelationshipLoading] = useState(false);
   const [relationshipHeaders, setRelationshipHeaders] = useState<string[]>([]);
   const [captumMethod, setCaptumMethod] = useState<string>("integrated_gradients");
-  const [autoPrognosisReportHtml, setAutoPrognosisReportHtml] = useState<string>("");
-  const [autoPrognosisReportText, setAutoPrognosisReportText] = useState<string>("");
-  const [autoPrognosisLoading, setAutoPrognosisLoading] = useState(false);
-
   const step = state.predictionStep;
 
   const handleNext = () => {
@@ -157,12 +153,12 @@ export default function PredictiveAnalysisTab() {
   const runAutoPrognosis = async () => {
     const file = csvFile || state.predictionDataFile;
     if (!file) {
-      setAutoPrognosisReportHtml('<p class="text-red-400">Please upload a dataset in Step 14 first.</p>');
+      dispatch({ type: "SET_PREDICTION_AUTOPROGNOSIS_REPORT_HTML", payload: '<p class="text-red-400">Please upload a dataset in Step 14 first.</p>' });
       return;
     }
-    setAutoPrognosisLoading(true);
-    setAutoPrognosisReportHtml("");
-    setAutoPrognosisReportText("");
+    dispatch({ type: "SET_PREDICTION_AUTOPROGNOSIS_LOADING", payload: true });
+    dispatch({ type: "SET_PREDICTION_AUTOPROGNOSIS_REPORT_HTML", payload: "" });
+    dispatch({ type: "SET_PREDICTION_AUTOPROGNOSIS_REPORT_TEXT", payload: "" });
 
     try {
       const formData = new FormData();
@@ -184,14 +180,14 @@ export default function PredictiveAnalysisTab() {
       }
 
       const data = await res.json();
-      setAutoPrognosisReportHtml(data.report_html || "");
-      setAutoPrognosisReportText(data.report_text || "");
+      dispatch({ type: "SET_PREDICTION_AUTOPROGNOSIS_REPORT_HTML", payload: data.report_html || "" });
+      dispatch({ type: "SET_PREDICTION_AUTOPROGNOSIS_REPORT_TEXT", payload: data.report_text || "" });
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unknown error";
-      setAutoPrognosisReportHtml(`<p class="text-red-400">Analysis failed: ${message}</p>`);
-      setAutoPrognosisReportText(`Analysis failed: ${message}`);
+      dispatch({ type: "SET_PREDICTION_AUTOPROGNOSIS_REPORT_HTML", payload: `<p class="text-red-400">Analysis failed: ${message}</p>` });
+      dispatch({ type: "SET_PREDICTION_AUTOPROGNOSIS_REPORT_TEXT", payload: `Analysis failed: ${message}` });
     } finally {
-      setAutoPrognosisLoading(false);
+      dispatch({ type: "SET_PREDICTION_AUTOPROGNOSIS_LOADING", payload: false });
     }
   };
 
@@ -997,56 +993,56 @@ export default function PredictiveAnalysisTab() {
          );
  
 
-       case 15:
-         return (
-           <div className="space-y-4">
-             <div className="flex items-center justify-between">
-               <div>
-                 <h3 className="text-lg font-bold text-white">Step 15: Automated Prognosis & Variable Selection</h3>
-                 <p className="text-sm text-blue-300">
-                   Run AutoPrognosis-style analysis on the dataset uploaded in Step 14. The optimal predictors are evaluated using Forward Stepwise Selection and PIG table metrics.
-                 </p>
-               </div>
-               {(csvFile || state.predictionDataFile) && (
-                 <span className="text-xs bg-blue-900/50 text-blue-300 px-2 py-1 rounded">
-                   Data: {(csvFile || state.predictionDataFile)?.name}
-                 </span>
-               )}
-             </div>
+        case 15:
+          return (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-white">Step 15: Automated Prognosis & Variable Selection</h3>
+                  <p className="text-sm text-blue-300">
+                    Run AutoPrognosis-style analysis on the dataset uploaded in Step 14. The optimal predictors are evaluated using Forward Stepwise Selection and PIG table metrics.
+                  </p>
+                </div>
+                {(csvFile || state.predictionDataFile) && (
+                  <span className="text-xs bg-blue-900/50 text-blue-300 px-2 py-1 rounded">
+                    Data: {(csvFile || state.predictionDataFile)?.name}
+                  </span>
+                )}
+              </div>
 
-             <button
-               onClick={runAutoPrognosis}
-               disabled={autoPrognosisLoading || !(csvFile || state.predictionDataFile)}
-               className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-4 py-2 rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"
-             >
-               {autoPrognosisLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-               Run AutoPrognosis Analysis
-             </button>
+              <button
+                onClick={runAutoPrognosis}
+                disabled={state.predictionAutoPrognosisLoading || !(csvFile || state.predictionDataFile)}
+                className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-4 py-2 rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"
+              >
+                {state.predictionAutoPrognosisLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                Run AutoPrognosis Analysis
+              </button>
 
-             {autoPrognosisReportHtml && (
-               <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
-                 <div className="flex items-center justify-between mb-2">
-                   <h4 className="text-sm font-bold text-white">AutoPrognosis Report</h4>
-                   <div className="flex gap-2">
-                     <button
-                       onClick={() => downloadMarkdownAsWord(autoPrognosisReportText, "autoprognosis-report.docx")}
-                       className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1 rounded text-xs flex items-center gap-1"
-                     >
-                       <Download size={12} /> Download Word
-                     </button>
-                     <button
-                       onClick={() => downloadMarkdownAsPDF(autoPrognosisReportText, "autoprognosis-report.pdf")}
-                       className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1 rounded text-xs flex items-center gap-1"
-                     >
-                       <Download size={12} /> Download PDF
-                     </button>
-                   </div>
-                 </div>
-                 <div className="max-h-[600px] overflow-y-auto" dangerouslySetInnerHTML={{ __html: autoPrognosisReportHtml }} />
-               </div>
-             )}
-           </div>
-         );
+              {state.predictionAutoPrognosisReportHtml && (
+                <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-sm font-bold text-white">AutoPrognosis Report</h4>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => downloadMarkdownAsWord(state.predictionAutoPrognosisReportText || "", "autoprognosis-report.docx")}
+                        className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1 rounded text-xs flex items-center gap-1"
+                      >
+                        <Download size={12} /> Download Word
+                      </button>
+                      <button
+                        onClick={() => downloadMarkdownAsPDF(state.predictionAutoPrognosisReportText || "", "autoprognosis-report.pdf")}
+                        className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1 rounded text-xs flex items-center gap-1"
+                      >
+                        <Download size={12} /> Download PDF
+                      </button>
+                    </div>
+                  </div>
+                  <div className="max-h-[600px] overflow-y-auto" dangerouslySetInnerHTML={{ __html: state.predictionAutoPrognosisReportHtml }} />
+                </div>
+              )}
+            </div>
+          );
 
       default:
         return null;

@@ -545,6 +545,21 @@ The AI-generated narrative review follows a strict heading structure:
 - `Ananyaa-Tanwar/multi-agent-data-pipeline` — Multi-agent CSV/Excel analysis with relationship detection
 - `SagarSreekumarPillai/insightpredictor` — Next.js + FastAPI CSV prediction with ML insights and PDF export
 
+## Step 15 — Automated Prognosis & Variable Selection — Global State Integration (2026-07-01)
+
+**Files Modified**:
+- `src/context/AppContext.tsx`
+- `src/components/tabs/PredictiveAnalysisTab.tsx`
+
+**Changes**:
+- Replaced stale `step15Output`, `step15Method`, `step15VariableSelection`, `step15AucResults`, `step15OverfittingDetected`, `step15SelectedVariables` state with proper AutoPrognosis global state: `predictionAutoPrognosisReportHtml`, `predictionAutoPrognosisReportText`, `predictionAutoPrognosisLoading`
+- Updated Step 15 UI to dispatch results to global state instead of local component state
+- Report now persists when navigating away from and back to Step 15
+- Reduced unused local `useState` hooks in `PredictiveAnalysisTab`
+- Removed unused Action types: `SET_STEP15_OUTPUT`, `SET_STEP15_METHOD`, `SET_STEP15_VARIABLE_SELECTION`, `SET_STEP15_AUC_RESULTS`, `SET_STEP15_OVERFITTING`, `SET_STEP15_SELECTED_VARIABLES`
+
+**Validation**: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅
+
 ## Document Exporter Upgrade — DOCX/XLSX/PPTX (2026-06-30)
 
 **Feature**: Replaced HTML-blob document exports with professional-grade generation using the same tech stack as https://github.com/Duds/md-converter (docx, exceljs, pptxgenjs). Chose Duds/md-converter over vace/markdown-docx because it supports DOCX, PPTX, and XLSX, and maintains consistent content/formatting across on-screen markdown and downloaded documents.
