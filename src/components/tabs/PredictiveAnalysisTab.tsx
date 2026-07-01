@@ -1194,7 +1194,7 @@ Format the response with clear sections using ### headers, **bold** for key term
           Guided {PREDICTION_STEPS.length}-step clinical prediction model development based on Efthimiou et al. (BMJ 2024) and PyHealth. AI assists where indicated.
         </p>
 
-        <div className="flex overflow-x-auto no-scrollbar gap-2 mb-6 pb-2">
+        <div className="flex flex-wrap items-center gap-2 mb-6">
           {PREDICTION_STEPS.map((s) => {
             const Icon = s.icon;
             const isActive = step === s.num;
