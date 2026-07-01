@@ -12,8 +12,25 @@ fi
 PYTHON_VERSION="$(python3 -c 'import sys; print("{}.{}".format(*sys.version_info[:2]))')"
 echo "Detected Python ${PYTHON_VERSION}"
 
-# Install dependencies
-pip3 install -r "${SCRIPT_DIR}/requirements.txt"
+VENV_DIR="${SCRIPT_DIR}/.venv"
+if [ ! -d "${VENV_DIR}" ]; then
+  echo "Creating virtual environment..."
+  python3 -m venv --without-pip "${VENV_DIR}" 2>/dev/null || python3 -m venv "${VENV_DIR}" 2>/dev/null || true
+fi
+
+if [ -d "${VENV_DIR}" ]; then
+  VENV_PIP="${VENV_DIR}/bin/pip"
+  if [ ! -x "${VENV_PIP}" ]; then
+    echo "Bootstrapping pip in venv..."
+    curl -sS https://bootstrap.pypa.io/get-pip.py | "${VENV_DIR}/bin/python3" - >/dev/null 2>&1 || true
+  fi
+  echo "Installing dependencies into venv..."
+  "${VENV_PIP}" install --no-cache-dir -r "${SCRIPT_DIR}/requirements.txt" 2>&1 | tail -5 || echo "Dependency install skipped or failed; continuing."
+  PYTHON_BIN="${VENV_DIR}/bin/python3"
+else
+  echo "Warning: venv not created; falling back to system python"
+  PYTHON_BIN="python3"
+fi
 
 # Ensure .env loaded if present
 if [ -f "${SCRIPT_DIR}/.env" ]; then
@@ -34,4 +51,4 @@ echo "Chroma DB:  /tmp/researcher_chroma.db"
 echo ""
 
 cd "${SCRIPT_DIR}"
-exec python3 -m uvicorn app:app --host "${HOST}" --port "${PORT}"
+exec "${PYTHON_BIN}" -m uvicorn app:app --host "${HOST}" --port "${PORT}"

@@ -427,7 +427,7 @@ async def chroma_purge() -> PurgeResponse:
 # Predictive Analysis endpoints (PyHealth-guided clinical prediction models)
 # ---------------------------------------------------------------------------
 class PredictiveAssistRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", protected_namespaces=())
     step: int = Field(..., ge=1, le=13)
     population: Optional[str] = None
     outcome: Optional[str] = None
@@ -575,9 +575,11 @@ class AutoprognosisRunRequest(BaseModel):
     max_variables: int = 10
     test_size: float = 0.4
     num_iter: int = 50
+    timeout: int = 600
 
 
 class AutoprognosisStepMetric(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     order: int
     added_variable: str
     model_score: float
@@ -639,12 +641,17 @@ def _infer_target(df: pd.DataFrame, requested: Optional[str]) -> str:
 def _auc_score(variables: List[str], target: str, df: pd.DataFrame, test_size: float) -> Dict[str, Any]:
     x = df[variables].fillna(0)
     y = df[target]
-    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=test_size, stratify=y, random_state=42)
+    if test_size and float(test_size) > 0.0:
+        x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=test_size, stratify=y, random_state=42)
+        model = LogisticRegression(max_iter=1000, solver="lbfgs")
+        model.fit(x_train, y_train)
+        train_auc = round(float(roc_auc_score(y_train, model.predict_proba(x_train)[:, 1])), 4)
+        test_auc = round(float(roc_auc_score(y_test, model.predict_proba(x_test)[:, 1])), 4) if len(x_test) > 0 else train_auc
+        return {"train_auc": train_auc, "test_auc": test_auc, "train_size": len(x_train), "test_size": len(x_test)}
     model = LogisticRegression(max_iter=1000, solver="lbfgs")
-    model.fit(x_train, y_train)
-    train_auc = round(float(roc_auc_score(y_train, model.predict_proba(x_train)[:, 1])), 4)
-    test_auc = round(float(roc_auc_score(y_test, model.predict_proba(x_test)[:, 1])), 4)
-    return {"train_auc": train_auc, "test_auc": test_auc, "train_size": len(x_train), "test_size": len(x_test)}
+    model.fit(x, y)
+    train_auc = round(float(roc_auc_score(y, model.predict_proba(x)[:, 1])), 4)
+    return {"train_auc": train_auc, "test_auc": train_auc, "train_size": len(x), "test_size": 0}
 
 
 def _next_best(current: List[str], candidates: List[str], target: str, df: pd.DataFrame) -> Tuple[str, float]:
@@ -661,11 +668,12 @@ def _next_best(current: List[str], candidates: List[str], target: str, df: pd.Da
 
 def _create_pig_table(df: pd.DataFrame, target: str, variable: str) -> List[dict]:
     groups = df[[target, variable]].groupby(variable, dropna=False)
-    pig = groups[target].agg(Incidence="mean", size="size").reset_index()
-    pig["Incidence"] = pig["Incidence"].round(4)
-    pig = pig.rename(columns={variable: "group", "size": "size"})
+    pig = groups[target].agg(incidence="mean", size="size").reset_index()
+    pig["incidence"] = pig["incidence"].round(4)
+    pig = pig.rename(columns={variable: "group"})
+    pig["group"] = pig["group"].astype(str)
     pig["variable"] = variable
-    return pig[["variable", "group", "Incidence", "size"]].to_dict(orient="records")
+    return pig[["variable", "group", "incidence", "size"]].to_dict(orient="records")
 
 
 def _run_fss(df: pd.DataFrame, target: str, max_variables: int, test_size: float) -> Tuple[List[str], List[dict], float, float]:
@@ -722,7 +730,7 @@ def _generate_report_html(body: Dict[str, Any]) -> str:
             pig_sections += (
                 "<tr>"
                 f"<td>{esc(r.get('group'))}</td>"
-                f"<td>{esc(r.get('Incidence'))}</td>"
+                f"<td>{esc(r.get('incidence'))}</td>"
                 f"<td>{esc(r.get('size'))}</td>"
                 "</tr>"
             )

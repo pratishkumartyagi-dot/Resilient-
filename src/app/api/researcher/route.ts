@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const RESEARCHER_BASE = process.env.NEXT_PUBLIC_RESEARCHER_URL || "http://127.0.0.1:6082";
+const RESEARCHER_BASE = process.env.NEXT_PUBLIC_RESEARCHER_URL || "http://127.0.0.1:8080";
 
 export const runtime = "nodejs";
 
