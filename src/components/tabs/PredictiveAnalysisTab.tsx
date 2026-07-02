@@ -66,6 +66,9 @@ export default function PredictiveAnalysisTab() {
   const [relationshipLoading, setRelationshipLoading] = useState(false);
   const [relationshipHeaders, setRelationshipHeaders] = useState<string[]>([]);
   const [captumMethod, setCaptumMethod] = useState<string>("integrated_gradients");
+  const [step15MaxVars, setStep15MaxVars] = useState("10");
+  const [step15TestSize, setStep15TestSize] = useState("0.4");
+  const [step15NumIter, setStep15NumIter] = useState("50");
   const step = state.predictionStep;
 
   const handleNext = () => {
@@ -165,9 +168,9 @@ export default function PredictiveAnalysisTab() {
       formData.append("file", file);
       formData.append("study_name", "step15-autoprognosis");
       formData.append("method", "auto_classifier");
-      formData.append("max_variables", "10");
-      formData.append("test_size", "0.4");
-      formData.append("num_iter", "50");
+      formData.append("max_variables", step15MaxVars);
+      formData.append("test_size", step15TestSize);
+      formData.append("num_iter", step15NumIter);
 
       const res = await fetch("/api/researcher/run-autoprognosis", {
         method: "POST",
@@ -996,43 +999,111 @@ export default function PredictiveAnalysisTab() {
         case 15:
           return (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-bold text-white">Step 15: Automated Prognosis & Variable Selection</h3>
-                  <p className="text-sm text-blue-300">
-                    Run AutoPrognosis-style analysis on the dataset uploaded in Step 14. The optimal predictors are evaluated using Forward Stepwise Selection and PIG table metrics.
-                  </p>
-                </div>
-                {(csvFile || state.predictionDataFile) && (
-                  <span className="text-xs bg-blue-900/50 text-blue-300 px-2 py-1 rounded">
-                    Data: {(csvFile || state.predictionDataFile)?.name}
-                  </span>
+              <div>
+                <h3 className="text-lg font-bold text-white">Step 15: Automated Prognosis & Variable Selection</h3>
+                <p className="text-sm text-blue-300">
+                  Upload a dataset (CSV or Excel) and run Forward Stepwise Selection with AUC evaluation and PIG table metrics.
+                </p>
+              </div>
+
+              {(csvFile || state.predictionDataFile) && (
+                <span className="text-xs bg-green-900/50 text-green-300 px-2 py-1 rounded">
+                  Loaded: {(csvFile || state.predictionDataFile)?.name}
+                </span>
+              )}
+
+              <div className="border-2 border-dashed border-blue-800 rounded-lg p-6 text-center">
+                <Upload className="mx-auto mb-2 text-blue-400" size={32} />
+                <p className="text-sm text-blue-300 mb-2">Upload your dataset (CSV or Excel)</p>
+                <p className="text-xs text-blue-400 mb-3">Supported: .csv, .xls, .xlsx</p>
+                <input
+                  key={`step15-file-${step}`}
+                  type="file"
+                  accept="text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  onChange={handleFileUpload}
+                  className="text-sm text-blue-300"
+                />
+                {dataPreview && (
+                  <div className="mt-4 text-left bg-blue-950/50 rounded p-3">
+                    <p className="text-xs text-blue-300 mb-2">Preview (first 500 chars):</p>
+                    <pre className="text-xs text-blue-200 whitespace-pre-wrap">{dataPreview.slice(0, 500)}</pre>
+                  </div>
                 )}
               </div>
 
-              <button
-                onClick={runAutoPrognosis}
-                disabled={state.predictionAutoPrognosisLoading || !(csvFile || state.predictionDataFile)}
-                className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-4 py-2 rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"
-              >
-                {state.predictionAutoPrognosisLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                Run AutoPrognosis Analysis
-              </button>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-blue-200 mb-2">Max Variables</label>
+                  <input
+                    type="number"
+                    value={step15MaxVars}
+                    onChange={(e) => setStep15MaxVars(e.target.value)}
+                    placeholder="10"
+                    className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2.5 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-blue-200 mb-2">Test Size (0-1)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={step15TestSize}
+                    onChange={(e) => setStep15TestSize(e.target.value)}
+                    placeholder="0.4"
+                    className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2.5 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-blue-200 mb-2">Iterations</label>
+                  <input
+                    type="number"
+                    value={step15NumIter}
+                    onChange={(e) => setStep15NumIter(e.target.value)}
+                    placeholder="50"
+                    className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2.5 text-sm"
+                  />
+                </div>
+              </div>
 
-              {state.predictionAutoPrognosisReportHtml && (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={runAutoPrognosis}
+                  disabled={state.predictionAutoPrognosisLoading || !(csvFile || state.predictionDataFile)}
+                  className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-4 py-2 rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"
+                >
+                  {state.predictionAutoPrognosisLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                  Run AutoPrognosis Analysis
+                </button>
+                <button
+                  onClick={handleAiAssist}
+                  disabled={localLoading}
+                  className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-4 py-2 rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"
+                >
+                  {localLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                  AI LR Modeling Guidance
+                </button>
+              </div>
+
+              {aiOutput && (
+                <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
+                  <div className="text-xs text-blue-200 prose prose-xs prose-invert" dangerouslySetInnerHTML={{ __html: renderMarkdown(aiOutput) }} />
+                </div>
+              )}
+
+              {(state.predictionAutoPrognosisReportHtml || state.predictionAutoPrognosisReportText) && (
                 <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
                   <div className="flex items-center justify-between mb-2">
                     <h4 className="text-sm font-bold text-white">AutoPrognosis Report</h4>
                     <div className="flex gap-2">
                       <button
                         onClick={() => downloadMarkdownAsWord(state.predictionAutoPrognosisReportText || "", "autoprognosis-report.docx")}
-                        className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1 rounded text-xs flex items-center gap-1"
+                        className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1.5 rounded text-xs flex items-center gap-1"
                       >
                         <Download size={12} /> Download Word
                       </button>
                       <button
                         onClick={() => downloadMarkdownAsPDF(state.predictionAutoPrognosisReportText || "", "autoprognosis-report.pdf")}
-                        className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1 rounded text-xs flex items-center gap-1"
+                        className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1.5 rounded text-xs flex items-center gap-1"
                       >
                         <Download size={12} /> Download PDF
                       </button>
