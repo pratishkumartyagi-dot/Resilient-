@@ -560,6 +560,16 @@ The AI-generated narrative review follows a strict heading structure:
 
 **Validation**: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅
 
+## AutoPrognosis — "Server action not found" Bug Fix (2026-07-02)
+
+**Root cause**: `src/app/api/researcher/run-autoprognosis/route.ts` proxies to `${RESEARCHER_BASE}/run-autoprognosis`, defaulting to `http://127.0.0.1:8080`. When the researcher FastAPI service is not running (or `RESEARCHER_BASE` resolves to the Next.js app itself), the `fetch` hairpin-loops to the Next.js App Router. Next.js sees `multipart/form-data` POST, treats it as a possible Server Action, and returns its internal `Server action not found.` string (from `node_modules/next/dist/esm/server/app-render/action-handler.js:314`). The route handler blindly forwards this 404 text, which the client wraps as `Analysis failed: AutoPrognosis failed: Server action not found.`
+
+**Fix applied** (`src/app/api/researcher/run-autoprognosis/route.ts`):
+- Added detection of the `Server action not found.` text in the upstream response and returns a clear JSON 502 error instructing the user to start the FastAPI researcher service (`services/researcher/run.sh`) and verify `RESEARCHER_URL` / `NEXT_PUBLIC_RESEARCHER_URL` points to it.
+- Removed dead `entries` array that was built from `formData.forEach` but never used.
+
+**Operational note**: The researcher service must be running (`services/researcher/run.sh`) before Step 15 can produce real AutoPrognosis results. Without it, users now see a clear diagnostic message instead of the cryptic Next.js action-handler error.
+
 ## Document Exporter Upgrade — DOCX/XLSX/PPTX (2026-06-30)
 
 **Feature**: Replaced HTML-blob document exports with professional-grade generation using the same tech stack as https://github.com/Duds/md-converter (docx, exceljs, pptxgenjs). Chose Duds/md-converter over vace/markdown-docx because it supports DOCX, PPTX, and XLSX, and maintains consistent content/formatting across on-screen markdown and downloaded documents.

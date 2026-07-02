@@ -7,9 +7,9 @@ export const runtime = "nodejs";
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
-    const entries: [string, unknown][] = [];
-    formData.forEach((value, key) => entries.push([key, value]));
-    const upstream = new Request(`${RESEARCHER_BASE}/run-autoprognosis`, {
+
+    const url = new URL(`${RESEARCHER_BASE}/run-autoprognosis`);
+    const upstream = new Request(url.toString(), {
       method: "POST",
       body: formData as unknown as BodyInit,
       headers: {
@@ -20,6 +20,13 @@ export async function POST(request: NextRequest) {
     const resp = await fetch(upstream);
     const contentType = resp.headers.get("content-type") || "application/json";
     const text = await resp.text();
+
+    if (text.includes("Server action not found")) {
+      return NextResponse.json(
+        { error: `AutoPrognosis failed: the researcher service at ${RESEARCHER_BASE} is unreachable or not running. Ensure the FastAPI service is started (services/researcher/run.sh) and RESEARCHER_URL points to it.` },
+        { status: 502 }
+      );
+    }
 
     return new NextResponse(text, {
       status: resp.status,
