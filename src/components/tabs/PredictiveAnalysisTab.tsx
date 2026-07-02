@@ -1096,7 +1096,7 @@ export default function PredictiveAnalysisTab() {
                     <h4 className="text-sm font-bold text-white">AutoPrognosis Report</h4>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => downloadMarkdownAsWord(state.predictionAutoPrognosisReportText || "", "autoprognosis-report.docx")}
+                        onClick={() => downloadMarkdownAsWord(state.predictionAutoPrognosisReportHtml || state.predictionAutoPrognosisReportText, "autoprognosis-report.docx")}
                         className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1.5 rounded text-xs flex items-center gap-1"
                       >
                         <Download size={12} /> Download Word
