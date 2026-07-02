@@ -1090,28 +1090,28 @@ export default function PredictiveAnalysisTab() {
                 </div>
               )}
 
-              {(state.predictionAutoPrognosisReportHtml || state.predictionAutoPrognosisReportText) && (
-                <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="text-sm font-bold text-white">AutoPrognosis Report</h4>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => downloadMarkdownAsWord(state.predictionAutoPrognosisReportHtml || state.predictionAutoPrognosisReportText, "autoprognosis-report.docx")}
-                        className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1.5 rounded text-xs flex items-center gap-1"
-                      >
-                        <Download size={12} /> Download Word
-                      </button>
-                      <button
-                        onClick={() => downloadMarkdownAsPDF(state.predictionAutoPrognosisReportText || "", "autoprognosis-report.pdf")}
-                        className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1.5 rounded text-xs flex items-center gap-1"
-                      >
-                        <Download size={12} /> Download PDF
-                      </button>
-                    </div>
+              <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                  <h4 className="text-sm font-bold text-white">AutoPrognosis Report</h4>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => downloadMarkdownAsWord(state.predictionAutoPrognosisReportHtml || state.predictionAutoPrognosisReportText, "autoprognosis-report.docx")}
+                      disabled={!(state.predictionAutoPrognosisReportHtml || state.predictionAutoPrognosisReportText)}
+                      className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1.5 rounded text-xs flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <Download size={12} /> Download Word
+                    </button>
+                    <button
+                      onClick={() => downloadMarkdownAsPDF(state.predictionAutoPrognosisReportHtml || state.predictionAutoPrognosisReportText, "autoprognosis-report.pdf")}
+                      disabled={!(state.predictionAutoPrognosisReportHtml || state.predictionAutoPrognosisReportText)}
+                      className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1.5 rounded text-xs flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <Download size={12} /> Download PDF
+                    </button>
                   </div>
-                  <div className="max-h-[600px] overflow-y-auto" dangerouslySetInnerHTML={{ __html: state.predictionAutoPrognosisReportHtml }} />
                 </div>
-              )}
+                <div className="max-h-[600px] overflow-y-auto" dangerouslySetInnerHTML={{ __html: state.predictionAutoPrognosisReportHtml }} />
+              </div>
             </div>
           );
 
