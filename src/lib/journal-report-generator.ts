@@ -60,7 +60,7 @@ ${opts.metaOut}
 ---
 
 ### 1. INTRODUCTION
-Developing valid prognostic tools across multiple medical cohorts requires significant manual engineering. This paper presents a standardized, reproducible workflow that pipes automated systemic review screening data directly into the AutoPrognosis framework.
+Developing valid prognostic tools across multiple medical cohorts requires significant manual engineering. This paper presents a standardized, reproducible workflow that pipes automated systematic review screening data directly into the AutoPrognosis framework.
 
 ### 2. METHODS
 #### 2.1 Data Sourcing and Harmonization

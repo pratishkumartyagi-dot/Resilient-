@@ -4,9 +4,7 @@ import React, { useState } from "react";
 import {
   FlaskConical,
   Upload,
-  Target,
   Play,
-  CheckCircle2,
   Loader2,
   Download,
   ArrowRight,
@@ -29,8 +27,15 @@ const STEPS = [
   { num: 4, label: "Journal Report Generator", icon: FileText, phase: "reporter" as const },
 ];
 
+const OUTCOME_TYPES = [
+  { value: "binary", label: "Binary" },
+  { value: "continuous", label: "Continuous" },
+  { value: "survival", label: "Time-to-event (Survival)" },
+] as const;
+
 function phaseOf(n: number) {
-  if (n <= 2) return "asreview";
+  if (n <= 1) return "asreview";
+  if (n === 2) return "metapipe";
   if (n === 3) return "autoprognosis";
   return "reporter";
 }
@@ -63,7 +68,7 @@ export default function AutomaticEvidenceSynthesisTab() {
   const [metaLoading, setMetaLoading] = useState(false);
 
   const [outcome, setOutcome] = useState("");
-  const [outcomeType, setOutcomeType] = useState("binary");
+  const [outcomeType, setOutcomeType] = useState<(typeof OUTCOME_TYPES)[number]["value"]>("binary");
   const [maxPredictors, setMaxPredictors] = useState("10");
   const [testSize, setTestSize] = useState("0.3");
   const [csvFile, setCsvFile] = useState<File | null>(null);
@@ -76,6 +81,7 @@ export default function AutomaticEvidenceSynthesisTab() {
 
   const [manuscript, setManuscript] = useState("");
   const [reportLoading, setReportLoading] = useState(false);
+  const [missingApiError, setMissingApiError] = useState<string | null>(null);
 
   const parseCsv = (text: string) => {
     const lines = text.split("\n").filter((l) => l.trim().length > 0);
@@ -89,6 +95,19 @@ export default function AutomaticEvidenceSynthesisTab() {
       })
     );
     return { headers, rows };
+  };
+
+  const downloadPigCsv = () => {
+    if (!computationResult) return;
+    const header = [...csvHeaders, "predicted_probability"].join(",");
+    const body = csvRows.map((r) => r.join(",")).join("\n");
+    const blob = new Blob([`${header}\n${body}\n`], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "autoprognosis-pig.csv";
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -105,7 +124,14 @@ export default function AutomaticEvidenceSynthesisTab() {
   const handleAsReview = async () => {
     if (!searchQuery.trim()) return;
     setScreeningLoading(true);
+    setMissingApiError(null);
     try {
+      const apiKey = state.geminiApiKey || state.groqApiKey;
+      if (!apiKey) {
+        setMissingApiError("Please configure an AI provider in Settings to use ASReview-style screening.");
+        setScreeningLoading(false);
+        return;
+      }
       const prompt = `Act as ASReview LAB (Rensvandeschoot/automated-systematic-review) active-learning screener.
 
 Research question: ${searchQuery}
@@ -115,7 +141,7 @@ Generate 8 representative candidate studies (title + 120-word abstract) relevant
    ABSTRACT: ...
 
 For each study, provide an ASReview-style relevance score (0-1) and include/exclude recommendation.`;
-      const text = state.geminiApiKey ? await callGemini(state.geminiApiKey, prompt) : state.groqApiKey ? await callGroq(state.groqApiKey!, prompt) : "Please configure an AI provider in Settings.";
+      const text = state.geminiApiKey ? await callGemini(state.geminiApiKey, prompt) : await callGroq(state.groqApiKey!, prompt);
       const studies = text.match(/1\.\s+TITLE:([\s\S]*?)ABSTRACT:([\s\S]*?)(?=\n\d\.|\Z)/g) || [text];
       const parsed = studies.map((s) => {
         const t = s.match(/TITLE:\s*(.+)/);
@@ -146,7 +172,14 @@ For each study, provide an ASReview-style relevance score (0-1) and include/excl
     }
     setMetaLoading(true);
     setMetaOut("");
+    setMissingApiError(null);
     try {
+      const apiKey = state.geminiApiKey || state.groqApiKey;
+      if (!apiKey) {
+        setMetaOut("Please configure an AI provider in Settings to use meta-pipe extraction.");
+        setMetaLoading(false);
+        return;
+      }
       const included = screened.filter((s) => s.decision === "include" || s.decision === "uncertain");
       const prompt = `Act as meta-pipe (htlin222/meta-pipe) automated extractor for clinical prediction-modeling studies.
 
@@ -162,7 +195,7 @@ Also provide:
 4. Forest-plot data in CSV format
 
 Reference meta-pipe stages: ma-data-extraction, ma-meta-analysis.`;
-      const text = state.geminiApiKey ? await callGemini(state.geminiApiKey, prompt) : state.groqApiKey ? await callGroq(state.groqApiKey!, prompt) : "Please configure an AI provider in Settings.";
+      const text = state.geminiApiKey ? await callGemini(state.geminiApiKey, prompt) : await callGroq(state.groqApiKey!, prompt);
       setMetaOut(text);
     } catch (err: any) {
       setMetaOut("Extraction error: " + (err.message || "Unknown"));
@@ -361,6 +394,11 @@ Reference meta-pipe stages: ma-data-extraction, ma-meta-analysis.`;
                 {screeningLoading ? (<Loader2 size={12} className="animate-spin" />) : (<Search size={12} />)}
                 Run ASReview-style Screening
               </button>
+              {missingApiError && step === 1 && (
+                <div className="bg-red-900/30 border border-red-700/50 rounded p-3">
+                  <p className="text-xs text-red-200">{missingApiError}</p>
+                </div>
+              )}
               {screened.length > 0 && (
                 <div className="bg-blue-950/50 border border-blue-800 rounded-lg p-3">
                   <div className="flex items-center justify-between mb-2">
@@ -409,6 +447,11 @@ Reference meta-pipe stages: ma-data-extraction, ma-meta-analysis.`;
                   <p className="text-xs text-yellow-200">Complete Step 1 ASReview screening first to proceed.</p>
                 </div>
               )}
+              {missingApiError && step === 2 && (
+                <div className="bg-red-900/30 border border-red-700/50 rounded p-3">
+                  <p className="text-xs text-red-200">{missingApiError}</p>
+                </div>
+              )}
               <button
                 onClick={handleMetaPipe}
                 disabled={metaLoading || screened.length === 0}
@@ -418,8 +461,16 @@ Reference meta-pipe stages: ma-data-extraction, ma-meta-analysis.`;
                 Run meta-pipe Extraction & Meta-Analysis
               </button>
               {metaOut && (
-                <div className="bg-blue-950/50 border border-blue-800 rounded-lg p-4">
+                <div className="bg-blue-950/50 border border-blue-800 rounded-lg p-4 space-y-2">
                   <pre className="text-xs text-blue-200 whitespace-pre-wrap overflow-x-auto max-h-[600px] overflow-y-auto">{metaOut}</pre>
+                  <div className="flex gap-2">
+                    <button onClick={() => downloadMarkdownAsWord(metaOut, "meta-pipe-report.docx")} className="flex items-center gap-1 text-[10px] bg-blue-900 text-blue-200 px-2 py-1 rounded hover:bg-blue-800">
+                      <Download size={10} /> Word
+                    </button>
+                    <button onClick={() => downloadMarkdownAsPDF(metaOut, "meta-pipe-report.pdf")} className="flex items-center gap-1 text-[10px] bg-blue-900 text-blue-200 px-2 py-1 rounded hover:bg-blue-800">
+                      <Download size={10} /> PDF
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -456,11 +507,10 @@ Reference meta-pipe stages: ma-data-extraction, ma-meta-analysis.`;
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-blue-200 mb-2">Outcome Type</label>
-                  <select value={outcomeType} onChange={(e) => setOutcomeType(e.target.value)} className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2.5 text-sm">
-                    <option value="binary">Binary</option>
-                    <option value="continuous">Continuous</option>
-                    <option value="survival">Time-to-event (Survival)</option>
-                    <option value="competing_risk">Competing Risk</option>
+                  <select value={outcomeType} onChange={(e) => setOutcomeType(e.target.value as (typeof OUTCOME_TYPES)[number]["value"])} className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2.5 text-sm">
+                    {OUTCOME_TYPES.map((ot) => (
+                      <option key={ot.value} value={ot.value}>{ot.label}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -482,7 +532,7 @@ Reference meta-pipe stages: ma-data-extraction, ma-meta-analysis.`;
                 <div className="bg-blue-950/50 border border-blue-800 rounded-lg p-4 space-y-3">
                   <div className="flex items-center justify-between mb-2">
                     <h4 className="text-sm font-bold text-white">AutoPrognosis Results</h4>
-                    <button onClick={() => { const blob = new Blob([csvHeaders.join(",") + "\n" + csvRows.map((r) => r.join(",")).join("\n")], { type: "text/csv" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = "autoprognosis-pig.csv"; a.click(); URL.revokeObjectURL(url); }} className="flex items-center gap-1 text-[10px] bg-blue-900 text-blue-200 px-2 py-1 rounded hover:bg-blue-800">
+                    <button onClick={downloadPigCsv} className="flex items-center gap-1 text-[10px] bg-blue-900 text-blue-200 px-2 py-1 rounded hover:bg-blue-800">
                       <Download size={10} /> Download PIG CSV
                     </button>
                   </div>
