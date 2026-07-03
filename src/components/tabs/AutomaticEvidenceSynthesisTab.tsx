@@ -133,6 +133,8 @@ export default function AutomaticEvidenceSynthesisTab() {
     const f = e.target.files?.[0];
     if (!f) return;
     setCsvFile(f);
+    setComputationResult(null);
+    setComputationError(null);
     const text = await f.text();
     const p = parseCsv(text);
     setCsvHeaders(p.headers);
@@ -384,7 +386,7 @@ Reference meta-pipe stages: ma-data-extraction, ma-meta-analysis.`;
             </button>
             <button
               onClick={handleGenerateReport}
-              disabled={step < 4 || reportLoading}
+              disabled={step < 4 || reportLoading || !computationResult}
               className="bg-purple-500 hover:bg-purple-600 text-white font-bold px-4 py-2 rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"
             >
               {reportLoading ? (<Loader2 size={14} className="animate-spin" />) : (<FileText size={14} />)}

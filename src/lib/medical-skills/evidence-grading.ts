@@ -49,14 +49,14 @@ export function gradeEvidence(input: {
   const functionalCount = functionalKeywords.filter((kw) => text.includes(kw)).length;
 
   const hasMechanistic =
-    studyType?.toLowerCase().includes("randomized") ||
-    studyType?.toLowerCase().includes("rct") ||
-    studyType?.toLowerCase().includes("clinical trial") ||
+    (studyType || "").toLowerCase().includes("randomized") ||
+    (studyType || "").toLowerCase().includes("rct") ||
+    (studyType || "").toLowerCase().includes("clinical trial") ||
     mechanisticCount >= 2;
 
   const hasFunctional =
     functionalCount >= 2 ||
-    (studyType?.toLowerCase().includes("observational") && functionalCount >= 1);
+    ((studyType || "").toLowerCase().includes("observational") && functionalCount >= 1);
 
   if (hasMechanistic && qualityScore >= 3) return EVIDENCE_TIERS.T1;
   if (hasFunctional && qualityScore >= 2) return EVIDENCE_TIERS.T2;

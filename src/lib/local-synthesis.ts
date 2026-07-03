@@ -381,8 +381,8 @@ export function generateLocalLiteratureReview(
   searchQuery: string = ""
 ): string {
   const n = selectedPapers.length;
-  const yearMin = Math.min(...selectedPapers.map((p) => p.year));
-  const yearMax = Math.max(...selectedPapers.map((p) => p.year));
+  const yearMin = selectedPapers.length ? Math.min(...selectedPapers.map((p) => p.year)) : new Date().getFullYear();
+  const yearMax = selectedPapers.length ? Math.max(...selectedPapers.map((p) => p.year)) : new Date().getFullYear();
   const databases = [...new Set(selectedPapers.map((p) => p.database))].join(", ");
   const titleWords = searchQuery
     ? searchQuery.replace(/["]/g, "").split(/\s+/).filter(Boolean).slice(0, 8).join(" ")

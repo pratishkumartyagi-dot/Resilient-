@@ -116,7 +116,7 @@ function normalizeOpenAlexWork(work: any): Paper {
   const title = work.title || `Untitled (${work.id?.split("/").pop() || "unknown"})`;
   const authors =
     work.authorships
-      ?.map((a: any) => [a.author?.display_name, a.institutions?.map((i: any) => i.display_name).join(", ")].filter(Boolean).join(" (" + ")").trim())
+      ?.map((a: any) => [a.author?.display_name, (a.institutions?.map((i: any) => i.display_name) || []).join(", ")].filter(Boolean).join(" (" + ")").trim())
       .filter(Boolean)
       .join(", ") || "Unknown authors";
 
