@@ -742,6 +742,71 @@ Added as an add-on layer to the existing app — does not modify existing step n
 
 ## Scientific Paper Tab Added (OpenDraft-style) (2026-07-03)
 
+**Feature**: Added a new "Scientific Paper" tab to the navigation bar, positioned next to Protocol Generator. The tab provides an OpenDraft-style academic paper writing assistant with deep reasoning capabilities.
+
+### Files Created
+- `src/components/tabs/ScientificPaperTab.tsx` — New Scientific Paper tab component with chat interface, document upload, deep reasoning mode, and paper generation/export functionality
+
+### Files Modified
+- `src/components/TopTabs.tsx` — Added `{ id: "scientificpaper", label: "Scientific Paper", icon: BookOpen }` tab
+- `src/app/page.tsx` — Added `ScientificPaperTab` dynamic import and routing case `case "scientificpaper": return <ScientificPaperTab />;`
+
+### Features
+- Chat-based interface for scientific paper writing assistance
+- Deep Reasoning toggle (Long CoT mode)
+- Document upload support: `.doc`, `.docx`, `.pdf`, `.txt`, `.md`
+- AI-powered paper generation using existing Gemini/Groq/DeepSeek providers
+- Word (.doc) export with academic formatting
+- Context-aware responses based on uploaded documents
+- OpenDraft-style methodology: 19-agent pipeline inspiration, verified citations approach, structured manuscript generation
+
+### Technical Notes
+- Uses existing AI infrastructure (`callGemini` / `callGroq` via `/api/chat`)
+- Document parsing uses FileReader API for text extraction
+- Word export generates HTML-based .doc files with academic formatting
+- State managed locally within the component (no global state bloat)
+- Follows same UI patterns as ProtocolChatTab for consistency
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes
+
+## Scientific Poster Tab Added (Poster_Template-style) (2026-07-03)
+
+**Feature**: Added a new "Scientific Poster" tab to the navigation bar, positioned next to "Scientific Paper". The tab provides a Poster_Template-inspired academic poster designer with PDF/Word upload support and poster generation/export.
+
+### Files Created
+- `src/components/tabs/ScientificPosterTab.tsx` — New Scientific Poster tab component with chat interface, document upload, deep reasoning mode, poster generation/export
+
+### Files Modified
+- `src/components/TopTabs.tsx` — Added `{ id: "scientificposter", label: "Scientific Poster", icon: Presentation }` tab
+- `src/app/page.tsx` — Added `ScientificPosterTab` dynamic import and routing case `case "scientificposter": return <ScientificPosterTab />;`
+
+### Features
+- Chat-based interface for scientific poster design assistance
+- Deep Reasoning toggle (Long CoT mode)
+- Document upload support: `.doc`, `.docx`, `.pdf`, `.txt`, `.md`
+- AI-powered poster layout generation using existing Gemini/Groq/DeepSeek providers
+- Word (.doc) export with academic poster formatting
+- Print / Save PDF via browser print dialog with poster-sized CSS
+- 3-column conference poster preview (Title, Authors, Introduction/Methods, Results, Discussion/Conclusion, References)
+- Context-aware responses based on uploaded documents
+- Poster_Template methodology: conference-style academic poster design, structured sections, visual hierarchy
+
+### Technical Notes
+- Uses existing AI infrastructure (`callGemini` / `callGroq` via `/api/chat`)
+- Document parsing uses existing `parseUploadedDocument` utility
+- Poster sections parsed from markdown into structured layout
+- Print CSS optimized for large-format poster printing (48in x 36in)
+- State managed locally within the component (no global state bloat)
+- Follows same UI patterns as ProtocolChatTab and ScientificPaperTab for consistency
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes
+
+## Scientific Paper Tab Added (OpenDraft-style) (2026-07-03)
+
 **Feature**: Added a new "Scientific Paper" tab to the navigation bar, positioned next to "Protocol Generator". The tab provides an OpenDraft-style academic paper writing assistant with deep reasoning capabilities.
 
 ### Files Created

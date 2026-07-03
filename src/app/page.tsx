@@ -29,6 +29,7 @@ const ProtocolChatTab = dynamic(() => import("@/components/tabs/ProtocolChatTab"
 const GrantWritingTab = dynamic(() => import("@/components/tabs/GrantWritingTab"));
 const OmicsBioinformaticsTab = dynamic(() => import("@/components/tabs/OmicsBioinformaticsTab"));
 const ScientificPaperTab = dynamic(() => import("@/components/tabs/ScientificPaperTab"));
+const ScientificPosterTab = dynamic(() => import("@/components/tabs/ScientificPosterTab"));
 
 import SettingsModal from "@/components/SettingsModal";
 
@@ -65,6 +66,7 @@ function AppContent() {
       case "paperwriter": return <PaperWriterTab />;
       case "protocol": return <ProtocolChatTab />;
       case "scientificpaper": return <ScientificPaperTab />;
+      case "scientificposter": return <ScientificPosterTab />;
       default: return <GrantWritingTab />;
     }
   };
