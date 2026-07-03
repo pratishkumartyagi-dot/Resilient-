@@ -66,9 +66,6 @@ export default function PredictiveAnalysisTab() {
   const [relationshipLoading, setRelationshipLoading] = useState(false);
   const [relationshipHeaders, setRelationshipHeaders] = useState<string[]>([]);
   const [captumMethod, setCaptumMethod] = useState<string>("integrated_gradients");
-  const [step15MaxVars, setStep15MaxVars] = useState("10");
-  const [step15TestSize, setStep15TestSize] = useState("0.4");
-  const [step15NumIter, setStep15NumIter] = useState("50");
   const step = state.predictionStep;
 
   const handleNext = () => {
@@ -126,9 +123,11 @@ export default function PredictiveAnalysisTab() {
       case 14:
         prompt = "Provide guidance for analyzing relationships in the uploaded dataset. Identify likely predictor variables, outcome variable, and potential relationships. Suggest appropriate statistical methods for the analysis.";
         break;
+
       case 15:
-        prompt = `Provide comprehensive guidance for logistic regression modeling using AutoPrognosis-style methodology. Cover forward stepwise variable selection, AUC-based evaluation, over-fitting detection, and predictor insights graphs (PIG tables) for clinical prediction models.`;
+        prompt = `Provide comprehensive guidance for logistic regression modeling and variable selection. Cover forward stepwise variable selection, AUC-based evaluation, over-fitting detection, and predictor insights graphs (PIG tables) for clinical prediction models.`;
         break;
+
       default:
         prompt = "Provide guidance for this step.";
     }
@@ -151,47 +150,6 @@ export default function PredictiveAnalysisTab() {
       setAiOutput(`AI assistance failed: ${e instanceof Error ? e.message : "Unknown error"}`);
     }
     setLocalLoading(false);
-  };
-
-  const runAutoPrognosis = async () => {
-    const file = csvFile || state.predictionDataFile;
-    if (!file) {
-      dispatch({ type: "SET_PREDICTION_AUTOPROGNOSIS_REPORT_HTML", payload: '<p class="text-red-400">Please upload a dataset in Step 14 first.</p>' });
-      return;
-    }
-    dispatch({ type: "SET_PREDICTION_AUTOPROGNOSIS_LOADING", payload: true });
-    dispatch({ type: "SET_PREDICTION_AUTOPROGNOSIS_REPORT_HTML", payload: "" });
-    dispatch({ type: "SET_PREDICTION_AUTOPROGNOSIS_REPORT_TEXT", payload: "" });
-
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("study_name", "step15-autoprognosis");
-      formData.append("method", "auto_classifier");
-      formData.append("max_variables", step15MaxVars);
-      formData.append("test_size", step15TestSize);
-      formData.append("num_iter", step15NumIter);
-
-      const res = await fetch("/api/researcher/run-autoprognosis", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`AutoPrognosis failed: ${text}`);
-      }
-
-      const data = await res.json();
-      dispatch({ type: "SET_PREDICTION_AUTOPROGNOSIS_REPORT_HTML", payload: data.report_html || "" });
-      dispatch({ type: "SET_PREDICTION_AUTOPROGNOSIS_REPORT_TEXT", payload: data.report_text || "" });
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Unknown error";
-      dispatch({ type: "SET_PREDICTION_AUTOPROGNOSIS_REPORT_HTML", payload: `<p class="text-red-400">Analysis failed: ${message}</p>` });
-      dispatch({ type: "SET_PREDICTION_AUTOPROGNOSIS_REPORT_TEXT", payload: `Analysis failed: ${message}` });
-    } finally {
-      dispatch({ type: "SET_PREDICTION_AUTOPROGNOSIS_LOADING", payload: false });
-    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1000,9 +958,9 @@ export default function PredictiveAnalysisTab() {
           return (
             <div className="space-y-4">
               <div>
-                <h3 className="text-lg font-bold text-white">Step 15: Automated Prognosis & Variable Selection</h3>
+                <h3 className="text-lg font-bold text-white">Step 15: LR Modeling & Variable Selection</h3>
                 <p className="text-sm text-blue-300">
-                  Upload a dataset (CSV or Excel) and run Forward Stepwise Selection with AUC evaluation and PIG table metrics.
+                  Use AI guidance for logistic regression modeling, forward stepwise variable selection, AUC evaluation, and predictor insights graphs (PIG tables).
                 </p>
               </div>
 
@@ -1031,49 +989,7 @@ export default function PredictiveAnalysisTab() {
                 )}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-blue-200 mb-2">Max Variables</label>
-                  <input
-                    type="number"
-                    value={step15MaxVars}
-                    onChange={(e) => setStep15MaxVars(e.target.value)}
-                    placeholder="10"
-                    className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2.5 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-blue-200 mb-2">Test Size (0-1)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={step15TestSize}
-                    onChange={(e) => setStep15TestSize(e.target.value)}
-                    placeholder="0.4"
-                    className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2.5 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-blue-200 mb-2">Iterations</label>
-                  <input
-                    type="number"
-                    value={step15NumIter}
-                    onChange={(e) => setStep15NumIter(e.target.value)}
-                    placeholder="50"
-                    className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2.5 text-sm"
-                  />
-                </div>
-              </div>
-
               <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={runAutoPrognosis}
-                  disabled={state.predictionAutoPrognosisLoading || !(csvFile || state.predictionDataFile)}
-                  className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-4 py-2 rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"
-                >
-                  {state.predictionAutoPrognosisLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                  Run AutoPrognosis Analysis
-                </button>
                 <button
                   onClick={handleAiAssist}
                   disabled={localLoading}
@@ -1089,29 +1005,6 @@ export default function PredictiveAnalysisTab() {
                   <div className="text-xs text-blue-200 prose prose-xs prose-invert" dangerouslySetInnerHTML={{ __html: renderMarkdown(aiOutput) }} />
                 </div>
               )}
-
-              <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                  <h4 className="text-sm font-bold text-white">AutoPrognosis Report</h4>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={() => downloadMarkdownAsWord(state.predictionAutoPrognosisReportHtml || state.predictionAutoPrognosisReportText, "autoprognosis-report.docx")}
-                      disabled={!(state.predictionAutoPrognosisReportHtml || state.predictionAutoPrognosisReportText)}
-                      className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1.5 rounded text-xs flex items-center gap-1 disabled:opacity-50"
-                    >
-                      <Download size={12} /> Download Word
-                    </button>
-                    <button
-                      onClick={() => downloadMarkdownAsPDF(state.predictionAutoPrognosisReportHtml || state.predictionAutoPrognosisReportText, "autoprognosis-report.pdf")}
-                      disabled={!(state.predictionAutoPrognosisReportHtml || state.predictionAutoPrognosisReportText)}
-                      className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1.5 rounded text-xs flex items-center gap-1 disabled:opacity-50"
-                    >
-                      <Download size={12} /> Download PDF
-                    </button>
-                  </div>
-                </div>
-                <div className="max-h-[600px] overflow-y-auto" dangerouslySetInnerHTML={{ __html: state.predictionAutoPrognosisReportHtml }} />
-              </div>
             </div>
           );
 
