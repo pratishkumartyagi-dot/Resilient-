@@ -683,3 +683,35 @@ Added as an add-on layer to the existing app — does not modify existing step n
 ### Validation
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes
+
+## AutoPrognosis Tab Added as Separate Pipeline (2026-07-03)
+
+**Feature**: Added AutoPrognosis as a standalone top-level tab in the navigation bar and as a separate step-by-step pipeline.
+
+### Files Created
+- `src/components/tabs/AutoPrognosisTab.tsx` — New 12-step AutoPrognosis pipeline with AI guidance
+
+### Files Modified
+- `src/components/TopTabs.tsx` — Added `{ id: "autoprognosis", label: "AutoPrognosis", icon: Sparkles }` tab
+- `src/app/page.tsx` — Added `AutoPrognosisTab` dynamic import and routing case
+
+### AutoPrognosis Pipeline Steps
+1. Study Protocol & Aims
+2. Dataset & Outcome Definition
+3. Candidate Predictor Identification
+4. Data Loading & Profiling
+5. Missing Data Strategy
+6. Train/Test Split
+7. Forward Stepwise Selection (FSS)
+8. AUC & Discrimination
+9. Overfitting Detection
+10. Predictor Insights Graph (PIG)
+11. Final Model Equation
+12. Validation & Reporting
+
+### Technical Notes
+- Uses existing AI infrastructure (`callGemini` / `callGroq` via `/api/chat`)
+- No separate backend dependency; self-contained in the Next.js app
+- Supports CSV upload for data profiling
+- Word and PDF export for AI guidance output
+- Step navigation with Previous/Next buttons
