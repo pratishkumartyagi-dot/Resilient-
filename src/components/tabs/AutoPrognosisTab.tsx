@@ -9,6 +9,7 @@ import {
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq } from "@/lib/ai";
 import { downloadMarkdownAsWord, downloadMarkdownAsPDF } from "@/lib/exporters";
+import { runAutoPrognosis, type AutoPrognosisResult } from "@/lib/autoprognosis-compute";
 
 const renderMarkdown = (text: string): string => {
   let html = text;
@@ -54,6 +55,11 @@ export default function AutoPrognosisTab() {
   const [maxPredictors, setMaxPredictors] = useState("10");
   const [testSize, setTestSize] = useState("0.3");
   const [pigData, setPigData] = useState<string | null>(null);
+  const [computationLoading, setComputationLoading] = useState(false);
+  const [computationResult, setComputationResult] = useState<AutoPrognosisResult | null>(null);
+  const [computationError, setComputationError] = useState<string | null>(null);
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
+  const [csvRows, setCsvRows] = useState<(string | number | null)[][]>([]);
 
   const handleNext = () => {
     if (step < 12) setStep(step + 1);
@@ -61,6 +67,74 @@ export default function AutoPrognosisTab() {
 
   const handlePrev = () => {
     if (step > 1) setStep(step - 1);
+  };
+
+  const parseCsv = (text: string): { headers: string[]; rows: (string | number | null)[][] } => {
+    const lines = text.split("\n").filter((line) => line.trim().length > 0);
+    if (lines.length === 0) return { headers: [], rows: [] };
+    const headers = lines[0].split(",").map((h) => h.trim().replace(/^["']|["']$/g, ""));
+    const rows = lines.slice(1).map((line) => {
+      const parts = line.split(",").map((part) => {
+        const trimmed = part.trim().replace(/^["']|["']$/g, "");
+        const num = parseFloat(trimmed);
+        return isNaN(num) ? trimmed : num;
+      });
+      return parts;
+    });
+    return { headers, rows };
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setCsvFile(file);
+    const text = await file.text();
+    const parsed = parseCsv(text);
+    setCsvHeaders(parsed.headers);
+    setCsvRows(parsed.rows);
+    setCsvPreview(parsed.rows.slice(0, 10).map((row) => row.join(", ")).join("\n"));
+  };
+
+  const runAnalysis = () => {
+    if (!outcome) {
+      setComputationError("Please define an outcome column in Step 2.");
+      return;
+    }
+    if (!outcome || outcomeType === "binary" && !csvHeaders.includes(outcome)) {
+      setComputationError("Please define an outcome column that matches your CSV headers.");
+      return;
+    }
+    if (!csvHeaders.length || csvRows.length === 0) {
+      setComputationError("Please upload a dataset in Step 4 first.");
+      return;
+    }
+
+    setComputationLoading(true);
+    setComputationError(null);
+    setComputationResult(null);
+
+    try {
+      const result = runAutoPrognosis({
+        headers: csvHeaders,
+        rows: csvRows,
+        outcomeColumn: outcome,
+        outcomeType: outcomeType as "binary" | "continuous" | "survival",
+        testSize: parseFloat(testSize) || 0.3,
+        maxPredictors: parseInt(maxPredictors, 10) || 10,
+        randomSeed: 42,
+      });
+      setComputationResult(result);
+      setPigData(
+        result.pigTable
+          .map((row) => `${row.predictor},${row.coefficient},${row.oddsRatio},${row.ciLower},${row.ciUpper},${row.importance}`)
+          .join("\n")
+      );
+    } catch (err: any) {
+      setComputationError(err.message || "Analysis failed");
+    } finally {
+      setComputationLoading(false);
+    }
   };
 
   const handleAiAssist = async () => {
@@ -131,16 +205,6 @@ export default function AutoPrognosisTab() {
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setCsvFile(file);
-    const text = await file.text();
-    const lines = text.split("\n").slice(0, 11);
-    setCsvPreview(lines.join("\n"));
-  };
-
   const handleDownloadWord = () => {
     if (!aiOutput) return;
     const html = `<html><body>${renderMarkdown(aiOutput)}</body></html>`;
@@ -151,6 +215,24 @@ export default function AutoPrognosisTab() {
     if (!aiOutput) return;
     const html = `<html><body>${renderMarkdown(aiOutput)}</body></html>`;
     downloadMarkdownAsPDF(html, "autoprognosis-report.pdf");
+  };
+
+  const downloadComputationResults = () => {
+    if (!computationResult) return;
+    const lines = [
+      "predictor,coefficient,odds_ratio,ci_lower,ci_upper,importance",
+      ...computationResult.pigTable.map(
+        (row) =>
+          `${row.predictor},${row.coefficient},${row.oddsRatio},${row.ciLower},${row.ciUpper},${row.importance}`
+      ),
+    ];
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "autoprognosis-pig.csv";
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -187,6 +269,18 @@ export default function AutoPrognosisTab() {
             </button>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={runAnalysis}
+              disabled={computationLoading}
+              className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-4 py-2 rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"
+            >
+              {computationLoading ? (
+                <div className="w-4 h-4 border-2 border-[#0a1a3a] border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <BarChart3 size={14} />
+              )}
+              Run Analysis
+            </button>
             <button
               onClick={handleAiAssist}
               disabled={localLoading}
@@ -400,7 +494,7 @@ export default function AutoPrognosisTab() {
             <div className="space-y-3">
               <h3 className="text-lg font-bold text-white">Step 8: AUC & Discrimination</h3>
               <p className="text-sm text-blue-300">
-                  Evaluate model discrimination using Area Under the ROC Curve (AUC). Target AUC &gt; 0.7 for clinical utility.
+                Evaluate model discrimination using Area Under the ROC Curve (AUC). Target AUC &gt; 0.7 for clinical utility.
               </p>
               <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
                 <p className="text-sm text-blue-200">
@@ -482,6 +576,68 @@ export default function AutoPrognosisTab() {
                   Include: model equation, performance metrics (AUC, calibration slope, Brier score),
                   validation method, PIG table, and deployment guidance (FastAPI + HTML calculator).
                 </p>
+              </div>
+            </div>
+          )}
+
+          {computationError && (
+            <div className="bg-red-900/50 border border-red-800 rounded-lg p-3">
+              <p className="text-sm text-red-200">{computationError}</p>
+            </div>
+          )}
+
+          {computationResult && (
+            <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-bold text-white">Computed Results</h4>
+                <button
+                  onClick={downloadComputationResults}
+                  className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1.5 rounded text-xs flex items-center gap-1"
+                >
+                  <Download size={12} /> Download PIG CSV
+                </button>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div>
+                  <p className="text-xs text-blue-400">Test AUC</p>
+                  <p className="text-lg font-bold text-white">{computationResult.auc.toFixed(4)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-blue-400">Train AUC</p>
+                  <p className="text-lg font-bold text-white">{computationResult.trainAuc.toFixed(4)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-blue-400">Selected Predictors</p>
+                  <p className="text-lg font-bold text-white">{computationResult.selectedPredictors.length}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-blue-400">Overfitting</p>
+                  <p className="text-lg font-bold text-white">{computationResult.overfittingDetected ? "Yes" : "No"}</p>
+                </div>
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-xs text-left">
+                  <thead>
+                    <tr className="border-b border-blue-800">
+                      <th className="px-2 py-1 text-blue-300">Predictor</th>
+                      <th className="px-2 py-1 text-blue-300">Coefficient</th>
+                      <th className="px-2 py-1 text-blue-300">Odds Ratio</th>
+                      <th className="px-2 py-1 text-blue-300">95% CI</th>
+                      <th className="px-2 py-1 text-blue-300">Importance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {computationResult.pigTable.map((row) => (
+                      <tr key={row.predictor} className="border-b border-blue-900/50">
+                        <td className="px-2 py-1 text-white">{row.predictor}</td>
+                        <td className="px-2 py-1 text-blue-200">{row.coefficient.toFixed(4)}</td>
+                        <td className="px-2 py-1 text-blue-200">{row.oddsRatio.toFixed(4)}</td>
+                        <td className="px-2 py-1 text-blue-200">[{row.ciLower.toFixed(4)}, {row.ciUpper.toFixed(4)}]</td>
+                        <td className="px-2 py-1 text-blue-200">{row.importance.toFixed(4)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
