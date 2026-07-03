@@ -22,6 +22,7 @@ const ResilientChatTab = dynamic(() => import("@/components/tabs/ResilientChatTa
 const StatisticalAnalysisTab = dynamic(() => import("@/components/tabs/StatisticalAnalysisTab"));
 const SampleSizeTab = dynamic(() => import("@/components/tabs/SampleSizeTab"));
 const PredictiveAnalysisTab = dynamic(() => import("@/components/tabs/PredictiveAnalysisTab"));
+const AutoPrognosisTab = dynamic(() => import("@/components/tabs/AutoPrognosisTab"));
 const EvidenceSynthesisTab = dynamic(() => import("@/components/tabs/EvidenceSynthesisTab"));
 const PaperWriterTab = dynamic(() => import("@/components/tabs/PaperWriterTab"));
 const ProtocolChatTab = dynamic(() => import("@/components/tabs/ProtocolChatTab"));
@@ -58,6 +59,7 @@ function AppContent() {
       case "stats": return <StatisticalAnalysisTab />;
       case "samplesize": return <SampleSizeTab />;
       case "predictive": return <PredictiveAnalysisTab />;
+      case "autoprognosis": return <AutoPrognosisTab />;
       case "systematic": return <EvidenceSynthesisTab />;
       case "paperwriter": return <PaperWriterTab />;
       case "protocol": return <ProtocolChatTab />;
