@@ -448,6 +448,23 @@ The AI-generated narrative review follows a strict heading structure:
 - Fixed JSX nesting issues and duplicate closing tags from prior edits
 - Verified `bun typecheck`, `bun lint`, and `bun run build` all pass cleanly
 
+## Literature Review Step — Heading Mismatch & AI Connectivity Fix (2026-07-03)
+
+**Root cause**: The AI prompt instructed headings (`Problem Statement`, `Future Studies to Be Carried Out`, `Conclusion`) that did not match the section parser regex (`globalIndian`, `futureAdvice`, `summary`). The AI was generating a full response, but the parser extracted content into only `introduction` and `references`, leaving the other 4 sections empty. Users saw an empty form and concluded the step was not generating a response.
+
+**Fix applied** (`src/components/tabs/EvidenceSynthesisTab.tsx`):
+- Aligned prompt headings with UI labels and parser expectations:
+  - `Problem Statement (Global, South-East Asia, India)` → `Global & Indian Situation`
+  - `Future Studies to Be Carried Out` → `Advice for Future Research`
+  - `Conclusion` → `Summary`
+- Hardened `parseLiteratureReview` regex to accept markdown prefixes (`#`, `##`) and alternate phrasings
+- Added raw-text fallback: if parser returns ≤1 populated section, the full AI output is placed in `introduction` so the user always sees content
+- Added lightweight planning phase before full generation (inspired by LitLLM): a short 6-point outline is generated first and injected into the main prompt, improving structure adherence
+- Added async DOI validation for references using Crossref API (inspired by Research-Assistant `validateDoiViaCrossref`); invalid DOIs are noted in the references section
+- Improved button disabled logic so it reflects actual eligible paper counts
+
+**Validation**: `bun typecheck` ✅, `bun lint` ✅
+
 ## Replace OpenRouter with Groq (DeepSeek-R1-Distill-Llama-70B) (2026-06-28)
 
 **Feature**: Removed OpenRouter / `gpt-oss-120b` fallback and replaced it with Groq using `deepseek-r1-distill-llama-70b`. DeepSeek R1 reasoning model now uses `deepseek-reasoner` via the official DeepSeek API (`api.deepseek.com`).

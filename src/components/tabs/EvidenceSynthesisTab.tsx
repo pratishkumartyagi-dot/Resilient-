@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
-import { fetchRealPapers, generateMockLegacy, type Paper } from "@/lib/database-apis";
+import { fetchRealPapers, generateMockLegacy, type Paper, validateDoiViaCrossref } from "@/lib/database-apis";
 import { downloadLiteratureReviewPDF, downloadLiteratureReviewWord } from "@/lib/exporters";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
 import {
@@ -808,14 +808,27 @@ At the end, include a References section with all papers in Vancouver style:
 
       const cleaned = text.replace(/```/g, "").trim();
       const parsed = parseLiteratureReview(cleaned);
+      const validatedRefs = parsed.references || references;
       setLiteratureReviewSections({
         introduction: parsed.introduction || "",
         globalIndian: parsed.globalIndian || "",
         gaps: parsed.gaps || "",
         futureAdvice: parsed.futureAdvice || "",
         summary: parsed.summary || "",
-        references: parsed.references || references,
+        references: validatedRefs,
       });
+
+      const doisInRefs = (validatedRefs.match(/doi:[^\s]+/gi) || []).map((d) => d.replace(/^doi:\s*/, ""));
+      if (doisInRefs.length > 0) {
+        const results = await Promise.allSettled(doisInRefs.map((doi) => validateDoiViaCrossref(doi)));
+        const invalidDois = results
+          .map((r, i) => (r.status === "rejected" || !r.value.valid ? doisInRefs[i] : null))
+          .filter(Boolean);
+        if (invalidDois.length > 0) {
+          const note = `\n\n> DOI validation note: ${invalidDois.length} reference(s) had DOIs that could not be verified (${invalidDois.slice(0, 3).join(", ")}${invalidDois.length > 3 ? "..." : ""}). Please verify before submission.`;
+          setLiteratureReviewSections((prev) => ({ ...prev, references: (prev.references || "") + note }));
+        }
+      }
     } catch (err: any) {
       setLiteratureReviewSections({
         introduction: `Error generating review: ${err.message || "Unknown error"}. Please ensure your API key is valid and try again.`,
