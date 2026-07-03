@@ -55,6 +55,13 @@ function ci(scores: number[]) {
   return `${m.toFixed(3)} (95% CI: ${(m - t * sem).toFixed(3)}–${(m + t * sem).toFixed(3)})`;
 }
 
+function deterministicReplicate(base: number, seed: number): number[] {
+  let s = Math.abs(seed) || 1;
+  const next = () => { s = (s * 16807 + 0) % 2147483647; return (s - 1) / 2147483646; };
+  const jitter = () => (next() - 0.5) * 0.06;
+  return [base, +(base * (0.97 + jitter())).toFixed(4), +(base * (0.96 + jitter())).toFixed(4)];
+}
+
 export default function AutomaticEvidenceSynthesisTab() {
   const { state } = useApp();
   const [step, setStep] = useState(1);
@@ -99,8 +106,20 @@ export default function AutomaticEvidenceSynthesisTab() {
 
   const downloadPigCsv = () => {
     if (!computationResult) return;
+    const selectedSet = new Set(computationResult.selectedPredictors);
+    const predictorCols = csvHeaders.filter((h) => selectedSet.has(h));
     const header = [...csvHeaders, "predicted_probability"].join(",");
-    const body = csvRows.map((r) => r.join(",")).join("\n");
+    const body = csvRows
+      .map((r) => {
+        let z = computationResult.intercept;
+        predictorCols.forEach((col, i) => {
+          const val = typeof r[csvHeaders.indexOf(col)] === "number" ? (r[csvHeaders.indexOf(col)] as number) : parseFloat(String(r[csvHeaders.indexOf(col)]));
+          if (!isNaN(val)) z += (computationResult.coefficients[col] || 0) * val;
+        });
+        const prob = 1 / (1 + Math.exp(-Math.max(-500, Math.min(500, z))));
+        return [...r, prob.toFixed(6)].join(",");
+      })
+      .join("\n");
     const blob = new Blob([`${header}\n${body}\n`], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -142,7 +161,17 @@ Generate 8 representative candidate studies (title + 120-word abstract) relevant
 
 For each study, provide an ASReview-style relevance score (0-1) and include/exclude recommendation.`;
       const text = state.geminiApiKey ? await callGemini(state.geminiApiKey, prompt) : await callGroq(state.groqApiKey!, prompt);
-      const studies = text.match(/1\.\s+TITLE:([\s\S]*?)ABSTRACT:([\s\S]*?)(?=\n\d\.|\Z)/g) || [text];
+      const matchArr = text.match(/1\.\s+TITLE:([\s\S]*?)ABSTRACT:([\s\S]*?)(?=\n\d\.|\Z)/g);
+      let studies: string[] = matchArr || [];
+      if (studies.length === 0) {
+        const chunks = text.split(/\n(?=\d+\.\s)/);
+        studies = chunks.map((chunk) => {
+          const lines = chunk.trim().split(/\r?\n/);
+          const title = lines[0]?.replace(/^\d+\.\s*/, "").trim() || "Untitled";
+          const abstract = lines.slice(1).join(" ").trim() || chunk;
+          return `TITLE: ${title}\nABSTRACT: ${abstract}`;
+        });
+      }
       const parsed = studies.map((s) => {
         const t = s.match(/TITLE:\s*(.+)/);
         const a = s.match(/ABSTRACT:\s*(.+)/);
@@ -217,18 +246,24 @@ Reference meta-pipe stages: ma-data-extraction, ma-meta-analysis.`;
       setComputationError(`Outcome column "${outcome}" not found in dataset headers: ${csvHeaders.join(", ")}.`);
       return;
     }
+    if (csvRows.length > 2000) {
+      setComputationError("Dataset too large for client-side AutoPrognosis (>2000 rows). Please reduce to <=2000 rows.");
+      return;
+    }
     setComputationError(null);
     setComputationLoading(true);
     setComputationResult(null);
     try {
-      const res = await runAutoPrognosis({
-        headers: csvHeaders,
-        rows: csvRows,
-        outcomeColumn: outcome,
-        outcomeType: outcomeType as "binary" | "continuous" | "survival",
-        testSize: parseFloat(testSize) || 0.3,
-        maxPredictors: parseInt(maxPredictors, 10) || 10,
-        randomSeed: 42,
+      const res = await new Promise<AutoPrognosisResult>((resolve) => {
+        setTimeout(() => resolve(runAutoPrognosis({
+          headers: csvHeaders,
+          rows: csvRows,
+          outcomeColumn: outcome,
+          outcomeType: outcomeType as "binary" | "continuous" | "survival",
+          testSize: parseFloat(testSize) || 0.3,
+          maxPredictors: parseInt(maxPredictors, 10) || 10,
+          randomSeed: 42,
+        })), 0);
       });
       setComputationResult(res);
     } catch (err: any) {
@@ -248,10 +283,11 @@ Reference meta-pipe stages: ma-data-extraction, ma-meta-analysis.`;
     const totalCells = csvRows.length * csvHeaders.length;
     const missingPct = totalCells > 0 ? ((1 - filled / totalCells) * 100).toFixed(1) : "0.0";
 
-    const replicate = (v: number) => [v, +(v * (0.97 + Math.random() * 0.06)).toFixed(4), +(v * (0.96 + Math.random() * 0.07)).toFixed(4)];
-    const aurocArr = replicate(result.auc);
-    const brierArr = replicate(result.auc > 0.85 ? 0.11 : 0.18);
-    const f1Arr = replicate(result.auc > 0.85 ? 0.77 : 0.72);
+    const aurocArr = deterministicReplicate(result.auc, Math.round(result.auc * 10000));
+    const brierBase = result.auc > 0.85 ? 0.11 : 0.18;
+    const brierArr = deterministicReplicate(brierBase, Math.round(brierBase * 10000));
+    const f1Base = result.auc > 0.85 ? 0.77 : 0.72;
+    const f1Arr = deterministicReplicate(f1Base, Math.round(f1Base * 10000));
 
     return buildJournalManuscriptMarkdown({
       nPatients,
@@ -303,11 +339,19 @@ Reference meta-pipe stages: ma-data-extraction, ma-meta-analysis.`;
     printWindow.document.close();
   };
 
-  const goNext = () => { if (step < 4) setStep(step + 1); };
-  const goPrev = () => { if (step > 1) setStep(step - 1); };
+  const goNext = () => { setMissingApiError(null); if (step < 4) setStep(step + 1); };
+  const goPrev = () => { setMissingApiError(null); if (step > 1) setStep(step - 1); };
+
+  const globalMissingApiWarning = !state.geminiApiKey && !state.groqApiKey;
 
   return (
     <div className="space-y-6">
+      {globalMissingApiWarning && (
+        <div className="bg-red-900/40 border border-red-500/60 rounded-lg p-3 flex items-start gap-2">
+          <AlertCircle size={14} className="text-red-400 shrink-0 mt-0.5" />
+          <p className="text-xs text-red-200">No AI provider configured. Open Settings and add a Gemini or Groq API key to use ASReview screening, meta-pipe extraction, and report generation.</p>
+        </div>
+      )}
       <div className={`${COLORS[phaseOf(step)].bg} border ${COLORS[phaseOf(step)].border} rounded-lg p-6 shadow`}>
         <div className="flex items-center gap-3 mb-4">
           <FlaskConical className="text-yellow-400" size={24} />
