@@ -525,8 +525,6 @@ The AI-generated narrative review follows a strict heading structure:
 - `src/context/AppContext.tsx` — Added 16 prediction state fields + 15 prediction reducer actions
 - `src/components/TopTabs.tsx` — Inserted `{ id: "predictive", label: "Predictive Analysis", icon: BarChart3 }` before systematic
 - `src/app/page.tsx` — Added `PredictiveAnalysisTab` import and `case "predictive"` render
-- `services/researcher/requirements.txt` — Added `pyhealth==2.0.1`, `numpy`, `pandas`, `scikit-learn`
-- `services/researcher/app.py` — Added `/predictive/assist` endpoint with step-specific PyHealth guidance and `/predictive/health` endpoint
 
 ### Key Design Decisions
 - Frontend AI assistance uses existing `/api/chat` route (DeepSeek/Gemini/Groq) so it works without the researcher service running
@@ -572,9 +570,8 @@ The AI-generated narrative review follows a strict heading structure:
 
 **Backend Cleanup**:
 - Deleted `src/app/api/researcher/run-autoprognosis/route.ts`
-- Removed `/run-autoprognosis` endpoint and all AutoPrognosis helper functions/models from `services/researcher/app.py`
-- Deleted `services/researcher/autoprognosis_app.py`
-- Removed `autoprognosis>=0.1.0` dependency from `services/researcher/requirements.txt`
+- Deleted entire `services/researcher/` directory (unused FastAPI service, no deployment config references it)
+- Removed zombie AutoPrognosis state from `AppContext.tsx`: `predictionAutoPrognosisReportHtml`, `predictionAutoPrognosisReportText`, `predictionAutoPrognosisLoading` and their reducer cases/action types
 
 **Frontend Changes**:
 - Removed `runAutoPrognosis` function and related state variables (`step15MaxVars`, `step15TestSize`, `step15NumIter`)
