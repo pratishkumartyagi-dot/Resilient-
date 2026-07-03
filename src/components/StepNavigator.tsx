@@ -18,7 +18,7 @@ const STEPS = [
   { num: 11, label: "Impact Assessment" },
 ];
 
-export default function StepNavigator({ children }: { children: React.ReactNode }) {
+const StepNavigator = ({ children }: { children: React.ReactNode }) => {
   const { state, dispatch } = useApp();
 
   const goNext = () => {
@@ -102,4 +102,6 @@ export default function StepNavigator({ children }: { children: React.ReactNode 
       </div>
     </div>
   );
-}
+};
+
+export default React.memo(StepNavigator);

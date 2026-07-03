@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Send, User, Bot, Trash2, FlaskConical, Paperclip, X, Download, FileText, Loader2, Dna, BarChart3, Network, Shield, Search, GitBranch, Bug, Table2, FileJson, FileType2, Printer, ChevronRight, ChevronDown, FolderOpen, BookOpen, Microscope, Database, Workflow, FlaskRound, Atom, Stethoscope, HeartPulse, type LucideIcon } from "lucide-react";
 import { parseOmicsDataFile, ALLOWED_OMICS_TYPES } from "@/lib/document-parser";
 import { getSkillsByCategory, getSkillsBySubcategory, getAllCategories, getSkillById, MEDICAL_SKILLS_REGISTRY } from "@/lib/medical-skills/skills-registry";
@@ -130,7 +130,8 @@ export default function OmicsBioinformaticsTab() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const categories = getAllCategories();
+  const categories = useMemo(() => getAllCategories(), []);
+  const integratedSkillCount = useMemo(() => MEDICAL_SKILLS_REGISTRY.filter(s => s.integrated).length, []);
 
   const toggleCategory = (cat: string) => {
     setExpandedCategories(prev => {
@@ -443,7 +444,7 @@ export default function OmicsBioinformaticsTab() {
                 <FlaskConical size={48} className="mx-auto text-emerald-700 mb-4" />
                 <h3 className="text-lg font-semibold text-emerald-300 mb-2">Omics & Bioinformatics Workbench</h3>
                 <p className="text-sm text-emerald-400/70 max-w-2xl mx-auto mb-4">
-                  Browse {MEDICAL_SKILLS_REGISTRY.filter(s => s.integrated).length}+ OpenClaw-Medical-Skills organized into 5 categories:
+                   Browse {integratedSkillCount}+ OpenClaw-Medical-Skills organized into 5 categories:
                   Scientific Databases, Bioinformatics, Omics & Computational Biology, ClawBio Pipelines, and BioOS Extended Suite.
                   Select a skill from the sidebar to get specialized assistance.
                 </p>
@@ -530,7 +531,7 @@ export default function OmicsBioinformaticsTab() {
             </div>
             <div className="flex items-center justify-between mt-1.5">
               <div className="flex items-center gap-3 text-[10px] text-emerald-500">
-                <span>{MEDICAL_SKILLS_REGISTRY.filter(s => s.integrated).length} skills integrated</span>
+                <span>{integratedSkillCount} skills integrated</span>
                 <span>•</span>
                 <span>AI: {state.geminiApiKey ? "Gemini" : state.groqApiKey ? "Groq" : "Local"}</span>
               </div>

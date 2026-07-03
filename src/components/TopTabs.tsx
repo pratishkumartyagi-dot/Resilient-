@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import { useApp } from "@/context/AppContext";
 import { FlaskConical as FlaskConicalIcon, Dna, MessageSquare, BarChart3, Sigma, FileText, PenLine, ScrollText, Sparkles } from "lucide-react";
 
@@ -17,14 +17,16 @@ const MAIN_TABS = [
   { id: "protocol", label: "Protocol Generator", icon: ScrollText },
 ];
 
-export default function TopTabs() {
+const TopTabs = () => {
   const { state, dispatch } = useApp();
+
+  const tabs = useMemo(() => MAIN_TABS, []);
 
   return (
     <nav className="bg-[#0d1b3e] border-b border-blue-900/50">
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex flex-wrap items-center gap-1">
-          {MAIN_TABS.map((tab) => {
+          {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = state.currentTab === tab.id;
             return (
@@ -46,4 +48,6 @@ export default function TopTabs() {
       </div>
     </nav>
   );
-}
+};
+
+export default TopTabs;
