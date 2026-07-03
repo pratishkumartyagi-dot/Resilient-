@@ -26,7 +26,7 @@ const TopTabs = () => {
   return (
     <nav className="bg-[#0d1b3e] border-b border-blue-900/50">
       <div className="max-w-7xl mx-auto px-4">
-        <div className="flex flex-wrap items-center gap-1">
+        <div className="flex overflow-x-auto whitespace-nowrap items-center gap-1 no-scrollbar">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = state.currentTab === tab.id;
