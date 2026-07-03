@@ -242,6 +242,11 @@ export default function EvidenceSynthesisTab() {
   const [searchLogic, setSearchLogic] = useState("AND");
   const [studyTypeFilter, setStudyTypeFilter] = useState("All Study Types");
 
+  const reviewPapersForStep4 = robSelectedPaperIds.size > 0
+    ? papers.filter((p) => robSelectedPaperIds.has(p.id))
+    : papers.filter((p) => selectedPaperIds.has(p.id));
+  const canGenerateReview = reviewPapersForStep4.length > 0 || extractedData.length > 0;
+
   const toggleDb = (db: string) => {
     setSelectedDbs((prev) =>
       prev.includes(db) ? prev.filter((d) => d !== db) : [...prev, db]
@@ -639,16 +644,25 @@ ${methodsBlock}\n\n---
       buffer = [];
     };
 
+    const headingPatterns: { pattern: RegExp; key: string }[] = [
+      { pattern: /^(#+\s*)?(1\.\s*)?(introduction|introduction\s*\/\s*background|background)$/i, key: "introduction" },
+      { pattern: /^(#+\s*)?(2\.\s*)?(global\s*&\s*indian\s*situation|global\s*indian\s*situation|global\s+indian|global\s+situation|problem\s+statement)$/i, key: "globalIndian" },
+      { pattern: /^(#+\s*)?(3\.\s*)?(research\s*gaps|research\s*gaps\s*\/\s*limitations|gaps\s*\/\s*limitations|gaps|limitations)$/i, key: "gaps" },
+      { pattern: /^(#+\s*)?(4\.\s*)?(advice\s*for\s*future\s*research|future\s*research\s*advice|future\s*advice|future\s+studies\s+to\s+be\s+carried\s+out)$/i, key: "futureAdvice" },
+      { pattern: /^(#+\s*)?(5\.\s*)?(summary|summary\s+of\s+all\s+studies|conclusion)$/i, key: "summary" },
+      { pattern: /^(#+\s*)?(6\.\s*)?(references|bibliography)$/i, key: "references" },
+    ];
+
     for (const line of lines) {
-      const trimmed = line.trim().toLowerCase();
+      const trimmed = line.trim().replace(/^#+\s*/, "");
       let matched: string | null = null;
 
-      if (/^(1\.\s*introduction|introduction|background|introduction\s*\/\s*background)$/i.test(trimmed)) matched = "introduction";
-      else if (/^(2\.\s*global\s*&\s*indian\s*situation|global\s*&\s*indian\s*situation|global\s*indian|global\s+situation)$/i.test(trimmed)) matched = "globalIndian";
-      else if (/^(3\.\s*research\s*gaps|research\s*gaps\s*\/\s*limitations|research\s*gaps|gaps\s*\/\s*limitations|gaps|limitations)$/i.test(trimmed)) matched = "gaps";
-      else if (/^(4\.\s*advice\s*for\s*future\s*research|advice\s*for\s*future\s*research|future\s*research\s*advice|future\s*advice)$/i.test(trimmed)) matched = "futureAdvice";
-      else if (/^(5\.\s*summary|summary|summary\s*of\s*all\s*studies)$/i.test(trimmed)) matched = "summary";
-      else if (/^(6\.\s*references|references|bibliography)$/i.test(trimmed)) matched = "references";
+      for (const { pattern, key } of headingPatterns) {
+        if (pattern.test(trimmed)) {
+          matched = key;
+          break;
+        }
+      }
 
       if (matched) {
         assign();
@@ -659,6 +673,12 @@ ${methodsBlock}\n\n---
     }
 
     assign();
+
+    const emptySections = Object.values(sections).filter((v) => !v).length;
+    if (emptySections >= 5 && text.trim().length > 0) {
+      sections.introduction = text.trim();
+    }
+
     return sections;
   };
 
@@ -671,7 +691,7 @@ ${methodsBlock}\n\n---
       alert("Please select papers in Risk of Bias Assessment first.");
       return;
     }
-    const selectedPapers = reviewPapers;
+    const selectedPapers = reviewPapers.length > 0 ? reviewPapers : extractedData;
     const references = selectedPapers
       .map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || p.database}.${p.doi ? ` doi:${p.doi}` : ""}`)
       .join("\n");
@@ -690,14 +710,44 @@ ${methodsBlock}\n\n---
         .map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || p.database}.${p.doi ? ` doi:${p.doi}` : ""}`)
         .join("\n");
 
+      const planningPrompt = `You are an expert academic research planner. Given the selected studies below, produce a brief 6-point outline ONLY (no prose, no citations, just the outline labels):
+1. Introduction / Background
+2. Global & Indian Situation
+3. Research Gaps / Limitations
+4. Advice for Future Research
+5. Summary
+6. References
+
+For each point, write ONE short phrase describing what that section should cover based on these studies. Do NOT write full sentences. Keep it to 6 lines total.
+
+SELECTED STUDIES:
+${selectedPapers.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. Type: ${p.studyType || "N/A"}.`).join("\n")}`;
+
+      const apiKey = state.geminiApiKey || state.groqApiKey;
+      let planLines: string[] = [];
+      if (apiKey) {
+        try {
+          const planText = state.geminiApiKey
+            ? await callGemini(state.geminiApiKey, planningPrompt)
+            : await callGroq(state.groqApiKey!, planningPrompt);
+          planLines = planText.split("\n").filter((l) => l.trim().length > 0).slice(0, 6);
+        } catch {
+          planLines = [];
+        }
+      }
+
+      const planBlock = planLines.length > 0
+        ? `PLAN (follow this outline exactly):\n${planLines.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n`
+        : "";
+
       const prompt = `You are an expert academic writer using deep reasoning methodology. Write a comprehensive, publication-ready narrative literature review based ONLY on the selected studies provided below.
 
 Follow this exact structure and headings:
 - Introduction / Background
-- Problem Statement (with subsections: Global, South-East Asia, India)
-- Research Gaps
-- Future Studies to Be Carried Out
-- Conclusion
+- Global & Indian Situation
+- Research Gaps / Limitations
+- Advice for Future Research
+- Summary
 - References
 
 CITATION RULES:
@@ -705,7 +755,7 @@ CITATION RULES:
 - The author-year MUST match one of the numbered references below.
 - Aim for 2-4 inline citations per paragraph.
 
-REFERENCES (use these exact author-year strings in your inline citations):
+${planBlock}REFERENCES (use these exact author-year strings in your inline citations):
 ${selectedPapers.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || p.database}.${p.doi ? ` doi:${p.doi}` : ""}`).join("\n")}
 
 SELECTED STUDIES:
@@ -723,17 +773,17 @@ DEEP REASONING RULES:
 OUTPUT FORMAT:
 Use plain text with these exact headings on their own lines:
 Introduction / Background
-Problem Statement (Global, South-East Asia, India)
-Research Gaps
-Future Studies to Be Carried Out
-Conclusion
+Global & Indian Situation
+Research Gaps / Limitations
+Advice for Future Research
+Summary
 References
 
 At the end, include a References section with all papers in Vancouver style:
 1. Author(s) (Year). Title. Journal. doi:DOI`;
 
-      const apiKey = state.geminiApiKey || state.groqApiKey;
-      if (!apiKey) {
+      const apiKeyForCall = state.geminiApiKey || state.groqApiKey;
+      if (!apiKeyForCall) {
         setLiteratureReviewSections({
           introduction: "No API key configured. Please add your Gemini or Groq API key in Settings to generate the literature review.",
           globalIndian: "",
@@ -1738,7 +1788,7 @@ Mobile: [Number]
                <div className="flex flex-wrap items-center gap-3 mb-4">
                  <button
                    onClick={generateLiteratureReview}
-                   disabled={literatureReviewLoading || (robSelectedPaperIds.size === 0 && selectedPaperIds.size === 0 && extractedData.length === 0)}
+                    disabled={literatureReviewLoading || !canGenerateReview}
                    className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
                  >
                   {literatureReviewLoading ? (
