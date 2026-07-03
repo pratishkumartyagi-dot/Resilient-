@@ -26,7 +26,7 @@ const TopTabs = () => {
   return (
     <nav className="bg-[#0d1b3e] border-b border-blue-900/50">
       <div className="max-w-7xl mx-auto px-4">
-        <div className="flex overflow-x-auto whitespace-nowrap items-center gap-1 no-scrollbar">
+        <div className="flex flex-wrap items-center gap-1">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = state.currentTab === tab.id;
@@ -34,13 +34,13 @@ const TopTabs = () => {
               <button
                 key={tab.id}
                 onClick={() => dispatch({ type: "SET_TAB", payload: tab.id })}
-                className={`flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                className={`flex items-center gap-2 px-3 py-2 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${
                   isActive
                     ? "border-yellow-400 text-yellow-300"
                     : "border-transparent text-blue-300 hover:text-white"
                 }`}
               >
-                <Icon size={16} />
+                <Icon size={14} />
                 {tab.label}
               </button>
             );
