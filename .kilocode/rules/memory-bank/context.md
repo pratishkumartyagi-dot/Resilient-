@@ -805,6 +805,43 @@ Added as an add-on layer to the existing app — does not modify existing step n
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes
 
+## AutoPrognosis Pipeline Refactor — ASReview → meta-pipe → AutoPrognosis 2.0 (2026-07-03)
+
+**Feature**: Refactored `AutoPrognosisTab` from a standalone 12-step prediction-model workflow into a unified 10-step pipeline that first performs ASReview-style literature screening, then meta-pipe-style systematic extraction/meta-analysis, and finally runs AutoPrognosis 2.0 on the aggregated dataset.
+
+### Files Modified
+- `src/components/tabs/AutoPrognosisTab.tsx` — Full rewrite of workflow to 10 steps across 3 phases:
+  - **Phase 1 — ASReview LAB Screening** (Rensvandeschoot/automated-systematic-review)
+    1. Study Import & Search
+    2. Active Learning Screening
+    3. Full-text Review
+  - **Phase 2 — meta-pipe Extraction & Meta-Analysis** (htlin222/meta-pipe)
+    4. Automated Data Extraction
+    5. Meta-Analysis
+    6. Reporting
+  - **Phase 3 — AutoPrognosis 2.0**
+    7. Dataset Preparation
+    8. Model Configuration
+    9. Run Analysis
+    10. Results & PIG
+
+### Integration Approach
+- ASReview and meta-pipe are Python/R backends; this Next.js frontend cannot execute them directly.
+- Instead, the tab uses the existing AI provider infrastructure (`callGemini`/`callGroq`) to:
+  - Simulate ASReview active-learning screening with relevance scoring and include/exclude recommendations
+  - Generate meta-pipe-style extraction tables, pooled effects, heterogeneity stats, and PRISMA outputs
+  - Provide AI guidance aligned with each external repo's methodology
+- Preserved the existing `runAutoPrognosis()` computation from `src/lib/autoprognosis-compute.ts` for Step 9.
+- Added step-level AI guidance prompts referencing:
+  - `Rensvandeschoot/automated-systematic-review` for screening methodology
+  - `htlin222/meta-pipe` stages (`ma-data-extraction`, `ma-meta-analysis`, `ma-publication-quality`, `ma-manuscript-quarto`)
+  - `Efthimiou et al. (BMJ 2024, PMC11369751)` and PyHealth conventions for AutoPrognosis 2.0
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes
+- `bun run build` ✅ passes cleanly
+
 ## Remove Scientific Paper and Scientific Poster Tabs (2026-07-03)
 
 **Reason**: Content generation quality was not meeting expectations; both tabs were generating low-quality template drafts instead of substantive scientific content.
