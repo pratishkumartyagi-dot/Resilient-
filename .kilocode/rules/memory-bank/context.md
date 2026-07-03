@@ -715,3 +715,27 @@ Added as an add-on layer to the existing app — does not modify existing step n
 - Supports CSV upload for data profiling
 - Word and PDF export for AI guidance output
 - Step navigation with Previous/Next buttons
+
+## AutoPrognosis Actual Computations Added (2026-07-03)
+
+**Feature**: Implemented real AutoPrognosis computations directly in the frontend using TypeScript, removing the need for a separate Python backend service.
+
+### Files Created
+- `src/lib/autoprognosis-compute.ts` — Pure TypeScript computation library with:
+  - Logistic regression via gradient descent
+  - Forward Stepwise Selection (FSS)
+  - AUC calculation
+  - Train/test split with configurable test size and random seed
+  - PIG table generation with coefficients, odds ratios, confidence intervals, and importance scores
+  - Overfitting detection (train AUC vs test AUC)
+
+### Files Modified
+- `src/components/tabs/AutoPrognosisTab.tsx` — Wired actual computations into the UI
+
+### Computation Features
+- "Run Analysis" button triggers real FSS, AUC, and PIG computation on uploaded CSV data
+- Results panel shows Test AUC, Train AUC, selected predictors count, overfitting status
+- PIG table displays coefficients, odds ratios, 95% CI, and importance for each selected predictor
+- Download PIG table as CSV
+- CSV parsing handles quoted fields and numeric coercion
+- Computation is fully client-side with no backend dependency
