@@ -545,32 +545,36 @@ The AI-generated narrative review follows a strict heading structure:
 - `Ananyaa-Tanwar/multi-agent-data-pipeline` — Multi-agent CSV/Excel analysis with relationship detection
 - `SagarSreekumarPillai/insightpredictor` — Next.js + FastAPI CSV prediction with ML insights and PDF export
 
-## Step 15 — Automated Prognosis & Variable Selection — Global State Integration (2026-07-01)
+## Step 15 — LR Modeling & Variable Selection (AI Guidance Only) (2026-07-03)
+
+**Refactor**: Removed AutoPrognosis execution path from Step 15. The step now provides AI guidance for logistic regression modeling and variable selection only.
 
 **Files Modified**:
-- `src/context/AppContext.tsx`
 - `src/components/tabs/PredictiveAnalysisTab.tsx`
+- `src/context/AppContext.tsx`
 
-**Changes**:
-- Replaced stale `step15Output`, `step15Method`, `step15VariableSelection`, `step15AucResults`, `step15OverfittingDetected`, `step15SelectedVariables` state with proper AutoPrognosis global state: `predictionAutoPrognosisReportHtml`, `predictionAutoPrognosisReportText`, `predictionAutoPrognosisLoading`
-- Updated Step 15 UI to dispatch results to global state instead of local component state
-- Report now persists when navigating away from and back to Step 15
-- Reduced unused local `useState` hooks in `PredictiveAnalysisTab`
-- Removed unused Action types: `SET_STEP15_OUTPUT`, `SET_STEP15_METHOD`, `SET_STEP15_VARIABLE_SELECTION`, `SET_STEP15_AUC_RESULTS`, `SET_STEP15_OVERFITTING`, `SET_STEP15_SELECTED_VARIABLES`
+**Backend Cleanup**:
+- Deleted `src/app/api/researcher/run-autoprognosis/route.ts`
+- Removed `/run-autoprognosis` endpoint and all AutoPrognosis helper functions/models from `services/researcher/app.py`
+- Deleted `services/researcher/autoprognosis_app.py`
+- Removed `autoprognosis>=0.1.0` dependency from `services/researcher/requirements.txt`
 
-**Validation**: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅
+**Frontend Changes**:
+- Removed `runAutoPrognosis` function and related state variables (`step15MaxVars`, `step15TestSize`, `step15NumIter`)
+- Removed parameter form (Max Variables, Test Size, Iterations)
+- Removed "Run AutoPrognosis Analysis" button
+- Removed AutoPrognosis Report section and download buttons
+- Updated step 15 title to "LR Modeling & Variable Selection"
+- Updated AI prompt to cover LR modeling guidance without AutoPrognosis dependency
+- Removed zombie AutoPrognosis state from `AppContext.tsx`: `predictionAutoPrognosisReportHtml`, `predictionAutoPrognosisReportText`, `predictionAutoPrognosisLoading` and their reducer cases/action types
 
-## AutoPrognosis — "Server action not found" Bug Fix (2026-07-02)
+**Remaining Step 15 Features**:
+- AI LR Modeling Guidance button (uses existing `/api/chat` route)
+- Markdown-rendered AI output display
 
-**Root cause**: `src/app/api/researcher/run-autoprognosis/route.ts` proxies to `${RESEARCHER_BASE}/run-autoprognosis`, defaulting to `http://127.0.0.1:8080`. When the researcher FastAPI service is not running (or `RESEARCHER_BASE` resolves to the Next.js app itself), the `fetch` hairpin-loops to the Next.js App Router. Next.js sees `multipart/form-data` POST, treats it as a possible Server Action, and returns its internal `Server action not found.` string (from `node_modules/next/dist/esm/server/app-render/action-handler.js:314`). The route handler blindly forwards this 404 text, which the client wraps as `Analysis failed: AutoPrognosis failed: Server action not found.`
+**Validation**: `bun typecheck` ✅, `bun lint` ✅
 
-**Fix applied** (`src/app/api/researcher/run-autoprognosis/route.ts`):
-- Added detection of the `Server action not found.` text in the upstream response and returns a clear JSON 502 error instructing the user to start the FastAPI researcher service (`services/researcher/run.sh`) and verify `RESEARCHER_URL` / `NEXT_PUBLIC_RESEARCHER_URL` points to it.
-- Removed dead `entries` array that was built from `formData.forEach` but never used.
-
-**Operational note**: The researcher service must be running (`services/researcher/run.sh`) before Step 15 can produce real AutoPrognosis results. Without it, users now see a clear diagnostic message instead of the cryptic Next.js action-handler error.
-
-## Document Exporter Upgrade — DOCX/XLSX/PPTX (2026-06-30)
+## OpenClaw-Medical-Skills Integration (2026-06-30)
 
 **Feature**: Replaced HTML-blob document exports with professional-grade generation using the same tech stack as https://github.com/Duds/md-converter (docx, exceljs, pptxgenjs). Chose Duds/md-converter over vace/markdown-docx because it supports DOCX, PPTX, and XLSX, and maintains consistent content/formatting across on-screen markdown and downloaded documents.
 

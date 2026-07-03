@@ -12,4 +12,3 @@ pyhealth>=1.1
 numpy>=1.26
 pandas>=2.0
 scikit-learn>=1.3
-autoprognosis>=0.1.0

@@ -137,9 +137,6 @@ export interface AppState {
   predictionReportNotes: string;
   predictionCaptumEnabled: boolean;
   predictionCaptumResults: string;
-  predictionAutoPrognosisReportHtml: string;
-  predictionAutoPrognosisReportText: string;
-  predictionAutoPrognosisLoading: boolean;
 }
 
 type Action =
@@ -205,9 +202,7 @@ type Action =
   | { type: "SET_PREDICTION_REPORT_NOTES"; payload: string }
   | { type: "SET_PREDICTION_CAPTUM_ENABLED"; payload: boolean }
   | { type: "SET_PREDICTION_CAPTUM_RESULTS"; payload: string }
-  | { type: "SET_PREDICTION_AUTOPROGNOSIS_REPORT_HTML"; payload: string }
-  | { type: "SET_PREDICTION_AUTOPROGNOSIS_REPORT_TEXT"; payload: string }
-  | { type: "SET_PREDICTION_AUTOPROGNOSIS_LOADING"; payload: boolean };
+  | { type: "RESET_STATE" };
 
 const initialState: AppState = {
   currentTab: "main",
@@ -300,9 +295,6 @@ const initialState: AppState = {
   predictionReportNotes: "",
   predictionCaptumEnabled: false,
   predictionCaptumResults: "",
-  predictionAutoPrognosisReportHtml: "",
-  predictionAutoPrognosisReportText: "",
-  predictionAutoPrognosisLoading: false,
 };
 
 function appReducer(state: AppState, action: Action): AppState {
@@ -484,12 +476,6 @@ function appReducer(state: AppState, action: Action): AppState {
       return { ...state, predictionCaptumEnabled: action.payload };
     case "SET_PREDICTION_CAPTUM_RESULTS":
       return { ...state, predictionCaptumResults: action.payload };
-    case "SET_PREDICTION_AUTOPROGNOSIS_REPORT_HTML":
-      return { ...state, predictionAutoPrognosisReportHtml: action.payload };
-    case "SET_PREDICTION_AUTOPROGNOSIS_REPORT_TEXT":
-      return { ...state, predictionAutoPrognosisReportText: action.payload };
-    case "SET_PREDICTION_AUTOPROGNOSIS_LOADING":
-      return { ...state, predictionAutoPrognosisLoading: action.payload };
     case "RESET_STATE":
       return { ...initialState };
     default:
