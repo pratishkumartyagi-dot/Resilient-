@@ -799,7 +799,38 @@ Added as an add-on layer to the existing app — does not modify existing step n
 - Poster sections parsed from markdown into structured layout
 - Print CSS optimized for large-format poster printing (48in x 36in)
 - State managed locally within the component (no global state bloat)
-- Follows same UI patterns as ProtocolChatTab and ScientificPaperTab for consistency
+- Follows same UI patterns as ProtocolChatTab for consistency
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes
+
+## Automatic Evidence Synthesis Tab (2026-07-03)
+
+**New tab added**: "Automatic Evidence Synthesis" in `TopTabs` (after "Protocol Generator")
+
+### New Component: `AutomaticEvidenceSynthesisTab`
+A 4-step evidence synthesis pipeline integrating ASReview LAB, meta-pipe, AutoPrognosis 2.0, and a journal report generator.
+
+#### Steps
+1. **ASReview Literature Screening** (Step 1) — AI-assisted active-learning screener using `callGemini`/`callGroq` with ASReview-style include/exclude recommendations. Generates 8 representative candidate studies per query.
+2. **meta-pipe Meta-Analysis** (Step 2) — Automated end-to-end extraction using `htlin222/meta-pipe` methodology. Produces extraction tables with pooled effect estimates, heterogeneity (I², tau²), PRISMA-ready summary, and forest-plot data. Downloadable as Word/PDF.
+3. **Run AutoPrognosis 2.0** (Step 3) — Upload aggregated dataset CSV and configure outcome, outcome type, test size, and max predictors. Runs `runAutoPrognosis` from `@/lib/autoprognosis-compute.ts` with Forward Stepwise Selection. Displays AUC, calibration, overfitting detection, and Predictor Insights Graph (PIG) table. Exportable as PIG CSV.
+4. **Journal Report Generator** (Step 4) — Generates a publication-ready manuscript in markdown (then exportable as Word/PDF). Uses a new `@/lib/journal-report-generator.ts` utility that builds a structured manuscript with abstract, methods, results (AUROC/Brier/F1 with 95% CI), PIG table, model equation, discussion, and meta-analysis output.
+
+### New Files Created
+- `src/components/tabs/AutomaticEvidenceSynthesisTab.tsx` — 4-step client component with fully self-contained state (no global AppContext changes)
+- `src/lib/journal-report-generator.ts` — `buildJournalManuscriptMarkdown()` and `buildJournalPDFHTML()` for report generation
+
+### Modified Files
+- `src/components/TopTabs.tsx` — Added `{ id: "auto_evidence", label: "Automatic Evidence Synthesis", icon: BookOpen }` tab
+- `src/app/page.tsx` — Added `AutomaticEvidenceSynthesisTab` dynamic import and `case "auto_evidence": return <AutomaticEvidenceSynthesisTab />;`
+
+### Key Design Decisions
+- Reuses existing AI wrappers (`callGemini` / `callGroq`) — no context or API changes required
+- Reuses existing `runAutoPrognosis` computation for Step 3 — no server-side changes
+- State fully local to the component; no AppContext reducer changes needed
+- Phase-specific color coding: emerald (ASReview), blue (meta-pipe), yellow (AutoPrognosis), purple (Reporter)
 
 ### Validation
 - `bun typecheck` ✅ passes
