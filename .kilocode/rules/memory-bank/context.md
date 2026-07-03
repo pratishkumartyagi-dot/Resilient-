@@ -739,3 +739,34 @@ Added as an add-on layer to the existing app — does not modify existing step n
 - Download PIG table as CSV
 - CSV parsing handles quoted fields and numeric coercion
 - Computation is fully client-side with no backend dependency
+
+## Scientific Paper Tab Added (OpenDraft-style) (2026-07-03)
+
+**Feature**: Added a new "Scientific Paper" tab to the navigation bar, positioned next to "Protocol Generator". The tab provides an OpenDraft-style academic paper writing assistant with deep reasoning capabilities.
+
+### Files Created
+- `src/components/tabs/ScientificPaperTab.tsx` — New Scientific Paper tab component with chat interface, document upload, deep reasoning mode, and paper generation/export functionality
+
+### Files Modified
+- `src/components/TopTabs.tsx` — Added `{ id: "scientificpaper", label: "Scientific Paper", icon: BookOpen }` tab
+- `src/app/page.tsx` — Added `ScientificPaperTab` dynamic import and routing case `case "scientificpaper": return <ScientificPaperTab />;`
+
+### Features
+- Chat-based interface for scientific paper writing assistance
+- Deep Reasoning toggle (Long CoT mode)
+- Document upload support: `.doc`, `.docx`, `.pdf`, `.txt`, `.md`
+- AI-powered paper generation using existing Gemini/Groq/DeepSeek providers
+- Word (.doc) export with academic formatting
+- Context-aware responses based on uploaded documents
+- OpenDraft-style methodology: 19-agent pipeline inspiration, verified citations approach, structured manuscript generation
+
+### Technical Notes
+- Uses existing AI infrastructure (`callGemini` / `callGroq` via `/api/chat`)
+- Document parsing uses FileReader API for text extraction
+- Word export generates HTML-based .doc files with academic formatting
+- State managed locally within the component (no global state bloat)
+- Follows same UI patterns as ProtocolChatTab for consistency
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes
