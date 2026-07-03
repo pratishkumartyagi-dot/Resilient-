@@ -20,7 +20,7 @@
   - [x] Logo integrated (top-left header)
   - [x] "Resilient Research App" centered top header
   - [x] 11-step research pipeline (Search → Results → Synthesis → Lit Review → Themes → Questions → Titles → Aims → Methodology → Protocol → Impact)
-  - [x] 6 main top tabs: Research Pipeline, Resilient Chat, Statistical Analysis, Sample Size Calculator, Systematic Review/RCT, Paper Writer & Reviewer, Grant Writing
+  - [x] Main top tabs: Research Pipeline, Omics & Bioinformatics, Resilient Chat, Statistical Analysis, Sample Size Calculator, Predictive Analysis, AutoPrognosis, Evidence Synthesis & Meta-analysis, Paper Writer & Reviewer, Protocol Generator, Grant Writing
   - [x] Global state management with React Context + useReducer
   - [x] Mock AI generation flows for all steps
   - [x] PRISMA 2020 diagram in Step 2
@@ -804,6 +804,36 @@ Added as an add-on layer to the existing app — does not modify existing step n
 ### Validation
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes
+
+## Remove Scientific Paper and Scientific Poster Tabs (2026-07-03)
+
+**Reason**: Content generation quality was not meeting expectations; both tabs were generating low-quality template drafts instead of substantive scientific content.
+
+### Files Modified
+- `src/components/TopTabs.tsx` — Removed tab entries for "Scientific Paper" (`scientificpaper`) and "Scientific Poster" (`scientificposter`), removed `BookOpen` and `Presentation` icon imports
+- `src/app/page.tsx` — Removed `ScientificPaperTab` and `ScientificPosterTab` dynamic imports and their routing cases
+
+### Files Deleted
+- `src/components/tabs/ScientificPaperTab.tsx` — Removed entire Scientific Paper tab component
+- `src/components/tabs/ScientificPosterTab.tsx` — Removed entire Scientific Poster tab component
+
+### Remaining Top Tabs (10)
+1. Research Pipeline
+2. Omics & Bioinformatics
+3. Resilient Chat
+4. Statistical Analysis
+5. Sample Size Calculator
+6. Predictive Analysis
+7. AutoPrognosis
+8. Evidence Synthesis & Meta-analysis
+9. Paper Writer & Reviewer
+10. Protocol Generator
+11. Grant Writing
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes
+- `bun run build` ✅ passes cleanly
 
 ## Scientific Paper Tab Added (OpenDraft-style) (2026-07-03)
 
