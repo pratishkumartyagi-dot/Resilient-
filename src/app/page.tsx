@@ -65,7 +65,8 @@ function AppContent() {
       case "paperwriter": return <PaperWriterTab />;
       case "protocol": return <ProtocolChatTab />;
       case "auto_evidence": return <AutomaticEvidenceSynthesisTab />;
-      default: return <GrantWritingTab />;
+      case "grantwriting": return <GrantWritingTab />;
+      default: return <StepNavigator>{renderMainPipeline()}</StepNavigator>;
     }
   };
 

@@ -291,6 +291,10 @@ Reference meta-pipe stages: ma-data-extraction, ma-meta-analysis.`;
     const f1Base = result.auc > 0.85 ? 0.77 : 0.72;
     const f1Arr = deterministicReplicate(f1Base, Math.round(f1Base * 10000));
 
+    const applicableStudyType = state.studyType && state.studyType !== "All Study Types"
+      ? state.studyType
+      : "Prediction model study";
+
     return buildJournalManuscriptMarkdown({
       nPatients,
       nFeatures,
@@ -308,6 +312,7 @@ Reference meta-pipe stages: ma-data-extraction, ma-meta-analysis.`;
       selectedPredictors: result.selectedPredictors,
       coefficients: result.coefficients,
       intercept: result.intercept,
+      studyType: applicableStudyType,
     });
   };
 

@@ -2,7 +2,7 @@
 
 import React, { useMemo } from "react";
 import { useApp } from "@/context/AppContext";
-import { FlaskConical as FlaskConicalIcon, Dna, MessageSquare, BarChart3, Sigma, FileText, PenLine, ScrollText, Sparkles, BookOpen } from "lucide-react";
+import { FlaskConical as FlaskConicalIcon, Dna, MessageSquare, BarChart3, Sigma, FileText, PenLine, ScrollText, Sparkles, BookOpen, FileSignature } from "lucide-react";
 
 const MAIN_TABS = [
   { id: "main", label: "Research Pipeline", icon: FlaskConicalIcon },
@@ -16,6 +16,7 @@ const MAIN_TABS = [
   { id: "paperwriter", label: "Paper Writer & Reviewer", icon: PenLine },
   { id: "protocol", label: "Protocol Generator", icon: ScrollText },
   { id: "auto_evidence", label: "Automatic Evidence Synthesis", icon: BookOpen },
+  { id: "grantwriting", label: "Grant Writing", icon: FileSignature },
 ];
 
 const TopTabs = () => {
