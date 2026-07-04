@@ -155,7 +155,7 @@ async function fetchOpenAlex(query: string, yearFrom?: string, yearTo?: string, 
   if (additionalFilters) filterParts.push(...additionalFilters);
   const filterStr = filterParts.length ? `&filter=${filterParts.join(",")}` : "";
 
-  const baseUrl = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=100&mailto=research@example.com${filterStr}`;
+  const baseUrl = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=100&mailto=contact@resilient-research.app${filterStr}`;
   const papers: Paper[] = [];
   let cursor = "*";
   let cursorUrl = `${baseUrl}&cursor=${cursor}`;
@@ -356,26 +356,33 @@ async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string,
   return deduped;
 }
 
+export const SUPPORTED_REAL_DATABASES = [
+  "OpenAlex", "PubMed", "Europe PMC", "ERIC", "Google Scholar",
+  "Shodhganga", "CTRI – India", "scite.ai", "WHO IRIS",
+  "Semantic Scholar", "ClinicalTrials.gov", "DOAJ", "Prospero",
+  "ScienceDirect", "Clarivate"
+];
+
 export async function fetchRealPapers(query: string, databases: string[], yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const allPapers: Paper[] = [];
 
   const apiDatabases: Record<string, () => Promise<Paper[]>> = {
-    "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
-    "PubMed": () => fetchPubMed(query, yearFrom, yearTo, studyType),
-    "Europe PMC": () => fetchEuropePMC(query, yearFrom, yearTo, studyType),
-    "ERIC": () => fetchEuropePMC(`education ${query}`, yearFrom, yearTo, studyType),
-    "Google Scholar": () => fetchOpenAlex(`scholar ${query}`, yearFrom, yearTo, studyType),
-    "Shodhganga": () => fetchOpenAlex(`thesis ${query}`, yearFrom, yearTo, studyType, ["type:dissertation", "authorships.institutions.country_code:IN"]),
-    "CTRI – India": () => fetchEuropePMC(`clinical trial India ${query}`, yearFrom, yearTo, studyType),
-    "scite.ai": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
-    "WHO IRIS": () => fetchEuropePMC(`WHO ${query}`, yearFrom, yearTo, studyType),
-    "Semantic Scholar": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
-    "ClinicalTrials.gov": () => fetchEuropePMC(`clinical trial ${query}`, yearFrom, yearTo, studyType),
-    "DOAJ": () => fetchOpenAlex(`open access ${query}`, yearFrom, yearTo, studyType),
-    "Prospero": () => fetchEuropePMC(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
-    "ScienceDirect": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
-    "Clarivate": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
-  };
+  "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
+  "PubMed": () => fetchPubMed(query, yearFrom, yearTo, studyType),
+  "Europe PMC": () => fetchEuropePMC(query, yearFrom, yearTo, studyType),
+  "ERIC": () => fetchEuropePMC(`education ${query}`, yearFrom, yearTo, studyType),
+  "Google Scholar": () => fetchOpenAlex(`scholar ${query}`, yearFrom, yearTo, studyType),
+  "Shodhganga": () => fetchOpenAlex(`thesis ${query}`, yearFrom, yearTo, studyType, ["type:dissertation", "authorships.institutions.country_code:IN"]),
+  "CTRI – India": () => fetchEuropePMC(`clinical trial India ${query}`, yearFrom, yearTo, studyType),
+  "scite.ai": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
+  "WHO IRIS": () => fetchEuropePMC(`WHO ${query}`, yearFrom, yearTo, studyType),
+  "Semantic Scholar": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
+  "ClinicalTrials.gov": () => fetchEuropePMC(`clinical trial ${query}`, yearFrom, yearTo, studyType),
+  "DOAJ": () => fetchOpenAlex(`open access ${query}`, yearFrom, yearTo, studyType),
+  "Prospero": () => fetchEuropePMC(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
+  "ScienceDirect": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
+  "Clarivate": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
+};
 
   const selectedApis = databases.filter((db) => apiDatabases[db]);
 

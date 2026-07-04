@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { Search, Database, Filter, X } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { fetchRealPapers, generateMockLegacy, verifyCitations, enrichPapersWithDois, type Paper } from "@/lib/database-apis";
+import { fetchRealPapers, generateMockLegacy, verifyCitations, enrichPapersWithDois, type Paper, SUPPORTED_REAL_DATABASES } from "@/lib/database-apis";
 
 const STUDY_TYPES = [
   "All Study Types",
@@ -69,7 +69,7 @@ export default function Step1Search() {
     });
     dispatch({ type: "SET_SELECTED_DATABASES", payload: selectedDbs });
 
-    const realDbs = selectedDbs.filter((db) => ["OpenAlex", "PubMed", "Europe PMC", "ERIC", "Google Scholar", "Shodhganga", "CTRI – India", "scite.ai"].includes(db));
+    const realDbs = selectedDbs.filter((db) => SUPPORTED_REAL_DATABASES.includes(db));
     const fallbackDbs = selectedDbs.filter((db) => !realDbs.includes(db));
 
     try {
