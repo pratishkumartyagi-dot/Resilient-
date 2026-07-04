@@ -13,6 +13,8 @@ export interface Paper {
   database: string;
   studyType: string;
   selected: boolean;
+  url?: string;
+  pmid?: string;
 }
 
 export interface SynthesisRow {

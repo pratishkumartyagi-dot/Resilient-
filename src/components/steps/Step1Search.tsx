@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { Search, Database, Filter, X } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { fetchRealPapers, generateMockLegacy, verifyCitations, enrichPapersWithDois, type Paper, SUPPORTED_REAL_DATABASES } from "@/lib/database-apis";
+import { batchVerifyCitations, type CitationVerificationResult } from "@/lib/citation-verifier";
 
 const STUDY_TYPES = [
   "All Study Types",
@@ -95,8 +96,11 @@ export default function Step1Search() {
         dispatch({ type: "SET_CITATION_STATUS", payload: "running" });
         try {
           const enrichedPapers = await enrichPapersWithDois(papers);
-          const citationResults = await verifyCitations(enrichedPapers);
-          dispatch({ type: "SET_CITATION_RESULTS", payload: Object.fromEntries(citationResults) });
+          const dois = enrichedPapers.filter((p) => p.doi && p.doi.length > 4).map((p) => p.doi!);
+          const citationResultsArr = await batchVerifyCitations(dois);
+          const citationMap: Record<string, CitationVerificationResult> = {};
+          citationResultsArr.forEach((r) => { citationMap[r.doi] = r; });
+          dispatch({ type: "SET_CITATION_RESULTS", payload: citationMap });
           dispatch({ type: "SET_PAPERS", payload: enrichedPapers });
         } catch {
           dispatch({ type: "SET_CITATION_RESULTS", payload: {} });
