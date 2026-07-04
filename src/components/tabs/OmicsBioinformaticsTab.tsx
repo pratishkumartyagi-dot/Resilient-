@@ -5,6 +5,7 @@ import { Send, User, Bot, Trash2, FlaskConical, Paperclip, X, Download, FileText
 import { parseOmicsDataFile, ALLOWED_OMICS_TYPES } from "@/lib/document-parser";
 import { getSkillsByCategory, getSkillsBySubcategory, getAllCategories, getSkillById, MEDICAL_SKILLS_REGISTRY } from "@/lib/medical-skills/skills-registry";
 import { useApp } from "@/context/AppContext";
+import { downloadMarkdownAsWord } from "@/lib/exporters";
 
 const CATEGORY_ICONS: Record<string, LucideIcon> = {
   "scientific-databases": Database,
@@ -260,8 +261,7 @@ export default function OmicsBioinformaticsTab() {
   };
 
   const handleDownloadWord = (content: string, filename: string) => {
-    const html = `<html><body><pre style="font-family: monospace; white-space: pre-wrap;">${content.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre></body></html>`;
-    downloadBlob(html, filename, "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    downloadMarkdownAsWord(content, filename.endsWith(".docx") ? filename : `${filename}.docx`);
   };
 
   const handleDownloadPDF = (content: string, filename: string) => {

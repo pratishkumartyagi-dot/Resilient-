@@ -361,8 +361,7 @@ Include:
 
   const handleDownloadWord = () => {
     if (!aiOutput) return;
-    const html = `<html><body>${renderMarkdown(aiOutput)}</body></html>`;
-    downloadMarkdownAsWord(html, "autoprognosis-report.docx");
+    downloadMarkdownAsWord(aiOutput, "autoprognosis-report.docx");
   };
 
   const handleDownloadPDF = () => {

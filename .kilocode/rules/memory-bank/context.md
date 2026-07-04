@@ -870,3 +870,43 @@ Added as an add-on layer to the existing app — does not modify existing step n
 ### Validation
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes
+
+## markdown-docx Integration (2026-07-04)
+
+**Feature**: Replaced custom markdown-to-DOCX conversion with `markdown-docx` (vace/markdown-docx) across the app for all markdown-to-Word exports.
+
+### New Dependency
+- `markdown-docx@1.7.0` — Markdown to DOCX converter supporting browser and Node.js
+
+### Files Modified
+
+**`src/lib/exporters.ts`**
+- Added `import markdownDocx from "markdown-docx"`
+- `downloadMarkdownAsWord()`: Replaced custom `marked.lexer` + `tokensToDocxElements` + `docx` Document construction with `markdownDocx(markdown, { theme })` + `Packer.toBlob()`
+- `buildLiteratureReviewDocx()`: Refactored from manual `docx` Document + `marked.lexer` tokenization to markdown concatenation + `markdownDocx()`. Now accepts `Promise<any>` return type.
+- Removed dead code: `tokensToDocxElements()` and `tokensToElement()` helper functions (no longer needed)
+- Kept `docx` direct usage for `downloadWord()` (synthesis table export) which builds structured tables from data, not markdown
+
+**`src/components/tabs/AutoPrognosisTab.tsx`**
+- Updated `handleDownloadWord()` to pass raw markdown `aiOutput` to `downloadMarkdownAsWord()` instead of wrapping in HTML
+
+**`src/components/tabs/ProtocolChatTab.tsx`**
+- Added import for `downloadMarkdownAsWord`
+- Replaced custom HTML-based `.doc` export with markdown-based `.docx` export using `markdown-docx`
+- Prepends document header (title, date, source) as markdown before conversion
+
+**`src/components/tabs/OmicsBioinformaticsTab.tsx`**
+- Added import for `downloadMarkdownAsWord`
+- Replaced HTML `<pre>` blob export with `downloadMarkdownAsWord()` for proper `.docx` generation
+
+### Call Sites Now Using markdown-docx
+- `AutomaticEvidenceSynthesisTab.tsx` — manuscript and meta-pipe report exports
+- `PredictiveAnalysisTab.tsx` — predictive report and relationship prediction exports
+- `ProtocolChatTab.tsx` — research protocol export
+- `OmicsBioinformaticsTab.tsx` — omics content export
+- `AutoPrognosisTab.tsx` — autoprognosis report export
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes
+- `bun run build` ✅ passes cleanly
