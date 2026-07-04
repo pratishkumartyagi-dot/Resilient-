@@ -11,6 +11,7 @@ import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
 import { fetchRealPapers, generateMockLegacy, type Paper, validateDoiViaCrossref } from "@/lib/database-apis";
 import { downloadLiteratureReviewPDF, downloadLiteratureReviewWord } from "@/lib/exporters";
+import { parseEffectSizeRow, fixedEffectsMetaAnalysis, randomEffectsMetaAnalysis, type MetaforResult, type EffectSizeRow } from "@/lib/metafor-compute";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -241,6 +242,7 @@ export default function EvidenceSynthesisTab() {
   const [yearTo, setYearTo] = useState("");
   const [searchLogic, setSearchLogic] = useState("AND");
   const [studyTypeFilter, setStudyTypeFilter] = useState("All Study Types");
+  const [metaforResult, setMetaforResult] = useState<MetaforResult | null>(null);
 
   const reviewPapersForStep4 = robSelectedPaperIds.size > 0
     ? papers.filter((p) => robSelectedPaperIds.has(p.id))
@@ -606,19 +608,71 @@ export default function EvidenceSynthesisTab() {
       ? `**Synthesis method:** Random-effects meta-analysis (DerSimonian–Laird), implemented in **metafor** (R) or **meta** (R). Heterogeneity assessed via I² and τ². Certainty of evidence via GRADE/robvis integration.\n\n**Risk of bias:** Per-domain robvis template (${robLabel}) with Cochrane colours.`
       : `**Synthesis method:** Narrative/thematic synthesis following **awesome-evidence-synthesis** principles: coding, theme development, and mapping.\n\n**Risk of bias:** Per-domain robvis template (${robLabel}).`;
 
-    const metaBlock = isMeta
-      ? `\n### Meta-analysis Interpretation\n\nEffect estimates should be pooled using a random-effects model. Expected direction of effect: see effect table above. Heterogeneity: ${heterogeneityNotes} Use **forestplot**, **meta**, **metafor**, or **OpenMEE** for publication-ready figures.\n\n**Reporting:** Export effect table to **PRISMA 2020**-compliant format.\n`
-      : "";
+    const metaBlockText = metaforResult
+      ? `\n### Meta-analysis Interpretation\n\nPooled estimate (${metaforResult.model}-effects): μ = ${metaforResult.pooledEstimate.toFixed(3)} (95% CI ${metaforResult.ciLower.toFixed(3)}–${metaforResult.ciUpper.toFixed(3)}). Heterogeneity: I² = ${metaforResult.I2.toFixed(1)}%, τ² = ${metaforResult.tau2.toFixed(4)}, Q(${metaforResult.k - 1}) = ${metaforResult.Q.toFixed(2)}, p = ${metaforResult.Qp.toFixed(4)}. Prediction interval: ${metaforResult.predictionLower.toFixed(3)}–${metaforResult.predictionUpper.toFixed(3)}.`
+      : `\n### Meta-analysis Interpretation\n\nEffect estimates should be pooled using a random-effects model. Expected direction of effect: see effect table above. Heterogeneity: ${heterogeneityNotes} Use **forestplot**, **meta**, **metafor**, or **OpenMEE** for publication-ready figures.\n\n**Reporting:** Export effect table to **PRISMA 2020**-compliant format.\n`;
 
     return `## Evidence Synthesis\n**Review type:** ${reviewType}\n**Studies included:** ${papersForSynthesis.length}\n**Year range:** ${yearMin}–${yearMax}\n**Databases:** ${databases.join(", ") || "multiple"}\n\n---
 
 ${methodsBlock}\n\n---
 
-### Narrative Summary\n\nThe body of evidence comprises ${papersForSynthesis.length} ${studyTypes.join(", ").toLowerCase() || "studies"} examining ${query || "the review topic"}. ${papersForSynthesis.length > 5 ? "Across the included studies, consistent themes emerge regarding the intervention/exposure and its association with the primary outcome." : "Findings should be interpreted with caution given the small number of included studies."}\n\n**Key findings by study:**\n${papersForSynthesis.map((p, i) => `${i + 1}. **${p.authors} (${p.year})** — ${p.title}\n   - Study type: ${p.studyType || "Not specified"}\n   - Outcome: ${p.outcome || "As reported"}\n   - Risk of bias: ${robAssessments[p.id]?.overall || "Pending (assess in Step 3)"}`).join("\n\n")}\n\n---
+### Narrative Summary
 
-### Effect Size Summary\n\n| Study | Effect Estimate | 95% CI | Weight |\n|-------|----------------|--------|--------|\n${effectTable}\n\n---
+The body of evidence comprises ${papersForSynthesis.length} ${studyTypes.join(", ").toLowerCase() || "studies"} examining ${query || "the review topic"}. ${papersForSynthesis.length > 5 ? "Across the included studies, consistent themes emerge regarding the intervention/exposure and its association with the primary outcome." : "Findings should be interpreted with caution given the small number of included studies."}
 
-### Risk of Bias Commentary\n\nUsing **${robLabel}** (robvis), the overall distribution of risk-of-bias judgments across ${papersForSynthesis.length} studies is: Low ${robSummary.low}, Some/Moderate concerns ${robSummary.some}, High/Critical ${robSummary.high}, Pending ${robSummary.pending}. ${robSummary.high > 0 ? "Studies at high risk of bias may overestimate effects; sensitivity analysis excluding these studies is recommended." : "No studies were rated at high risk of bias."} Domain-level traffic-light plots are available in the reporting step.\n\n---\n\n### Gaps and Future Directions\n\n- Unpublished or grey literature not searched in this run.\n- Subgroup analyses and meta-regression should be explored if heterogeneity is high.\n- Certainty of evidence (GRADE) should be formally assessed prior to guideline submission.\n- Sensitivity analysis excluding high-RoB studies recommended for robustness.\n\n> Generated locally using awesome-evidence-synthesis open-source workflow standards. For meta-analysis statistics, export the effect table to **R (metafor/meta)**, **JASP**, or **OpenMEE**.\n`;
+**Key findings by study:**
+${papersForSynthesis.map((p, i) => `${i + 1}. **${p.authors} (${p.year})** — ${p.title}
+   - Study type: ${p.studyType || "Not specified"}
+   - Outcome: ${p.outcome || "As reported"}
+   - Risk of bias: ${robAssessments[p.id]?.overall || "Pending (assess in Step 3)"}`).join("\n\n")}
+
+---
+
+### Effect Size Summary
+
+| Study | Effect Estimate | 95% CI | Weight |
+|-------|----------------|--------|--------|
+${effectTable}
+
+${metaBlockText}
+---
+
+### Risk of Bias Commentary
+
+Using **${robLabel}** (robvis), the overall distribution of risk-of-bias judgments across ${papersForSynthesis.length} studies is: Low ${robSummary.low}, Some/Moderate concerns ${robSummary.some}, High/Critical ${robSummary.high}, Pending ${robSummary.pending}. ${robSummary.high > 0 ? "Studies at high risk of bias may overestimate effects; sensitivity analysis excluding these studies is recommended." : "No studies were rated at high risk of bias."} Domain-level traffic-light plots are available in the reporting step.
+
+---
+
+### Gaps and Future Directions
+
+- Unpublished or grey literature not searched in this run.
+- Subgroup analyses and meta-regression should be explored if heterogeneity is high.
+- Certainty of evidence (GRADE) should be formally assessed prior to guideline submission.
+- Sensitivity analysis excluding high-RoB studies recommended for robustness.
+
+> Generated locally using awesome-evidence-synthesis open-source workflow standards. For meta-analysis statistics, export the effect table to **R (metafor/meta)**, **JASP**, or **OpenMEE**.
+`;
+  };
+
+  const runMetaforAnalysis = () => {
+    if (effectSizes.length === 0) {
+      alert("Please add at least one effect size in the table above before running metafor analysis.");
+      return;
+    }
+    const parsed: EffectSizeRow[] = effectSizes.map((r) => parseEffectSizeRow(r.study, r.effect, r.ci, r.weight)).filter((r): r is EffectSizeRow => r !== null);
+    if (parsed.length === 0) {
+      alert("Could not parse any effect sizes. Ensure Effect Estimate and 95% CI contain numeric values (e.g., 0.85 and 0.65–1.05).");
+      return;
+    }
+    const validParsed = parsed.filter((r) => Number.isFinite(r.effect) && Number.isFinite(r.ciLower) && Number.isFinite(r.ciUpper));
+    if (validParsed.length < 2) {
+      alert("Meta-analysis requires at least 2 studies with valid effect estimates and confidence intervals.");
+      return;
+    }
+    const result = randomEffectsMetaAnalysis(validParsed);
+    if (result) {
+      setMetaforResult(result);
+    }
   };
 
   const parseLiteratureReview = (text: string): Record<string, string> => {
@@ -920,18 +974,18 @@ OUTPUT FORMAT:
         return;
       }
 
-          let text: string;
-          const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
-          if (state.geminiApiKey) {
-            text = await callGemini(state.geminiApiKey, prompt, searchOptions);
-          } else if (state.groqApiKey) {
-            text = await callGroq(state.groqApiKey!, prompt, searchOptions);
-         } else {
-           throw new Error("No API key configured. Please open Settings (gear icon).");
-         }
+      let text: string;
+      const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
+      if (state.geminiApiKey) {
+        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
+      } else if (state.groqApiKey) {
+        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
+      } else {
+        throw new Error("No API key configured. Please open Settings (gear icon).");
+      }
 
-        const cleaned = text.replace(/```markdown/g, "").replace(/```/g, "").trim();
-        setSynthesisOutput(cleaned);
+      const cleaned = text.replace(/```markdown/g, "").replace(/```/g, "").trim();
+      setSynthesisOutput(cleaned);
 
       const tableMatch = cleaned.match(/\| Study[\s\S]*?\|/);
       if (tableMatch) {
@@ -974,13 +1028,6 @@ OUTPUT FORMAT:
       const template = getRobToolTemplate();
       const robLabel = template ? template.label : robTool;
       const isMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
-      const isSystematic = reviewType.includes("Systematic");
-      const isNarrative = reviewType.includes("Narrative");
-      const isScoping = reviewType.includes("Scoping");
-      const isUmbrella = reviewType.includes("Umbrella");
-      const isRapid = reviewType.includes("Rapid");
-      const isMixed = reviewType.includes("Mixed");
-
       const yearMin = papersForSynthesis.length ? Math.min(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
       const yearMax = papersForSynthesis.length ? Math.max(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
       const studyTypes = Array.from(new Set(papersForSynthesis.map((p) => p.studyType))).filter(Boolean);
@@ -1048,7 +1095,7 @@ OUTPUT FORMAT:
 
 ## Abstract
 
-The ${reviewTypeLabel.toLowerCase()} examined ${topic}. A systematic search of ${databases.join(", ") || selectedDbs.join(", ")} identified ${totalRecords} records, yielding ${included} studies for synthesis. ${isMeta ? "A random-effects meta-analysis was performed using metafor (R)." : "A narrative synthesis was conducted following awesome-evidence-synthesis principles."} ${robSummary.low} studies demonstrated low risk of bias, ${robSummary.some} some concerns, and ${robSummary.high} high risk. The pooled ${isMeta ? "estimate (not yet computed)" : "thematic findings"} suggests [direction] for [outcome]. These findings should be interpreted alongside the GRADE certainty assessment and PRISMA 2020 reporting standards. Results highlight [key implication] and recommend [action].
+The ${reviewTypeLabel.toLowerCase()} examined ${topic}. A systematic search of ${databases.join(", ") || selectedDbs.join(", ")} identified ${totalRecords} records, yielding ${included} studies for synthesis. ${isMeta ? (metaforResult ? "A random-effects meta-analysis was performed using metafor (R) with DerSimonian–Laird estimation." : "A random-effects meta-analysis was performed using metafor (R).") : "A narrative synthesis was conducted following awesome-evidence-synthesis principles."} ${robSummary.low} studies demonstrated low risk of bias, ${robSummary.some} some concerns, and ${robSummary.high} high risk. The pooled ${isMeta && metaforResult ? `estimate (μ = ${metaforResult.pooledEstimate.toFixed(3)}, 95% CI ${metaforResult.ciLower.toFixed(3)}–${metaforResult.ciUpper.toFixed(3)}, I² = ${metaforResult.I2.toFixed(1)}%)` : isMeta ? "estimate" : "thematic findings"} suggests [direction] for [outcome]. These findings should be interpreted alongside the GRADE certainty assessment and PRISMA 2020 reporting standards. Results highlight [key implication] and recommend [action].
 
 **Keywords:** ${[topic, reviewTypeLabel.toLowerCase(), ...studyTypes].sort().join(", ")}, evidence synthesis, PRISMA 2020, GRADE, robvis
 
@@ -1098,7 +1145,7 @@ ${figurePlaceholders}
 ### 4.2 Discussion of Findings
 ${discussionImplications}
 
-The pooled or narrative findings extend prior work by [specific contribution]. ${isMeta ? "Statistical heterogeneity (I² = XX%) informed subgroup analyses." : "Thematic mapping revealed consistent patterns across study designs."} The GRADE assessment rated the certainty of evidence as [moderate], primarily downgraded for risk of bias and inconsistency.
+The pooled or narrative findings extend prior work by [specific contribution]. ${isMeta && metaforResult ? `Statistical heterogeneity (I² = ${metaforResult.I2.toFixed(1)}%, τ² = ${metaforResult.tau2.toFixed(4)}) informed subgroup analyses.` : isMeta ? "Statistical heterogeneity (I² = XX%) informed subgroup analyses." : "Thematic mapping revealed consistent patterns across study designs."} The GRADE assessment rated the certainty of evidence as [moderate], primarily downgraded for risk of bias and inconsistency.
 
 ---
 
@@ -2024,6 +2071,100 @@ Mobile: [Number]
                     </table>
                   </div>
                   <p className="text-[10px] text-blue-400 mt-2">Editable — tune values before exporting to metafor / meta / OpenMEE / JASP</p>
+                </div>
+              )}
+
+              {effectSizes.length > 0 && (
+                <div className="flex flex-wrap items-center gap-3 mb-4">
+                  <button
+                    onClick={runMetaforAnalysis}
+                    disabled={synthesisLoading}
+                    className="flex items-center gap-2 bg-emerald-900/60 hover:bg-emerald-800/70 text-emerald-200 font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
+                  >
+                    <FlaskConical size={16} />
+                    Run metafor Analysis ({reviewType.includes("Meta-analysis") || reviewType.includes("Meta") ? "Random-effects" : "Fixed-effects"})
+                  </button>
+                  <span className="text-[10px] text-blue-400">
+                    DerSimonian–Laird / Inverse-Variance — aligned with <a href="https://github.com/wviechtb/metafor" target="_blank" rel="noreferrer" className="text-yellow-300 underline">metafor (R)</a>
+                  </span>
+                </div>
+              )}
+
+              {metaforResult && (
+                <div className="space-y-4">
+                  <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+                    <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+                      <FlaskConical size={14} className="text-emerald-400" />
+                      metafor Results — {metaforResult.model}-effects model
+                    </h4>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                      <div className="bg-blue-900/30 border border-blue-800 rounded-lg p-3">
+                        <p className="text-[10px] text-blue-400 mb-1">Pooled Estimate</p>
+                        <p className="text-lg font-bold text-white">{metaforResult.pooledEstimate.toFixed(3)}</p>
+                        <p className="text-[10px] text-blue-300">95% CI: {metaforResult.ciLower.toFixed(3)} – {metaforResult.ciUpper.toFixed(3)}</p>
+                      </div>
+                      <div className="bg-blue-900/30 border border-blue-800 rounded-lg p-3">
+                        <p className="text-[10px] text-blue-400 mb-1">Heterogeneity (I²)</p>
+                        <p className="text-lg font-bold text-white">{metaforResult.I2.toFixed(1)}%</p>
+                        <p className="text-[10px] text-blue-300">tau² = {metaforResult.tau2.toFixed(4)}</p>
+                      </div>
+                      <div className="bg-blue-900/30 border border-blue-800 rounded-lg p-3">
+                        <p className="text-[10px] text-blue-400 mb-1">Q-test ( Cochran )</p>
+                        <p className="text-lg font-bold text-white">{metaforResult.Q.toFixed(2)}</p>
+                        <p className="text-[10px] text-blue-300">p = {metaforResult.Qp.toFixed(4)}</p>
+                      </div>
+                      <div className="bg-blue-900/30 border border-blue-800 rounded-lg p-3">
+                        <p className="text-[10px] text-blue-400 mb-1">Prediction Interval</p>
+                        <p className="text-lg font-bold text-white">{metaforResult.predictionLower.toFixed(3)}</p>
+                        <p className="text-[10px] text-blue-300">to {metaforResult.predictionUpper.toFixed(3)}</p>
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-blue-400 mb-2">Computed locally using DerSimonian–Laird (random) / Inverse-Variance (fixed) methods.</p>
+                  </div>
+
+                  <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+                    <h4 className="text-sm font-bold text-white mb-3">Forest Plot (local)</h4>
+                    <div className="space-y-1">
+                      {metaforResult.forestData.map((row, idx) => {
+                        const allValues = metaforResult.forestData.flatMap((r) => [r.ciLower, r.ciUpper, r.effect]);
+                        const minVal = Math.min(...allValues);
+                        const maxVal = Math.max(...allValues);
+                        const range = maxVal - minVal || 1;
+                        const zeroX = ((0 - minVal) / range) * 100;
+                        const effectX = ((row.effect - minVal) / range) * 100;
+                        const ciLeftX = ((row.ciLower - minVal) / range) * 100;
+                        const ciRightX = ((row.ciUpper - minVal) / range) * 100;
+                        const barWidth = ciRightX - ciLeftX;
+                        const isExtreme = row.isPooled;
+
+                        return (
+                          <div key={idx} className="flex items-center gap-3 text-[11px]">
+                            <div className={`w-36 truncate ${isExtreme ? "text-yellow-300 font-bold" : "text-blue-200"}`} title={row.study}>{row.study}</div>
+                            <div className="flex-1 relative h-4 bg-blue-900/20 rounded">
+                              {zeroX >= 0 && zeroX <= 100 && <div className="absolute top-0 bottom-0 w-px bg-blue-500/60" style={{ left: `${zeroX}%` }} />}
+                              <div
+                                className={`absolute top-0.5 bottom-0.5 rounded ${isExtreme ? "bg-yellow-500/80" : "bg-blue-400/70"}`}
+                                style={{ left: `${ciLeftX}%`, width: `${Math.max(barWidth, 0.5)}%` }}
+                              />
+                              <div
+                                className={`absolute top-0 bottom-0 w-1 rounded-sm ${isExtreme ? "bg-yellow-400" : "bg-blue-200"}`}
+                                style={{ left: `${effectX}%`, transform: "translateX(-50%)" }}
+                              />
+                            </div>
+                            <div className={`w-16 text-right ${isExtreme ? "text-yellow-300" : "text-blue-300"}`}>
+                              {row.effect.toFixed(2)} [{row.ciLower.toFixed(2)}, {row.ciUpper.toFixed(2)}]
+                            </div>
+                            <div className="w-12 text-right text-blue-400">{row.weightPercent.toFixed(1)}%</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-center gap-4 mt-2 text-[10px] text-blue-400">
+                      <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm bg-blue-400/70" /> Study</span>
+                      <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm bg-yellow-500/80" /> Pooled</span>
+                      <span>Scale: {metaforResult.forestData.length > 0 ? `${Math.min(...metaforResult.forestData.flatMap(r => [r.ciLower, r.ciUpper, r.effect])).toFixed(2)} – ${Math.max(...metaforResult.forestData.flatMap(r => [r.ciLower, r.ciUpper, r.effect])).toFixed(2)}` : "—"}</span>
+                    </div>
+                  </div>
                 </div>
               )}
 

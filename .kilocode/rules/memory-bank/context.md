@@ -933,3 +933,41 @@ A 4-step evidence synthesis pipeline integrating ASReview LAB, meta-pipe, AutoPr
 ### Validation
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes
+
+## metafor (wviechtb/metafor) Integration — EvidenceSynthesisTab Step 5 (2026-07-04)
+
+**Feature**: Integrated actual `metafor`-style meta-analysis computation into Step 5 ("Synthesis & Meta-analysis") of the EvidenceSynthesisTab, aligned with https://github.com/wviechtb/metafor and the existing awesome-evidence-synthesis workflow.
+
+### New File
+- `src/lib/metafor-compute.ts` — Pure TypeScript meta-analysis computation library implementing:
+  - `parseEffectSizeRow()` — robust parser for Effect Estimate + 95% CI (supports `0.85`, `0.65–1.05`, `0.65 to 1.05`, `(0.65, 1.05)` formats)
+  - `fixedEffectsMetaAnalysis()` — Inverse-Variance fixed-effects model
+  - `randomEffectsMetaAnalysis()` — DerSimonian–Laird random-effects model (default for metafor)
+  - Heterogeneity statistics: Q (Cochran), I², τ², Q-test p-value
+  - Prediction interval
+  - Forest plot data generation with weight percentages
+  - Local `chiSquaredPValue`, `factorial`, `modifiedBesselI` helpers
+
+### EvidenceSynthesisTab Updates
+- Added `metaforResult` state field to store parsed computation results
+- Added `runMetaforAnalysis()` function triggered by "Run metafor Analysis" button
+- Added computed results panel in Step 5 showing:
+  - Pooled estimate with 95% CI
+  - I² heterogeneity percentage and τ²
+  - Q-test statistic and p-value
+  - Prediction interval
+  - Local CSS-based forest plot (study-level CIs + pooled diamond)
+- Updated `generateLocalSynthesis()` to include actual metafor numbers in the meta-analysis interpretation block when `metaforResult` exists
+- Updated `generateManuscript()` abstract and discussion sections to display computed pooled estimate, CI, and I² when `metaforResult` is available
+- Fixed structural corruption in `generateSynthesis` / `generateManuscript` functions during integration
+
+### Key Design Decisions
+- Computations run entirely client-side (no R or Python backend required)
+- Random-effects (DerSimonian–Laird) is the default recommendation per metafor standards; fixed-effects available via `fixedEffectsMetaAnalysis()`
+- Effect sizes remain editable after computation so users can re-run analysis with adjusted values
+- Forest plot rendered with CSS bars for simplicity and reliability
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes
+- `bun run build` ✅ passes cleanly
