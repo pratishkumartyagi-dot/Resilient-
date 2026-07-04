@@ -30,10 +30,9 @@ const PIPELINE_STEPS = [
   { num: 1, label: "Search & Screening", icon: Search },
   { num: 2, label: "Data Extraction", icon: FileText },
   { num: 3, label: "Risk of Bias", icon: CheckCircle2 },
-  { num: 4, label: "Literature Review", icon: BookOpen },
-  { num: 5, label: "Synthesis & Meta-analysis", icon: FlaskConical },
-  { num: 6, label: "Reporting & PRISMA", icon: FileText },
-  { num: 7, label: "Writing Review & Meta-analysis", icon: PenTool },
+  { num: 4, label: "Synthesis & Meta-analysis", icon: FlaskConical },
+  { num: 5, label: "Reporting & PRISMA", icon: FileText },
+  { num: 6, label: "Writing Review & Meta-analysis", icon: PenTool },
 ];
 
 const REVIEW_TYPES = [
@@ -1898,8 +1897,8 @@ ${referencesList}
                     Save Assessments
                   </button>
                   <button onClick={() => setPipelineStep(4)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
-                    Proceed to Literature Review
-                    <BookOpen size={16} />
+                    Proceed to Synthesis &amp; Meta-analysis
+                    <ChevronRight size={16} />
                   </button>
                 </div>
               </div>
@@ -1907,106 +1906,8 @@ ${referencesList}
           </div>
         )}
 
+
         {pipelineStep === 4 && (
-          <div className="space-y-4">
-            <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
-              <div className="flex items-center gap-2 mb-3">
-                <BookOpen size={18} className="text-yellow-400" />
-                <h3 className="text-lg font-bold text-white">Literature Review</h3>
-              </div>
-               <p className="text-xs text-blue-400 mb-4">
-                  Generate a structured narrative literature review using AI. Papers selected in Risk of Bias are included. Inline citations are in [1] format. References are shown in Vancouver style.
-               </p>
-
-               <div className="flex flex-wrap items-center gap-3 mb-4">
-                 <button
-                   onClick={generateLiteratureReview}
-                    disabled={literatureReviewLoading || !canGenerateReview}
-                   className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
-                 >
-                  {literatureReviewLoading ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-[#0a1a3a] border-t-transparent rounded-full animate-spin" />
-                      Generating Literature Review...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles size={16} />
-                      Generate Literature Review
-                    </>
-                  )}
-                </button>
-                {(literatureReviewSections.introduction || literatureReviewSections.references) && (
-                  <>
-                    <button
-                      onClick={() => downloadLiteratureReviewPDF(literatureReviewSections)}
-                      className="flex items-center gap-2 bg-red-900/50 text-red-200 hover:bg-red-800/60 px-4 py-2 rounded-lg text-sm"
-                    >
-                      <Download size={14} />
-                      Download PDF
-                    </button>
-                    <button
-                      onClick={() => downloadLiteratureReviewWord(literatureReviewSections)}
-                      className="flex items-center gap-2 bg-blue-900/50 text-blue-200 hover:bg-blue-800/60 px-4 py-2 rounded-lg text-sm"
-                    >
-                      <Download size={14} />
-                      Download Word
-                    </button>
-                  </>
-                )}
-                <span className="text-xs text-blue-300">
-                  {robSelectedPaperIds.size || selectedPaperIds.size} selected papers · {extractedData.length} extracted
-                </span>
-              </div>
-
-              {(literatureReviewSections.introduction || literatureReviewSections.references || literatureReviewLoading) ? (
-                <div className="space-y-4">
-                  {[
-                    { key: "introduction", label: "1. Introduction", placeholder: "Context, significance, and current landscape of the research topic." },
-                    { key: "globalIndian", label: "2. Global & Indian Situation", placeholder: "Scale and burden of the problem at the global and Indian level." },
-                    { key: "gaps", label: "3. Research Gaps / Limitations", placeholder: "What is missing from the literature? Understudied subpopulations, settings, methodologies, or outcomes." },
-                    { key: "futureAdvice", label: "4. Advice for Future Research", placeholder: "Specific, actionable future research directions and recommendations." },
-                    { key: "summary", label: "5. Summary", placeholder: "Key takeaways and implications for researchers, clinicians, or policymakers." },
-                    { key: "references", label: "6. References (Vancouver style, serially numbered)", placeholder: "1. Author(s) (Year). Title. Database. DOI", isReferences: true },
-                  ].map(({ key, label, placeholder, isReferences }) => (
-                    <div key={key} className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
-                      <label className="block text-sm font-medium text-yellow-200 mb-2">{label}</label>
-                      <textarea
-                        value={literatureReviewSections[key as keyof typeof literatureReviewSections]}
-                        onChange={(e) => setLiteratureReviewSections((prev) => ({ ...prev, [key]: e.target.value }))}
-                        placeholder={placeholder}
-                        className="w-full bg-blue-950 border border-blue-800 text-blue-100 rounded-lg px-4 py-3 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 min-h-[100px] leading-relaxed"
-                      />
-                      {isReferences && literatureReviewSections.references && (
-                        <p className="text-[10px] text-blue-400 mt-1">
-                          {literatureReviewSections.references.split("\n").filter((l) => l.trim()).length} references
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-6 text-center">
-                  <BookOpen size={32} className="text-blue-400 mx-auto mb-3" />
-                  <p className="text-sm text-blue-200 mb-1">No literature review generated yet.</p>
-                  <p className="text-xs text-blue-300">Click &quot;Generate Literature Review&quot; to produce a structured narrative review with deep reasoning based on your selected papers.</p>
-                </div>
-              )}
-            </div>
-
-            <div className="flex justify-end gap-3">
-              <button onClick={() => setPipelineStep(3)} className="bg-blue-900/50 hover:bg-blue-800/60 text-blue-200 font-bold px-4 py-2 rounded-lg flex items-center gap-2">
-                Back to Risk of Bias
-              </button>
-              <button onClick={() => setPipelineStep(5)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
-                Proceed to Synthesis
-                <ChevronRight size={16} />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {pipelineStep === 5 && (
           <div className="space-y-4">
             <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
               <div className="flex items-center gap-2 mb-3">
@@ -2242,8 +2143,8 @@ ${referencesList}
               )}
 
               <div className="flex justify-end">
-                <button onClick={() => setPipelineStep(6)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
-                  Proceed to Reporting
+                <button onClick={() => setPipelineStep(5)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
+                  Proceed to PRISMA Reporting
                   <ChevronRight size={16} />
                 </button>
               </div>
@@ -2251,7 +2152,7 @@ ${referencesList}
           </div>
         )}
 
-        {pipelineStep === 6 && (
+        {pipelineStep === 5 && (
           <div className="space-y-4">
             <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
               <h3 className="text-lg font-bold text-white mb-1">PRISMA 2020 Reporting & Visualization</h3>
@@ -2520,8 +2421,8 @@ ${referencesList}
               )}
             </div>
             <div className="flex justify-end gap-3">
-              <button onClick={() => setPipelineStep(7)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
-                Proceed to Writing & Meta-analysis
+              <button onClick={() => setPipelineStep(6)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
+                Proceed to Writing Review & Meta-analysis
                 <PenTool size={16} />
               </button>
               <button onClick={() => { setPipelineStep(1); setPapers([]); setSelectedPaperIds(new Set()); setExtractedData([]); setSynthesisOutput(""); setEffectSizes([]); setRobAssessments({}); setSynthesisInstructions(""); setReviewRequirements(""); setManuscript(""); }} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
@@ -2531,7 +2432,7 @@ ${referencesList}
             </div>
           </div>
         )}
-        {pipelineStep === 7 && (
+        {pipelineStep === 6 && (
           <div className="space-y-4">
             <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
               <div className="flex items-center gap-2 mb-3">

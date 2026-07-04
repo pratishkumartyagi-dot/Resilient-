@@ -397,56 +397,29 @@ The systematic review tab now contains a full 8-step systematic review / meta-an
 - [x] Escaped unescaped quotes in narrative review example text (`react/no-unescaped-entities` lint fix)
 - [x] Verified `bun typecheck`, `bun lint`, and `bun run build` all pass cleanly
 
-## Literature Review Step Added After Risk of Bias (2026-06-27)
+## Literature Review Step Removed — Pipeline Renumbered (2026-07-04)
 
 **File**: `src/components/tabs/EvidenceSynthesisTab.tsx`
 
-**Feature**: Added full Literature Review generation step after Step 3 (Risk of Bias). All selected papers from prior steps are automatically included as references in the generated review.
+**Change**: Removed the Literature Review step entirely. The pipeline now flows directly from Risk of Bias (Step 3) to Synthesis & Meta-analysis (Step 4).
 
 ### Step Renumbering
-- Step 4: Literature Review (NEW)
-- Step 5: Synthesis & Meta-analysis (was 4)
-- Step 6: Reporting & PRISMA (was 5)
-- Step 7: Writing Review & Meta-analysis (was 6)
+- Step 4: Synthesis & Meta-analysis (was 5)
+- Step 5: Reporting & PRISMA (was 6)
+- Step 6: Writing Review & Meta-analysis (was 7)
 
-### Literature Review Structure
-The AI-generated narrative review follows a strict heading structure:
-1. Introduction / Background
-2. Problem Statement (Global, South-East Asia, India)
-3. Research gaps
-4. Future studies to be carried out
-5. Conclusion
-6. References (auto-populated from selected papers)
+### Changes Applied
+- Removed entire `{pipelineStep === 4 && (` Literature Review JSX block
+- Updated `PIPELINE_STEPS` array to exclude Literature Review entry
+- Renumbered remaining step conditions: `pipelineStep === 5` → `4`, `6` → `5`, `7` → `6`
+- Updated `setPipelineStep` targets inside each step to match new numbering
+- Updated button labels: "Proceed to Literature Review" → "Proceed to Synthesis & Meta-analysis"; "Proceed to Reporting" → "Proceed to PRISMA Reporting"
+- Removed Literature Review state imports and JSX remnants
 
-### AI Integration
-- Uses Gemini 3.1 Flash Lite (primary) for general synthesis via `callGemini`
-- Falls back to Groq / DeepSeek API if configured
-- Prompt incorporates janhq/jan-inspired Long CoT methodology:
-  - Step-by-step reasoning before drafting each section
-  - Explicit uncertainty acknowledgment
-  - Cross-checking claims against available evidence
-  - Reflecting on global/regional/national representation gaps
-  - Logical narrative flow (broad context → specific problem → gaps → recommendations)
-- User can trigger generation with "Generate Literature Review" button
-- Output rendered as formatted Markdown with styled headings
-
-### State Added
-- `literatureReview` (string) — generated review text
-- `literatureReviewLoading` (boolean) — loading state during generation
-
-### UI Features
-- BookOpen icon added to `lucide-react` imports
-- "Proceed to Literature Review" button replaces "Proceed to Synthesis" in Step 3
-- Back button to return to Risk of Bias from Literature Review
-- Proceed button to advance to Synthesis from Literature Review
-- Shows selected paper count and extracted study count
-- Displays loading spinner during generation
-- Presents generated review with styled h1/h2/h3/blockquote/list elements
-
-### Bug Fixes
-- Escaped unescaped quotes in narrative review example text
-- Fixed JSX nesting issues and duplicate closing tags from prior edits
-- Verified `bun typecheck`, `bun lint`, and `bun run build` all pass cleanly
+### Validation
+- `bun typecheck` ✅
+- `bun lint` ✅
+- `bun run build` ✅
 
 ## Literature Review Step — Heading Mismatch & AI Connectivity Fix (2026-07-03)
 
@@ -685,9 +658,9 @@ Added as an add-on layer to the existing app — does not modify existing step n
 - `bun lint` ✅ passes
 - `bun run build` ✅ passes cleanly
 
-## OpenClaw Scientific Research & Writing Integration — EvidenceSynthesisTab Step 7 (2026-07-04)
+## OpenClaw Scientific Research & Writing Integration — EvidenceSynthesisTab Step 6 (2026-07-04)
 
-**Feature**: Integrated the OpenClaw `scientific-writing` skill from FreedomIntelligence/OpenClaw-Medical-Skills into Step 7 ("Writing Review & Meta-analysis") so the manuscript generation reads the full pipeline and produces IMRAD/PRISMA, two-stage outline-to-prose output with Vancouver-style inline citations.
+**Feature**: Integrated the OpenClaw `scientific-writing` skill from FreedomIntelligence/OpenClaw-Medical-Skills into Step 6 ("Writing Review & Meta-analysis") so the manuscript generation reads the full pipeline and produces IMRAD/PRISMA, two-stage outline-to-prose output with Vancouver-style inline citations.
 
 ### New Skill Registration
 - Added `scientific-writing` to `src/lib/medical-skills/skills-registry.ts`:
@@ -696,7 +669,7 @@ Added as an add-on layer to the existing app — does not modify existing step n
   - Source: `FreedomIntelligence/OpenClaw-Medical-Skills`, path `skills/scientific-writing`
 
 ### EvidenceSynthesisTab Updates
-- Updated Step 7 UI to explicitly mention the OpenClaw `Scientific Research & Writing` skill
+- Updated Step 6 UI to explicitly mention the OpenClaw `Scientific Research & Writing` skill
 - Replaced hardcoded "Example: Narrative Review" placeholder with actual generation instructions referencing the skill methodology
 - Updated structure reference from narrative-only to IMRAD + PRISMA with Vancouver citations
 - Rewrote `generateManuscript()` to support:
@@ -707,7 +680,7 @@ Added as an add-on layer to the existing app — does not modify existing step n
 - Removed hardcoded keyword `[direction]`, `[field]`, etc. placeholders in local mode
 
 ### Files Modified
-- `src/components/tabs/EvidenceSynthesisTab.tsx` — Step 7 rewrite + `generateManuscript` refactor
+- `src/components/tabs/EvidenceSynthesisTab.tsx` — Step 6 rewrite + `generateManuscript` refactor
 - `src/lib/medical-skills/skills-registry.ts` — added `scientific-writing`
 
 ### Validation
