@@ -2259,22 +2259,32 @@ ${referencesList}
                           <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: "#BF0000" }} /> High risk</span>
                           <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: "#4EA1F7" }} /> No information</span>
                         </div>
-                        <ResponsiveContainer width="100%" height={chartHeight}>
-                          <BarChart data={data} layout="vertical" margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#1e3a5f" />
-                            <XAxis type="number" stroke="#4ea1f7" tick={{ fontSize: 10 }} allowDecimals={false} />
-                            <YAxis type="category" dataKey="name" stroke="#4ea1f7" tick={{ fontSize: 10, fill: "#93c5fd" }} width={80} />
-                            <Tooltip
-                              contentStyle={{ background: "#0a1530", border: "1px solid #1e3a5f", borderRadius: 8, fontSize: 12 }}
-                              labelStyle={{ color: "#e2e8f0" }}
-                            />
-                            <Legend wrapperStyle={{ fontSize: 10 }} />
-                            <Bar dataKey="Low" stackId="bias" fill="#02C100" radius={[0, 2, 2, 0]} />
-                            <Bar dataKey="SomeConcerns" stackId="bias" fill="#E2DF07" radius={[0, 2, 2, 0]} />
-                            <Bar dataKey="High" stackId="bias" fill="#BF0000" radius={[0, 2, 2, 0]} />
-                            <Bar dataKey="NoInfo" stackId="bias" fill="#4EA1F7" radius={[0, 2, 2, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
+                         <ResponsiveContainer width="100%" height={chartHeight}>
+                           <BarChart data={data} layout="vertical" margin={{ top: 5, right: 20, bottom: 5, left: 160 }}>
+                             <CartesianGrid strokeDasharray="3 3" stroke="#1e3a5f" />
+                             <XAxis type="number" stroke="#4ea1f7" tick={{ fontSize: 10 }} allowDecimals={false} />
+                             <YAxis
+                               type="category"
+                               dataKey="name"
+                               stroke="#4ea1f7"
+                               tick={{ fontSize: 11, fill: "#93c5fd" }}
+                               width={160}
+                               tickFormatter={(value: string) => {
+                                 const truncated = value.length > 28 ? value.slice(0, 26) + "..." : value;
+                                 return truncated;
+                               }}
+                             />
+                             <Tooltip
+                               contentStyle={{ background: "#0a1530", border: "1px solid #1e3a5f", borderRadius: 8, fontSize: 12 }}
+                               labelStyle={{ color: "#e2e8f0" }}
+                             />
+                             <Legend wrapperStyle={{ fontSize: 10 }} />
+                             <Bar dataKey="Low" stackId="bias" fill="#02C100" radius={[0, 2, 2, 0]} />
+                             <Bar dataKey="SomeConcerns" stackId="bias" fill="#E2DF07" radius={[0, 2, 2, 0]} />
+                             <Bar dataKey="High" stackId="bias" fill="#BF0000" radius={[0, 2, 2, 0]} />
+                             <Bar dataKey="NoInfo" stackId="bias" fill="#4EA1F7" radius={[0, 2, 2, 0]} />
+                           </BarChart>
+                         </ResponsiveContainer>
                       </div>
                     );
                   })()}
