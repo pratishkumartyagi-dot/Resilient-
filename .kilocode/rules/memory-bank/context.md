@@ -683,190 +683,32 @@ Added as an add-on layer to the existing app — does not modify existing step n
 ### Validation
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes
+- `bun run build` ✅ passes cleanly
 
-## AutoPrognosis Tab Added as Separate Pipeline (2026-07-03)
+## OpenClaw Scientific Research & Writing Integration — EvidenceSynthesisTab Step 7 (2026-07-04)
 
-**Feature**: Added AutoPrognosis as a standalone top-level tab in the navigation bar and as a separate step-by-step pipeline.
+**Feature**: Integrated the OpenClaw `scientific-writing` skill from FreedomIntelligence/OpenClaw-Medical-Skills into Step 7 ("Writing Review & Meta-analysis") so the manuscript generation reads the full pipeline and produces IMRAD/PRISMA, two-stage outline-to-prose output with Vancouver-style inline citations.
 
-### Files Created
-- `src/components/tabs/AutoPrognosisTab.tsx` — New 12-step AutoPrognosis pipeline with AI guidance
+### New Skill Registration
+- Added `scientific-writing` to `src/lib/medical-skills/skills-registry.ts`:
+  - Category: `evidence-synthesis`
+  - Description: "Write scientific manuscripts in full paragraphs using IMRAD/PRISMA structures, two-stage outline-to-prose process, Vancouver/AMA citations, and publication-ready reporting guidelines."
+  - Source: `FreedomIntelligence/OpenClaw-Medical-Skills`, path `skills/scientific-writing`
 
-### Files Modified
-- `src/components/TopTabs.tsx` — Added `{ id: "autoprognosis", label: "AutoPrognosis", icon: Sparkles }` tab
-- `src/app/page.tsx` — Added `AutoPrognosisTab` dynamic import and routing case
-
-### AutoPrognosis Pipeline Steps
-1. Study Protocol & Aims
-2. Dataset & Outcome Definition
-3. Candidate Predictor Identification
-4. Data Loading & Profiling
-5. Missing Data Strategy
-6. Train/Test Split
-7. Forward Stepwise Selection (FSS)
-8. AUC & Discrimination
-9. Overfitting Detection
-10. Predictor Insights Graph (PIG)
-11. Final Model Equation
-12. Validation & Reporting
-
-### Technical Notes
-- Uses existing AI infrastructure (`callGemini` / `callGroq` via `/api/chat`)
-- No separate backend dependency; self-contained in the Next.js app
-- Supports CSV upload for data profiling
-- Word and PDF export for AI guidance output
-- Step navigation with Previous/Next buttons
-
-## AutoPrognosis Actual Computations Added (2026-07-03)
-
-**Feature**: Implemented real AutoPrognosis computations directly in the frontend using TypeScript, removing the need for a separate Python backend service.
-
-### Files Created
-- `src/lib/autoprognosis-compute.ts` — Pure TypeScript computation library with:
-  - Logistic regression via gradient descent
-  - Forward Stepwise Selection (FSS)
-  - AUC calculation
-  - Train/test split with configurable test size and random seed
-  - PIG table generation with coefficients, odds ratios, confidence intervals, and importance scores
-  - Overfitting detection (train AUC vs test AUC)
+### EvidenceSynthesisTab Updates
+- Updated Step 7 UI to explicitly mention the OpenClaw `Scientific Research & Writing` skill
+- Replaced hardcoded "Example: Narrative Review" placeholder with actual generation instructions referencing the skill methodology
+- Updated structure reference from narrative-only to IMRAD + PRISMA with Vancouver citations
+- Rewrote `generateManuscript()` to support:
+  - **AI mode** (API key required): Two-stage generation — first an outline, then conversion to full paragraphs with proper citations and structure
+  - **Local mode** (no API key): Complete template-based manuscript in full paragraphs reading all pipeline state (papers, synthesis, effectSizes, metaforResult, RoB)
+- Both modes now reference `metaforResult` when available, embedding computed pooled estimate, I², τ², and prediction interval into the Methods/Results/Discussion sections
+- Local manuscript now includes actual References section with Vancouver numbering derived from `papersForSynthesis`
+- Removed hardcoded keyword `[direction]`, `[field]`, etc. placeholders in local mode
 
 ### Files Modified
-- `src/components/tabs/AutoPrognosisTab.tsx` — Wired actual computations into the UI
-
-### Computation Features
-- "Run Analysis" button triggers real FSS, AUC, and PIG computation on uploaded CSV data
-- Results panel shows Test AUC, Train AUC, selected predictors count, overfitting status
-- PIG table displays coefficients, odds ratios, 95% CI, and importance for each selected predictor
-- Download PIG table as CSV
-- CSV parsing handles quoted fields and numeric coercion
-- Computation is fully client-side with no backend dependency
-
-## Scientific Paper Tab Added (OpenDraft-style) (2026-07-03)
-
-**Feature**: Added a new "Scientific Paper" tab to the navigation bar, positioned next to Protocol Generator. The tab provides an OpenDraft-style academic paper writing assistant with deep reasoning capabilities.
-
-### Files Created
-- `src/components/tabs/ScientificPaperTab.tsx` — New Scientific Paper tab component with chat interface, document upload, deep reasoning mode, and paper generation/export functionality
-
-### Files Modified
-- `src/components/TopTabs.tsx` — Added `{ id: "scientificpaper", label: "Scientific Paper", icon: BookOpen }` tab
-- `src/app/page.tsx` — Added `ScientificPaperTab` dynamic import and routing case `case "scientificpaper": return <ScientificPaperTab />;`
-
-### Features
-- Chat-based interface for scientific paper writing assistance
-- Deep Reasoning toggle (Long CoT mode)
-- Document upload support: `.doc`, `.docx`, `.pdf`, `.txt`, `.md`
-- AI-powered paper generation using existing Gemini/Groq/DeepSeek providers
-- Word (.doc) export with academic formatting
-- Context-aware responses based on uploaded documents
-- OpenDraft-style methodology: 19-agent pipeline inspiration, verified citations approach, structured manuscript generation
-
-### Technical Notes
-- Uses existing AI infrastructure (`callGemini` / `callGroq` via `/api/chat`)
-- Document parsing uses FileReader API for text extraction
-- Word export generates HTML-based .doc files with academic formatting
-- State managed locally within the component (no global state bloat)
-- Follows same UI patterns as ProtocolChatTab for consistency
-
-### Validation
-- `bun typecheck` ✅ passes
-- `bun lint` ✅ passes
-
-## Scientific Poster Tab Added (Poster_Template-style) (2026-07-03)
-
-**Feature**: Added a new "Scientific Poster" tab to the navigation bar, positioned next to "Scientific Paper". The tab provides a Poster_Template-inspired academic poster designer with PDF/Word upload support and poster generation/export.
-
-### Files Created
-- `src/components/tabs/ScientificPosterTab.tsx` — New Scientific Poster tab component with chat interface, document upload, deep reasoning mode, poster generation/export
-
-### Files Modified
-- `src/components/TopTabs.tsx` — Added `{ id: "scientificposter", label: "Scientific Poster", icon: Presentation }` tab
-- `src/app/page.tsx` — Added `ScientificPosterTab` dynamic import and routing case `case "scientificposter": return <ScientificPosterTab />;`
-
-### Features
-- Chat-based interface for scientific poster design assistance
-- Deep Reasoning toggle (Long CoT mode)
-- Document upload support: `.doc`, `.docx`, `.pdf`, `.txt`, `.md`
-- AI-powered poster layout generation using existing Gemini/Groq/DeepSeek providers
-- Word (.doc) export with academic poster formatting
-- Print / Save PDF via browser print dialog with poster-sized CSS
-- 3-column conference poster preview (Title, Authors, Introduction/Methods, Results, Discussion/Conclusion, References)
-- Context-aware responses based on uploaded documents
-- Poster_Template methodology: conference-style academic poster design, structured sections, visual hierarchy
-
-### Technical Notes
-- Uses existing AI infrastructure (`callGemini` / `callGroq` via `/api/chat`)
-- Document parsing uses existing `parseUploadedDocument` utility
-- Poster sections parsed from markdown into structured layout
-- Print CSS optimized for large-format poster printing (48in x 36in)
-- State managed locally within the component (no global state bloat)
-- Follows same UI patterns as ProtocolChatTab for consistency
-
-### Validation
-- `bun typecheck` ✅ passes
-- `bun lint` ✅ passes
-
-## Automatic Evidence Synthesis Tab (2026-07-03)
-
-**New tab added**: "Automatic Evidence Synthesis" in `TopTabs` (after "Protocol Generator")
-
-### New Component: `AutomaticEvidenceSynthesisTab`
-A 4-step evidence synthesis pipeline integrating ASReview LAB, meta-pipe, AutoPrognosis 2.0, and a journal report generator.
-
-#### Steps
-1. **ASReview Literature Screening** (Step 1) — AI-assisted active-learning screener using `callGemini`/`callGroq` with ASReview-style include/exclude recommendations. Generates 8 representative candidate studies per query.
-2. **meta-pipe Meta-Analysis** (Step 2) — Automated end-to-end extraction using `htlin222/meta-pipe` methodology. Produces extraction tables with pooled effect estimates, heterogeneity (I², tau²), PRISMA-ready summary, and forest-plot data. Downloadable as Word/PDF.
-3. **Run AutoPrognosis 2.0** (Step 3) — Upload aggregated dataset CSV and configure outcome, outcome type, test size, and max predictors. Runs `runAutoPrognosis` from `@/lib/autoprognosis-compute.ts` with Forward Stepwise Selection. Displays AUC, calibration, overfitting detection, and Predictor Insights Graph (PIG) table. Exportable as PIG CSV.
-4. **Journal Report Generator** (Step 4) — Generates a publication-ready manuscript in markdown (then exportable as Word/PDF). Uses a new `@/lib/journal-report-generator.ts` utility that builds a structured manuscript with abstract, methods, results (AUROC/Brier/F1 with 95% CI), PIG table, model equation, discussion, and meta-analysis output.
-
-### New Files Created
-- `src/components/tabs/AutomaticEvidenceSynthesisTab.tsx` — 4-step client component with fully self-contained state (no global AppContext changes)
-- `src/lib/journal-report-generator.ts` — `buildJournalManuscriptMarkdown()` and `buildJournalPDFHTML()` for report generation
-
-### Modified Files
-- `src/components/TopTabs.tsx` — Added `{ id: "auto_evidence", label: "Automatic Evidence Synthesis", icon: BookOpen }` tab
-- `src/app/page.tsx` — Added `AutomaticEvidenceSynthesisTab` dynamic import and `case "auto_evidence": return <AutomaticEvidenceSynthesisTab />;`
-
-### Key Design Decisions
-- Reuses existing AI wrappers (`callGemini` / `callGroq`) — no context or API changes required
-- Reuses existing `runAutoPrognosis` computation for Step 3 — no server-side changes
-- State fully local to the component; no AppContext reducer changes needed
-- Phase-specific color coding: emerald (ASReview), blue (meta-pipe), yellow (AutoPrognosis), purple (Reporter)
-
-### Validation
-- `bun typecheck` ✅ passes
-- `bun lint` ✅ passes
-
-## AutoPrognosis Pipeline Refactor — ASReview → meta-pipe → AutoPrognosis 2.0 (2026-07-03)
-
-**Feature**: Refactored `AutoPrognosisTab` from a standalone 12-step prediction-model workflow into a unified 10-step pipeline that first performs ASReview-style literature screening, then meta-pipe-style systematic extraction/meta-analysis, and finally runs AutoPrognosis 2.0 on the aggregated dataset.
-
-### Files Modified
-- `src/components/tabs/AutoPrognosisTab.tsx` — Full rewrite of workflow to 10 steps across 3 phases:
-  - **Phase 1 — ASReview LAB Screening** (Rensvandeschoot/automated-systematic-review)
-    1. Study Import & Search
-    2. Active Learning Screening
-    3. Full-text Review
-  - **Phase 2 — meta-pipe Extraction & Meta-Analysis** (htlin222/meta-pipe)
-    4. Automated Data Extraction
-    5. Meta-Analysis
-    6. Reporting
-  - **Phase 3 — AutoPrognosis 2.0**
-    7. Dataset Preparation
-    8. Model Configuration
-    9. Run Analysis
-    10. Results & PIG
-
-### Integration Approach
-- ASReview and meta-pipe are Python/R backends; this Next.js frontend cannot execute them directly.
-- Instead, the tab uses the existing AI provider infrastructure (`callGemini`/`callGroq`) to:
-  - Simulate ASReview active-learning screening with relevance scoring and include/exclude recommendations
-  - Generate meta-pipe-style extraction tables, pooled effects, heterogeneity stats, and PRISMA outputs
-  - Provide AI guidance aligned with each external repo's methodology
-- Preserved the existing `runAutoPrognosis()` computation from `src/lib/autoprognosis-compute.ts` for Step 9.
-- Added step-level AI guidance prompts referencing:
-  - `Rensvandeschoot/automated-systematic-review` for screening methodology
-  - `htlin222/meta-pipe` stages (`ma-data-extraction`, `ma-meta-analysis`, `ma-publication-quality`, `ma-manuscript-quarto`)
-  - `Efthimiou et al. (BMJ 2024, PMC11369751)` and PyHealth conventions for AutoPrognosis 2.0
+- `src/components/tabs/EvidenceSynthesisTab.tsx` — Step 7 rewrite + `generateManuscript` refactor
+- `src/lib/medical-skills/skills-registry.ts` — added `scientific-writing`
 
 ### Validation
 - `bun typecheck` ✅ passes
