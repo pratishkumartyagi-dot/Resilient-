@@ -223,6 +223,9 @@ export default function EvidenceSynthesisTab() {
   const [synthesisInstructions, setSynthesisInstructions] = useState("");
   const [synthesisOutput, setSynthesisOutput] = useState("");
   const [synthesisLoading, setSynthesisLoading] = useState(false);
+  const [synthesisMode, setSynthesisMode] = useState<"ai" | "local">(
+    (state.geminiApiKey || state.groqApiKey) ? "ai" : "local"
+  );
   const [manuscript, setManuscript] = useState("");
   const [manuscriptLoading, setManuscriptLoading] = useState(false);
   const [literatureReviewSections, setLiteratureReviewSections] = useState({
@@ -903,6 +906,25 @@ At the end, include a References section with all papers in Vancouver style:
     }
     setSynthesisLoading(true);
     setSynthesisOutput("");
+
+    const runLocal = () => {
+      const localOutput = generateLocalSynthesis();
+      setSynthesisOutput(localOutput);
+      const tableLines = localOutput.split("\n").filter((l) => l.includes("|") && !l.includes("---"));
+      const resultRows = tableLines.slice(1).map((l) => {
+        const parts = l.split("|").map((s) => s.trim()).filter(Boolean);
+        if (parts.length < 4) return null;
+        return { study: parts[0] || "", effect: parts[1] || "", ci: parts[2] || "", weight: parts[3] || "" };
+      }).filter((r): r is { study: string; effect: string; ci: string; weight: string } => r !== null);
+      if (resultRows.length > 0) setEffectSizes(resultRows);
+      setSynthesisLoading(false);
+    };
+
+    if (synthesisMode === "local") {
+      runLocal();
+      return;
+    }
+
     try {
       const papersForSynthesis = extractedData
         .filter((p) => selectedPaperIds.has(p.id))
@@ -960,16 +982,7 @@ OUTPUT FORMAT:
 
       const apiKey = state.geminiApiKey || state.groqApiKey;
       if (!apiKey) {
-        const localOutput = generateLocalSynthesis();
-        setSynthesisOutput(localOutput);
-        const tableLines = localOutput.split("\n").filter((l) => l.includes("|") && !l.includes("---"));
-        const resultRows = tableLines.slice(1).map((l) => {
-          const parts = l.split("|").map((s) => s.trim()).filter(Boolean);
-          if (parts.length < 4) return null;
-          return { study: parts[0] || "", effect: parts[1] || "", ci: parts[2] || "", weight: parts[3] || "" };
-        }).filter((r): r is { study: string; effect: string; ci: string; weight: string } => r !== null);
-        if (resultRows.length > 0) setEffectSizes(resultRows);
-        setSynthesisLoading(false);
+        runLocal();
         return;
       }
 
@@ -1001,7 +1014,8 @@ OUTPUT FORMAT:
         if (rows.length > 0) setEffectSizes(rows);
       }
     } catch (err: any) {
-      setSynthesisOutput(`## Evidence Synthesis\n\n**Error generating synthesis:** ${err.message || "Unknown error"}\n\nPlease try again, adjust your instructions, or use local synthesis (no API key required).`);
+      const fallback = `## Evidence Synthesis\n\n**AI synthesis failed:** ${err.message || "Unknown error"}\n\nFalling back to local synthesis builder.\n\n`;
+      setSynthesisOutput(fallback + generateLocalSynthesis());
     } finally {
       setSynthesisLoading(false);
     }
@@ -1154,9 +1168,10 @@ Generate the full manuscript now.`;
         setManuscript(localManuscript);
       }
     } catch (err: any) {
-      setManuscript(`# Error\n\n**Failed to generate manuscript:** ${err.message || "Unknown error"}\n\nPlease complete Steps 1–5 and try again. If using AI-generated mode, ensure your API key is valid.`);
+      const fallback = `## Evidence Synthesis\n\n**AI synthesis failed:** ${err.message || "Unknown error"}\n\nFalling back to local synthesis builder.\n\n`;
+      setSynthesisOutput(fallback + generateLocalSynthesis());
     } finally {
-      setManuscriptLoading(false);
+      setSynthesisLoading(false);
     }
   };
 
@@ -1942,35 +1957,62 @@ ${referencesList}
                 </div>
               </div>
 
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-blue-200 mb-2">Additional Synthesis Instructions</label>
-                <textarea
-                  value={synthesisInstructions}
-                  onChange={(e) => setSynthesisInstructions(e.target.value)}
-                  placeholder="e.g., Focus on IGRA vs TST diagnostic accuracy; use random-effects model; include funnel plot assessment..."
-                  className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-3 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 min-h-[80px]"
-                />
-              </div>
+               <div className="mb-4">
+                 <label className="block text-sm font-medium text-blue-200 mb-2">Additional Synthesis Instructions</label>
+                 <textarea
+                   value={synthesisInstructions}
+                   onChange={(e) => setSynthesisInstructions(e.target.value)}
+                   placeholder="e.g., Focus on IGRA vs TST diagnostic accuracy; use random-effects model; include funnel plot assessment..."
+                   className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-3 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 min-h-[80px]"
+                 />
+               </div>
 
-              <button
-                onClick={generateSynthesis}
-                disabled={synthesisLoading || extractedData.length === 0}
-                className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50 mb-4"
-              >
-                {synthesisLoading ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-[#0a1a3a] border-t-transparent rounded-full animate-spin" />
-                    Generating Synthesis...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles size={16} />
-                    {(state.geminiApiKey || state.groqApiKey)
-                      ? `Generate AI Synthesis (${reviewType})`
-                      : `Generate Local Synthesis (${reviewType})`}
-                  </>
-                )}
-              </button>
+               <div className="flex flex-wrap items-center gap-3 mb-4">
+                 <div className="flex items-center gap-2 bg-blue-950/60 border border-blue-800 rounded-lg px-3 py-2">
+                   <span className="text-xs font-medium text-blue-300">Mode:</span>
+                   <button
+                     onClick={() => setSynthesisMode("ai")}
+                     disabled={!(state.geminiApiKey || state.groqApiKey)}
+                     className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                       synthesisMode === "ai"
+                         ? "bg-yellow-500 text-[#0a1a3a]"
+                         : "bg-blue-900/50 text-blue-300 hover:bg-blue-900/70"
+                     } disabled:opacity-40 disabled:cursor-not-allowed`}
+                     title={!(state.geminiApiKey || state.groqApiKey) ? "Configure an API key in Settings first" : "AI-enhanced synthesis"}
+                   >
+                     AI Synthesis
+                   </button>
+                   <button
+                     onClick={() => setSynthesisMode("local")}
+                     className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                       synthesisMode === "local"
+                         ? "bg-yellow-500 text-[#0a1a3a]"
+                         : "bg-blue-900/50 text-blue-300 hover:bg-blue-900/70"
+                     }`}
+                   >
+                     Local Synthesis
+                   </button>
+                 </div>
+                 <button
+                   onClick={generateSynthesis}
+                   disabled={synthesisLoading || extractedData.length === 0}
+                   className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
+                 >
+                   {synthesisLoading ? (
+                     <>
+                       <div className="w-4 h-4 border-2 border-[#0a1a3a] border-t-transparent rounded-full animate-spin" />
+                       Generating...
+                     </>
+                   ) : (
+                     <>
+                       <Sparkles size={16} />
+                       {synthesisMode === "ai"
+                         ? `Generate AI Synthesis (${reviewType})`
+                         : `Generate Local Synthesis (${reviewType})`}
+                     </>
+                   )}
+                 </button>
+               </div>
 
               {synthesisOutput && (
                 <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4 mb-4">
