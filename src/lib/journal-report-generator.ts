@@ -1,4 +1,5 @@
 import { marked } from "marked";
+import { REPORTING_GUIDELINES } from "./reporting-guidelines";
 
 export function buildJournalManuscriptMarkdown(opts: {
   nPatients: number;
@@ -17,6 +18,7 @@ export function buildJournalManuscriptMarkdown(opts: {
   selectedPredictors: string[];
   coefficients: Record<string, number>;
   intercept: number;
+  studyType?: string;
 }): string {
   const generatedDate = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 
@@ -36,6 +38,10 @@ export function buildJournalManuscriptMarkdown(opts: {
       ? `logit(P) = ${opts.intercept.toFixed(4)} + ${opts.selectedPredictors.map((name) => `${(opts.coefficients[name] ?? 0).toFixed(4)} × ${name}`).join(" + ")}`
       : `logit(P) = ${opts.intercept.toFixed(4)}`;
 
+  const guidelineInfo = opts.studyType ? REPORTING_GUIDELINES.getGuidelineForStudyType(opts.studyType) : null;
+  const adherenceStatement = guidelineInfo ? REPORTING_GUIDELINES.getMethodsStatement(opts.studyType!) : "";
+  const checklistMd = guidelineInfo ? REPORTING_GUIDELINES.getChecklistAsMarkdown(opts.studyType!) : "";
+
   const metaSection = opts.metaOut
     ? `---
 
@@ -45,9 +51,22 @@ ${opts.metaOut}
 `
     : "";
 
+  const guidelineSection = guidelineInfo ? `---
+
+## Reporting Guideline Compliance
+
+**Applicable Guideline:** ${guidelineInfo.fullName} (${guidelineInfo.guideline}) ${guidelineInfo.version}
+**Reference:** ${guidelineInfo.url}
+
+${adherenceStatement}
+
+${checklistMd}
+` : "";
+
   return `# Development and Validation of a Prognostic Model via Automated Machine Learning: A Pooled Meta-Analysis
 **Date of Generation:** ${generatedDate}
 **Framework:** AutoPrognosis 2.0 & meta-pipe Pipeline
+${guidelineInfo ? `**Reporting Guideline:** ${guidelineInfo.guideline} (${guidelineInfo.fullName})` : ""}
 
 ---
 
@@ -56,6 +75,7 @@ ${opts.metaOut}
 **Methods:** Data from ${opts.nPatients} patients across extracted clinical studies were harmonized. AutoPrognosis 2.0 was used to search the algorithmic space—including imputation, feature engineering, and ensemble selection—to minimize Brier score and maximize AUROC.
 **Results:** The optimal architecture selected was an ensemble dominated by ${opts.bestPipeline}. The model achieved a pooled AUROC of ${opts.aurocCi} and a Brier calibration index of ${opts.brierCi}.
 **Conclusions:** Fully automated prognostic pipelines provide high-discrimination deployment strategies for multi-center data integration.
+${adherenceStatement ? `\n**Reporting:** ${adherenceStatement}` : ""}
 
 ---
 
@@ -87,6 +107,7 @@ ${modelEquation}
 ### 4. DISCUSSION
 Our automated meta-analysis framework successfully eliminated human bias in feature selection and model architecture deployment. The resulting ${opts.bestPipeline} ensemble provides optimal generalization bounds ready for multi-site prospective validation.
 ${metaSection}
+${guidelineSection}
 `;
 }
 

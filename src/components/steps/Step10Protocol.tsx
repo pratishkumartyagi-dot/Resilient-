@@ -5,9 +5,15 @@ import { ChevronRight, ChevronLeft, FileText, Save, Sparkles } from "lucide-reac
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
 import { buildStep10Prompt } from "@/lib/research-skills";
+import { REPORTING_GUIDELINES } from "@/lib/reporting-guidelines";
 
 export default function Step10Protocol() {
   const { state, dispatch } = useApp();
+  const spiritGuideline = REPORTING_GUIDELINES.byStudyType["Clinical trial protocol"];
+  const applicableGuideline = state.studyType.toLowerCase().includes("trial") || state.studyType.toLowerCase().includes("rct")
+    ? spiritGuideline
+    : REPORTING_GUIDELINES.getGuidelineForStudyType(state.studyType);
+
   const [localProtocol, setLocalProtocol] = useState({
     background: state.protocol.background || "",
     objectives: state.protocol.objectives || "",
@@ -34,7 +40,12 @@ export default function Step10Protocol() {
     setGeneratedProtocol("");
 
     try {
-      const prompt = buildStep10Prompt(state.aimObjectives, state.papers, state.studyType, state.synthesisTable);
+      const spiritGuideline = REPORTING_GUIDELINES.byStudyType["Clinical trial protocol"];
+      const guidelineContext = spiritGuideline
+        ? `\n\nReporting Guideline Context: For clinical trial protocols, follow the ${spiritGuideline.guideline} (${spiritGuideline.fullName}) ${spiritGuideline.version}. Key items include: ${spiritGuideline.checklistItems.slice(0, 8).join("; ")}.`
+        : "";
+
+      const prompt = buildStep10Prompt(state.aimObjectives, state.papers, state.studyType, state.synthesisTable) + guidelineContext;
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: state.searchQuery };
 
       let responseText: string = "";
@@ -160,6 +171,11 @@ Significance: The study will provide Nigeria's Ministry of Health and WHO AFRO w
             <h2 className="text-xl font-bold text-white">Step 10: Research Protocol</h2>
             <p className="text-sm text-blue-300">
               Design a structured clinical cohort study protocol using AIPOCH Clinical Cohort Protocol Designer methodology.
+              {applicableGuideline && (
+                <span className="block text-xs text-yellow-300 mt-1">
+                  Reporting Guideline: {applicableGuideline.guideline} ({applicableGuideline.fullName}) — {applicableGuideline.version}
+                </span>
+              )}
             </p>
           </div>
           <div className="flex gap-2">

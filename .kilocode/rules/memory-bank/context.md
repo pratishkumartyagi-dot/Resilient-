@@ -786,3 +786,87 @@ Added as an add-on layer to the existing app — does not modify existing step n
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes
 - `bun run build` ✅ passes cleanly
+
+## EQUATOR Reporting Guidelines Integration (2026-07-04)
+
+**Feature**: Integrated the EQUATOR Network reporting guidelines from https://github.com/davila7/claude-code-templates into all report/paper/thesis/protocol generation points across the app. Ensures manuscripts, protocols, and reports comply with applicable reporting standards (CONSORT, STROBE, PRISMA, SPIRIT, TRIPOD, ARRIVE, CARE, SQUIRE, CHEERS, SRQR, STARD).
+
+### New File
+- `src/lib/reporting-guidelines.ts` — Centralized reporting guidelines reference module containing:
+  - `REPORTING_GUIDELINES` object with guidelines keyed by study type (RCT, cohort, case-control, cross-sectional, systematic review, meta-analysis, clinical trial protocol, diagnostic accuracy, prediction model, animal study, case report, quality improvement, economic evaluation, qualitative research)
+  - Each entry includes: full name, version, URL, checklist items, extensions
+  - Helper functions: `getGuidelineForStudyType()`, `getGuidelineAdherenceStatement()`, `getChecklistAsMarkdown()`, `getMethodsStatement()`
+
+### Files Modified
+
+**`src/lib/journal-report-generator.ts`**
+- Added import for `REPORTING_GUIDELINES`
+- Added `studyType` parameter to `buildJournalManuscriptMarkdown()`
+- Auto-injects reporting guideline compliance section into generated manuscripts:
+  - Guideline name, version, and URL
+  - Adherence statement for Methods section
+  - Full checklist table with page/line columns
+- Applies to journal manuscript, PDF HTML, and meta-analysis outputs
+
+**`src/lib/research-skills.ts`**
+- Added import for `REPORTING_GUIDELINES`
+- `buildStep9Prompt()` (Methods Section Writer):
+  - Identifies applicable guideline based on `studyType`
+  - Injects full checklist items into AI prompt
+  - Requires Methods draft to address every guideline item
+  - Adds "Reporting Guideline Coverage" subsection to output structure
+- `buildStep10Prompt()` (Protocol Designer):
+  - Detects clinical trials and applies SPIRIT guideline
+  - Adds Section M: "Reporting Guideline Compliance" mapping protocol sections to checklist items
+  - Includes guideline URL and version in prompt context
+
+**`src/components/tabs/PaperWriterTab.tsx`**
+- Updated `Ethics Compliance Agent` role to include "CONSORT / PRISMA / STROBE checks"
+- Added "Reporting guideline compliance (EQUATOR)" criterion to quality rubric:
+  - Checks CONSORT/STROBE/PRISMA item coverage
+  - Notes missing items and supplementary file availability
+
+**`src/components/steps/Step10Protocol.tsx`**
+- Added import for `REPORTING_GUIDELINES`
+- Displays applicable reporting guideline in header (e.g., SPIRIT for clinical trials)
+- Injects guideline context into AI prompt for protocol generation
+- Shows guideline name and version in UI
+
+**`src/components/tabs/ProtocolChatTab.tsx`**
+- Added import for `REPORTING_GUIDELINES`
+- Extended `DEEP_REASONING_SYSTEM_PROMPT` with reporting guidelines integration phase
+- Lists all applicable EQUATOR guidelines with URLs in system prompt
+- `generateDefaultProtocol()` now includes:
+  - SPIRIT reference for clinical trial protocols
+  - Reporting Guideline Compliance section mapping to checklist items
+  - Guideline URL and version in footer
+
+**`src/components/tabs/PredictiveAnalysisTab.tsx`**
+- Added import for `REPORTING_GUIDELINES`
+- Added `TRIPOD_GUIDELINE` constant from centralized module
+- Step 1 prompt: Expanded TRIPOD protocol request with full checklist items
+- Step 13 (Report & Publish): Enhanced TRIPOD checklist summary request with complete item list and adherence statement guidance
+- Step 13 UI: Displays TRIPOD guideline name, version, and URL
+
+### Reporting Guidelines Covered
+
+| Study Type | Guideline | Version |
+|------------|-----------|---------|
+| Randomized controlled trial | CONSORT | 2010 |
+| Cohort study | STROBE | 2007 |
+| Case-control study | STROBE | 2007 |
+| Cross-sectional study | STROBE | 2007 |
+| Systematic review | PRISMA | 2020 |
+| Meta-analysis | PRISMA | 2020 |
+| Clinical trial protocol | SPIRIT | 2013 |
+| Diagnostic accuracy study | STARD | 2015 |
+| Prediction model study | TRIPOD | 2015 |
+| Animal study | ARRIVE | 2.0 (2020) |
+| Case report | CARE | 2013 |
+| Quality improvement study | SQUIRE | 2.0 (2015) |
+| Economic evaluation | CHEERS | 2022 |
+| Qualitative research | SRQR | 2014 |
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes

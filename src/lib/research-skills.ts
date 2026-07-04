@@ -1,3 +1,5 @@
+import { REPORTING_GUIDELINES } from "./reporting-guidelines";
+
 export interface Paper {
   id: string;
   title: string;
@@ -516,12 +518,16 @@ export function buildStep9Prompt(
   selectedPapers: Paper[],
   studyType: string
 ): string {
-  return `You are a biomedical writing specialist for Methods sections following the AIPOCH Methods Section Writer methodology.
+  const guideline = REPORTING_GUIDELINES.getGuidelineForStudyType(studyType);
+  const guidelineName = guideline ? `${guideline.guideline} (${guideline.fullName})` : "the applicable reporting guideline (CONSORT for RCT, STROBE for observational, PRISMA for systematic review, TRIPOD for prediction model, SPIRIT for trial protocols)";
+  const checklistItems = guideline ? guideline.checklistItems.map((item, idx) => `${idx + 1}. ${item}`).join("\n") : "";
+
+  return `You are a biomedical writing specialist for Methods sections following the AIPOCH Methods Section Writer methodology, integrated with EQUATOR Network reporting guidelines.
 
 TASK: Generate a publication-ready Methods section draft based on the study aim, objectives, and selected papers.
 
 WORKFLOW:
-1. Identify study type and applicable reporting guideline (CONSORT for RCT, STROBE for observational, PRISMA for systematic review, TRIPOD for prediction model, etc.)
+1. Identify study type and applicable reporting guideline: ${guidelineName}
 2. Collect required inputs from the study aims and objectives
 3. Write full paragraphs in IMRAD Methods subsections:
    - Study design and oversight
@@ -532,14 +538,18 @@ WORKFLOW:
    - Sample size
    - Statistical analysis (model, assumption checks, effect sizes with CIs, missing-data strategy, software version)
    - Data management and availability
-4. After drafting, check coverage against the applicable guideline
+4. After drafting, check coverage against the applicable guideline checklist
 5. Deliver: complete Methods draft + coverage note + explicit assumptions
+
+APPLICABLE GUIDELINE CHECKLIST ITEMS TO ADDRESS:
+${checklistItems || "Identify the appropriate guideline based on study type and address its required items."}
 
 HARD RULES:
 - Never fabricate statistical results, effect sizes, sample sizes, p-values, or software outputs
 - Never invent ethics approval IDs, consent forms, or regulatory references
 - If a detail is missing, write a placeholder [AUTHOR TO SPECIFY: ...] rather than inventing a default
 - Do not introduce new outcomes in the Methods not mentioned in the aims
+- Ensure the Methods section addresses every item in the applicable reporting guideline checklist
 
 OUTPUT STRUCTURE — markdown only (no JSON):
 
@@ -567,7 +577,7 @@ OUTPUT STRUCTURE — markdown only (no JSON):
 [Recording, storage, anonymization, access]
 
 ### Reporting Guideline Coverage
-[CONSORT/STROBE/PRISMA items covered: list. Items needing author input: list]
+[${guideline ? guideline.guideline : "Guideline"} items covered: list. Items needing author input: list]
 
 STUDY TYPE: ${studyType}
 
@@ -586,9 +596,18 @@ export function buildStep10Prompt(
   studyType: string,
   synthesisTable: SynthesisRow[]
 ): string {
-  return `You are an expert clinical research protocol strategist following the AIPOCH Clinical Cohort Protocol Designer methodology.
+  const isClinicalTrial = studyType.toLowerCase().includes("trial") || studyType.toLowerCase().includes("rct") || studyType.toLowerCase().includes("randomized");
+  const guideline = isClinicalTrial
+    ? REPORTING_GUIDELINES.byStudyType["Clinical trial protocol"]
+    : REPORTING_GUIDELINES.getGuidelineForStudyType(studyType);
+  const guidelineRef = guideline ? `${guideline.guideline} (${guideline.fullName}) ${guideline.version}` : "applicable reporting guidelines (SPIRIT for clinical trial protocols, STROBE for observational studies, CONSORT for RCTs)";
 
-TASK: Design a structured retrospective or prospective clinical cohort study protocol framework based on the study aims, objectives, and evidence synthesized from selected papers.
+  return `You are an expert clinical research protocol strategist following the AIPOCH Clinical Cohort Protocol Designer methodology, integrated with EQUATOR Network reporting guidelines.
+
+TASK: Design a structured retrospective or prospective clinical cohort study protocol framework based on the study aims, objectives, and evidence synthesized from selected papers. Ensure the protocol addresses all required items from the applicable reporting guideline.
+
+APPLICABLE REPORTING GUIDELINE: ${guidelineRef}
+${guideline ? `Reference: ${guideline.url}` : ""}
 
 WORKFLOW (11 steps):
 1. Determine whether cohort design is appropriate for the question
@@ -601,6 +620,7 @@ WORKFLOW (11 steps):
 8. Audit bias and validity threats (immortal time bias, confounding by indication, misclassification, informative censoring)
 9. Check feasibility: what data are likely available vs assumption-dependent
 10. Recommend the lead protocol version
+11. Map protocol sections to the applicable reporting guideline checklist items
 
 OUTPUT STRUCTURE — markdown only (no JSON):
 
@@ -682,6 +702,9 @@ OUTPUT STRUCTURE — markdown only (no JSON):
 
 ## L. Critical Assumptions and Next Clarifications
 [List assumptions requiring confirmation and minimum follow-up questions]
+
+## M. Reporting Guideline Compliance
+[Map each section above to the applicable guideline checklist items. Note any items requiring additional detail or author input.]
 
 STUDY TYPE: ${studyType}
 

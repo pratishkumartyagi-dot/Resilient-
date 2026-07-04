@@ -20,6 +20,7 @@ import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
 import { buildStep10Prompt } from "@/lib/research-skills";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
 import { parseUploadedDocument, ALLOWED_DOCUMENT_TYPES } from "@/lib/document-parser";
+import { REPORTING_GUIDELINES } from "@/lib/reporting-guidelines";
 
 interface Message {
   id: string;
@@ -41,8 +42,18 @@ You help researchers build rigorous clinical, academic, and public health resear
 2. Performing multi-phase deep reasoning (context analysis → gap identification → methodology selection → bias audit → feasibility check)
 3. Synthesizing findings using AIPOCH-style structured reasoning and clinical trial protocol design principles
 4. Producing a complete, downloadable Word protocol document
+5. Ensuring protocol compliance with applicable reporting guidelines (SPIRIT for clinical trial protocols, CONSORT for RCTs, STROBE for observational studies)
 
 Always reason step-by-step, make your chain of thought explicit, cite document sections you reference, and if a detail is uncertain, flag it "[AUTHOR TO SPECIFY]".
+
+## Reporting Guidelines Integration
+When generating protocols, reference the appropriate EQUATOR Network reporting guideline:
+- Clinical trial protocols: SPIRIT 2013 (https://www.spirit-statement.org/)
+- Randomized controlled trials: CONSORT 2010 (http://www.consort-statement.org/)
+- Observational studies: STROBE 2007 (https://www.strobe-statement.org/)
+- Systematic reviews: PRISMA 2020 (http://www.prisma-statement.org/)
+- Prediction models: TRIPOD 2015 (https://www.tripod-statement.org/)
+- Animal studies: ARRIVE 2.0 (https://arriveguidelines.org/)
 
 ## Long CoT Reasoning Protocol you must follow:
 1. Context Analysis — Summarize what the uploaded documents actually say (don't hallucinate)
@@ -51,7 +62,8 @@ Always reason step-by-step, make your chain of thought explicit, cite document s
 4. Feasibility Check — What data/resources are assumed vs. confirmed?
 5. Bias Audit — Identify key biases and how you're mitigating them
 6. Protocol Foundation — Define source population, enrollment logic, time-zero, follow-up architecture, endpoints, variable collection, and statistical analysis
-7. Output Generation — Deliver the structured protocol`;
+7. Reporting Guideline Compliance — Map protocol sections to applicable guideline checklist items
+8. Output Generation — Deliver the structured protocol`;
 
 
 const buildDeepReasoningPrompt = (userMessage: string, documentContent: string, chatHistory: { role: string; content: string }[]) => {
@@ -585,13 +597,17 @@ What would you like to do?`;
 }
 
 function generateDefaultProtocol(documentContent: string): string {
+  const spiritGuideline = REPORTING_GUIDELINES.byStudyType["Clinical trial protocol"];
   const contextNote = documentContent ? `\n\nBased on the uploaded document content:\n${documentContent.substring(0, 5000)}` : "\n\n(No document uploaded — using generic clinical research protocol template)";
   const skillNote = CLINICAL_TRIAL_PROTOCOL_SKILL
     ? `\n\n*Methodology informed by: ${CLINICAL_TRIAL_PROTOCOL_SKILL.name} — ${CLINICAL_TRIAL_PROTOCOL_SKILL.description}*`
     : "";
+  const guidelineNote = spiritGuideline
+    ? `\n\n*Reporting Guideline: This protocol follows the ${spiritGuideline.guideline} (${spiritGuideline.fullName}) ${spiritGuideline.version}. Reference: ${spiritGuideline.url}*`
+    : "";
 
   return `## A. Study Intent Summary
-This protocol establishes a structured clinical cohort study designed to investigate the research question informed by uploaded documents and AI-assisted deep reasoning analysis.${contextNote}${skillNote}
+This protocol establishes a structured clinical cohort study designed to investigate the research question informed by uploaded documents and AI-assisted deep reasoning analysis.${contextNote}${skillNote}${guidelineNote}
 
 ## B. Why Cohort Design Fits
 A cohort design is appropriate for this research question because it allows for prospective or retrospective follow-up of exposed and unexposed populations, enabling the assessment of temporal relationships and incidence-based outcomes.${contextNote}
@@ -681,8 +697,10 @@ Lead protocol: **Retrospective-prospective cohort** with primary analysis based 
 5. [CLARIFY] Ethical approvals and data governance framework status
 ${CLINICAL_TRIAL_PROTOCOL_SKILL ? `\n\n*Regulatory Note:* Before proceeding with this clinical study, professional consultation with biostatisticians, regulatory affairs specialists, and IRB is strongly recommended. This tool does not constitute official FDA or regulatory approval.` : ""}
 
+${spiritGuideline ? `\n## Reporting Guideline Compliance\nThis protocol is structured to align with the **${spiritGuideline.guideline} (${spiritGuideline.fullName})** ${spiritGuideline.version}.\nKey checklist items addressed: ${spiritGuideline.checklistItems.slice(0, 10).join("; ")}.\nReference: ${spiritGuideline.url}` : ""}
+
 ---
-*Protocol generated by Resilient Research App Protocol Generator using AIPOCH Long CoT methodology.*${skillNote}`;
+*Protocol generated by Resilient Research App Protocol Generator using AIPOCH Long CoT methodology.*${skillNote}${guidelineNote}`;
 }
 
 function formatMarkdownToWord(md: string): string {
