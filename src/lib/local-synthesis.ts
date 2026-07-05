@@ -25,7 +25,8 @@ const EVIDENCE_TIERS: Record<string, { label: string; color: string }> = {
   qualitative: { label: "T3 — Associational (★☆☆)", color: "text-orange-300" },
 };
 
-function getEvidenceTier(studyType: string): { label: string; color: string } {
+function getEvidenceTier(studyType: string | undefined | null): { label: string; color: string } {
+  if (!studyType || typeof studyType !== "string") return { label: "T3 — Associational (★☆☆)", color: "text-orange-300" };
   const t = studyType.toLowerCase();
   for (const [key, val] of Object.entries(EVIDENCE_TIERS)) {
     if (t.includes(key)) return val;
@@ -204,7 +205,7 @@ function extractStudyDetails(abstract: string, paper: Paper): string {
   // Intervention
   const intervention =
     sentences.find((s) => /(?:intervention|treatment|exposure|drug|therapy|program|policy|screening|diagnostic|procedure|surgery|vaccine|antibiotic)/i.test(s) && s.length > 40) ||
-    (paper.studyType.toLowerCase().includes("rct") || paper.studyType.toLowerCase().includes("trial")
+    ((paper.studyType || "").toLowerCase().includes("rct") || (paper.studyType || "").toLowerCase().includes("trial")
       ? "Active intervention as defined in trial protocol."
       : "Observational — no active intervention imposed.");
 
@@ -300,7 +301,7 @@ function buildSynopsis(paper: Paper): string {
 /* ------------------------------------------------------------------ */
 /*  Main local synthesis generator                                    */
 /* ------------------------------------------------------------------ */
-export async function generateLocalSynthesis(papers: Paper[]): Promise<SynthesisRow[]> {
+export async function generateLocalSynthesis(papers: Paper[] = []): Promise<SynthesisRow[]> {
   // Parallel DOI validation (Crossref) — same as AI-Research-Analyzer citation-validator approach
   const doisToValidate = papers.filter((p) => p.doi && p.doi.length > 3).map((p) => p.doi!);
   const citationResults = new Map<string, { valid: boolean; title?: string; message: string }>();

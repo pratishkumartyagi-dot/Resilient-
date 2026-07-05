@@ -10,6 +10,7 @@ import {
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
 import { fetchRealPapers, generateMockLegacy, type Paper, validateDoiViaCrossref } from "@/lib/database-apis";
+import { generateLocalSynthesis, type SynthesisRow } from "@/lib/local-synthesis";
 import { downloadLiteratureReviewPDF, downloadLiteratureReviewWord } from "@/lib/exporters";
 import { parseEffectSizeRow, fixedEffectsMetaAnalysis, randomEffectsMetaAnalysis, type MetaforResult, type EffectSizeRow } from "@/lib/metafor-compute";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
@@ -574,7 +575,7 @@ export default function EvidenceSynthesisTab() {
     });
   };
 
-  const generateLocalSynthesis = () => {
+  const buildLocalSynthesisOutput = () => {
     const papersForSynthesis = extractedData.filter((p) => selectedPaperIds.has(p.id));
     const template = getRobToolTemplate();
     const robLabel = template ? template.label : robTool;
@@ -908,7 +909,7 @@ At the end, include a References section with all papers in Vancouver style:
     setSynthesisOutput("");
 
     const runLocal = () => {
-      const localOutput = generateLocalSynthesis();
+      const localOutput = buildLocalSynthesisOutput();
       setSynthesisOutput(localOutput);
       const tableLines = localOutput.split("\n").filter((l) => l.includes("|") && !l.includes("---"));
       const resultRows = tableLines.slice(1).map((l) => {
@@ -921,7 +922,10 @@ At the end, include a References section with all papers in Vancouver style:
     };
 
     if (synthesisMode === "local") {
-      runLocal();
+      const rows = await generateLocalSynthesis(papers);
+      const tableLines = rows.map((r) => `| ${r.reference} | ${r.keyFindings} | ${r.synopsis} | ${r.studyDetails} | ${r.researchGaps} |`).join("\n");
+      setSynthesisOutput(`## Evidence Synthesis\n\n${tableLines}`);
+      setSynthesisLoading(false);
       return;
     }
 
@@ -1015,7 +1019,7 @@ OUTPUT FORMAT:
       }
     } catch (err: any) {
       const fallback = `## Evidence Synthesis\n\n**AI synthesis failed:** ${err.message || "Unknown error"}\n\nFalling back to local synthesis builder.\n\n`;
-      setSynthesisOutput(fallback + generateLocalSynthesis());
+      setSynthesisOutput(fallback + buildLocalSynthesisOutput());
     } finally {
       setSynthesisLoading(false);
     }
@@ -1169,7 +1173,7 @@ Generate the full manuscript now.`;
       }
     } catch (err: any) {
       const fallback = `## Evidence Synthesis\n\n**AI synthesis failed:** ${err.message || "Unknown error"}\n\nFalling back to local synthesis builder.\n\n`;
-      setSynthesisOutput(fallback + generateLocalSynthesis());
+      setSynthesisOutput(fallback + buildLocalSynthesisOutput());
     } finally {
       setSynthesisLoading(false);
     }
