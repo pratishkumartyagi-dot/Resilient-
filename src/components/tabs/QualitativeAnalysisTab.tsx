@@ -373,6 +373,66 @@ export default function QualitativeAnalysisTab() {
     URL.revokeObjectURL(url);
   }, [codings, sources, getCodeById]);
 
+  const exportMarkdownDOCX = useCallback(async () => {
+    const now = new Date().toLocaleString();
+    let md = `# Qualitative Analysis Report\n\nGenerated: ${now}\n\n## Project Summary\n\n`;
+    md += `- **Sources:** ${sources.length}\n`;
+    md += `- **Codes:** ${codebook.length}\n`;
+    md += `- **Codings:** ${codings.length}\n`;
+    md += `- **Memos:** ${memos.length}\n\n`;
+
+    if (codebook.length > 0) {
+      md += `## Codebook\n\n`;
+      for (const code of codebook) {
+        md += `### ${code.name}\n\n`;
+        md += `- **Category:** ${code.category}\n`;
+        md += `- **Color:** ${code.color}\n\n`;
+      }
+    }
+
+    if (sources.length > 0) {
+      md += `## Sources\n\n`;
+      for (const source of sources) {
+        md += `### ${source.name}\n\n`;
+        md += `- **Type:** ${source.type.toUpperCase()}\n`;
+        md += `- **Created:** ${new Date(source.createdAt).toLocaleDateString()}\n\n`;
+        if (source.content) {
+          md += `**Content excerpt:**\n\n> ${source.content.slice(0, 500)}${source.content.length > 500 ? "..." : ""}\n\n`;
+        }
+        const sourceCodings = codings.filter((c) => c.sourceId === source.id);
+        if (sourceCodings.length > 0) {
+          md += `**Codings applied:**\n\n`;
+          for (const coding of sourceCodings) {
+            const code = getCodeById(coding.codeId);
+            md += `- **${code?.name || "Unknown"}**: ${coding.note}\n`;
+          }
+          md += "\n";
+        }
+        const sourceMemos = memos.filter((m) => m.sourceId === source.id);
+        if (sourceMemos.length > 0) {
+          md += `**Memos:**\n\n`;
+          for (const memo of sourceMemos) {
+            md += `- ${memo.content} (${new Date(memo.createdAt).toLocaleString()})\n`;
+          }
+          md += "\n";
+        }
+      }
+    }
+
+    if (codeFrequency.length > 0) {
+      md += `## Code Frequency\n\n`;
+      md += `| Code | Count |\n`;
+      md += `|------|-------|\n`;
+      for (const item of codeFrequency) {
+        md += `| ${item.name} | ${item.count} |\n`;
+      }
+      md += "\n";
+    }
+
+    const { downloadMarkdownAsWord } = await import("@/lib/exporters");
+    await downloadMarkdownAsWord(md, `qualitative-report-${Date.now()}.docx`);
+  }, [sources, codebook, codings, memos, codeFrequency, getCodeById]);
+
   /* ------------------------------------------------------------------ */
   /* Helpers                                                            */
   /* ------------------------------------------------------------------ */
@@ -677,6 +737,7 @@ export default function QualitativeAnalysisTab() {
             <input ref={fileInputRef} type="file" accept={Object.values(MEDIA_ACCEPT).join(",")} multiple className="hidden"
               onChange={(e) => { handleImportFiles(e.target.files); if (fileInputRef.current) fileInputRef.current.value = ""; }} />
             <button onClick={exportProjectJSON} className="px-3 py-2 bg-green-900/50 text-green-200 rounded hover:bg-green-900/70 text-xs flex items-center gap-2"><FileJson size={14} /> Export JSON</button>
+            <button onClick={exportMarkdownDOCX} className="px-3 py-2 bg-indigo-900/50 text-indigo-200 rounded hover:bg-indigo-900/70 text-xs flex items-center gap-2"><BookOpen size={14} /> Export Report</button>
             <button onClick={exportCSV} className="px-3 py-2 bg-green-900/50 text-green-200 rounded hover:bg-green-900/70 text-xs flex items-center gap-2"><Download size={14} /> Export CSV</button>
             <button onClick={() => { if (confirm("Clear project?")) { setSources([]); setCodebook([]); setCodings([]); setMemos([]); setSelectedSourceId(null); localStorage.removeItem(LS_KEY); } }} className="px-3 py-2 bg-red-900/50 text-red-200 rounded hover:bg-red-900/70 text-xs">New Project</button>
           </div>
