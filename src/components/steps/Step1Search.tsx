@@ -6,14 +6,14 @@ import { useApp } from "@/context/AppContext";
 import {
   fetchRealPapers,
   generateMockLegacy,
-  enrichPapersWithDois,
   type Paper,
   SUPPORTED_REAL_DATABASES,
   expandQueryWithMesh,
   buildMeshSearchStrategy,
   type MeshExpansionResult,
+  checkCitationQuality,
+  type CitationQuality,
 } from "@/lib/database-apis";
-import { batchVerifyCitations, type CitationVerificationResult } from "@/lib/citation-verifier";
 
 const STUDY_TYPES = [
   "All Study Types",
@@ -51,11 +51,19 @@ export default function Step1Search() {
   const [meshStatus, setMeshStatus] = useState<"idle" | "running" | "done">(state.meshExpansionStatus);
   const [searchProgress, setSearchProgress] = useState<Record<string, { status: string; count?: number; error?: string }>>({});
   const [showMeshDetails, setShowMeshDetails] = useState(false);
+  const [citationStatus, setCitationStatus] = useState<"idle" | "running" | "done">("idle");
+  const [citationResults, setCitationResults] = useState<CitationQuality[]>([]);
 
   const toggleDb = (db: string) => {
     setSelectedDbs((prev) =>
       prev.includes(db) ? prev.filter((d) => d !== db) : [...prev, db]
     );
+    dispatch({ type: "SET_SELECTED_DATABASES", payload: selectedDbs.includes(db) ? selectedDbs.filter((d) => d !== db) : [...selectedDbs, db] });
+  };
+
+  const handleDbTabClick = (db: string) => {
+    setActiveDbTab(db);
+    toggleDb(db);
   };
 
   const selectAllDbs = () => {
@@ -142,34 +150,21 @@ export default function Step1Search() {
       }
 
       if (papers.length > 0) {
-        dispatch({ type: "SET_CITATION_STATUS", payload: "running" });
+        setCitationStatus("running");
         try {
-          const enrichedPapers = await enrichPapersWithDois(papers);
-          dispatch({ type: "SET_PAPERS", payload: enrichedPapers });
-          const dois = enrichedPapers.filter((p) => p.doi && p.doi.length > 4).map((p) => p.doi!);
-          if (dois.length > 0 && dois.length <= 20) {
-            try {
-              const citationResultsArr = await Promise.race([
-                batchVerifyCitations(dois),
-                new Promise<CitationVerificationResult[]>((resolve) =>
-                  setTimeout(() => resolve(dois.map(d => ({ doi: d, valid: false, message: "Verification skipped (timeout)", source: "none" as const }))), 15000)
-                ),
-              ]);
-              const citationMap: Record<string, CitationVerificationResult> = {};
-              citationResultsArr.forEach((r) => { citationMap[r.doi] = r; });
-              dispatch({ type: "SET_CITATION_RESULTS", payload: citationMap });
-            } catch {
-              dispatch({ type: "SET_CITATION_RESULTS", payload: {} });
-            }
-          } else {
-            dispatch({ type: "SET_CITATION_RESULTS", payload: {} });
-          }
+          const qualities = await Promise.race([
+            checkCitationQuality(papers),
+            new Promise<CitationQuality[]>((resolve) =>
+              setTimeout(() => resolve([]), 12000)
+            ),
+          ]);
+          setCitationResults(qualities);
         } catch {
-          dispatch({ type: "SET_CITATION_STATUS", payload: "done" });
-          dispatch({ type: "SET_CITATION_RESULTS", payload: {} });
+          setCitationResults([]);
         } finally {
-          dispatch({ type: "SET_CITATION_STATUS", payload: "done" });
+          setCitationStatus("done");
         }
+        dispatch({ type: "SET_PAPERS", payload: papers });
       } else {
         dispatch({ type: "SET_ERROR", payload: "No papers found. Try broader terms or more databases." });
       }
@@ -349,19 +344,27 @@ export default function Step1Search() {
 
         <div className="bg-blue-950 rounded-lg border border-blue-900 overflow-hidden">
           <div className="flex border-b border-blue-900 overflow-x-auto no-scrollbar">
-            {DATABASES.map((db) => (
-              <button
-                key={db}
-                onClick={() => setActiveDbTab(db)}
-                className={`px-4 py-2 text-xs font-medium whitespace-nowrap border-r border-blue-900 last:border-r-0 ${
-                  activeDbTab === db
-                    ? "bg-blue-800 text-white"
-                    : "bg-blue-950 text-blue-300 hover:bg-blue-900/50"
-                }`}
-              >
-                {db}
-              </button>
-            ))}
+            {DATABASES.map((db) => {
+              const isSelected = selectedDbs.includes(db);
+              return (
+                <button
+                  key={db}
+                  onClick={() => handleDbTabClick(db)}
+                  className={`px-4 py-2 text-xs font-medium whitespace-nowrap border-r border-blue-900 last:border-r-0 transition-colors ${
+                    activeDbTab === db && isSelected
+                      ? "bg-yellow-600 text-[#0a1a3a]"
+                      : activeDbTab === db
+                      ? "bg-blue-800 text-white"
+                      : isSelected
+                      ? "bg-blue-900/70 text-yellow-200"
+                      : "bg-blue-950 text-blue-300 hover:bg-blue-900/50"
+                  }`}
+                >
+                  {db}
+                  {isSelected && <span className="ml-1 text-[10px]">✓</span>}
+                </button>
+              );
+            })}
           </div>
           <div className="p-4">
             <div className="flex items-center justify-between">
@@ -379,15 +382,9 @@ export default function Step1Search() {
                     : `https://${activeDbTab.toLowerCase().replace(/\s/g, "")}.org/`}
                 </p>
               </div>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={selectedDbs.includes(activeDbTab)}
-                  onChange={() => toggleDb(activeDbTab)}
-                  className="w-4 h-4 rounded border-blue-700 bg-blue-950 text-yellow-500 focus:ring-yellow-500"
-                />
-                <span className="text-sm text-blue-200">Include</span>
-              </label>
+              <span className={`text-xs px-3 py-1 rounded-full ${selectedDbs.includes(activeDbTab) ? "bg-green-900/50 text-green-300" : "bg-red-900/50 text-red-300"}`}>
+                {selectedDbs.includes(activeDbTab) ? "Selected" : "Not selected"}
+              </span>
             </div>
             {searchProgress[activeDbTab] && (
               <div className="mt-2 flex items-center gap-2">

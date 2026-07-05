@@ -127,6 +127,33 @@ export async function enrichPapersWithDois(papers: Paper[]): Promise<Paper[]> {
   });
 }
 
+export async function enrichMetadata(papers: Paper[]): Promise<Paper[]> {
+  const CHUNK_SIZE = 10;
+  const updated = new Map<string, Paper>();
+
+  for (let i = 0; i < papers.length; i += CHUNK_SIZE) {
+    const chunk = papers.slice(i, i + CHUNK_SIZE);
+    const results = await Promise.allSettled(
+      chunk.map(async (p) => {
+        if (!p.doi || p.doi.length < 5) {
+          const found = await findDoiByTitleAuthor(p.title, p.authors);
+          if (found.doi) {
+            return { ...p, doi: found.doi, url: `https://doi.org/${found.doi}` };
+          }
+        }
+        return p;
+      })
+    );
+    results.forEach((r, idx) => {
+      if (r.status === "fulfilled") {
+        updated.set(chunk[idx].id, r.value);
+      }
+    });
+  }
+
+  return papers.map((p) => updated.get(p.id) || p);
+}
+
 function normalizeOpenAlexWork(work: any): Paper {
   const title = work.title || `Untitled (${work.id?.split("/").pop() || "unknown"})`;
   const authors =
@@ -170,12 +197,12 @@ async function fetchOpenAlex(query: string, yearFrom?: string, yearTo?: string, 
   if (additionalFilters) filterParts.push(...additionalFilters);
   const filterStr = filterParts.length ? `&filter=${filterParts.join(",")}` : "";
 
-  const baseUrl = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=100&mailto=contact@resilient-research.app${filterStr}`;
+  const baseUrl = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=200&mailto=contact@resilient-research.app${filterStr}`;
   const papers: Paper[] = [];
   let cursor = "*";
   let cursorUrl = `${baseUrl}&cursor=${cursor}`;
 
-  for (let page = 0; page < 100; page++) {
+  for (let page = 0; page < 500; page++) {
     let res: Response;
     try {
       res = await fetchWithTimeout(cursorUrl);
@@ -207,7 +234,7 @@ async function fetchOpenAlex(query: string, yearFrom?: string, yearTo?: string, 
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
     const filtered = deduped.filter((p) => keywords.some((kw) => `${p.title || ""} ${p.abstract || ""}`.toLowerCase().includes(kw)));
-    return filtered.length > 0 ? filtered : deduped.slice(0, 20);
+    return filtered.length > 0 ? filtered : deduped;
   }
 
   return deduped;
@@ -284,7 +311,7 @@ async function fetchPubMed(query: string, yearFrom?: string, yearTo?: string, st
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
     const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
-    return filtered.length > 0 ? filtered : papers.slice(0, 20);
+    return filtered.length > 0 ? filtered : papers;
   }
 
   return papers;
@@ -365,7 +392,7 @@ async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string,
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
     const filtered = deduped.filter((p) => keywords.some((kw) => `${p.title || ""} ${p.abstract || ""}`.toLowerCase().includes(kw)));
-    return filtered.length > 0 ? filtered : deduped.slice(0, 20);
+    return filtered.length > 0 ? filtered : deduped;
   }
 
   return deduped;
@@ -377,7 +404,7 @@ async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string,
 /* ------------------------------------------------------------------ */
 
 async function fetchClinicalTrialsGov(query: string): Promise<Paper[]> {
-  const url = `https://clinicaltrials.gov/api/v2/studies?query=${encodeURIComponent(query)}&pageSize=100`;
+  const url = `https://clinicaltrials.gov/api/v2/studies?query=${encodeURIComponent(query)}&pageSize=1000`;
   try {
     const res = await fetchWithTimeout(url);
     if (!res.ok) return [];
@@ -544,7 +571,7 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
     return true;
   });
 
-  const enriched = await enrichPapersWithDois(deduped);
+  const enriched = await enrichMetadata(deduped);
 
   if (enriched.length === 0) {
     throw new Error(`No papers found across ${databases.length} selected databases. Try broadening your query or selecting more databases.`);
@@ -872,4 +899,114 @@ export async function buildMeshSearchStrategy(
   });
 
   return { primaryQuery, databaseStrategies };
+}
+
+export interface CitationQuality {
+  doi: string;
+  valid: boolean;
+  source: "doi-org" | "crossref" | "openalex" | "pubmed" | "none";
+  title?: string;
+  message: string;
+  bibtex?: string;
+}
+
+export async function validateDoi(doi: string): Promise<CitationQuality> {
+  if (!doi || doi.length < 5) {
+    return { doi, valid: false, source: "none", message: "Missing or invalid DOI" };
+  }
+
+  const cleanDoi = doi.replace(/https?:\/\/(?:doi\.org|dx\.doi\.org)\//, "").trim();
+
+  try {
+    const url = `https://doi.org/api/handles/${encodeURIComponent(cleanDoi)}`;
+    const res = await fetchWithTimeout(url);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.responseCode === 1) {
+        const crossref = await enrichMetadataFromCrossref(cleanDoi);
+        return {
+          doi: cleanDoi,
+          valid: true,
+          source: "doi-org",
+          title: crossref.title,
+          message: "DOI verified via doi.org",
+          bibtex: crossref.bibtex,
+        };
+      }
+      if (data.responseCode === 100) {
+        return { doi: cleanDoi, valid: false, source: "doi-org", message: "DOI does not exist" };
+      }
+    }
+  } catch {
+    // Fall through to Crossref
+  }
+
+  const crossref = await enrichMetadataFromCrossref(cleanDoi);
+  if (crossref.valid) {
+    return {
+      doi: cleanDoi,
+      valid: true,
+      source: "crossref",
+      title: crossref.title,
+      message: "DOI verified via Crossref",
+      bibtex: crossref.bibtex,
+    };
+  }
+
+  return { doi: cleanDoi, valid: false, source: "none", message: "DOI could not be verified" };
+}
+
+async function enrichMetadataFromCrossref(doi: string): Promise<{ valid: boolean; title?: string; bibtex?: string }> {
+  try {
+    const url = `https://api.crossref.org/v1/works/${encodeURIComponent(doi)}`;
+    const res = await fetchWithTimeout(url);
+    if (!res.ok) return { valid: false };
+    const data = await res.json();
+    const work = data.message;
+    const title = work.title?.[0] || "";
+    const bibtex = buildBibtexFromCrossref(work, doi);
+    return { valid: true, title, bibtex };
+  } catch {
+    return { valid: false };
+  }
+}
+
+function buildBibtexFromCrossref(work: any, doi: string): string {
+  const authors = work.author || [];
+  const authorStr = authors.length > 0
+    ? authors.slice(0, 5).map((a: any) => `${a.family || ""}, ${a.given || ""}`).join(" and ")
+    : "Unknown";
+  const year = work.published?.["date-parts"]?.[0]?.[0] || work.published || "n.d.";
+  const title = work.title?.[0] || "";
+  const journal = work["container-title"]?.[0] || "";
+  const volume = work.volume || "";
+  const issue = work.issue || "";
+  const page = work.page || "";
+  const citationKey = `${authors[0]?.family || "Unknown"}${year}`;
+
+  return `@article{${citationKey},
+  author  = {${authorStr}},
+  title   = {${title}},
+  journal = {${journal}},
+  year    = {${year}},
+  volume  = {${volume}},
+  number  = {${issue}},
+  pages   = {${page}},
+  doi     = {${doi}}
+}`;
+}
+
+export async function checkCitationQuality(papers: Paper[]): Promise<CitationQuality[]> {
+  const papersWithDoi = papers.filter((p): p is Paper & { doi: string } => !!p.doi && p.doi.length > 4);
+  if (papersWithDoi.length === 0) return [];
+
+  const results = await Promise.allSettled(
+    papersWithDoi.map((p) => validateDoi(p.doi))
+  );
+
+  return results.map((r, idx) =>
+    r.status === "fulfilled"
+      ? r.value
+      : { doi: papersWithDoi[idx].doi, valid: false, source: "none", message: "Validation failed" }
+  );
 }

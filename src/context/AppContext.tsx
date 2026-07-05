@@ -115,7 +115,7 @@ export interface AppState {
   srStudyTypeCategory: "systematic" | "meta" | null;
   dedupPapers: Paper[];
   filteredPapers: Paper[];
-  citationValidationResults: Record<string, { valid: boolean; title?: string; message: string }>;
+  citationValidationResults: Record<string, { valid: boolean; title?: string; message: string; source?: string; bibtex?: string }>;
   citationValidationStatus: "idle" | "running" | "done";
   meshExpansion: { originalQuery: string; meshTerms: string[]; expandedQueries: string[]; booleanQuery: string; method: "ai" | "local" | "none" } | null;
   meshExpansionStatus: "idle" | "running" | "done";

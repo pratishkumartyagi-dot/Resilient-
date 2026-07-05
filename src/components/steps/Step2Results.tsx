@@ -1,17 +1,62 @@
 "use client";
 
 import React, { useState, useMemo, useCallback } from "react";
-import { CheckSquare, Square, Trash2, FileText, Search, CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronUp, ExternalLink, BookOpen, X, XCircle } from "lucide-react";
+import { CheckSquare, Square, Trash2, FileText, Search, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, ExternalLink, BookOpen, XCircle, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { deduplicatePapers, getDatabaseGroups, type DedupResult } from "@/lib/dedup-engine";
-import { buildPRISMAFlowDiagram, type PRISMAFlowData } from "@/lib/medical-skills/prisma-utils";
+import { buildPRISMA2020FlowDiagram, type PRISMA2020FlowData } from "@/lib/medical-skills/prisma-utils";
+
+const PRISMA_NODE_COLORS: Record<string, string> = {
+  identification: "#1e3a5f",
+  duplicates: "#e5e7eb",
+  screened: "#3b82f6",
+  eligible: "#f59e0b",
+  included: "#10b981",
+  meta: "#059669",
+};
+
+function PRISMA2020Diagram({ data }: { data: PRISMA2020FlowData }) {
+  const { nodes, edges } = buildPRISMA2020FlowDiagram(data);
+  const nodeHeight = 56;
+  const nodeWidth = 220;
+  const arrowSize = 8;
+  const spacing = 28;
+
+  return (
+    <div className="w-full overflow-x-auto">
+      <svg width={Math.max(600, nodes.length * (nodeWidth + 40))} height={nodes.length * (nodeHeight + spacing) + 40} className="mx-auto">
+        {nodes.map((node, idx) => {
+          const x = 20;
+          const y = 20 + idx * (nodeHeight + spacing);
+          const color = PRISMA_NODE_COLORS[node.type] || "#374151";
+
+          return (
+            <g key={node.id}>
+              <rect x={x} y={y} width={nodeWidth} height={nodeHeight} rx={8} fill={color} stroke="#111827" strokeWidth={1.5} />
+              <text x={x + nodeWidth / 2} y={y + nodeHeight / 2 - 4} textAnchor="middle" fill="#ffffff" fontSize={11} fontFamily="sans-serif" fontWeight="600">
+                {node.label.split("\n")[0]}
+              </text>
+              {node.label.split("\n").slice(1).map((line: string, i: number) => (
+                <text key={i} x={x + nodeWidth / 2} y={y + nodeHeight / 2 + 10 + i * 13} textAnchor="middle" fill="#e5e7eb" fontSize={10} fontFamily="sans-serif">
+                  {line}
+                </text>
+              ))}
+              {idx < nodes.length - 1 && (
+                <line x1={x + nodeWidth / 2} y1={y + nodeHeight} x2={x + nodeWidth / 2} y2={y + nodeHeight + spacing - arrowSize} stroke="#6b7280" strokeWidth={1.5} />
+              )}
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
 
 export default function Step2Results() {
   const { state, dispatch } = useApp();
   const [searchFilter, setSearchFilter] = useState("");
   const [expandedDbs, setExpandedDbs] = useState<Record<string, boolean>>({});
   const [showPrisma, setShowPrisma] = useState(false);
-  const [excludeReasons, setExcludeReasons] = useState<Record<string, string>>({});
 
   const rawPapers = useMemo(() => state.papers.map((p) => ({
     id: p.id,
@@ -66,18 +111,7 @@ export default function Step2Results() {
     dispatch({ type: "SET_STEP", payload: 3 });
   }, [uniquePapers, dispatch]);
 
-  const getCitationBadge = (paper: any) => {
-    if (state.citationValidationStatus === "running") {
-      return <span className="text-[10px] bg-blue-900/40 text-blue-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"><Loader2 size={10} className="animate-spin" /> verifying</span>;
-    }
-    if (!paper.doi) return <span className="text-[10px] bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded">no DOI</span>;
-    const result = state.citationValidationResults[paper.doi.toLowerCase()];
-    if (!result) return <span className="text-[10px] bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded">unchecked</span>;
-    if (result.valid) return <span className="text-[10px] bg-green-900/50 text-green-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"><CheckCircle2 size={10} /> DOI verified</span>;
-    return <span className="text-[10px] bg-red-900/40 text-red-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"><XCircle size={10} /> DOI not found</span>;
-  };
-
-  const prismaFlowData: PRISMAFlowData = useMemo(() => ({
+  const prismaFlowData: PRISMA2020FlowData = useMemo(() => ({
     identification: {
       recordsFromDatabases: stats.total,
       additionalRecordsFromOtherSources: 0,
@@ -98,8 +132,6 @@ export default function Step2Results() {
     })),
   }), [stats, duplicateGroups, state.srStudyTypeCategory]);
 
-  const prismaDiagram = useMemo(() => buildPRISMAFlowDiagram(prismaFlowData), [prismaFlowData]);
-
   const filteredDbGroups = useMemo(() => {
     const base = state.papers.length > 0 && uniquePapers.length === 0 ? state.papers : uniquePapers;
     if (!searchFilter.trim()) return getDatabaseGroups(base);
@@ -107,8 +139,6 @@ export default function Step2Results() {
     const filtered = base.filter((p) => (p.title || "").toLowerCase().includes(q) || (p.authors || "").toLowerCase().includes(q));
     return getDatabaseGroups(filtered);
   }, [uniquePapers, state.papers, searchFilter]);
-
-  const rawDbGroups = useMemo(() => getDatabaseGroups(rawPapers), [rawPapers]);
 
   return (
     <div className="space-y-6">
@@ -118,11 +148,6 @@ export default function Step2Results() {
             <h2 className="text-xl font-bold text-white">Step 2: Results & Deduplication</h2>
             <p className="text-sm text-blue-300">
               Total: {stats.total} | Unique: {stats.unique} | Duplicates removed: {stats.duplicatesRemoved} | Selected: {selectedCount}
-              {state.citationValidationStatus === "done" && (
-                <span className="ml-2 text-green-300">
-                  · Citations verified: {Object.values(state.citationValidationResults).filter((r: any) => r.valid).length}/{uniquePapers.filter((p) => p.doi).length} DOIs
-                </span>
-              )}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -160,81 +185,14 @@ export default function Step2Results() {
                 <X size={14} />
               </button>
             </div>
-            <div className="flex flex-col gap-2">
-              <div className="grid grid-cols-2 gap-2">
-                <div className="bg-blue-950 border border-blue-900 rounded-lg p-3">
-                  <div className="text-[10px] text-blue-400 uppercase tracking-wide mb-1">Identification through databases</div>
-                  <div className="text-xl font-bold text-white">{stats.total}</div>
-                  <div className="text-[10px] text-blue-300">records retrieved</div>
-                </div>
-                <div className="bg-blue-950 border border-blue-900 rounded-lg p-3">
-                  <div className="text-[10px] text-blue-400 uppercase tracking-wide mb-1">Identification through other sources</div>
-                  <div className="text-xl font-bold text-white">0</div>
-                  <div className="text-[10px] text-blue-300">additional records</div>
-                </div>
-              </div>
-
-              <div className="flex justify-center">
-                <div className="bg-indigo-950 border border-indigo-700 rounded-full px-6 py-2">
-                  <div className="text-sm font-bold text-white">Total records identified: {stats.total}</div>
-                </div>
-              </div>
-
-              <div className="flex justify-center">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-blue-600 mx-auto">
-                  <path d="M12 4v16m0 0l-4-4m4 4l4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </div>
-
-              <div className="bg-red-950 border border-red-700 rounded-full px-6 py-2 mx-auto">
-                <div className="text-sm font-bold text-red-200">Records after duplicates removed: {stats.unique}</div>
-              </div>
-
-              <div className="flex justify-center">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-blue-600 mx-auto">
-                  <path d="M12 4v16m0 0l-4-4m4 4l4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </div>
-
-              <div className="bg-blue-950 border border-blue-900 rounded-lg p-3">
-                <div className="text-xs text-blue-300">Records screened by title/abstract: <span className="font-bold text-white">{stats.unique}</span></div>
-                <div className="text-xs text-blue-300">Records excluded: <span className="font-bold text-white">0</span></div>
-              </div>
-
-              <div className="flex justify-center">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-blue-600 mx-auto">
-                  <path d="M12 4v16m0 0l-4-4m4 4l4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </div>
-
-              <div className="bg-yellow-950 border border-yellow-700 rounded-lg p-3">
-                <div className="text-xs text-yellow-300">Full-text articles assessed: <span className="font-bold text-white">{stats.unique}</span></div>
-                <div className="text-xs text-yellow-300">Full-text excluded: <span className="font-bold text-white">{stats.duplicatesRemoved}</span></div>
-              </div>
-
-              <div className="flex justify-center">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-green-600 mx-auto">
-                  <path d="M12 4v16m0 0l-4-4m4 4l4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </div>
-
-              <div className="bg-green-950 border border-green-700 rounded-full px-6 py-2 mx-auto">
-                <div className="text-sm font-bold text-green-200">Studies included in qualitative synthesis: {uniquePapers.length}</div>
-              </div>
-
-              {state.srStudyTypeCategory === "meta" && (
-                <div className="bg-emerald-950 border border-emerald-700 rounded-full px-6 py-2 mx-auto">
-                  <div className="text-sm font-bold text-emerald-200">Studies included in meta-analysis: {uniquePapers.length}</div>
-                </div>
-              )}
-            </div>
+            <PRISMA2020Diagram data={prismaFlowData} />
           </div>
         )}
 
         {duplicateGroups.length > 0 && (
           <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-3 mb-4">
             <p className="text-xs text-yellow-200">
-              <strong>{duplicateGroups.length}</strong> duplicate groups detected. Click &quot;Remove Duplicates&quot; to keep only unique records, or manually select which papers to keep.
+              <strong>{duplicateGroups.length}</strong> duplicate groups detected via BibexPy Smart Merge (DOI-determinative + Jaro-Winkler confidence scoring). Click &quot;Remove Duplicates&quot; to keep only unique records, or manually select which papers to keep.
             </p>
           </div>
         )}
@@ -322,7 +280,6 @@ export default function Step2Results() {
                                 <ExternalLink size={10} /> Link
                               </a>
                             )}
-                            {getCitationBadge(paper)}
                           </div>
                         </div>
                       </div>
@@ -337,16 +294,16 @@ export default function Step2Results() {
         <div className="mt-6 flex justify-between">
           <button
             onClick={() => dispatch({ type: "SET_STEP", payload: 1 })}
-            className="text-sm bg-blue-900/50 text-blue-200 px-4 py-2 rounded hover:bg-blue-900/70"
+            className="text-sm bg-blue-900/50 text-blue-200 px-4 py-2 rounded hover:bg-blue-900/70 flex items-center gap-1"
           >
-            Back to Search
+            <ChevronLeft size={14} /> Back to Search
           </button>
           <button
             onClick={proceedToSynthesis}
             disabled={selectedCount === 0}
-            className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-6 py-2.5 rounded-lg disabled:opacity-50"
+            className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-6 py-2.5 rounded-lg disabled:opacity-50 flex items-center gap-2"
           >
-            Generate Synthesis Table ({selectedCount} selected)
+            Generate Synthesis Table ({selectedCount} selected) <ChevronRight size={16} />
           </button>
         </div>
       </div>
