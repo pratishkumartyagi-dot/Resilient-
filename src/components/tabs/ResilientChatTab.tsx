@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Send, MessageSquare, User, Bot, Trash2, FlaskConical, Stethoscope } from "lucide-react";
+import { Send, MessageSquare, User, Bot, Trash2, FlaskConical, Stethoscope, Globe } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
+import { callGemini, callGroq, callOpenRouter, type AICallOptions } from "@/lib/ai";
 
 interface Message {
   id: string;
@@ -121,6 +121,7 @@ export default function ResilientChatTab() {
   const [messages, setMessages] = useState<Message[]>(createInitialMessages(state.omicsEnabled));
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [perplexityEnabled, setPerplexityEnabled] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -144,6 +145,47 @@ export default function ResilientChatTab() {
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setIsTyping(true);
+
+    if (perplexityEnabled && state.openRouterApiKey) {
+      try {
+        const prompt = `You are a research assistant powered by Perplexity Search (OpenRouter Sonar Pro Search).
+
+## Behavior
+- Search the web in real time for current information, recent scientific literature, and facts beyond training data cutoff.
+- Provide grounded, sourced answers with inline citations like [1], [2] referencing retrieved sources.
+- Distinguish between retrieved evidence and reasoning.
+- If evidence is insufficient or contradictory, say so explicitly.
+- Prefer peer-reviewed publications, clinical trial registries, high-impact journals, and authoritative sources when available.
+
+## User Question
+${input.trim()}
+
+## Output Requirements
+- Lead with a concise, direct answer.
+- Include a "Sources" section at the end listing URLs or article identifiers for every citation used.
+- Use markdown formatting.`;
+
+        const responseText = await callOpenRouter(state.openRouterApiKey, prompt);
+        const assistantMsg: Message = {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: responseText,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
+      } catch (err: any) {
+        const errorMsg: Message = {
+          id: `error-${Date.now()}`,
+          role: "assistant",
+          content: `Perplexity Search error: ${err.message || "Something went wrong."}`,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, errorMsg]);
+      } finally {
+        setIsTyping(false);
+      }
+      return;
+    }
 
     const apiKey = state.geminiApiKey || state.groqApiKey;
 
@@ -221,6 +263,10 @@ Answer the user's question based on the pipeline state above. If they ask about 
     setMessages(createInitialMessages(!state.omicsEnabled));
   };
 
+  const togglePerplexity = () => {
+    setPerplexityEnabled((prev) => !prev);
+  };
+
   return (
     <div className="space-y-0">
       <div className="bg-[#0d1b3e] border border-blue-900/50 rounded-lg shadow flex flex-col" style={{ height: "calc(100vh - 220px)" }}>
@@ -229,10 +275,21 @@ Answer the user's question based on the pipeline state above. If they ask about 
             <MessageSquare size={18} className="text-yellow-400" />
             <h2 className="text-base font-bold text-white">Resilient Chat</h2>
             <span className="text-[10px] bg-blue-800 text-blue-200 px-2 py-0.5 rounded-full">
-              {state.omicsEnabled ? "Omics & Bioinformatics" : "Connected to Pipeline"}
+              {perplexityEnabled && state.openRouterApiKey ? "Perplexity Search" : state.omicsEnabled ? "Omics & Bioinformatics" : "Connected to Pipeline"}
             </span>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={togglePerplexity}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                perplexityEnabled && state.openRouterApiKey
+                  ? "bg-purple-900/40 border border-purple-600 text-purple-300 hover:bg-purple-900/60"
+                  : "bg-blue-900/40 border border-blue-700 text-blue-300 hover:bg-blue-900/60"
+              }`}
+            >
+              <Globe size={12} />
+              Perplexity Search {perplexityEnabled && state.openRouterApiKey ? "On" : "Off"}
+            </button>
             <button
               onClick={toggleOmics}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
@@ -331,7 +388,7 @@ Answer the user's question based on the pipeline state above. If they ask about 
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleSend())}
-                placeholder={state.omicsEnabled ? "Ask about RNA-seq, CRISPR, pathway analysis..." : "Ask about your research pipeline, synthesis findings, or methodology..."}
+                placeholder={perplexityEnabled && state.openRouterApiKey ? "Perplexity Search: ask any research question..." : state.omicsEnabled ? "Ask about RNA-seq, CRISPR, pathway analysis..." : "Ask about your research pipeline, synthesis findings, or methodology..."}
                 className="w-full bg-blue-950 border border-blue-800 text-white rounded-full px-4 py-2.5 pr-10 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500"
               />
             </div>
