@@ -1,4 +1,5 @@
 import { getSkillById, MEDICAL_SKILLS_REGISTRY } from "./medical-skills/skills-registry";
+import { callGemini } from "./ai";
 
 export interface Paper {
   id: string;
@@ -13,6 +14,20 @@ export interface Paper {
   selected: boolean;
   url?: string;
   pmid?: string;
+}
+
+export interface MeshTerm {
+  term: string;
+  treeNumber?: string;
+  scopeNote?: string;
+  synonyms?: string[];
+}
+
+export interface SearchExpansion {
+  originalQuery: string;
+  meshTerms: MeshTerm[];
+  expandedQueries: string[];
+  booleanQuery: string;
 }
 
 const STUDY_TYPE_KEYWORDS: Record<string, string[]> = {
@@ -538,4 +553,210 @@ export async function quickSearch(query: string, maxResults: number = 8): Promis
   } catch {
     return [];
   }
+}
+
+export interface MeshExpansionResult {
+  originalQuery: string;
+  meshTerms: string[];
+  expandedQueries: string[];
+  booleanQuery: string;
+  method: "ai" | "local" | "none";
+}
+
+const LOCAL_MESH_KNOWLEDGE_BASE: Record<string, string[]> = {
+  "latent tuberculosis": ["latent tuberculosis infection", "LTBI", "Mycobacterium tuberculosis", "tuberculosis latent", "tuberculosis reactivation"],
+  "healthcare workers": ["healthcare personnel", "HCW", "HCP", "medical staff", "nurses", "physicians", "hospital staff", "health workers", "healthcare workers tuberculosis screening"],
+  "tuberculosis": ["TB", "Mycobacterium tuberculosis", "tuberculosis infection", "pulmonary tuberculosis", "extrapulmonary tuberculosis", "latent TB infection", "LTBI", "active TB"],
+  "diabetes": ["diabetes mellitus", "type 2 diabetes", "type 1 diabetes", "T2DM", "T1DM", "hyperglycemia", "glycemic control", "diabetic complications"],
+  "hypertension": ["high blood pressure", "arterial hypertension", "essential hypertension", "hypertensive", "blood pressure control", "antihypertensive"],
+  "cancer": ["oncology", "neoplasm", "malignancy", "tumor", "carcinoma", "cancer screening", "oncology treatment", "cancer survival"],
+  "mental health": ["depression", "anxiety", "psychological distress", "mental illness", "psychiatric", "wellbeing", "mental wellbeing"],
+  "covid": ["COVID-19", "SARS-CoV-2", "coronavirus", "pandemic", "COVID"],
+  "antibiotic": ["antimicrobial resistance", "AMR", "antibiotic resistance", "antibiotic stewardship", "antimicrobial", "antibiotic use"],
+  "vaccine": ["vaccination", "immunization", "vaccine efficacy", "vaccine hesitancy", "immunization coverage"],
+  "maternal": ["pregnancy", "childbirth", "obstetric", "antenatal", "postnatal", "perinatal", "maternal health"],
+  "child": ["pediatric", "paediatric", "infant", "childhood", "neonatal", "adolescent", "children health"],
+  "obesity": ["overweight", "BMI", "body mass index", "adiposity", "obese", "weight management"],
+  "heart disease": ["cardiac", "cardiovascular", "coronary artery disease", "myocardial infarction", "heart failure", "CVD"],
+  "stroke": ["cerebrovascular", "ischemic stroke", "hemorrhagic stroke", "brain infarction", "cerebral"],
+  "asthma": ["respiratory", "bronchial", "pulmonary", "airway", "COPD", "respiratory disease"],
+  "parkinson": ["neurodegenerative", "neurological", "movement disorder", "parkinson disease"],
+  "alzheimer": ["dementia", "cognitive decline", "neurodegenerative", "memory loss", "Alzheimer disease"],
+  "hiv": ["AIDS", "HIV infection", "antiretroviral", "viral load", "HIV prevention"],
+  "malaria": ["plasmodium", "mosquito-borne", "antimalarial", "malaria prevention", "malaria treatment"],
+  "anemia": ["iron deficiency", "haemoglobin", "blood disorder", "iron deficiency anemia", "nutritional anemia"],
+  "kidney": ["renal", "nephrology", "chronic kidney disease", "CKD", "dialysis", "hemodialysis"],
+  "liver": ["hepatic", "hepatitis", "cirrhosis", "liver disease", "NAFLD", "fatty liver"],
+  "surgery": ["operative", "perioperative", "postoperative", "preoperative", "surgical"],
+  "diagnosis": ["diagnostic", "screening", "sensitivity", "specificity", "diagnostic accuracy", "DTA"],
+  "prognosis": ["outcome", "survival", "mortality", "prognostic factor", "prognostic model", "risk factor"],
+  "treatment": ["intervention", "therapy", "therapeutic", "clinical trial", "RCT", "treatment outcome"],
+  "epidemiology": ["prevalence", "incidence", "public health", "population study", "surveillance"],
+};
+
+const LOCAL_QUERY_FRAGMENTS = [
+  "diagnosis", "treatment", "prevalence", "risk factors", "outcomes", "systematic review",
+  "meta-analysis", "observational study", "RCT", "clinical trial", "cohort study",
+  "case-control", "cross-sectional",
+];
+
+function expandQueryLocally(query: string): { meshTerms: string[]; expandedQueries: string[] } {
+  const normalized = query.toLowerCase();
+  const meshTerms: string[] = [];
+  const expandedQueries: string[] = [query];
+
+  for (const [key, terms] of Object.entries(LOCAL_MESH_KNOWLEDGE_BASE)) {
+    if (normalized.includes(key) || key.split(" ").some((k) => k.length > 3 && normalized.includes(k))) {
+      meshTerms.push(key, ...terms.slice(0, 3));
+      for (const t of terms) {
+        if (!expandedQueries.includes(t)) {
+          expandedQueries.push(`${query} ${t}`);
+        }
+      }
+    }
+  }
+
+  if (expandedQueries.length <= 1) {
+    for (const fragment of LOCAL_QUERY_FRAGMENTS) {
+      expandedQueries.push(`${query} ${fragment}`);
+    }
+  }
+
+  return {
+    meshTerms: [...new Set(meshTerms)],
+    expandedQueries: [...new Set(expandedQueries)],
+  };
+}
+
+export async function expandQueryWithMesh(
+  query: string,
+  geminiApiKey?: string,
+  groqApiKey?: string
+): Promise<MeshExpansionResult> {
+  if (!query || query.trim().length < 3) {
+    return { originalQuery: query, meshTerms: [], expandedQueries: [], booleanQuery: query, method: "none" };
+  }
+
+  const localExpansion = expandQueryLocally(query);
+
+  const aiPrompt = `You are a biomedical search expansion assistant. Given the research topic: "${query}"
+
+Return JSON ONLY (no markdown, no commentary) with this exact structure:
+{
+  "meshTerms": ["Up to 8 relevant MeSH/medical subject heading terms for "query"", ...],
+  "expandedQueries": ["5 expanded biomedical search queries derived from the original topic", ...],
+  "booleanQuery": "A single concise boolean search string combining the original query with MeSH terms using OR operators for PubMed/Europe PMC"
+}
+
+Rules:
+- Terms must be specific biomedical/medical concepts
+- Expanded queries should explore subtopics, synonyms, study designs, populations
+- Boolean query should be practical for PubMed style e.g. (original) OR (mesh1[MeSH Terms]) OR (mesh2[MeSH Terms])
+- Return ONLY valid JSON, no explanation text`;
+
+  let meshTerms = localExpansion.meshTerms;
+  let expandedQueries = localExpansion.expandedQueries;
+  let booleanQuery = "";
+  const aiKey = geminiApiKey || groqApiKey;
+  const provider = geminiApiKey ? "gemini" : "groq";
+
+  if (aiKey) {
+    try {
+      const { callGemini, callGroq } = await import("./ai");
+      const result = await (provider === "gemini" ? callGemini(aiKey, aiPrompt) : callGroq(aiKey, aiPrompt));
+      const jsonMatch = result.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed.meshTerms?.length) meshTerms = [...new Set([...meshTerms, ...parsed.meshTerms])].slice(0, 12);
+        if (parsed.expandedQueries?.length) expandedQueries = [...new Set([...expandedQueries, ...parsed.expandedQueries])].slice(0, 8);
+        if (parsed.booleanQuery) booleanQuery = parsed.booleanQuery;
+      }
+    } catch {
+      booleanQuery = `${query} OR ${meshTerms.slice(0, 4).map((m) => `"${m}"`).join(" OR ")}`;
+    }
+  } else {
+    booleanQuery = `${query} OR ${meshTerms.slice(0, 4).map((m) => `"${m}"`).join(" OR ")}`;
+  }
+
+  if (!booleanQuery) {
+    booleanQuery = `${query} OR ${meshTerms.slice(0, 4).map((m) => `"${m}"`).join(" OR ")}`;
+  }
+
+  return {
+    originalQuery: query,
+    meshTerms: [...new Set(meshTerms)].slice(0, 12),
+    expandedQueries: [...new Set(expandedQueries)].slice(0, 10),
+    booleanQuery,
+    method: aiKey ? "ai" : "local",
+  };
+}
+
+export async function buildMeshSearchStrategy(
+  query: string,
+  databases: string[],
+  meshExpansion?: MeshExpansionResult
+): Promise<{ primaryQuery: string; databaseStrategies: Array<{ database: string; query: string; notes: string }> }> {
+  const expansion = meshExpansion || (await expandQueryWithMesh(query));
+  const primaryQuery = expansion.booleanQuery || query;
+
+  const databaseStrategies = databases.map((db) => {
+    switch (db) {
+      case "PubMed":
+        return {
+          database: db,
+          query: primaryQuery,
+          notes: "MeSH terms combined via OR for maximum recall in PubMed",
+        };
+      case "Europe PMC":
+        return {
+          database: db,
+          query: expansion.expandedQueries.join(" OR "),
+          notes: "Expanded queries used for Europe PMC REST API",
+        };
+      case "OpenAlex":
+      case "Google Scholar":
+      case "Semantic Scholar":
+      case "ScienceDirect":
+      case "Clarivate":
+        return {
+          database: db,
+          query: query,
+          notes: "Semantic search via OpenAlex with original + expanded terms",
+        };
+      case "WHO IRIS":
+        return {
+          database: db,
+          query: `${query} WHO`,
+          notes: "WHO IRIS search with topic + WHO filter",
+        };
+      case "Shodhganga":
+        return {
+          database: db,
+          query: `thesis ${query}`,
+          notes: "Shodhganga thesis search",
+        };
+      case "ClinicalTrials.gov":
+        return {
+          database: db,
+          query: `clinical trial ${query}`,
+          notes: "Clinical trial focus",
+        };
+      case "DOAJ":
+        return {
+          database: db,
+          query: `open access ${query}`,
+          notes: "Open access journal filter",
+        };
+      case "Prospero":
+        return {
+          database: db,
+          query: `systematic review protocol ${query}`,
+          notes: "Systematic review protocol search",
+        };
+      default:
+        return { database: db, query, notes: "Direct query" };
+    }
+  });
+
+  return { primaryQuery, databaseStrategies };
 }

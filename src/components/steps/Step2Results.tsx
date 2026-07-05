@@ -1,14 +1,17 @@
 "use client";
 
 import React, { useState, useMemo, useCallback } from "react";
-import { CheckSquare, Square, Trash2, FileText, Search, CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronUp, ExternalLink, BookOpen } from "lucide-react";
+import { CheckSquare, Square, Trash2, FileText, Search, CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronUp, ExternalLink, BookOpen, X, XCircle } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { deduplicatePapers, getDatabaseGroups, type DedupResult } from "@/lib/dedup-engine";
+import { buildPRISMAFlowDiagram, type PRISMAFlowData } from "@/lib/medical-skills/prisma-utils";
 
 export default function Step2Results() {
   const { state, dispatch } = useApp();
   const [searchFilter, setSearchFilter] = useState("");
   const [expandedDbs, setExpandedDbs] = useState<Record<string, boolean>>({});
+  const [showPrisma, setShowPrisma] = useState(false);
+  const [excludeReasons, setExcludeReasons] = useState<Record<string, string>>({});
 
   const rawPapers = useMemo(() => state.papers.map((p) => ({
     id: p.id,
@@ -71,15 +74,41 @@ export default function Step2Results() {
     const result = state.citationValidationResults[paper.doi.toLowerCase()];
     if (!result) return <span className="text-[10px] bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded">unchecked</span>;
     if (result.valid) return <span className="text-[10px] bg-green-900/50 text-green-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"><CheckCircle2 size={10} /> DOI verified</span>;
-    return <span className="text-[10px] bg-red-900/40 text-red-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"><AlertCircle size={10} /> DOI not found</span>;
+    return <span className="text-[10px] bg-red-900/40 text-red-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"><XCircle size={10} /> DOI not found</span>;
   };
 
+  const prismaFlowData: PRISMAFlowData = useMemo(() => ({
+    identification: {
+      recordsFromDatabases: stats.total,
+      additionalRecordsFromOtherSources: 0,
+      totalRecordsIdentified: stats.total,
+    },
+    screening: {
+      recordsAfterDuplicatesRemoved: stats.unique,
+      recordsScreenedByTitleAbstract: stats.unique,
+      recordsExcludedByTitleAbstract: 0,
+      fullTextArticlesAssessed: stats.unique,
+      fullTextArticlesExcludedWithReasons: stats.duplicatesRemoved,
+      studiesIncludedInQualitativeSynthesis: stats.unique,
+      studiesIncludedInMetaAnalysis: state.srStudyTypeCategory === "meta" ? stats.unique : undefined,
+    },
+    excludedFullTextReasons: duplicateGroups.map((g) => ({
+      reason: `Duplicate entry (${g.length} records in group)`,
+      count: 1,
+    })),
+  }), [stats, duplicateGroups, state.srStudyTypeCategory]);
+
+  const prismaDiagram = useMemo(() => buildPRISMAFlowDiagram(prismaFlowData), [prismaFlowData]);
+
   const filteredDbGroups = useMemo(() => {
-    if (!searchFilter.trim()) return getDatabaseGroups(uniquePapers);
+    const base = state.papers.length > 0 && uniquePapers.length === 0 ? state.papers : uniquePapers;
+    if (!searchFilter.trim()) return getDatabaseGroups(base);
     const q = searchFilter.toLowerCase();
-    const filtered = uniquePapers.filter((p) => p.title.toLowerCase().includes(q) || p.authors.toLowerCase().includes(q));
+    const filtered = base.filter((p) => p.title.toLowerCase().includes(q) || p.authors.toLowerCase().includes(q));
     return getDatabaseGroups(filtered);
-  }, [uniquePapers, searchFilter]);
+  }, [uniquePapers, state.papers, searchFilter]);
+
+  const rawDbGroups = useMemo(() => getDatabaseGroups(rawPapers), [rawPapers]);
 
   return (
     <div className="space-y-6">
@@ -98,6 +127,13 @@ export default function Step2Results() {
           </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setShowPrisma((p) => !p)}
+              className="text-sm bg-blue-900/50 text-blue-200 px-4 py-2 rounded hover:bg-blue-900/70 flex items-center gap-2"
+            >
+              <FileText size={14} />
+              {showPrisma ? "Hide PRISMA" : "Show PRISMA 2020"}
+            </button>
+            <button
               onClick={toggleAllUnique}
               className="text-sm bg-blue-900/50 text-blue-200 px-4 py-2 rounded hover:bg-blue-900/70"
             >
@@ -112,6 +148,88 @@ export default function Step2Results() {
             </button>
           </div>
         </div>
+
+        {showPrisma && (
+          <div className="bg-[#0a1428] border border-blue-900/60 rounded-lg p-4 mb-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <FileText size={14} className="text-yellow-400" />
+                PRISMA 2020 Flow Diagram
+              </h3>
+              <button onClick={() => setShowPrisma(false)} className="text-blue-300 hover:text-white">
+                <X size={14} />
+              </button>
+            </div>
+            <div className="flex flex-col gap-2">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-blue-950 border border-blue-900 rounded-lg p-3">
+                  <div className="text-[10px] text-blue-400 uppercase tracking-wide mb-1">Identification through databases</div>
+                  <div className="text-xl font-bold text-white">{stats.total}</div>
+                  <div className="text-[10px] text-blue-300">records retrieved</div>
+                </div>
+                <div className="bg-blue-950 border border-blue-900 rounded-lg p-3">
+                  <div className="text-[10px] text-blue-400 uppercase tracking-wide mb-1">Identification through other sources</div>
+                  <div className="text-xl font-bold text-white">0</div>
+                  <div className="text-[10px] text-blue-300">additional records</div>
+                </div>
+              </div>
+
+              <div className="flex justify-center">
+                <div className="bg-indigo-950 border border-indigo-700 rounded-full px-6 py-2">
+                  <div className="text-sm font-bold text-white">Total records identified: {stats.total}</div>
+                </div>
+              </div>
+
+              <div className="flex justify-center">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-blue-600 mx-auto">
+                  <path d="M12 4v16m0 0l-4-4m4 4l4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+
+              <div className="bg-red-950 border border-red-700 rounded-full px-6 py-2 mx-auto">
+                <div className="text-sm font-bold text-red-200">Records after duplicates removed: {stats.unique}</div>
+              </div>
+
+              <div className="flex justify-center">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-blue-600 mx-auto">
+                  <path d="M12 4v16m0 0l-4-4m4 4l4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+
+              <div className="bg-blue-950 border border-blue-900 rounded-lg p-3">
+                <div className="text-xs text-blue-300">Records screened by title/abstract: <span className="font-bold text-white">{stats.unique}</span></div>
+                <div className="text-xs text-blue-300">Records excluded: <span className="font-bold text-white">0</span></div>
+              </div>
+
+              <div className="flex justify-center">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-blue-600 mx-auto">
+                  <path d="M12 4v16m0 0l-4-4m4 4l4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+
+              <div className="bg-yellow-950 border border-yellow-700 rounded-lg p-3">
+                <div className="text-xs text-yellow-300">Full-text articles assessed: <span className="font-bold text-white">{stats.unique}</span></div>
+                <div className="text-xs text-yellow-300">Full-text excluded: <span className="font-bold text-white">{stats.duplicatesRemoved}</span></div>
+              </div>
+
+              <div className="flex justify-center">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-green-600 mx-auto">
+                  <path d="M12 4v16m0 0l-4-4m4 4l4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+
+              <div className="bg-green-950 border border-green-700 rounded-full px-6 py-2 mx-auto">
+                <div className="text-sm font-bold text-green-200">Studies included in qualitative synthesis: {uniquePapers.length}</div>
+              </div>
+
+              {state.srStudyTypeCategory === "meta" && (
+                <div className="bg-emerald-950 border border-emerald-700 rounded-full px-6 py-2 mx-auto">
+                  <div className="text-sm font-bold text-emerald-200">Studies included in meta-analysis: {uniquePapers.length}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {duplicateGroups.length > 0 && (
           <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-3 mb-4">

@@ -116,6 +116,8 @@ export interface AppState {
   filteredPapers: Paper[];
   citationValidationResults: Record<string, { valid: boolean; title?: string; message: string }>;
   citationValidationStatus: "idle" | "running" | "done";
+  meshExpansion: { originalQuery: string; meshTerms: string[]; expandedQueries: string[]; booleanQuery: string; method: "ai" | "local" | "none" } | null;
+  meshExpansionStatus: "idle" | "running" | "done";
   omicsEnabled: boolean;
   predictionStep: number;
   predictionAim: string;
@@ -204,6 +206,8 @@ type Action =
   | { type: "SET_PREDICTION_REPORT_NOTES"; payload: string }
   | { type: "SET_PREDICTION_CAPTUM_ENABLED"; payload: boolean }
   | { type: "SET_PREDICTION_CAPTUM_RESULTS"; payload: string }
+  | { type: "SET_MESH_EXPANSION"; payload: { originalQuery: string; meshTerms: string[]; expandedQueries: string[]; booleanQuery: string; method: "ai" | "local" | "none" } | null }
+  | { type: "SET_MESH_EXPANSION_STATUS"; payload: "idle" | "running" | "done" }
   | { type: "RESET_STATE" };
 
 const initialState: AppState = {
@@ -297,6 +301,8 @@ const initialState: AppState = {
   predictionReportNotes: "",
   predictionCaptumEnabled: false,
   predictionCaptumResults: "",
+  meshExpansion: null,
+  meshExpansionStatus: "idle",
 };
 
 function appReducer(state: AppState, action: Action): AppState {
@@ -478,6 +484,10 @@ function appReducer(state: AppState, action: Action): AppState {
       return { ...state, predictionCaptumEnabled: action.payload };
     case "SET_PREDICTION_CAPTUM_RESULTS":
       return { ...state, predictionCaptumResults: action.payload };
+    case "SET_MESH_EXPANSION":
+      return { ...state, meshExpansion: action.payload };
+    case "SET_MESH_EXPANSION_STATUS":
+      return { ...state, meshExpansionStatus: action.payload };
     case "RESET_STATE":
       return { ...initialState };
     default:
