@@ -25,8 +25,7 @@ const EVIDENCE_TIERS: Record<string, { label: string; color: string }> = {
   qualitative: { label: "T3 — Associational (★☆☆)", color: "text-orange-300" },
 };
 
-function getEvidenceTier(studyType: string | undefined | null): { label: string; color: string } {
-  if (!studyType || typeof studyType !== "string") return { label: "T3 — Associational (★☆☆)", color: "text-orange-300" };
+function getEvidenceTier(studyType: string): { label: string; color: string } {
   const t = studyType.toLowerCase();
   for (const [key, val] of Object.entries(EVIDENCE_TIERS)) {
     if (t.includes(key)) return val;
@@ -205,7 +204,7 @@ function extractStudyDetails(abstract: string, paper: Paper): string {
   // Intervention
   const intervention =
     sentences.find((s) => /(?:intervention|treatment|exposure|drug|therapy|program|policy|screening|diagnostic|procedure|surgery|vaccine|antibiotic)/i.test(s) && s.length > 40) ||
-    ((paper.studyType || "").toLowerCase().includes("rct") || (paper.studyType || "").toLowerCase().includes("trial")
+    (paper.studyType.toLowerCase().includes("rct") || paper.studyType.toLowerCase().includes("trial")
       ? "Active intervention as defined in trial protocol."
       : "Observational — no active intervention imposed.");
 
@@ -292,29 +291,26 @@ function extractResearchGaps(abstract: string, studyType: string): string {
 /*  Synopsis (mirrors NotebookLM-style summary)                        */
 /* ------------------------------------------------------------------ */
 function buildSynopsis(paper: Paper): string {
-  const safeTitle = paper.title || "Untitled study";
-  const topic = safeTitle.includes(":") ? safeTitle.split(":").pop()?.trim() : safeTitle;
-  const base = `${paper.studyType || "Study"} examining "${topic || safeTitle}".`;
-  const journalShort = (paper.journal || "Unknown Journal").split(" ").slice(0, 3).join(" ");
-  return `${base} Published in ${journalShort} (${paper.year ?? "n.d."}). Core contribution advances the evidence base for the topic area.`;
+  const topic = paper.title.includes(":") ? paper.title.split(":").pop()?.trim() : paper.title;
+  const base = `${paper.studyType} examining "${topic || paper.title}".`;
+  const journalShort = paper.journal.split(" ").slice(0, 3).join(" ");
+  return `${base} Published in ${journalShort} (${paper.year}). Core contribution advances the evidence base for the topic area.`;
 }
 
 /* ------------------------------------------------------------------ */
 /*  Main local synthesis generator                                    */
 /* ------------------------------------------------------------------ */
-export async function generateLocalSynthesis(papers: Paper[] = []): Promise<SynthesisRow[]> {
+export async function generateLocalSynthesis(papers: Paper[]): Promise<SynthesisRow[]> {
+  // Parallel DOI validation (Crossref) — same as AI-Research-Analyzer citation-validator approach
   const doisToValidate = papers.filter((p) => p.doi && p.doi.length > 3).map((p) => p.doi!);
   const citationResults = new Map<string, { valid: boolean; title?: string; message: string }>();
 
-  await Promise.race([
-    Promise.allSettled(
-      doisToValidate.map(async (doi) => {
-        const result = await validateDoiViaCrossref(doi);
-        citationResults.set(doi.toLowerCase(), result);
-      })
-    ),
-    new Promise<void>((resolve) => setTimeout(() => resolve(), 8000)),
-  ]);
+  await Promise.allSettled(
+    doisToValidate.map(async (doi) => {
+      const result = await validateDoiViaCrossref(doi);
+      citationResults.set(doi.toLowerCase(), result);
+    })
+  );
 
   return papers.map((paper, idx) => {
     const verifiedDoi = paper.doi ? citationResults.get(paper.doi.toLowerCase()) : undefined;
@@ -323,37 +319,16 @@ export async function generateLocalSynthesis(papers: Paper[] = []): Promise<Synt
     const studyDetails = extractStudyDetails(paper.abstract || "", paper);
     const researchGaps = extractResearchGaps(paper.abstract || "", paper.studyType);
     const synopsis = buildSynopsis(paper);
-    const themes = assignThemes(paper.abstract || "", paper.title);
 
     return {
       id: `syn-${Date.now()}-${idx}`,
       reference: toVancouver(paper, verifiedDoi),
-      keyFindings: `${keyFindings} Themes: ${themes.join(", ")}`,
+      keyFindings,
       synopsis,
       studyDetails,
       researchGaps,
     };
   });
-}
-
-function assignThemes(abstract: string, title: string): string[] {
-  const text = `${title} ${abstract}`.toLowerCase();
-  const themes: string[] = [];
-  const checks: [string, RegExp][] = [
-    ["Prevalence / Epidemiology", /\b(prevalence|incidence|epidemiology|burden|risk factor)\b/],
-    ["Diagnostics / Screening", /\b(diagnos|sensitivity|specificity|screening|detection|assay)\b/],
-    ["Treatment / Intervention", /\b(treatment|intervention|therapy|pharmacological|drug|medication|preventive)\b/],
-    ["Prognosis / Outcomes", /\b(prognosis|mortality|survival|outcome|complication|recovery)\b/],
-    ["Healthcare Workers / Delivery", /\b(healthcare worker|nurse|physician|hospital|clinic|delivery)\b/],
-    ["Population Health", /\b(population|cohort|participants|patients|adults|children|adolescents)\b/],
-    ["Comparative / Association", /\b(association|correlation|relationship|versus|compared)\b/],
-    ["Systematic Review", /\b(systematic review|meta-analysis|review article)\b/],
-    ["Quality / Bias", /\b(quality|bias|limitation|methodology|rigor)\b/],
-  ];
-  for (const [label, pattern] of checks) {
-    if (pattern.test(text)) themes.push(label);
-  }
-  return themes.length > 0 ? themes.slice(0, 3) : ["General evidence"];
 }
 
 /* ------------------------------------------------------------------ */
@@ -380,14 +355,13 @@ function extractThemes(papers: { authors: string; year: number; title: string; a
   const themes: Record<string, { papers: { authors: string; year: number; title: string; finding: string }[] }> = {};
 
   for (const paper of papers) {
-    const abbr = (paper.abstract || "").toLowerCase();
+    const abbr = paper.abstract.toLowerCase();
     for (const [theme, keywords] of Object.entries(themeKeywords)) {
       const matches = keywords.some((kw) => abbr.includes(kw));
       if (matches) {
         if (!themes[theme]) themes[theme] = { papers: [] };
-        const safeAbstract = paper.abstract || "";
-        const finding = safeAbstract.length > 200 ? safeAbstract.substring(150, 380).trim() + "…" : safeAbstract;
-        themes[theme].papers.push({ authors: paper.authors || "", year: paper.year, title: paper.title || "", finding });
+        const finding = paper.abstract.length > 200 ? paper.abstract.substring(150, 380).trim() + "…" : paper.abstract;
+        themes[theme].papers.push({ authors: paper.authors, year: paper.year, title: paper.title, finding });
       }
     }
   }
@@ -412,7 +386,7 @@ export function generateLocalLiteratureReview(
   const databases = [...new Set(selectedPapers.map((p) => p.database))].join(", ");
   const titleWords = searchQuery
     ? searchQuery.replace(/["]/g, "").split(/\s+/).filter(Boolean).slice(0, 8).join(" ")
-    : (selectedPapers[0]?.title || "").split(":").pop()?.trim() || "the research topic";
+    : selectedPapers[0]?.title.split(":").pop()?.trim() || "the research topic";
 
   const themes = extractThemes(selectedPapers);
 
@@ -423,21 +397,21 @@ export function generateLocalLiteratureReview(
   const themeSections = themes
     .map((t, idx) => {
       const paperCitations = t.papers
-        .map((p) => `(${(p.authors || "").split(",").slice(0, 2).join(" & ")}, ${p.year})`)
+        .map((p) => `(${p.authors.split(",").slice(0, 2).join(" & ")}, ${p.year})`)
         .join("; ");
       const findings = t.papers
         .slice(0, 3)
-        .map((p) => `${(p.authors || "").split(",").slice(0, 2).join(" & ")} (${p.year}) reported that ${(p.finding || "").substring(0, 90)}…`)
+        .map((p) => `${p.authors.split(",").slice(0, 2).join(" & ")} (${p.year}) reported that ${p.finding.substring(0, 90)}…`)
         .join("\n\n");
       return `### Theme ${idx + 1}: ${t.theme}\n\n${findings}\n\nAcross the ${t.papers.length} studies addressing this theme (${paperCitations}), consistent patterns emerge that contribute to the broader evidence base for ${titleWords}.`;
     })
     .join("\n\n");
 
-  const topCiteAuthor = (p: { authors: string; year: number }) => (p.authors || "").split(",").slice(0, 2).join(" & ");
+  const topCiteAuthor = (p: { authors: string; year: number }) => p.authors.split(",").slice(0, 2).join(" & ");
   const citedList = selectedPapers
     .slice(0, 8)
-    .map((p) => `${topCiteAuthor(p)}, ${p.year}. *${p.title || "Untitled"}*. ${p.journal || "Unknown Journal"}. doi:${p.doi || "N/A"}`)
+    .map((p) => `${topCiteAuthor(p)}, ${p.year}. *${p.title}*. ${p.journal}. doi:${p.doi || "N/A"}`)
     .join("\n");
 
-  return `# Literature Review: ${titleWords}\n\n## Abstract\n\nThis review synthesizes findings from ${n} peer-reviewed studies on ${titleWords} published between ${yearMin} and ${yearMax}. Thematic analysis reveals key advances across ${Math.min(themes.length, n)} identified themes, with important implications for clinical practice, future research directions, and evidence-based decision-making.\n\n## 1. Introduction and Background\n\n${intro}\n\n## 2. Methods\n\n${methods}\n\n## 3. Results\n\n${themeSections || "No dominant themes were identified across the selected abstracts; direct study-by-study summaries are provided below:\n\n" + selectedPapers.slice(0, 5).map((p, i) => `**${i + 1}.** ${p.authors || "Unknown"} (${p.year}). ${p.title || "Untitled"}. *${p.journal || "Unknown Journal"}*. Abstract: ${(p.abstract || "").substring(0, 150)}…`).join("\n\n")}\n\n## 4. Discussion\n\nThe synthesized evidence across ${n} studies provides important insights into ${titleWords}. Several themes recur consistently across the selected literature, suggesting areas of converging evidence. At the same time, heterogeneity in study design, population characteristics, and outcome measures limits the strength of pooled conclusions.\n\nKey limitations include: (1) the exclusion of papers without verified DOIs to ensure citation quality; (2) potential publication bias toward positive findings; and (3) variability in how key constructs were operationalized across studies. Future research should prioritize longitudinal designs, broader population representation, and standardized outcome reporting frameworks to strengthen the evidence base.\n\n## 5. Conclusion\n\nThe cumulative evidence supports continued investigation of ${titleWords} as a priority research area. Policy and clinical practice should be guided by the highest-tier evidence available, and emerging gaps identified in this review merit targeted investigation in forthcoming studies.\n\n## References\n\n${citedList}`;
+  return `# Literature Review: ${titleWords}\n\n## Abstract\n\nThis review synthesizes findings from ${n} peer-reviewed studies on ${titleWords} published between ${yearMin} and ${yearMax}. Thematic analysis reveals key advances across ${Math.min(themes.length, n)} identified themes, with important implications for clinical practice, future research directions, and evidence-based decision-making.\n\n## 1. Introduction and Background\n\n${intro}\n\n## 2. Methods\n\n${methods}\n\n## 3. Results\n\n${themeSections || "No dominant themes were identified across the selected abstracts; direct study-by-study summaries are provided below:\n\n" + selectedPapers.slice(0, 5).map((p, i) => `**${i + 1}.** ${p.authors} (${p.year}). ${p.title}. *${p.journal}*. Abstract: ${p.abstract.substring(0, 150)}…`).join("\n\n")}\n\n## 4. Discussion\n\nThe synthesized evidence across ${n} studies provides important insights into ${titleWords}. Several themes recur consistently across the selected literature, suggesting areas of converging evidence. At the same time, heterogeneity in study design, population characteristics, and outcome measures limits the strength of pooled conclusions.\n\nKey limitations include: (1) the exclusion of papers without verified DOIs to ensure citation quality; (2) potential publication bias toward positive findings; and (3) variability in how key constructs were operationalized across studies. Future research should prioritize longitudinal designs, broader population representation, and standardized outcome reporting frameworks to strengthen the evidence base.\n\n## 5. Conclusion\n\nThe cumulative evidence supports continued investigation of ${titleWords} as a priority research area. Policy and clinical practice should be guided by the highest-tier evidence available, and emerging gaps identified in this review merit targeted investigation in forthcoming studies.\n\n## References\n\n${citedList}`;
 }

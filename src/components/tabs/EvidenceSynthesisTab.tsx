@@ -10,7 +10,6 @@ import {
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
 import { fetchRealPapers, generateMockLegacy, type Paper, validateDoiViaCrossref } from "@/lib/database-apis";
-import { generateLocalSynthesis, type SynthesisRow } from "@/lib/local-synthesis";
 import { downloadLiteratureReviewPDF, downloadLiteratureReviewWord } from "@/lib/exporters";
 import { parseEffectSizeRow, fixedEffectsMetaAnalysis, randomEffectsMetaAnalysis, type MetaforResult, type EffectSizeRow } from "@/lib/metafor-compute";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
@@ -224,9 +223,6 @@ export default function EvidenceSynthesisTab() {
   const [synthesisInstructions, setSynthesisInstructions] = useState("");
   const [synthesisOutput, setSynthesisOutput] = useState("");
   const [synthesisLoading, setSynthesisLoading] = useState(false);
-  const [synthesisMode, setSynthesisMode] = useState<"ai" | "local">(
-    (state.geminiApiKey || state.groqApiKey) ? "ai" : "local"
-  );
   const [manuscript, setManuscript] = useState("");
   const [manuscriptLoading, setManuscriptLoading] = useState(false);
   const [literatureReviewSections, setLiteratureReviewSections] = useState({
@@ -575,9 +571,8 @@ export default function EvidenceSynthesisTab() {
     });
   };
 
-  const buildLocalSynthesisOutput = () => {
+  const generateLocalSynthesis = () => {
     const papersForSynthesis = extractedData.filter((p) => selectedPaperIds.has(p.id));
-    const allPapersForSynthesis = papers.filter((p) => selectedPaperIds.has(p.id));
     const template = getRobToolTemplate();
     const robLabel = template ? template.label : robTool;
     const isMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
@@ -601,12 +596,12 @@ export default function EvidenceSynthesisTab() {
     );
 
     const heterogeneityNotes = studyTypes.length > 1
-      ? "Studies span multiple design types, contributing to clinical/methodological heterogeneity. A random-effects model is therefore preferred for any quantitative pooling."
+      ? "Studies span multiple design types, contributing to clinical/methodological heterogeneity."
       : `Heterogeneity should be assessed (I², τ²) using metafor/meta.`;
 
     const effectTable = effectSizes.length > 0
       ? effectSizes.map((r) => `| ${r.study} | ${r.effect} | ${r.ci} | ${r.weight} |`).join("\n")
-      : "Effect sizes were not yet extracted for these studies. Authors should populate this table with numeric estimates (e.g., OR, RR, MD, SMD) and 95% CIs before running metafor/meta/OpenMEE.";
+      : papersForSynthesis.map((p) => `| ${p.authors} (${p.year}) | — | — | — |`).join("\n");
 
     const methodsBlock = isMeta
       ? `**Synthesis method:** Random-effects meta-analysis (DerSimonian–Laird), implemented in **metafor** (R) or **meta** (R). Heterogeneity assessed via I² and τ². Certainty of evidence via GRADE/robvis integration.\n\n**Risk of bias:** Per-domain robvis template (${robLabel}) with Cochrane colours.`
@@ -616,23 +611,19 @@ export default function EvidenceSynthesisTab() {
       ? `\n### Meta-analysis Interpretation\n\nPooled estimate (${metaforResult.model}-effects): μ = ${metaforResult.pooledEstimate.toFixed(3)} (95% CI ${metaforResult.ciLower.toFixed(3)}–${metaforResult.ciUpper.toFixed(3)}). Heterogeneity: I² = ${metaforResult.I2.toFixed(1)}%, τ² = ${metaforResult.tau2.toFixed(4)}, Q(${metaforResult.k - 1}) = ${metaforResult.Q.toFixed(2)}, p = ${metaforResult.Qp.toFixed(4)}. Prediction interval: ${metaforResult.predictionLower.toFixed(3)}–${metaforResult.predictionUpper.toFixed(3)}.`
       : `\n### Meta-analysis Interpretation\n\nEffect estimates should be pooled using a random-effects model. Expected direction of effect: see effect table above. Heterogeneity: ${heterogeneityNotes} Use **forestplot**, **meta**, **metafor**, or **OpenMEE** for publication-ready figures.\n\n**Reporting:** Export effect table to **PRISMA 2020**-compliant format.\n`;
 
-    const studySummaryBullets = papersForSynthesis.map((p, i) => {
-      const paper = allPapersForSynthesis.find(ap => ap.id === p.id);
-      const abstractSnippet = paper?.abstract ? paper.abstract.replace(/[<>=]/g, "").trim().slice(0, 220) + "…" : "No abstract available.";
-      return `${i + 1}. **${p.authors} (${p.year})** — *${p.title}*.\n   - Type: ${p.studyType || "Not specified"}. Outcome: ${p.outcome || "As reported"}.\n   - Risk of bias: ${robAssessments[p.id]?.overall || "Pending (assess in Step 3)"}.\n   - Key evidence: ${abstractSnippet}`;
-    }).join("\n\n");
-
-    const narrativeParagraphs = papersForSynthesis.length > 0
-      ? `The body of evidence comprises ${papersForSynthesis.length} ${studyTypes.join(", ").toLowerCase() || "studies"} examining ${query || "the review topic"}. ${papersForSynthesis.length >= 5 ? "Across the included studies, consistent themes emerge regarding the intervention/exposure and its association with the primary outcome." : "Given the limited number of included studies, findings should be interpreted with caution."}\n\n${studySummaryBullets}`
-      : "No papers have been selected for synthesis.";
-
     return `## Evidence Synthesis\n**Review type:** ${reviewType}\n**Studies included:** ${papersForSynthesis.length}\n**Year range:** ${yearMin}–${yearMax}\n**Databases:** ${databases.join(", ") || "multiple"}\n\n---
 
 ${methodsBlock}\n\n---
 
 ### Narrative Summary
 
-${narrativeParagraphs}
+The body of evidence comprises ${papersForSynthesis.length} ${studyTypes.join(", ").toLowerCase() || "studies"} examining ${query || "the review topic"}. ${papersForSynthesis.length > 5 ? "Across the included studies, consistent themes emerge regarding the intervention/exposure and its association with the primary outcome." : "Findings should be interpreted with caution given the small number of included studies."}
+
+**Key findings by study:**
+${papersForSynthesis.map((p, i) => `${i + 1}. **${p.authors} (${p.year})** — ${p.title}
+   - Study type: ${p.studyType || "Not specified"}
+   - Outcome: ${p.outcome || "As reported"}
+   - Risk of bias: ${robAssessments[p.id]?.overall || "Pending (assess in Step 3)"}`).join("\n\n")}
 
 ---
 
@@ -912,28 +903,6 @@ At the end, include a References section with all papers in Vancouver style:
     }
     setSynthesisLoading(true);
     setSynthesisOutput("");
-
-    const runLocal = () => {
-      const localOutput = buildLocalSynthesisOutput();
-      setSynthesisOutput(localOutput);
-      const tableLines = localOutput.split("\n").filter((l) => l.includes("|") && !l.includes("---"));
-      const resultRows = tableLines.slice(1).map((l) => {
-        const parts = l.split("|").map((s) => s.trim()).filter(Boolean);
-        if (parts.length < 4) return null;
-        return { study: parts[0] || "", effect: parts[1] || "", ci: parts[2] || "", weight: parts[3] || "" };
-      }).filter((r): r is { study: string; effect: string; ci: string; weight: string } => r !== null);
-      if (resultRows.length > 0) setEffectSizes(resultRows);
-      setSynthesisLoading(false);
-    };
-
-    if (synthesisMode === "local") {
-      const rows = await generateLocalSynthesis(papers);
-      const tableLines = rows.map((r) => `| ${r.reference} | ${r.keyFindings} | ${r.synopsis} | ${r.studyDetails} | ${r.researchGaps} |`).join("\n");
-      setSynthesisOutput(`## Evidence Synthesis\n\n${tableLines}`);
-      setSynthesisLoading(false);
-      return;
-    }
-
     try {
       const papersForSynthesis = extractedData
         .filter((p) => selectedPaperIds.has(p.id))
@@ -947,7 +916,7 @@ At the end, include a References section with all papers in Vancouver style:
           notes: robAssessments[p.id]?.notes || "",
         }));
 
-      const prompt = `You are an expert evidence synthesis researcher using methods from the awesome-evidence-synthesis toolkit (metafor, meta, metaumbrella, robvis, PRISMA 2020, GRADE).
+      const prompt = `You are an expert evidence synthesis researcher using methods from the awesome-evidence-synthesis toolkit (metafor, meta, metaumbrella, robvis, PRISMA 2020).
 
 REVIEW TYPE: ${reviewType}
 
@@ -957,43 +926,50 @@ ${reviewRequirements || "No specific requirements provided."}
 SYNTHESIS INSTRUCTIONS:
 ${synthesisInstructions || "Use standard systematic review methodology appropriate for the review type."}
 
-EXTRACTED STUDIES WITH ABSTRACTS:
+EXTRACTED STUDIES:
 ${papersForSynthesis.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. Type: ${p.studyType}. Outcome: ${p.outcome}. RoB: ${p.ROB}.${p.notes ? ` Notes: ${p.notes}` : ""}`).join("\n\n")}
 
 REQUIREMENTS:
-1. Summarize the body of evidence thematically or narratively as appropriate for the review type. Draw on the actual study data provided above — do not write generic placeholder text.
-2. For each study or cluster of studies, quote or paraphrase specific findings, effect estimates, or conclusions from the provided data.
-3. Note heterogeneity (clinical, methodological, statistical) with concrete examples from the included studies.
-4. Summarize effect sizes where available (or state honestly if not extractable from the provided data).
-5. Acknowledge risk-of-bias patterns and their likely impact on the pooled/narrative evidence.
-6. Provide a forest-plot-ready effect-size table with columns: Study, Effect Estimate, 95% CI, Weight. If exact numeric effect sizes are not available, leave the table empty with a note explaining why.
-7. Include PRISMA-compliant narrative structure (for reviews where PRISMA applies).
-8. Reference tools: metafor, meta, metaumbrella, robvis, forestplot, PRISMA 2020, GRADE.
-${reviewType.includes("Meta-analysis") ? "9. Provide meta-analysis interpretation: fixed vs random effects, heterogeneity statistics (I², τ²), certainty of evidence, and prediction interval interpretation." : ""}
+1. Summarize the body of evidence thematically or narratively as appropriate for the review type
+2. Note heterogeneity (clinical, methodological, statistical)
+3. Summarize effect sizes where available (or state if not extractable)
+4. Acknowledge risk-of-bias patterns
+5. Provide a forest-plot-ready effect-size table with columns: Study, Effect Estimate, 95% CI, Weight
+6. Include PRISMA-compliant narrative structure (for reviews where PRISMA applies)
+7. Reference tools: metafor, meta, metaumbrella, robvis, forestplot, PRISMA 2020
+${reviewType.includes("Meta-analysis") ? "8. Provide meta-analysis interpretation: fixed vs random effects, heterogeneity statistics (I², τ²), certainty of evidence" : ""}
 
-OUTPUT FORMAT (strict Markdown — no extra commentary outside the sections):
+OUTPUT FORMAT:
 ## Evidence Synthesis
 
 ### Narrative Summary
-Write 4-6 detailed paragraphs. Cite specific studies by author/year. Describe converging and diverging findings. Do not write vague statements like "the evidence suggests" without grounding them in the provided studies.
+[Thematic synthesis of findings]
 
 ### Effect Size Summary
 | Study | Effect Estimate | 95% CI | Weight |
 |-------|----------------|--------|--------|
-[Populate with real numbers if available; otherwise write: "Effect sizes were not extractable from the available abstracts. Authors should manually enter values in the effect-size table before running metafor/meta/OpenMEE."]
 
 ### Risk of Bias Commentary
-Discuss how the distribution of RoB judgments across the included studies affects confidence in the pooled or narrative findings. Mention specific study-level concerns.
+[How RoB patterns affect confidence in evidence]
 
 ### Meta-analysis Interpretation
-[If meta-analysis was performed, interpret the pooled estimate, heterogeneity (I², τ², Q), prediction interval, and GRADE certainty. If not performed, state what would be needed.]
+[Fixed vs random effects, heterogeneity, certainty]
 
 ### Gaps and Future Directions
-Identify evidence gaps that are actually supported by the included studies, not generic recommendations.`;
+[Remaining uncertainties]`;
 
       const apiKey = state.geminiApiKey || state.groqApiKey;
       if (!apiKey) {
-        runLocal();
+        const localOutput = generateLocalSynthesis();
+        setSynthesisOutput(localOutput);
+        const tableLines = localOutput.split("\n").filter((l) => l.includes("|") && !l.includes("---"));
+        const resultRows = tableLines.slice(1).map((l) => {
+          const parts = l.split("|").map((s) => s.trim()).filter(Boolean);
+          if (parts.length < 4) return null;
+          return { study: parts[0] || "", effect: parts[1] || "", ci: parts[2] || "", weight: parts[3] || "" };
+        }).filter((r): r is { study: string; effect: string; ci: string; weight: string } => r !== null);
+        if (resultRows.length > 0) setEffectSizes(resultRows);
+        setSynthesisLoading(false);
         return;
       }
 
@@ -1025,8 +1001,7 @@ Identify evidence gaps that are actually supported by the included studies, not 
         if (rows.length > 0) setEffectSizes(rows);
       }
     } catch (err: any) {
-      const fallback = `## Evidence Synthesis\n\n**AI synthesis failed:** ${err.message || "Unknown error"}\n\nFalling back to local synthesis builder.\n\n`;
-      setSynthesisOutput(fallback + buildLocalSynthesisOutput());
+      setSynthesisOutput(`## Evidence Synthesis\n\n**Error generating synthesis:** ${err.message || "Unknown error"}\n\nPlease try again, adjust your instructions, or use local synthesis (no API key required).`);
     } finally {
       setSynthesisLoading(false);
     }
@@ -1179,10 +1154,9 @@ Generate the full manuscript now.`;
         setManuscript(localManuscript);
       }
     } catch (err: any) {
-      const fallback = `## Evidence Synthesis\n\n**AI synthesis failed:** ${err.message || "Unknown error"}\n\nFalling back to local synthesis builder.\n\n`;
-      setSynthesisOutput(fallback + buildLocalSynthesisOutput());
+      setManuscript(`# Error\n\n**Failed to generate manuscript:** ${err.message || "Unknown error"}\n\nPlease complete Steps 1–5 and try again. If using AI-generated mode, ensure your API key is valid.`);
     } finally {
-      setSynthesisLoading(false);
+      setManuscriptLoading(false);
     }
   };
 
@@ -1232,33 +1206,27 @@ Generate the full manuscript now.`;
     selectedDbs: string[];
   }): string => {
     const relatedWorksBlock = papersForSynthesis.slice(0, 8).map((p, i) => {
-      const paper = papers.find(ap => ap.id === p.id);
-      const abstractSnippet = paper?.abstract ? paper.abstract.replace(/[<>=]/g, "").trim().slice(0, 200) + "…" : "Abstract not available.";
-      return `${i + 1}. ${p.authors} (${p.year}). *${p.title}*. ${p.studyType || "Study type not specified"}. Key finding: ${abstractSnippet}`;
+      const limitation = p.outcome
+        ? `The study focused on ${p.outcome.toLowerCase()}, leaving broader contextual factors unexamined.`
+        : "The scope was limited, and generalizability to broader populations remains uncertain.";
+      return `${i + 1}. ${p.authors} (${p.year}). *${p.title}*. ${p.studyType || "Study type not specified"}. ${limitation}`;
     }).join("\n\n");
 
-    const topPapers = papersForSynthesis.slice(0, 3);
-    const backgroundSentences = topPapers.map((p, i) => {
-      const paper = papers.find(ap => ap.id === p.id);
-      const snippet = paper?.abstract ? paper.abstract.replace(/[<>=]/g, "").trim().split(".").slice(0, 3).join(".") + "." : "";
-      return `${p.authors} (${p.year}) reported on ${p.title.toLowerCase()}: ${snippet || "No abstract available."}`;
-    }).join(" ");
-
     const methodologyParagraph = isMeta
-      ? `The present ${reviewTypeLabel.toLowerCase()} employed a structured evidence-synthesis methodology. The approach combined systematic database searching, duplicate screening, structured data extraction, per-domain risk-of-bias assessment using ${robLabel}, and random-effects meta-analysis where feasible. This design integrates robvis-standardized domain-level bias judgments with GRADE certainty assessment, enabling transparent quantification of both within-study bias and between-study heterogeneity. Key methods included PICO-framed search strategies, PRISMA 2020-compliant reporting, and forest-plot-ready effect-size extraction compatible with metafor, meta, and forestplot.`
+      ? `The present ${reviewTypeLabel.toLowerCase()} employed a structured evidence-synthesis methodology. The approach combined systematic database searching, duplicate screening, structured data extraction, per-domain risk-of-bias assessment using ${robLabel}, and random-effects meta-analysis where feasible. This design differs from prior reviews by integrating robvis-standardized domain-level bias judgments with GRADE certainty assessment, enabling transparent quantification of both within-study bias and between-study heterogeneity. Key methods included PICO-framed search strategies, PRISMA 2020-compliant reporting, and forest-plot-ready effect-size extraction compatible with metafor, meta, and forestplot.`
       : `The present ${reviewTypeLabel.toLowerCase()} employed a structured evidence-synthesis methodology. The approach combined systematic database searching, duplicate screening, and structured data extraction. Risk-of-bias assessment was conducted using ${robLabel}, and findings were synthesized narratively following awesome-evidence-synthesis guidance. This design emphasizes transparent reproducibility, PRISMA 2020-aligned reporting, and thematic mapping of the evidence base.`;
 
     const resultsOverview = papersForSynthesis.length > 0
-      ? `The evidence base comprised ${papersForSynthesis.length} studies (${yearMin}–${yearMax}) encompassing ${studyTypes.join(", ").toLowerCase() || "mixed study designs"}. ${backgroundSentences} Pooled or narrative findings indicate a direction of effect for the outcome of interest. Heterogeneity was assessed via I² and τ²; ${robSummary.high} studies were rated at high risk of bias. The overall certainty of evidence was rated as moderate following GRADE criteria, primarily downgraded for risk of bias and inconsistency.`
+      ? `The evidence base comprised ${papersForSynthesis.length} studies (${yearMin}–${yearMax}) encompassing ${studyTypes.join(", ").toLowerCase() || "mixed study designs"}. Pooled or narrative findings indicate a meaningful direction of effect for the outcome of interest. Heterogeneity was assessed via I² and $\tau^2$; ${robSummary.high} studies were rated at high risk of bias. The overall certainty of evidence was rated as moderate following GRADE criteria, primarily downgraded for risk of bias and inconsistency.`
       : "No studies met the inclusion criteria.";
 
     const discussionImplications = isMeta
       ? "The meta-analytic estimate should be interpreted alongside the GRADE certainty assessment and robvis domain-level judgments. High risk-of-bias studies may overestimate effects; sensitivity analyses excluding these studies are recommended. Findings align with prior evidence in the field, though methodological differences preclude direct comparison. Limitations include potential publication bias and varying follow-up periods."
       : "Narrative findings should be interpreted in light of the methodological quality of included studies. The review followed PRISMA 2020 and robvis methodology; however, heterogeneity in study designs limits statistical pooling. Findings are consistent with prior reviews in the field but highlight unresolved gaps. Limitations include restricted database coverage and potential selection bias.";
 
-    const conclusionPara1 = `This ${reviewTypeLabel.toLowerCase()} synthesized evidence from ${included} studies examining ${topic}. ${topPapers.length > 0 ? `Key contributions include ${topPapers[0].authors} (${topPapers[0].year}) finding that ${(papers.find(p => p.id === topPapers[0].id)?.abstract || "").replace(/[<>=]/g, "").trim().split(".").slice(0, 2).join(".") || "measurable associations were reported"}.` : ""} Methodological quality varied across studies, with ${robSummary.low} rated low risk, ${robSummary.some} some/moderate concerns, and ${robSummary.high} at high risk of bias. ${isMeta ? "The pooled effect estimate provides a quantitative synthesis that should inform clinical and policy decision-making, subject to the GRADE certainty rating." : "The narrative synthesis maps the current state of evidence and identifies priorities for future inquiry, aligned with PRISMA 2020 reporting."}`;
+    const conclusionPara1 = `This ${reviewTypeLabel.toLowerCase()} synthesized evidence from ${included} studies examining ${topic}. The findings indicate a meaningful association between the intervention/exposure and the primary outcome. Methodological quality varied across studies, with ${robSummary.low} rated low risk, ${robSummary.some} some/moderate concerns, and ${robSummary.high} at high risk of bias. ${isMeta ? "The pooled effect estimate provides a quantitative synthesis that should inform clinical and policy decision-making." : "The narrative synthesis maps the current state of evidence and identifies priorities for future inquiry."}`;
 
-    const conclusionPara2 = `Future research should address the gaps identified across the included studies, employ standardized outcome measures, and report effect sizes with confidence intervals. Prospective registration and open-access data sharing are recommended to enhance reproducibility. ${isMeta ? "Network meta-analysis and individual patient data synthesis may clarify treatment effects across heterogeneous populations." : "Systematic review updates are warranted as new evidence emerges."} Sensitivity analyses excluding high-RoB studies are recommended to test the robustness of the present findings.`;
+    const conclusionPara2 = `Future research should address the identified gaps, employ standardized outcome measures, and report effect sizes with confidence intervals. Prospective registration and open-access data sharing are recommended to enhance reproducibility. ${isMeta ? "Network meta-analysis and individual patient data synthesis may clarify treatment effects across heterogeneous populations." : "Scoping and systematic review updates are warranted as new evidence emerges."}`;
 
     const figurePlaceholders = isMeta
       ? `\\begin{figure*}[ht]\n  \\centering\n  \\includegraphics[width=\\textwidth]{forest_plot}\n  \\caption{Forest plot of pooled effect estimates.}\n\\end{figure*}\n\n\\begin{figure}[ht]\n  \\centering\n  \\includegraphics[width=0.5\\textwidth]{funnel_plot}\n  \\caption{Funnel plot assessing publication bias.}\n\\end{figure}\n\n\\begin{figure}[ht]\n  \\centering\n  \\includegraphics[width=0.5\\textwidth]{robvis_traffic_light}\n  \\caption{Risk-of-bias traffic-light plot (${robLabel}).}\n\\end{figure}`
@@ -1293,15 +1261,15 @@ This ${reviewTypeLabel.toLowerCase()} examined ${topic}. A systematic search of 
 
 ### 1.1 Background and Context
 
-${topic} has attracted considerable scholarly attention in recent years, as reflected by the studies included in this review. ${topPapers.length > 0 ? `For example, ${topPapers[0].authors} (${topPapers[0].year}) examined ${topPapers[0].title.toLowerCase()}, finding that ${(papers.find(p => p.id === topPapers[0].id)?.abstract || "").replace(/[<>=]/g, "").trim().split(".").slice(0, 3).join(".") || "the intervention/exposure showed measurable effects"}.` : ""} ${topPapers.length > 1 ? `In related work, ${topPapers[1].authors} (${topPapers[1].year}) investigated ${topPapers[1].title.toLowerCase()}, adding further evidence on this question.` : ""} Prior reviews have synthesized related findings, yet methodological limitations in study design, outcome measurement, and population coverage reduce confidence in current conclusions. The problem is clear: the evidence base remains fragmented, the gap lies in the lack of a unified quantitative synthesis integrating bias assessments with effect-size pooling, and the hook is the urgent need for robust, reproducible evidence to inform guidelines and policy.
+${topic} represents an important area of research that has attracted substantial scholarly attention over the past decade. Despite existing research, key questions remain unanswered regarding the specific mechanisms and contexts in which the primary intervention or exposure exerts its effects. Prior reviews have synthesized evidence on related topics, yet methodological limitations reduce confidence in current conclusions. The problem is clear: existing evidence remains fragmented, the gap lies in the lack of a unified quantitative synthesis integrating bias assessments with effect-size pooling, and the hook is the urgent need for evidence that can directly inform guidelines and policy.
 
 ### 1.2 Rationale
 
-This ${reviewTypeLabel.toLowerCase()} was conducted to address the evidence gap identified above. We integrated systematic database searching across ${databases.join(", ") || selectedDbs.join(", ")}, duplicate screening, structured data extraction, per-domain risk-of-bias assessment using ${robLabel}, and random-effects meta-analysis where feasible. This design integrates robvis-standardized domain-level judgments with GRADE-certainty assessment, enabling transparent quantification of both within-study bias and between-study heterogeneity.
+This ${reviewTypeLabel.toLowerCase()} was conducted to address the evidence gap identified above. We integrated systematic database searching, duplicate screening, structured data extraction, per-domain risk-of-bias assessment, and random-effects meta-analysis where feasible. This design differs from prior reviews by combining robvis-standardized domain-level judgments with meta-analytic pooling.
 
 ### 1.3 Objectives
 
-The primary objective was to synthesize evidence on ${topic}. Secondary objectives included assessing risk of bias using ${robLabel}, evaluating certainty of evidence via GRADE, and mapping heterogeneity across study designs and populations.
+The primary objective was to synthesize evidence on ${topic}. Secondary objectives included assessing risk of bias using ${robLabel}, evaluating certainty of evidence via GRADE, and mapping heterogeneity across study designs.
 
 ---
 
@@ -1974,62 +1942,35 @@ ${referencesList}
                 </div>
               </div>
 
-               <div className="mb-4">
-                 <label className="block text-sm font-medium text-blue-200 mb-2">Additional Synthesis Instructions</label>
-                 <textarea
-                   value={synthesisInstructions}
-                   onChange={(e) => setSynthesisInstructions(e.target.value)}
-                   placeholder="e.g., Focus on IGRA vs TST diagnostic accuracy; use random-effects model; include funnel plot assessment..."
-                   className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-3 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 min-h-[80px]"
-                 />
-               </div>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-blue-200 mb-2">Additional Synthesis Instructions</label>
+                <textarea
+                  value={synthesisInstructions}
+                  onChange={(e) => setSynthesisInstructions(e.target.value)}
+                  placeholder="e.g., Focus on IGRA vs TST diagnostic accuracy; use random-effects model; include funnel plot assessment..."
+                  className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-3 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 min-h-[80px]"
+                />
+              </div>
 
-               <div className="flex flex-wrap items-center gap-3 mb-4">
-                 <div className="flex items-center gap-2 bg-blue-950/60 border border-blue-800 rounded-lg px-3 py-2">
-                   <span className="text-xs font-medium text-blue-300">Mode:</span>
-                   <button
-                     onClick={() => setSynthesisMode("ai")}
-                     disabled={!(state.geminiApiKey || state.groqApiKey)}
-                     className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
-                       synthesisMode === "ai"
-                         ? "bg-yellow-500 text-[#0a1a3a]"
-                         : "bg-blue-900/50 text-blue-300 hover:bg-blue-900/70"
-                     } disabled:opacity-40 disabled:cursor-not-allowed`}
-                     title={!(state.geminiApiKey || state.groqApiKey) ? "Configure an API key in Settings first" : "AI-enhanced synthesis"}
-                   >
-                     AI Synthesis
-                   </button>
-                   <button
-                     onClick={() => setSynthesisMode("local")}
-                     className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
-                       synthesisMode === "local"
-                         ? "bg-yellow-500 text-[#0a1a3a]"
-                         : "bg-blue-900/50 text-blue-300 hover:bg-blue-900/70"
-                     }`}
-                   >
-                     Local Synthesis
-                   </button>
-                 </div>
-                 <button
-                   onClick={generateSynthesis}
-                   disabled={synthesisLoading || extractedData.length === 0}
-                   className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
-                 >
-                   {synthesisLoading ? (
-                     <>
-                       <div className="w-4 h-4 border-2 border-[#0a1a3a] border-t-transparent rounded-full animate-spin" />
-                       Generating...
-                     </>
-                   ) : (
-                     <>
-                       <Sparkles size={16} />
-                       {synthesisMode === "ai"
-                         ? `Generate AI Synthesis (${reviewType})`
-                         : `Generate Local Synthesis (${reviewType})`}
-                     </>
-                   )}
-                 </button>
-               </div>
+              <button
+                onClick={generateSynthesis}
+                disabled={synthesisLoading || extractedData.length === 0}
+                className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50 mb-4"
+              >
+                {synthesisLoading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-[#0a1a3a] border-t-transparent rounded-full animate-spin" />
+                    Generating Synthesis...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={16} />
+                    {(state.geminiApiKey || state.groqApiKey)
+                      ? `Generate AI Synthesis (${reviewType})`
+                      : `Generate Local Synthesis (${reviewType})`}
+                  </>
+                )}
+              </button>
 
               {synthesisOutput && (
                 <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4 mb-4">
@@ -2276,32 +2217,22 @@ ${referencesList}
                           <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: "#BF0000" }} /> High risk</span>
                           <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: "#4EA1F7" }} /> No information</span>
                         </div>
-                         <ResponsiveContainer width="100%" height={chartHeight}>
-                           <BarChart data={data} layout="vertical" margin={{ top: 5, right: 20, bottom: 5, left: 160 }}>
-                             <CartesianGrid strokeDasharray="3 3" stroke="#1e3a5f" />
-                             <XAxis type="number" stroke="#4ea1f7" tick={{ fontSize: 10 }} allowDecimals={false} />
-                             <YAxis
-                               type="category"
-                               dataKey="name"
-                               stroke="#4ea1f7"
-                               tick={{ fontSize: 11, fill: "#93c5fd" }}
-                               width={160}
-                               tickFormatter={(value: string) => {
-                                 const truncated = value.length > 28 ? value.slice(0, 26) + "..." : value;
-                                 return truncated;
-                               }}
-                             />
-                             <Tooltip
-                               contentStyle={{ background: "#0a1530", border: "1px solid #1e3a5f", borderRadius: 8, fontSize: 12 }}
-                               labelStyle={{ color: "#e2e8f0" }}
-                             />
-                             <Legend wrapperStyle={{ fontSize: 10 }} />
-                             <Bar dataKey="Low" stackId="bias" fill="#02C100" radius={[0, 2, 2, 0]} />
-                             <Bar dataKey="SomeConcerns" stackId="bias" fill="#E2DF07" radius={[0, 2, 2, 0]} />
-                             <Bar dataKey="High" stackId="bias" fill="#BF0000" radius={[0, 2, 2, 0]} />
-                             <Bar dataKey="NoInfo" stackId="bias" fill="#4EA1F7" radius={[0, 2, 2, 0]} />
-                           </BarChart>
-                         </ResponsiveContainer>
+                        <ResponsiveContainer width="100%" height={chartHeight}>
+                          <BarChart data={data} layout="vertical" margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#1e3a5f" />
+                            <XAxis type="number" stroke="#4ea1f7" tick={{ fontSize: 10 }} allowDecimals={false} />
+                            <YAxis type="category" dataKey="name" stroke="#4ea1f7" tick={{ fontSize: 10, fill: "#93c5fd" }} width={80} />
+                            <Tooltip
+                              contentStyle={{ background: "#0a1530", border: "1px solid #1e3a5f", borderRadius: 8, fontSize: 12 }}
+                              labelStyle={{ color: "#e2e8f0" }}
+                            />
+                            <Legend wrapperStyle={{ fontSize: 10 }} />
+                            <Bar dataKey="Low" stackId="bias" fill="#02C100" radius={[0, 2, 2, 0]} />
+                            <Bar dataKey="SomeConcerns" stackId="bias" fill="#E2DF07" radius={[0, 2, 2, 0]} />
+                            <Bar dataKey="High" stackId="bias" fill="#BF0000" radius={[0, 2, 2, 0]} />
+                            <Bar dataKey="NoInfo" stackId="bias" fill="#4EA1F7" radius={[0, 2, 2, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
                       </div>
                     );
                   })()}
