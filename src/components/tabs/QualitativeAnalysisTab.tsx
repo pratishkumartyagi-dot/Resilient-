@@ -1,11 +1,9 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   Upload, FileText, Image as ImageIcon, Video, Music, Tag, Trash2,
-  Download, Plus, BarChart3, ChevronRight, ChevronDown,
-  Play, Pause, X, FolderOpen, Palette, Save,
-  FileJson, BookOpen
+  Download, Plus, BarChart3, FolderOpen, FileJson, BookOpen
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -45,8 +43,6 @@ interface QAMemo {
   createdAt: number;
 }
 
-type MainView = "dashboard" | "source" | "codebook" | "analysis";
-
 const MEDIA_ACCEPT: Record<string, string> = {
   text: ".txt,.md,.csv,.tsv",
   image: "image/*",
@@ -58,7 +54,7 @@ const MEDIA_ACCEPT: Record<string, string> = {
 const COLORS = [
   "#f97316", "#ef4444", "#eab308", "#22c55e", "#14b8a6",
   "#06b6d4", "#3b82f6", "#6366f1", "#8b5cf6", "#d946ef",
-  "#f43f5e", "#10b981", "#f59e0b", "#6366f1", "#ec4899",
+  "#f43f5e", "#10b981", "#f59e0b", "#ec4899",
 ];
 
 const LS_KEY = "qa_project_v1";
@@ -74,7 +70,11 @@ function saveProject(project: {
   memos: QAMemo[];
 }) {
   try {
-    localStorage.setItem(LS_KEY, JSON.stringify(project));
+    const serializable = {
+      ...project,
+      sources: project.sources.map((s) => ({ ...s, dataUrl: undefined })),
+    };
+    localStorage.setItem(LS_KEY, JSON.stringify(serializable));
   } catch {
     // quota exceeded; skip persistence
   }
@@ -85,7 +85,7 @@ function loadProject() {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return null;
     return JSON.parse(raw) as {
-      sources: QASource[];
+      sources: Omit<QASource, "dataUrl">[];
       codebook: QACode[];
       codings: QACoding[];
       memos: QAMemo[];
@@ -100,27 +100,24 @@ function loadProject() {
 /* ------------------------------------------------------------------ */
 
 export default function QualitativeAnalysisTab() {
-  const [mainView, setMainView] = useState<MainView>("dashboard");
   const [sources, setSources] = useState<QASource[]>([]);
   const [codebook, setCodebook] = useState<QACode[]>([]);
   const [codings, setCodings] = useState<QACoding[]>([]);
   const [memos, setMemos] = useState<QAMemo[]>([]);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [selectedCodeId, setSelectedCodeId] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [activeCodeFilter, setActiveCodeFilter] = useState<string>("all");
+  const [codeFilter, setCodeFilter] = useState<string>("all");
   const [newCodeName, setNewCodeName] = useState("");
   const [newCategory, setNewCategory] = useState("");
   const [newMemo, setNewMemo] = useState("");
-  const [showSourceDetail, setShowSourceDetail] = useState(false);
-  const [pendingCodeSelection, setPendingCodeSelection] = useState<{ codingId?: string; sourceId?: string } | null>(null);
   const [importType, setImportType] = useState<QASource["type"]>("text");
   const [isParsing, setIsParsing] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textContainerRef = useRef<HTMLDivElement>(null);
-  const mediaRef = useRef<HTMLAudioElement | HTMLVideoElement>(null);
+  const mediaRefs = useRef<Map<string, HTMLAudioElement | HTMLVideoElement>>(new Map());
   const selectionsCache = useRef<Map<string, { start: number; end: number; text: string }>>(new Map());
+  const objectUrls = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const saved = loadProject();
@@ -139,12 +136,19 @@ export default function QualitativeAnalysisTab() {
     }
   }, [sources, codebook, codings, memos]);
 
+  useEffect(() => {
+    const urls = Array.from(objectUrls.current);
+    return () => {
+      urls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, []);
+
   const selectedSource = useMemo(() => sources.find((s) => s.id === selectedSourceId) || null, [sources, selectedSourceId]);
   const filteredCodings = useMemo(() => {
     const base = selectedSourceId ? codings.filter((c) => c.sourceId === selectedSourceId) : [];
-    if (activeCodeFilter === "all") return base;
-    return base.filter((c) => c.codeId === activeCodeFilter);
-  }, [codings, selectedSourceId, activeCodeFilter]);
+    if (codeFilter === "all") return base;
+    return base.filter((c) => c.codeId === codeFilter);
+  }, [codings, selectedSourceId, codeFilter]);
   const sourceMemos = useMemo(() => memos.filter((m) => m.sourceId === selectedSourceId), [memos, selectedSourceId]);
 
   const codeFrequency = useMemo(() => {
@@ -156,9 +160,17 @@ export default function QualitativeAnalysisTab() {
       .sort((a, b) => b.count - a.count);
   }, [codings, codebook]);
 
+  const getCodeById = useCallback((id: string) => codebook.find((c) => c.id === id), [codebook]);
+
   /* ------------------------------------------------------------------ */
   /* Imports                                                            */
   /* ------------------------------------------------------------------ */
+
+  const createObjectUrl = useCallback((file: File): string => {
+    const url = URL.createObjectURL(file);
+    objectUrls.current.add(url);
+    return url;
+  }, []);
 
   const handleImportFiles = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -178,17 +190,17 @@ export default function QualitativeAnalysisTab() {
           const content = await file.text();
           newSources.push({
             id: uid(), name: file.name, type, content,
-            dataUrl: URL.createObjectURL(file), createdAt: Date.now(),
+            dataUrl: createObjectUrl(file), createdAt: Date.now(),
           });
         } else if (type === "pdf") {
           const { parsePDFDocument } = await import("@/lib/document-parser");
           const content = await parsePDFDocument(file);
           newSources.push({
             id: uid(), name: file.name, type, content,
-            dataUrl: URL.createObjectURL(file), createdAt: Date.now(),
+            dataUrl: createObjectUrl(file), createdAt: Date.now(),
           });
         } else if (type === "image" || type === "audio" || type === "video") {
-          const dataUrl = URL.createObjectURL(file);
+          const dataUrl = createObjectUrl(file);
           newSources.push({
             id: uid(), name: file.name, type,
             content: "", dataUrl, createdAt: Date.now(),
@@ -198,7 +210,7 @@ export default function QualitativeAnalysisTab() {
           const parsed = await parseUploadedDocument(file);
           newSources.push({
             id: uid(), name: file.name, type: "text",
-            content: parsed.content, dataUrl: URL.createObjectURL(file), createdAt: Date.now(),
+            content: parsed.content, dataUrl: createObjectUrl(file), createdAt: Date.now(),
           });
         }
       } catch (err) {
@@ -213,12 +225,17 @@ export default function QualitativeAnalysisTab() {
     setIsParsing(false);
   };
 
-  const removeSource = (id: string) => {
+  const removeSource = useCallback((id: string) => {
+    const source = sources.find((s) => s.id === id);
+    if (source?.dataUrl) {
+      URL.revokeObjectURL(source.dataUrl);
+      objectUrls.current.delete(source.dataUrl);
+    }
     setSources((prev) => prev.filter((s) => s.id !== id));
     if (selectedSourceId === id) setSelectedSourceId(null);
     setCodings((prev) => prev.filter((c) => c.sourceId !== id));
     setMemos((prev) => prev.filter((m) => m.sourceId !== id));
-  };
+  }, [sources, selectedSourceId]);
 
   /* ------------------------------------------------------------------ */
   /* Codebook                                                           */
@@ -237,18 +254,17 @@ export default function QualitativeAnalysisTab() {
     setNewCategory("");
   };
 
-  const deleteCode = (id: string) => {
+  const deleteCode = useCallback((id: string) => {
     setCodebook((prev) => prev.filter((c) => c.id !== id));
     setCodings((prev) => prev.filter((c) => c.codeId !== id));
-  };
-
-  const getCodeById = (id: string) => codebook.find((c) => c.id === id);
+    if (selectedCodeId === id) setSelectedCodeId(null);
+  }, [selectedCodeId]);
 
   /* ------------------------------------------------------------------ */
   /* Codings                                                           */
   /* ------------------------------------------------------------------ */
 
-  const handleTextSelect = () => {
+  const handleTextSelect = useCallback(() => {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0 || !selectedSource) return;
     const text = sel.toString().trim();
@@ -257,41 +273,39 @@ export default function QualitativeAnalysisTab() {
     const container = node && node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as Element | null);
     const sourceEl = container?.closest(`[data-source-id="${selectedSource.id}"]`);
     if (!sourceEl || !textContainerRef.current?.contains(sourceEl)) return;
+
     const range = sel.getRangeAt(0);
     const preRange = document.createRange();
     preRange.selectNodeContents(sourceEl);
     preRange.setEnd(range.startContainer, range.startOffset);
     const before = preRange.toString().length;
     const after = before + text.length;
-    const key = selectedSource.id;
-    const existing = selectionsCache.current.get(key);
-    if (existing) {
-      selectionsCache.current.set(key, { start: Math.min(before, existing.start), end: Math.max(after, existing.end), text });
-    } else {
-      selectionsCache.current.set(key, { start: before, end: after, text });
-    }
-    setPendingCodeSelection({ sourceId: selectedSource.id });
-    sel.removeAllRanges();
-  };
 
-  const applyTextCoding = (codeId: string) => {
-    if (!pendingCodeSelection?.sourceId) return;
-    const cache = selectionsCache.current.get(pendingCodeSelection.sourceId);
+    const key = selectedSource.id;
+    selectionsCache.current.set(key, { start: before, end: after, text });
+    setSelectedCodeId((current) => current);
+    sel.removeAllRanges();
+  }, [selectedSource]);
+
+  const applyTextCoding = useCallback((codeId: string) => {
+    const sourceId = selectedSource?.id;
+    if (!sourceId) return;
+    const cache = selectionsCache.current.get(sourceId);
     if (!cache) return;
+
     const coding: QACoding = {
       id: uid("coding"),
-      sourceId: pendingCodeSelection.sourceId,
+      sourceId,
       codeId,
       start: cache.start,
       end: cache.end,
       note: cache.text,
     };
     setCodings((prev) => [...prev, coding]);
-    selectionsCache.current.delete(pendingCodeSelection.sourceId);
-    setPendingCodeSelection(null);
-  };
+    selectionsCache.current.delete(sourceId);
+  }, [selectedSource]);
 
-  const addImageCoding = (sourceId: string, codeId: string, xPct: number, yPct: number) => {
+  const addImageCoding = useCallback((sourceId: string, codeId: string, xPct: number, yPct: number) => {
     setCodings((prev) => [
       ...prev,
       {
@@ -303,37 +317,37 @@ export default function QualitativeAnalysisTab() {
         note: `Image marker at ${(xPct * 100).toFixed(1)}%, ${(yPct * 100).toFixed(1)}%`,
       },
     ]);
-  };
+  }, []);
 
-  const addAVCoding = (sourceId: string, codeId: string, start: number, end: number) => {
+  const addAVCoding = useCallback((sourceId: string, codeId: string, start: number, end: number) => {
     setCodings((prev) => [
       ...prev,
       { id: uid("coding"), sourceId, codeId, start, end, note: `Audio/video segment ${start}s - ${end}s` },
     ]);
-  };
+  }, []);
 
-  const deleteCoding = (id: string) => setCodings((prev) => prev.filter((c) => c.id !== id));
+  const deleteCoding = useCallback((id: string) => setCodings((prev) => prev.filter((c) => c.id !== id)), []);
 
   /* ------------------------------------------------------------------ */
   /* Memos                                                              */
   /* ------------------------------------------------------------------ */
 
-  const addMemo = () => {
+  const addMemo = useCallback(() => {
     if (!newMemo.trim() || !selectedSourceId) return;
     setMemos((prev) => [...prev, {
       id: uid("memo"), sourceId: selectedSourceId,
       codeId: selectedCodeId || undefined, content: newMemo.trim(), createdAt: Date.now(),
     }]);
     setNewMemo("");
-  };
+  }, [newMemo, selectedSourceId, selectedCodeId]);
 
-  const deleteMemo = (id: string) => setMemos((prev) => prev.filter((m) => m.id !== id));
+  const deleteMemo = useCallback((id: string) => setMemos((prev) => prev.filter((m) => m.id !== id)), []);
 
   /* ------------------------------------------------------------------ */
   /* Export                                                             */
   /* ------------------------------------------------------------------ */
 
-  const exportProjectJSON = () => {
+  const exportProjectJSON = useCallback(() => {
     const blob = new Blob([JSON.stringify({ sources, codebook, codings, memos }, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -341,9 +355,9 @@ export default function QualitativeAnalysisTab() {
     a.download = `qualitative-project-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
-  };
+  }, [sources, codebook, codings, memos]);
 
-  const exportCSV = () => {
+  const exportCSV = useCallback(() => {
     const header = "coding_id,source,code,start,end,note\n";
     const rows = codings.map((c) => {
       const src = sources.find((s) => s.id === c.sourceId)?.name || "";
@@ -357,13 +371,13 @@ export default function QualitativeAnalysisTab() {
     a.download = `qualitative-codings-${Date.now()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  };
+  }, [codings, sources, getCodeById]);
 
   /* ------------------------------------------------------------------ */
   /* Helpers                                                            */
   /* ------------------------------------------------------------------ */
 
-  const renderSourceChips = (source: QASource) => {
+  const renderSourceChips = useCallback((source: QASource) => {
     const icons: Record<string, React.ReactNode> = {
       text: <FileText size={14} />, image: <ImageIcon size={14} />,
       audio: <Music size={14} />, video: <Video size={14} />, pdf: <BookOpen size={14} />,
@@ -373,7 +387,7 @@ export default function QualitativeAnalysisTab() {
         className={`flex items-center gap-2 p-3 rounded-lg cursor-pointer border ${
           selectedSourceId === source.id ? "bg-yellow-900/20 border-yellow-700/50" : "bg-blue-950/50 border-blue-900/50 hover:border-blue-700"
         }`}
-        onClick={() => { setSelectedSourceId(source.id); setMainView("source"); setShowSourceDetail(false); }}
+        onClick={() => setSelectedSourceId(source.id)}
       >
         <span className="text-blue-300">{icons[source.type] || <FileText size={14} />}</span>
         <span className="flex-1 text-sm text-white truncate">{source.name}</span>
@@ -382,9 +396,9 @@ export default function QualitativeAnalysisTab() {
         </button>
       </div>
     );
-  };
+  }, [selectedSourceId, removeSource]);
 
-  const renderCodeChip = (code: QACode) => {
+  const renderCodeChip = useCallback((code: QACode) => {
     const isActive = selectedCodeId === code.id;
     return (
       <div
@@ -396,151 +410,156 @@ export default function QualitativeAnalysisTab() {
       >
         <span className="w-3 h-3 rounded-full" style={{ backgroundColor: code.color }} />
         <span className="flex-1 text-xs text-white">{code.name}</span>
+        <span className="text-[10px] text-blue-400">{code.category}</span>
         <button onClick={() => deleteCode(code.id)} className="text-[10px] text-red-300 hover:text-red-200"><Trash2 size={10} /></button>
       </div>
     );
-  };
+  }, [selectedCodeId, deleteCode]);
 
-  const renderTextCodingLayer = (source: QASource) => {
-    if (!source.content) return <p className="text-sm text-blue-400">No text content.</p>;
-    const sourceCodings = codings.filter((c) => c.sourceId === source.id);
-    // Build highlighted segments
-    const text = source.content;
-    const segments: Array<{ text: string; codeId?: string }> = [];
-    const spans: Array<{ start: number; end: number; codeId: string }> = sourceCodings
-      .filter((c) => c.start >= 0 && c.end <= text.length)
-      .map((c) => ({ ...c }))
-      .sort((a, b) => a.start - b.start);
-
-    let cursor = 0;
-    for (const span of spans) {
-      if (span.start > cursor) segments.push({ text: text.slice(cursor, span.start) });
-      segments.push({ text: text.slice(span.start, span.end), codeId: span.codeId });
-      cursor = span.end;
-    }
-    if (cursor < text.length) segments.push({ text: text.slice(cursor) });
-
-    return (
-      <div
-        data-source-id={source.id}
-        ref={textContainerRef}
-        onMouseUp={() => setTimeout(handleTextSelect, 0)}
-        className="p-5 bg-blue-950 border border-blue-900 rounded-lg min-h-[300px] max-h-[600px] overflow-y-auto text-sm text-blue-100 leading-7 whitespace-pre-wrap cursor-text"
-      >
-        {segments.map((seg, i) => {
-          if (seg.codeId) {
-            const code = getCodeById(seg.codeId);
-            return (
-              <mark key={i} className="rounded px-0.5" style={{ backgroundColor: code ? `${code.color}33` : "#fbbf2444", color: "#fff" }}>
-                {seg.text}
-              </mark>
-            );
-          }
-          return <span key={i}>{seg.text}</span>;
-        })}
-        {pendingCodeSelection?.sourceId === source.id && (
-          <div className="mt-4 p-3 bg-blue-900/40 border border-blue-700 rounded-lg">
-            <p className="text-xs text-yellow-200 mb-2">Selected passage: {`"${selectionsCache.current.get(source.id)?.text || ""}"`}</p>
-            <div className="flex flex-wrap gap-2">
-              {codebook.map((code) => (
-                <button key={code.id} onClick={() => applyTextCoding(code.id)}
-                  className="text-xs px-3 py-1.5 rounded text-white font-medium"
-                  style={{ backgroundColor: code.color }}>
-                  {code.name}
-                </button>
-              ))}
-              {codebook.length === 0 && (
-                <span className="text-xs text-blue-300">Add a code in the Codebook first.</span>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const renderImageViewer = (source: QASource) => {
-    if (!source.dataUrl) return <p className="text-sm text-blue-400">No image data.</p>;
-    const sourceCodings = codings.filter((c) => c.sourceId === source.id);
-    const handleImageClick = (e: React.MouseEvent<HTMLImageElement>) => {
-      if (!selectedCodeId) {
-        alert("Select a code first, then click the image to place a marker.");
-        return;
-      }
-      const rect = e.currentTarget.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / rect.width;
-      const y = (e.clientY - rect.top) / rect.height;
-      addImageCoding(source.id, selectedCodeId, x, y);
-    };
-    return (
-      <div className="relative inline-block max-w-full" data-source-id={source.id}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={source.dataUrl} alt={source.name} className="max-h-[500px] rounded border border-blue-900" onClick={handleImageClick} />
-        {sourceCodings.map((coding) => {
-          const code = getCodeById(coding.codeId);
-          if (!code) return null;
-          const xPct = coding.start / 1000;
-          const yPct = coding.end / 1000;
-          return (
-            <div key={coding.id}
-              className="absolute w-5 h-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-lg cursor-pointer"
-              style={{ left: `${xPct * 100}%`, top: `${yPct * 100}%`, backgroundColor: code.color }}
-              title={`${code.name}: ${coding.note}`}
-              onClick={() => { if (confirm("Delete this marker?")) deleteCoding(coding.id); }}
-            />
-          );
-        })}
-        {sourceCodings.length === 0 && (
-          <p className="text-xs text-blue-300 mt-2">Click on the image after selecting a code to place markers.</p>
-        )}
-      </div>
-    );
-  };
-
-  const renderMediaPlayer = (source: QASource) => {
-    const mediaType = source.type === "audio" ? "audio" : "video";
-    return (
-      <div className="space-y-3" data-source-id={source.id}>
-        {mediaType === "audio" ? (
-          <audio ref={mediaRef as any} src={source.dataUrl} controls className="w-full" />
-        ) : (
-          <video ref={mediaRef as any} src={source.dataUrl} controls className="w-full max-h-[400px] rounded border border-blue-900" />
-        )}
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="text-xs text-blue-300">Start (s)</label>
-          <input type="number" min={0} step={0.1} defaultValue={0}
-            className="w-24 bg-blue-950 border border-blue-800 text-white rounded px-2 py-1 text-xs"
-            id={`av-start-${source.id}`} />
-          <label className="text-xs text-blue-300">End (s)</label>
-          <input type="number" min={0} step={0.1} defaultValue={10}
-            className="w-24 bg-blue-950 border border-blue-800 text-white rounded px-2 py-1 text-xs"
-            id={`av-end-${source.id}`} />
-          <button
-            onClick={() => {
-              const startEl = document.getElementById(`av-start-${source.id}`) as HTMLInputElement | null;
-              const endEl = document.getElementById(`av-end-${source.id}`) as HTMLInputElement | null;
-              if (!selectedCodeId || !startEl || !endEl) return;
-              const s = parseFloat(startEl.value) || 0;
-              const e = parseFloat(endEl.value) || 0;
-              if (s < 0 || e <= s) { alert("Invalid time range."); return; }
-              addAVCoding(source.id, selectedCodeId, s, e);
-            }}
-            disabled={!selectedCodeId}
-            className="px-3 py-1.5 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] text-xs font-bold rounded disabled:opacity-50"
-          >
-            Apply Code to Segment
-          </button>
-        </div>
-        <p className="text-[11px] text-blue-400">Select a code, set start/end seconds, then click Assign.</p>
-      </div>
-    );
-  };
-
-  const sourceDetail = (source: QASource) => {
+  function sourceDetail(source: QASource) {
     const codeIcons: Record<string, React.ReactNode> = {
       text: <FileText size={14} />, image: <ImageIcon size={14} />,
       audio: <Music size={14} />, video: <Video size={14} />, pdf: <BookOpen size={14} />,
     };
+
+    const renderTextCodingLayer = (source: QASource) => {
+      if (!source.content) return <p className="text-sm text-blue-400">No text content.</p>;
+      const sourceCodings = codings.filter((c) => c.sourceId === source.id);
+      const text = source.content;
+      const segments: Array<{ text: string; codeId?: string }> = [];
+      const spans: Array<{ start: number; end: number; codeId: string }> = sourceCodings
+        .filter((c) => c.start >= 0 && c.end <= text.length)
+        .map((c) => ({ ...c }))
+        .sort((a, b) => a.start - b.start);
+
+      let cursor = 0;
+      for (const span of spans) {
+        if (span.start > cursor) segments.push({ text: text.slice(cursor, span.start) });
+        segments.push({ text: text.slice(span.start, span.end), codeId: span.codeId });
+        cursor = span.end;
+      }
+      if (cursor < text.length) segments.push({ text: text.slice(cursor) });
+
+      return (
+        <div
+          data-source-id={source.id}
+          ref={textContainerRef}
+          onMouseUp={handleTextSelect}
+          className="p-5 bg-blue-950 border border-blue-900 rounded-lg min-h-[300px] max-h-[600px] overflow-y-auto text-sm text-blue-100 leading-7 whitespace-pre-wrap cursor-text"
+        >
+          {segments.map((seg, i) => {
+            if (seg.codeId) {
+              const code = getCodeById(seg.codeId);
+              return (
+                <mark key={i} className="rounded px-0.5" style={{ backgroundColor: code ? `${code.color}33` : "#fbbf2444", color: "#fff" }}>
+                  {seg.text}
+                </mark>
+              );
+            }
+            return <span key={i}>{seg.text}</span>;
+          })}
+          {selectionsCache.current.has(source.id) && (
+            <div className="mt-4 p-3 bg-blue-900/40 border border-blue-700 rounded-lg">
+              <p className="text-xs text-yellow-200 mb-2">Selected passage: {`"${selectionsCache.current.get(source.id)?.text || ""}"`}</p>
+              <div className="flex flex-wrap gap-2">
+                {codebook.map((code) => (
+                  <button key={code.id} onClick={() => applyTextCoding(code.id)}
+                    className="text-xs px-3 py-1.5 rounded text-white font-medium"
+                    style={{ backgroundColor: code.color }}>
+                    {code.name}
+                  </button>
+                ))}
+                {codebook.length === 0 && (
+                  <span className="text-xs text-blue-300">Add a code in the Codebook first.</span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const renderImageViewer = (source: QASource) => {
+      if (!source.dataUrl) return <p className="text-sm text-blue-400">No image data.</p>;
+      const sourceCodings = codings.filter((c) => c.sourceId === source.id);
+      const handleImageClick = (e: React.MouseEvent<HTMLImageElement>) => {
+        if (!selectedCodeId) {
+          alert("Select a code first, then click the image to place a marker.");
+          return;
+        }
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = (e.clientX - rect.left) / rect.width;
+        const y = (e.clientY - rect.top) / rect.height;
+        addImageCoding(source.id, selectedCodeId, x, y);
+      };
+      return (
+        <div className="relative inline-block max-w-full" data-source-id={source.id}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={source.dataUrl} alt={source.name} className="max-h-[500px] rounded border border-blue-900" onClick={handleImageClick} />
+          {sourceCodings.map((coding) => {
+            const code = getCodeById(coding.codeId);
+            if (!code) return null;
+            const xPct = coding.start / 1000;
+            const yPct = coding.end / 1000;
+            return (
+              <div key={coding.id}
+                className="absolute w-5 h-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-lg cursor-pointer"
+                style={{ left: `${xPct * 100}%`, top: `${yPct * 100}%`, backgroundColor: code.color }}
+                title={`${code.name}: ${coding.note}`}
+                onClick={() => { if (confirm("Delete this marker?")) deleteCoding(coding.id); }}
+              />
+            );
+          })}
+          {sourceCodings.length === 0 && (
+            <p className="text-xs text-blue-300 mt-2">Click on the image after selecting a code to place markers.</p>
+          )}
+        </div>
+      );
+    };
+
+    const renderMediaPlayer = (source: QASource) => {
+      const mediaType = source.type === "audio" ? "audio" : "video";
+      const ref = (el: HTMLAudioElement | HTMLVideoElement | null) => {
+        if (el) mediaRefs.current.set(source.id, el);
+        else mediaRefs.current.delete(source.id);
+      };
+      return (
+        <div className="space-y-3" data-source-id={source.id}>
+          {mediaType === "audio" ? (
+            <audio ref={ref as any} src={source.dataUrl} controls className="w-full" />
+          ) : (
+            <video ref={ref as any} src={source.dataUrl} controls className="w-full max-h-[400px] rounded border border-blue-900" />
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="text-xs text-blue-300">Start (s)</label>
+            <input type="number" min={0} step={0.1} defaultValue={0}
+              className="w-24 bg-blue-950 border border-blue-800 text-white rounded px-2 py-1 text-xs"
+              id={`av-start-${source.id}`} />
+            <label className="text-xs text-blue-300">End (s)</label>
+            <input type="number" min={0} step={0.1} defaultValue={10}
+              className="w-24 bg-blue-950 border border-blue-800 text-white rounded px-2 py-1 text-xs"
+              id={`av-end-${source.id}`} />
+            <button
+              onClick={() => {
+                const startEl = document.getElementById(`av-start-${source.id}`) as HTMLInputElement | null;
+                const endEl = document.getElementById(`av-end-${source.id}`) as HTMLInputElement | null;
+                if (!selectedCodeId || !startEl || !endEl) return;
+                const s = parseFloat(startEl.value) || 0;
+                const e = parseFloat(endEl.value) || 0;
+                if (s < 0 || e <= s) { alert("Invalid time range."); return; }
+                addAVCoding(source.id, selectedCodeId, s, e);
+              }}
+              disabled={!selectedCodeId}
+              className="px-3 py-1.5 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] text-xs font-bold rounded disabled:opacity-50"
+            >
+              Apply Code to Segment
+            </button>
+          </div>
+          <p className="text-[11px] text-blue-400">Select a code, set start/end seconds, then click Assign.</p>
+        </div>
+      );
+    };
+
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
@@ -581,6 +600,16 @@ export default function QualitativeAnalysisTab() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-blue-950/60 border border-blue-900 rounded-lg p-4">
             <h4 className="text-xs font-bold text-white mb-3 flex items-center gap-2"><Tag size={12} className="text-yellow-400" /> Codings on this source ({filteredCodings.length})</h4>
+            <div className="flex items-center gap-2 mb-2">
+              <select value={codeFilter} onChange={(e) => setCodeFilter(e.target.value)}
+                className="bg-blue-950 border border-blue-800 text-white rounded px-2 py-1 text-xs">
+                <option value="all">All codes</option>
+                {codebook.map((code) => (
+                  <option key={code.id} value={code.id}>{code.name}</option>
+                ))}
+              </select>
+              <span className="text-[10px] text-blue-400">{codeFilter === "all" ? "Showing all" : `Filtered to ${getCodeById(codeFilter)?.name}`}</span>
+            </div>
             <div className="space-y-2 max-h-40 overflow-y-auto">
               {filteredCodings.map((coding) => {
                 const code = getCodeById(coding.codeId);
@@ -596,13 +625,13 @@ export default function QualitativeAnalysisTab() {
                   </div>
                 );
               })}
-              {filteredCodings.length === 0 && <p className="text-[11px] text-blue-400">No codings yet. Select text or click an image to apply the active code.</p>}
+              {filteredCodings.length === 0 && <p className="text-[11px] text-blue-400">No codings match the current filter.</p>}
             </div>
           </div>
 
           <div className="bg-blue-950/60 border border-blue-900 rounded-lg p-4">
             <h4 className="text-xs font-bold text-white mb-3 flex items-center gap-2"><BookOpen size={12} className="text-yellow-400" /> Memos ({sourceMemos.length})</h4>
-            <div className="space-y-2 max-h- overflow-y-auto">
+            <div className="space-y-2 max-h-40 overflow-y-auto">
               {sourceMemos.map((memo) => (
                 <div key={memo.id} className="p-2 bg-blue-950 rounded border border-blue-900">
                   <p className="text-xs text-blue-100">{memo.content}</p>
@@ -627,7 +656,7 @@ export default function QualitativeAnalysisTab() {
         </div>
       </div>
     );
-  };
+  }
 
   /* ------------------------------------------------------------------ */
   /* Render                                                             */
