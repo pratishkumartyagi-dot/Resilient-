@@ -371,6 +371,119 @@ async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string,
   return deduped;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Specialized database fetchers for databases that previously       */
+/*  aliased to generic OpenAlex/Europe PMC queries.                   */
+/* ------------------------------------------------------------------ */
+
+async function fetchClinicalTrialsGov(query: string): Promise<Paper[]> {
+  const url = `https://clinicaltrials.gov/api/v2/studies?query=${encodeURIComponent(query)}&pageSize=100`;
+  try {
+    const res = await fetchWithTimeout(url);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const studies = data.studies || [];
+    return studies.map((s: any) => {
+      const p = s.protocolSection || {};
+      const d = p.designModule || {};
+      const c = p.conditionsModule || {};
+      const sponsor = p.sponsorCollaboratorsModule?.leadSponsor?.name || "ClinicalTrials.gov";
+      const id = s.nctId || `ctg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const title = p.titleModule?.briefTitle || c.briefTitle || s.briefTitle || "Clinical Trial Study";
+      const status = d.phase || s.phase || "";
+      const dateStr = s.lastUpdatePostDateStruct?.date || s.startDateStruct?.date || "";
+      const year = dateStr ? new Date(dateStr).getFullYear() : new Date().getFullYear();
+      return {
+        id,
+        title: `${title}${status ? ` (${status})` : ""}`,
+        authors: sponsor,
+        journal: "ClinicalTrials.gov",
+        year,
+        doi: s.organization || "",
+        abstract: c.briefSummary || c.detailedDescription || "Clinical trial study. No abstract available.",
+        database: "ClinicalTrials.gov",
+        studyType: "Clinical Trial",
+        selected: false,
+        url: `https://clinicaltrials.gov/study/${id}`,
+        pmid: undefined,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function fetchDOAJ(query: string): Promise<Paper[]> {
+  const url = `https://doaj.org/api/v1/search/articles/${encodeURIComponent(query)}?pageSize=100`;
+  try {
+    const res = await fetchWithTimeout(url);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const results = data.results || [];
+    return results.map((r: any) => {
+      const bib = r.bibjson || {};
+      const authors = (bib.author || [])
+        .slice(0, 8)
+        .map((a: any) => `${a.name || ""}`.trim())
+        .filter(Boolean)
+        .join(", ");
+      const identifiers = (bib.identifier || []);
+      const doi = identifiers.find((id: any) => id.type === "doi")?.id || r.doi || "";
+      return {
+        id: doi || `doaj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        title: bib.title || "Open Access Article",
+        authors: authors || "Unknown authors",
+        journal: bib.journal?.title || "DOAJ",
+        year: parseInt(bib.year || String(new Date().getFullYear())) || new Date().getFullYear(),
+        doi,
+        abstract: bib.abstract || "Open access article. No abstract available.",
+        database: "DOAJ",
+        studyType: "Review Article",
+        selected: false,
+        url: doi ? `https://doi.org/${doi}` : r.link || "",
+        pmid: undefined,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function fetchSemanticScholar(query: string): Promise<Paper[]> {
+  const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=title,authors,year,externalIds,venue,abstract&limit=100`;
+  try {
+    const res = await fetchWithTimeout(url, 12000);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const papers = data.data || [];
+    return papers.map((p: any) => {
+      const authors = (p.authors || [])
+        .slice(0, 8)
+        .map((a: any) => a.name)
+        .filter(Boolean)
+        .join(", ");
+      const doi = p.externalIds?.DOI || "";
+      const id = doi || `s2-${p.paperId || Math.random().toString(36).slice(2, 8)}`;
+      return {
+        id,
+        title: p.title || "Semantic Scholar Paper",
+        authors: authors || "Unknown authors",
+        journal: p.venue || "Semantic Scholar",
+        year: parseInt(p.year) || new Date().getFullYear(),
+        doi,
+        abstract: p.abstract || "Semantic Scholar paper. No abstract available.",
+        database: "Semantic Scholar",
+        studyType: "Research Article",
+        selected: false,
+        url: doi ? `https://doi.org/${doi}` : `https://www.semanticscholar.org/paper/${p.paperId}`,
+        pmid: undefined,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 export const SUPPORTED_REAL_DATABASES = [
   "OpenAlex", "PubMed", "Europe PMC", "ERIC", "Google Scholar",
   "Shodhganga", "CTRI – India", "scite.ai", "WHO IRIS",
@@ -391,13 +504,13 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
   "CTRI – India": () => fetchEuropePMC(`clinical trial India ${query}`, yearFrom, yearTo, studyType),
   "scite.ai": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
   "WHO IRIS": () => fetchEuropePMC(`WHO ${query}`, yearFrom, yearTo, studyType),
-  "Semantic Scholar": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
-  "ClinicalTrials.gov": () => fetchEuropePMC(`clinical trial ${query}`, yearFrom, yearTo, studyType),
-  "DOAJ": () => fetchOpenAlex(`open access ${query}`, yearFrom, yearTo, studyType),
+  "Semantic Scholar": () => fetchSemanticScholar(query),
+  "ClinicalTrials.gov": () => fetchClinicalTrialsGov(query),
+  "DOAJ": () => fetchDOAJ(query),
   "Prospero": () => fetchEuropePMC(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
   "ScienceDirect": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
   "Clarivate": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
-};
+  };
 
   const selectedApis = databases.filter((db) => apiDatabases[db]);
 
@@ -451,9 +564,9 @@ export function getDatabaseBackendMapping(): Record<string, string> {
     "CTRI – India": "Europe PMC (clinical trial India)",
     "scite.ai": "OpenAlex",
     "WHO IRIS": "Europe PMC (WHO filtered)",
-    "Semantic Scholar": "OpenAlex",
-    "ClinicalTrials.gov": "Europe PMC (clinical trial)",
-    "DOAJ": "OpenAlex (open access)",
+    "Semantic Scholar": "Semantic Scholar API",
+    "ClinicalTrials.gov": "ClinicalTrials.gov API v2",
+    "DOAJ": "DOAJ API",
     "Prospero": "Europe PMC (systematic review protocol)",
     "ScienceDirect": "OpenAlex",
     "Clarivate": "OpenAlex",

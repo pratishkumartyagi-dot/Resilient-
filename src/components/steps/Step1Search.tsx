@@ -111,7 +111,12 @@ export default function Step1Search() {
 
       if (realDbs.length > 0) {
         try {
-          papers = await fetchRealPapers(localQuery, realDbs, yearFrom, yearTo, studyType);
+          papers = await Promise.race([
+            fetchRealPapers(localQuery, realDbs, yearFrom, yearTo, studyType),
+            new Promise<Paper[]>((_, reject) =>
+              setTimeout(() => reject(new Error("Search timed out after 30s. Showing whatever we have.")), 30000)
+            ),
+          ]);
         } catch (err: any) {
           console.warn("Primary API fetch failed, falling back to mock/stub data:", err.message);
           if (fallbackDbs.length === 0) {
@@ -140,15 +145,28 @@ export default function Step1Search() {
         dispatch({ type: "SET_CITATION_STATUS", payload: "running" });
         try {
           const enrichedPapers = await enrichPapersWithDois(papers);
-          const dois = enrichedPapers.filter((p) => p.doi && p.doi.length > 4).map((p) => p.doi!);
-          const citationResultsArr = await batchVerifyCitations(dois);
-          const citationMap: Record<string, CitationVerificationResult> = {};
-          citationResultsArr.forEach((r) => { citationMap[r.doi] = r; });
-          dispatch({ type: "SET_CITATION_RESULTS", payload: citationMap });
           dispatch({ type: "SET_PAPERS", payload: enrichedPapers });
+          const dois = enrichedPapers.filter((p) => p.doi && p.doi.length > 4).map((p) => p.doi!);
+          if (dois.length > 0 && dois.length <= 20) {
+            try {
+              const citationResultsArr = await Promise.race([
+                batchVerifyCitations(dois),
+                new Promise<CitationVerificationResult[]>((resolve) =>
+                  setTimeout(() => resolve(dois.map(d => ({ doi: d, valid: false, message: "Verification skipped (timeout)", source: "none" as const }))), 15000)
+                ),
+              ]);
+              const citationMap: Record<string, CitationVerificationResult> = {};
+              citationResultsArr.forEach((r) => { citationMap[r.doi] = r; });
+              dispatch({ type: "SET_CITATION_RESULTS", payload: citationMap });
+            } catch {
+              dispatch({ type: "SET_CITATION_RESULTS", payload: {} });
+            }
+          } else {
+            dispatch({ type: "SET_CITATION_RESULTS", payload: {} });
+          }
         } catch {
+          dispatch({ type: "SET_CITATION_STATUS", payload: "done" });
           dispatch({ type: "SET_CITATION_RESULTS", payload: {} });
-          dispatch({ type: "SET_PAPERS", payload: papers });
         } finally {
           dispatch({ type: "SET_CITATION_STATUS", payload: "done" });
         }
