@@ -204,8 +204,26 @@ export async function verifyCitationWithFallback(doi: string): Promise<CitationV
 
 export async function batchVerifyCitations(dois: string[]): Promise<CitationVerificationResult[]> {
   const uniqueDois = Array.from(new Set(dois.filter((d) => d && d.length > 4)));
-  const results = await Promise.allSettled(uniqueDois.map((doi) => verifyCitationWithFallback(doi)));
-  return results.map((r, idx) => (r.status === "fulfilled" ? r.value : { doi: uniqueDois[idx], valid: false, message: "Verification failed", source: "none" as const }));
+  if (uniqueDois.length === 0) return [];
+
+  const CONCURRENCY = 6;
+  const results: CitationVerificationResult[] = [];
+
+  for (let i = 0; i < uniqueDois.length; i += CONCURRENCY) {
+    const chunk = uniqueDois.slice(i, i + CONCURRENCY);
+    const chunkResults = await Promise.allSettled(
+      chunk.map((doi) => verifyCitationWithFallback(doi))
+    );
+    results.push(
+      ...chunkResults.map((r, idx) =>
+        r.status === "fulfilled"
+          ? r.value
+          : { doi: chunk[idx], valid: false, message: "Verification failed", source: "none" as const }
+      )
+    );
+  }
+
+  return results;
 }
 
 function formatCitation(work: any, style: "apa" | "ieee"): string {
