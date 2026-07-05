@@ -28,6 +28,7 @@ const PaperWriterTab = dynamic(() => import("@/components/tabs/PaperWriterTab"),
 const ProtocolChatTab = dynamic(() => import("@/components/tabs/ProtocolChatTab"), { ssr: false });
 const GrantWritingTab = dynamic(() => import("@/components/tabs/GrantWritingTab"), { ssr: false });
 const OmicsBioinformaticsTab = dynamic(() => import("@/components/tabs/OmicsBioinformaticsTab"), { ssr: false });
+const QualitativeAnalysisTab = dynamic(() => import("@/components/tabs/QualitativeAnalysisTab"), { ssr: false });
 
 import SettingsModal from "@/components/SettingsModal";
 
@@ -57,6 +58,7 @@ function AppContent() {
       case "omics": return <OmicsBioinformaticsTab />;
       case "chat": return <ResilientChatTab />;
       case "stats": return <StatisticalAnalysisTab />;
+      case "qualitative": return <QualitativeAnalysisTab />;
       case "samplesize": return <SampleSizeTab />;
       case "predictive": return <PredictiveAnalysisTab />;
       case "autoprognosis": return <AutoPrognosisTab />;

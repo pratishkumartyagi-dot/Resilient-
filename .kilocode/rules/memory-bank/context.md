@@ -909,3 +909,40 @@ Added as an add-on layer to the existing app — does not modify existing step n
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes
 - `bun run build` ✅ passes cleanly
+
+## Remove Automatic Evidence Synthesis (2026-07-05)
+
+- Removed `src/components/tabs/AutomaticEvidenceSynthesisTab.tsx`
+- `src/components/TopTabs.tsx` — removed `auto_evidence` tab entry and unused `BookOpen` import
+- `src/app/page.tsx` — removed dynamic import and routing case for `auto_evidence`
+- `src/context/AppContext.tsx` — no changes needed (tab was fully self-contained)
+- `.kilocode/rules/memory-bank/context.md` — removed `AutomaticEvidenceSynthesisTab.tsx` call-site reference
+
+## Add Qualitative Analysis Tab (2026-07-05)
+
+**New tab added**: "Qualitative Analysis" in `TopTabs` (between "Statistical Analysis" and "Sample Size Calculator")
+
+### New Component: `src/components/tabs/QualitativeAnalysisTab.tsx`
+A fully functional qualitative data analysis tool for text, images, audio, and video, inspired by QualCoder (github.com/ccbogel/qualcoder).
+
+### Features
+- **Sources management**: Import text files (`.txt`, `.md`, `.csv`, `.tsv`, `.docx`, `.pdf`, `.rtf`, `.html`, `.htm`, `.epub`), images, audio, video
+- **Text extraction**: Uses `pdfjs-dist` for PDF, `mammoth` for Word docs; plain text via FileReader
+- **Codebook management**: Create/delete codes with auto-assigned colors, grouped by category
+- **Text coding**: Select passages and assign codes via picker; coded spans highlighted with code color
+- **Image coding**: Click to place colored markers associated with the active code
+- **Audio/Video coding**: Set start/end seconds and assign active code to media segments
+- **Coding browser**: Filter coding view by active code; delete individual codings
+- **Memos**: Write source-level memos with timestamps; linked to source and optional code
+- **Frequency analysis**: Bar chart of code usage across all sources
+- **Persistence**: Project state saved to localStorage (`qa_project_v1`)
+- **Export**: JSON project export and CSV coding export
+
+### Files Modified
+- `src/components/TopTabs.tsx` — Added `{ id: "qualitative", label: "Qualitative Analysis", icon: MicVocal }` tab
+- `src/app/page.tsx` — Added `QualitativeAnalysisTab` dynamic import and `case "qualitative"` render
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes
+- `bun run build` ✅ passes cleanly
