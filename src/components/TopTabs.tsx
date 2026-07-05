@@ -15,7 +15,6 @@ const MAIN_TABS = [
   { id: "systematic", label: "Evidence Synthesis & Meta-analysis", icon: FileText },
   { id: "paperwriter", label: "Paper Writer & Reviewer", icon: PenLine },
   { id: "protocol", label: "Protocol Generator", icon: ScrollText },
-  { id: "auto_evidence", label: "Automatic Evidence Synthesis", icon: BookOpen },
   { id: "grantwriting", label: "Grant Writing", icon: FileSignature },
 ];
 

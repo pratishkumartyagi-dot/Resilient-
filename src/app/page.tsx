@@ -26,7 +26,6 @@ const AutoPrognosisTab = dynamic(() => import("@/components/tabs/AutoPrognosisTa
 const EvidenceSynthesisTab = dynamic(() => import("@/components/tabs/EvidenceSynthesisTab"), { ssr: false });
 const PaperWriterTab = dynamic(() => import("@/components/tabs/PaperWriterTab"), { ssr: false });
 const ProtocolChatTab = dynamic(() => import("@/components/tabs/ProtocolChatTab"), { ssr: false });
-const AutomaticEvidenceSynthesisTab = dynamic(() => import("@/components/tabs/AutomaticEvidenceSynthesisTab"), { ssr: false });
 const GrantWritingTab = dynamic(() => import("@/components/tabs/GrantWritingTab"), { ssr: false });
 const OmicsBioinformaticsTab = dynamic(() => import("@/components/tabs/OmicsBioinformaticsTab"), { ssr: false });
 
@@ -64,7 +63,6 @@ function AppContent() {
       case "systematic": return <EvidenceSynthesisTab />;
       case "paperwriter": return <PaperWriterTab />;
       case "protocol": return <ProtocolChatTab />;
-      case "auto_evidence": return <AutomaticEvidenceSynthesisTab />;
       case "grantwriting": return <GrantWritingTab />;
       default: return <StepNavigator>{renderMainPipeline()}</StepNavigator>;
     }

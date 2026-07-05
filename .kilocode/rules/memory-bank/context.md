@@ -900,7 +900,6 @@ Added as an add-on layer to the existing app — does not modify existing step n
 - Replaced HTML `<pre>` blob export with `downloadMarkdownAsWord()` for proper `.docx` generation
 
 ### Call Sites Now Using markdown-docx
-- `AutomaticEvidenceSynthesisTab.tsx` — manuscript and meta-pipe report exports
 - `PredictiveAnalysisTab.tsx` — predictive report and relationship prediction exports
 - `ProtocolChatTab.tsx` — research protocol export
 - `OmicsBioinformaticsTab.tsx` — omics content export
