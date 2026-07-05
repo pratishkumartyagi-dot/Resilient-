@@ -550,6 +550,7 @@ export default function EvidenceSynthesisTab() {
         authors: p.authors,
         year: p.year,
         doi: p.doi,
+        database: p.database,
         studyType: p.studyType,
         population: "Extracted from abstract",
         intervention: "Extracted from abstract",
@@ -572,7 +573,7 @@ export default function EvidenceSynthesisTab() {
   };
 
   const generateLocalSynthesis = () => {
-    const papersForSynthesis = extractedData.filter((p) => selectedPaperIds.has(p.id));
+    const papersForSynthesis = getPapersForReview();
     const template = getRobToolTemplate();
     const robLabel = template ? template.label : robTool;
     const isMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
@@ -896,6 +897,16 @@ At the end, include a References section with all papers in Vancouver style:
     }
   };
 
+  const getPapersForReview = () => {
+    if (robSelectedPaperIds.size > 0) {
+      return extractedData.filter((p) => robSelectedPaperIds.has(p.id));
+    }
+    if (selectedPaperIds.size > 0) {
+      return extractedData.filter((p) => selectedPaperIds.has(p.id));
+    }
+    return [...extractedData];
+  };
+
   const generateSynthesis = async () => {
     if (extractedData.length === 0) {
       alert("Please complete data extraction first.");
@@ -904,9 +915,7 @@ At the end, include a References section with all papers in Vancouver style:
     setSynthesisLoading(true);
     setSynthesisOutput("");
     try {
-      const papersForSynthesis = extractedData
-        .filter((p) => selectedPaperIds.has(p.id))
-        .map((p) => ({
+      const papersForSynthesis = getPapersForReview().map((p) => ({
           title: p.title,
           authors: p.authors,
           year: p.year,
@@ -1023,7 +1032,7 @@ OUTPUT FORMAT:
     setManuscriptLoading(true);
     setManuscript("");
     try {
-      const papersForSynthesis = extractedData.filter((p) => selectedPaperIds.has(p.id));
+      const papersForSynthesis = getPapersForReview();
       const template = getRobToolTemplate();
       const robLabel = template ? template.label : robTool;
       const isMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
