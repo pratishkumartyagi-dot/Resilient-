@@ -196,7 +196,7 @@ async function fetchOpenAlex(query: string, yearFrom?: string, yearTo?: string, 
   const seenTitles = new Set<string>();
   const deduped = papers.filter((p) => {
     const doiKey = p.doi?.toLowerCase();
-    const titleKey = p.title.toLowerCase().trim().slice(0, 60);
+    const titleKey = (p.title || "").toLowerCase().trim().slice(0, 60);
     if (doiKey && seenDois.has(doiKey)) return false;
     if (titleKey && seenTitles.has(titleKey)) return false;
     if (doiKey) seenDois.add(doiKey);
@@ -206,7 +206,7 @@ async function fetchOpenAlex(query: string, yearFrom?: string, yearTo?: string, 
 
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
-    const filtered = deduped.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+    const filtered = deduped.filter((p) => keywords.some((kw) => `${p.title || ""} ${p.abstract || ""}`.toLowerCase().includes(kw)));
     return filtered.length > 0 ? filtered : deduped.slice(0, 20);
   }
 
@@ -354,7 +354,7 @@ async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string,
   const seenTitles = new Set<string>();
   const deduped = papers.filter((p) => {
     const doiKey = p.doi?.toLowerCase();
-    const titleKey = p.title.toLowerCase().trim().slice(0, 60);
+    const titleKey = (p.title || "").toLowerCase().trim().slice(0, 60);
     if (doiKey && seenDois.has(doiKey)) return false;
     if (titleKey && seenTitles.has(titleKey)) return false;
     if (doiKey) seenDois.add(doiKey);
@@ -364,7 +364,7 @@ async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string,
 
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
-    const filtered = deduped.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+    const filtered = deduped.filter((p) => keywords.some((kw) => `${p.title || ""} ${p.abstract || ""}`.toLowerCase().includes(kw)));
     return filtered.length > 0 ? filtered : deduped.slice(0, 20);
   }
 
@@ -423,7 +423,7 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
   const seenTitles = new Set<string>();
   const deduped = allPapers.filter((p) => {
     const doiKey = p.doi?.toLowerCase();
-    const titleKey = p.title.toLowerCase().trim().slice(0, 60);
+    const titleKey = (p.title || "").toLowerCase().trim().slice(0, 60);
     if (doiKey && seenDois.has(doiKey)) return false;
     if (titleKey && seenTitles.has(titleKey)) return false;
     if (doiKey) seenDois.add(doiKey);

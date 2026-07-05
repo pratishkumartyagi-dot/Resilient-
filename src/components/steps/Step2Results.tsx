@@ -15,8 +15,8 @@ export default function Step2Results() {
 
   const rawPapers = useMemo(() => state.papers.map((p) => ({
     id: p.id,
-    title: p.title,
-    authors: p.authors,
+    title: p.title || "",
+    authors: p.authors || "",
     year: typeof p.year === "number" ? p.year : parseInt(String(p.year)) || new Date().getFullYear(),
     doi: p.doi || "",
     journal: p.journal || "",
@@ -104,7 +104,7 @@ export default function Step2Results() {
     const base = state.papers.length > 0 && uniquePapers.length === 0 ? state.papers : uniquePapers;
     if (!searchFilter.trim()) return getDatabaseGroups(base);
     const q = searchFilter.toLowerCase();
-    const filtered = base.filter((p) => p.title.toLowerCase().includes(q) || p.authors.toLowerCase().includes(q));
+    const filtered = base.filter((p) => (p.title || "").toLowerCase().includes(q) || (p.authors || "").toLowerCase().includes(q));
     return getDatabaseGroups(filtered);
   }, [uniquePapers, state.papers, searchFilter]);
 

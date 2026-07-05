@@ -29,6 +29,7 @@ export function deduplicatePapers(papers: PaperForDedup[]): DedupResult {
   const byDatabase: Record<string, number> = {};
 
   const normalizeTitle = (title: string): string => {
+    if (!title) return "";
     return title
       .toLowerCase()
       .replace(/<[^>]+>/g, " ")
@@ -38,6 +39,7 @@ export function deduplicatePapers(papers: PaperForDedup[]): DedupResult {
   };
 
   const normalizeAuthor = (author: string): string => {
+    if (!author) return "";
     return author
       .toLowerCase()
       .replace(/[^a-z\s,;]/g, " ")
@@ -98,7 +100,9 @@ export function deduplicatePapers(papers: PaperForDedup[]): DedupResult {
       if (doi1 && doi2 && doi1 === doi2) return true;
     }
 
-    const yearDiff = p1.year && p2.year ? Math.abs(p1.year - p2.year) : Infinity;
+    const year1 = p1.year;
+    const year2 = p2.year;
+    const yearDiff = year1 && year2 ? Math.abs(year1 - year2) : Infinity;
     if (yearDiff > 1) return false;
 
     const title1 = normalizeTitle(p1.title);
