@@ -115,12 +115,14 @@ export default function QualitativeAnalysisTab() {
   const [editingCodeId, setEditingCodeId] = useState<string | null>(null);
   const [editCodeName, setEditCodeName] = useState("");
   const [editCategory, setEditCategory] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textContainerRef = useRef<HTMLDivElement>(null);
   const mediaRefs = useRef<Map<string, HTMLAudioElement | HTMLVideoElement>>(new Map());
   const selectionsCache = useRef<Map<string, { start: number; end: number; text: string }>>(new Map());
   const objectUrls = useRef<Set<string>>(new Set());
+  const memoTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     const saved = loadProject();
@@ -147,6 +149,10 @@ export default function QualitativeAnalysisTab() {
   }, []);
 
   const selectedSource = useMemo(() => sources.find((s) => s.id === selectedSourceId) || null, [sources, selectedSourceId]);
+
+  useEffect(() => {
+    if (selectedSourceId) setCodeFilter("all");
+  }, [selectedSourceId]);
   const filteredCodings = useMemo(() => {
     const base = selectedSourceId ? codings.filter((c) => c.sourceId === selectedSourceId) : [];
     if (codeFilter === "all") return base;
@@ -328,6 +334,14 @@ export default function QualitativeAnalysisTab() {
     const cache = selectionsCache.current.get(sourceId);
     if (!cache) return;
 
+    const exists = codings.some(
+      (c) => c.sourceId === sourceId && c.codeId === codeId && c.start === cache.start && c.end === cache.end
+    );
+    if (exists) {
+      selectionsCache.current.delete(sourceId);
+      return;
+    }
+
     const coding: QACoding = {
       id: uid("coding"),
       sourceId,
@@ -338,7 +352,7 @@ export default function QualitativeAnalysisTab() {
     };
     setCodings((prev) => [...prev, coding]);
     selectionsCache.current.delete(sourceId);
-  }, [selectedSource]);
+  }, [selectedSource, codings]);
 
   const addImageCoding = useCallback((sourceId: string, codeId: string, xPct: number, yPct: number) => {
     setCodings((prev) => [
@@ -374,6 +388,7 @@ export default function QualitativeAnalysisTab() {
       codeId: selectedCodeId || undefined, content: newMemo.trim(), createdAt: Date.now(),
     }]);
     setNewMemo("");
+    setTimeout(() => memoTextareaRef.current?.focus(), 0);
   }, [newMemo, selectedSourceId, selectedCodeId]);
 
   const deleteMemo = useCallback((id: string) => setMemos((prev) => prev.filter((m) => m.id !== id)), []);
@@ -388,8 +403,10 @@ export default function QualitativeAnalysisTab() {
     const a = document.createElement("a");
     a.href = url;
     a.download = `qualitative-project-${Date.now()}.json`;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, [sources, codebook, codings, memos]);
 
   const exportCSV = useCallback(() => {
@@ -404,8 +421,10 @@ export default function QualitativeAnalysisTab() {
     const a = document.createElement("a");
     a.href = url;
     a.download = `qualitative-codings-${Date.now()}.csv`;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, [codings, sources, getCodeById]);
 
   const exportMarkdownDOCX = useCallback(async () => {
@@ -467,6 +486,15 @@ export default function QualitativeAnalysisTab() {
     const { downloadMarkdownAsWord } = await import("@/lib/exporters");
     await downloadMarkdownAsWord(md, `qualitative-report-${Date.now()}.docx`);
   }, [sources, codebook, codings, memos, codeFrequency, getCodeById]);
+
+  const handleExportReport = useCallback(async () => {
+    setIsExporting(true);
+    try {
+      await exportMarkdownDOCX();
+    } finally {
+      setIsExporting(false);
+    }
+  }, [exportMarkdownDOCX]);
 
   /* ------------------------------------------------------------------ */
   /* Helpers                                                            */
@@ -772,6 +800,7 @@ export default function QualitativeAnalysisTab() {
             </div>
             <div className="mt-3">
               <textarea
+                ref={memoTextareaRef}
                 value={newMemo}
                 onChange={(e) => setNewMemo(e.target.value)}
                 placeholder="Write a memo for this source..."
@@ -806,7 +835,9 @@ export default function QualitativeAnalysisTab() {
             <input ref={fileInputRef} type="file" accept={MEDIA_ACCEPT[importType]} multiple className="hidden"
               onChange={(e) => { handleImportFiles(e.target.files); if (fileInputRef.current) fileInputRef.current.value = ""; }} />
             <button onClick={exportProjectJSON} className="px-3 py-2 bg-green-900/50 text-green-200 rounded hover:bg-green-900/70 text-xs flex items-center gap-2"><FileJson size={14} /> Export JSON</button>
-            <button onClick={exportMarkdownDOCX} className="px-3 py-2 bg-indigo-900/50 text-indigo-200 rounded hover:bg-indigo-900/70 text-xs flex items-center gap-2"><BookOpen size={14} /> Export Report</button>
+            <button onClick={handleExportReport} disabled={isExporting} className="px-3 py-2 bg-indigo-900/50 text-indigo-200 rounded hover:bg-indigo-900/70 text-xs flex items-center gap-2 disabled:opacity-50">
+              <BookOpen size={14} /> {isExporting ? "Exporting..." : "Export Report"}
+            </button>
             <button onClick={exportCSV} className="px-3 py-2 bg-green-900/50 text-green-200 rounded hover:bg-green-900/70 text-xs flex items-center gap-2"><Download size={14} /> Export CSV</button>
             <button onClick={() => { if (confirm("Clear project?")) { setSources([]); setCodebook([]); setCodings([]); setMemos([]); setSelectedSourceId(null); localStorage.removeItem(LS_KEY); } }} className="px-3 py-2 bg-red-900/50 text-red-200 rounded hover:bg-red-900/70 text-xs">New Project</button>
           </div>
