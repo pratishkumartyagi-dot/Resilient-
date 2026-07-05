@@ -112,6 +112,9 @@ export default function QualitativeAnalysisTab() {
   const [newMemo, setNewMemo] = useState("");
   const [importType, setImportType] = useState<QASource["type"]>("text");
   const [isParsing, setIsParsing] = useState(false);
+  const [editingCodeId, setEditingCodeId] = useState<string | null>(null);
+  const [editCodeName, setEditCodeName] = useState("");
+  const [editCategory, setEditCategory] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textContainerRef = useRef<HTMLDivElement>(null);
@@ -231,11 +234,16 @@ export default function QualitativeAnalysisTab() {
       URL.revokeObjectURL(source.dataUrl);
       objectUrls.current.delete(source.dataUrl);
     }
+    selectionsCache.current.delete(id);
     setSources((prev) => prev.filter((s) => s.id !== id));
     if (selectedSourceId === id) setSelectedSourceId(null);
     setCodings((prev) => prev.filter((c) => c.sourceId !== id));
     setMemos((prev) => prev.filter((m) => m.sourceId !== id));
   }, [sources, selectedSourceId]);
+
+  const cancelTextSelection = useCallback((sourceId: string) => {
+    selectionsCache.current.delete(sourceId);
+  }, []);
 
   /* ------------------------------------------------------------------ */
   /* Codebook                                                           */
@@ -243,9 +251,15 @@ export default function QualitativeAnalysisTab() {
 
   const addCode = () => {
     if (!newCodeName.trim()) return;
+    const trimmedName = newCodeName.trim();
+    const exists = codebook.some((c) => c.name.toLowerCase() === trimmedName.toLowerCase());
+    if (exists) {
+      alert(`Code "${trimmedName}" already exists. Use a unique name.`);
+      return;
+    }
     const code: QACode = {
       id: uid("code"),
-      name: newCodeName.trim(),
+      name: trimmedName,
       color: COLORS[codebook.length % COLORS.length],
       category: newCategory.trim() || "Uncategorized",
     };
@@ -258,7 +272,28 @@ export default function QualitativeAnalysisTab() {
     setCodebook((prev) => prev.filter((c) => c.id !== id));
     setCodings((prev) => prev.filter((c) => c.codeId !== id));
     if (selectedCodeId === id) setSelectedCodeId(null);
-  }, [selectedCodeId]);
+    if (editingCodeId === id) setEditingCodeId(null);
+  }, [selectedCodeId, editingCodeId]);
+
+  const startEditCode = useCallback((code: QACode) => {
+    setEditingCodeId(code.id);
+    setEditCodeName(code.name);
+    setEditCategory(code.category);
+  }, []);
+
+  const saveEditCode = useCallback(() => {
+    if (!editingCodeId || !editCodeName.trim()) return;
+    setCodebook((prev) => prev.map((c) => c.id === editingCodeId ? { ...c, name: editCodeName.trim(), category: editCategory.trim() || c.category } : c));
+    setEditingCodeId(null);
+    setEditCodeName("");
+    setEditCategory("");
+  }, [editingCodeId, editCodeName, editCategory]);
+
+  const cancelEditCode = useCallback(() => {
+    setEditingCodeId(null);
+    setEditCodeName("");
+    setEditCategory("");
+  }, []);
 
   /* ------------------------------------------------------------------ */
   /* Codings                                                           */
@@ -460,6 +495,33 @@ export default function QualitativeAnalysisTab() {
 
   const renderCodeChip = useCallback((code: QACode) => {
     const isActive = selectedCodeId === code.id;
+    const isEditing = editingCodeId === code.id;
+
+    if (isEditing) {
+      return (
+        <div
+          key={code.id}
+          className="flex flex-col gap-1 p-2 rounded border border-blue-600 bg-blue-900/30"
+        >
+          <input
+            value={editCodeName}
+            onChange={(e) => setEditCodeName(e.target.value)}
+            className="bg-blue-950 border border-blue-800 text-white rounded px-2 py-1 text-xs"
+            autoFocus
+          />
+          <input
+            value={editCategory}
+            onChange={(e) => setEditCategory(e.target.value)}
+            className="bg-blue-950 border border-blue-800 text-white rounded px-2 py-1 text-xs"
+          />
+          <div className="flex gap-1">
+            <button onClick={saveEditCode} className="text-[10px] px-2 py-1 bg-green-700 text-white rounded">Save</button>
+            <button onClick={cancelEditCode} className="text-[10px] px-2 py-1 bg-blue-800 text-blue-200 rounded">Cancel</button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div
         key={code.id}
@@ -471,10 +533,13 @@ export default function QualitativeAnalysisTab() {
         <span className="w-3 h-3 rounded-full" style={{ backgroundColor: code.color }} />
         <span className="flex-1 text-xs text-white">{code.name}</span>
         <span className="text-[10px] text-blue-400">{code.category}</span>
-        <button onClick={() => deleteCode(code.id)} className="text-[10px] text-red-300 hover:text-red-200"><Trash2 size={10} /></button>
+        <button onClick={(e) => { e.stopPropagation(); startEditCode(code); }} className="text-[10px] text-yellow-300 hover:text-yellow-200" title="Edit code">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 17.5 4 18l1.5-5.5Z"/></svg>
+        </button>
+        <button onClick={(e) => { e.stopPropagation(); deleteCode(code.id); }} className="text-[10px] text-red-300 hover:text-red-200"><Trash2 size={10} /></button>
       </div>
     );
-  }, [selectedCodeId, deleteCode]);
+  }, [selectedCodeId, editingCodeId, editCodeName, editCategory, deleteCode, startEditCode, saveEditCode, cancelEditCode]);
 
   function sourceDetail(source: QASource) {
     const codeIcons: Record<string, React.ReactNode> = {
@@ -521,7 +586,7 @@ export default function QualitativeAnalysisTab() {
           {selectionsCache.current.has(source.id) && (
             <div className="mt-4 p-3 bg-blue-900/40 border border-blue-700 rounded-lg">
               <p className="text-xs text-yellow-200 mb-2">Selected passage: {`"${selectionsCache.current.get(source.id)?.text || ""}"`}</p>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {codebook.map((code) => (
                   <button key={code.id} onClick={() => applyTextCoding(code.id)}
                     className="text-xs px-3 py-1.5 rounded text-white font-medium"
@@ -529,6 +594,10 @@ export default function QualitativeAnalysisTab() {
                     {code.name}
                   </button>
                 ))}
+                <button onClick={() => cancelTextSelection(source.id)}
+                  className="text-xs px-2 py-1.5 bg-blue-900/60 text-blue-200 rounded hover:bg-blue-900/80">
+                  Cancel
+                </button>
                 {codebook.length === 0 && (
                   <span className="text-xs text-blue-300">Add a code in the Codebook first.</span>
                 )}
@@ -592,11 +661,11 @@ export default function QualitativeAnalysisTab() {
           )}
           <div className="flex flex-wrap items-center gap-2">
             <label className="text-xs text-blue-300">Start (s)</label>
-            <input type="number" min={0} step={0.1} defaultValue={0}
+            <input key={`av-start-${source.id}`} type="number" min={0} step={0.1} defaultValue={0}
               className="w-24 bg-blue-950 border border-blue-800 text-white rounded px-2 py-1 text-xs"
               id={`av-start-${source.id}`} />
             <label className="text-xs text-blue-300">End (s)</label>
-            <input type="number" min={0} step={0.1} defaultValue={10}
+            <input key={`av-end-${source.id}`} type="number" min={0} step={0.1} defaultValue={10}
               className="w-24 bg-blue-950 border border-blue-800 text-white rounded px-2 py-1 text-xs"
               id={`av-end-${source.id}`} />
             <button
@@ -734,7 +803,7 @@ export default function QualitativeAnalysisTab() {
             <button onClick={() => fileInputRef.current?.click()} className="px-3 py-2 bg-blue-900/50 text-blue-200 rounded hover:bg-blue-900/70 text-xs flex items-center gap-2">
               <Upload size={14} /> Import Files
             </button>
-            <input ref={fileInputRef} type="file" accept={Object.values(MEDIA_ACCEPT).join(",")} multiple className="hidden"
+            <input ref={fileInputRef} type="file" accept={MEDIA_ACCEPT[importType]} multiple className="hidden"
               onChange={(e) => { handleImportFiles(e.target.files); if (fileInputRef.current) fileInputRef.current.value = ""; }} />
             <button onClick={exportProjectJSON} className="px-3 py-2 bg-green-900/50 text-green-200 rounded hover:bg-green-900/70 text-xs flex items-center gap-2"><FileJson size={14} /> Export JSON</button>
             <button onClick={exportMarkdownDOCX} className="px-3 py-2 bg-indigo-900/50 text-indigo-200 rounded hover:bg-indigo-900/70 text-xs flex items-center gap-2"><BookOpen size={14} /> Export Report</button>
