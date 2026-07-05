@@ -303,16 +303,18 @@ function buildSynopsis(paper: Paper): string {
 /*  Main local synthesis generator                                    */
 /* ------------------------------------------------------------------ */
 export async function generateLocalSynthesis(papers: Paper[] = []): Promise<SynthesisRow[]> {
-  // Parallel DOI validation (Crossref) — same as AI-Research-Analyzer citation-validator approach
   const doisToValidate = papers.filter((p) => p.doi && p.doi.length > 3).map((p) => p.doi!);
   const citationResults = new Map<string, { valid: boolean; title?: string; message: string }>();
 
-  await Promise.allSettled(
-    doisToValidate.map(async (doi) => {
-      const result = await validateDoiViaCrossref(doi);
-      citationResults.set(doi.toLowerCase(), result);
-    })
-  );
+  await Promise.race([
+    Promise.allSettled(
+      doisToValidate.map(async (doi) => {
+        const result = await validateDoiViaCrossref(doi);
+        citationResults.set(doi.toLowerCase(), result);
+      })
+    ),
+    new Promise<void>((resolve) => setTimeout(() => resolve(), 8000)),
+  ]);
 
   return papers.map((paper, idx) => {
     const verifiedDoi = paper.doi ? citationResults.get(paper.doi.toLowerCase()) : undefined;
@@ -321,16 +323,37 @@ export async function generateLocalSynthesis(papers: Paper[] = []): Promise<Synt
     const studyDetails = extractStudyDetails(paper.abstract || "", paper);
     const researchGaps = extractResearchGaps(paper.abstract || "", paper.studyType);
     const synopsis = buildSynopsis(paper);
+    const themes = assignThemes(paper.abstract || "", paper.title);
 
     return {
       id: `syn-${Date.now()}-${idx}`,
       reference: toVancouver(paper, verifiedDoi),
-      keyFindings,
+      keyFindings: `${keyFindings} Themes: ${themes.join(", ")}`,
       synopsis,
       studyDetails,
       researchGaps,
     };
   });
+}
+
+function assignThemes(abstract: string, title: string): string[] {
+  const text = `${title} ${abstract}`.toLowerCase();
+  const themes: string[] = [];
+  const checks: [string, RegExp][] = [
+    ["Prevalence / Epidemiology", /\b(prevalence|incidence|epidemiology|burden|risk factor)\b/],
+    ["Diagnostics / Screening", /\b(diagnos|sensitivity|specificity|screening|detection|assay)\b/],
+    ["Treatment / Intervention", /\b(treatment|intervention|therapy|pharmacological|drug|medication|preventive)\b/],
+    ["Prognosis / Outcomes", /\b(prognosis|mortality|survival|outcome|complication|recovery)\b/],
+    ["Healthcare Workers / Delivery", /\b(healthcare worker|nurse|physician|hospital|clinic|delivery)\b/],
+    ["Population Health", /\b(population|cohort|participants|patients|adults|children|adolescents)\b/],
+    ["Comparative / Association", /\b(association|correlation|relationship|versus|compared)\b/],
+    ["Systematic Review", /\b(systematic review|meta-analysis|review article)\b/],
+    ["Quality / Bias", /\b(quality|bias|limitation|methodology|rigor)\b/],
+  ];
+  for (const [label, pattern] of checks) {
+    if (pattern.test(text)) themes.push(label);
+  }
+  return themes.length > 0 ? themes.slice(0, 3) : ["General evidence"];
 }
 
 /* ------------------------------------------------------------------ */

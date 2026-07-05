@@ -577,6 +577,7 @@ export default function EvidenceSynthesisTab() {
 
   const buildLocalSynthesisOutput = () => {
     const papersForSynthesis = extractedData.filter((p) => selectedPaperIds.has(p.id));
+    const allPapersForSynthesis = papers.filter((p) => selectedPaperIds.has(p.id));
     const template = getRobToolTemplate();
     const robLabel = template ? template.label : robTool;
     const isMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
@@ -600,12 +601,12 @@ export default function EvidenceSynthesisTab() {
     );
 
     const heterogeneityNotes = studyTypes.length > 1
-      ? "Studies span multiple design types, contributing to clinical/methodological heterogeneity."
+      ? "Studies span multiple design types, contributing to clinical/methodological heterogeneity. A random-effects model is therefore preferred for any quantitative pooling."
       : `Heterogeneity should be assessed (I², τ²) using metafor/meta.`;
 
     const effectTable = effectSizes.length > 0
       ? effectSizes.map((r) => `| ${r.study} | ${r.effect} | ${r.ci} | ${r.weight} |`).join("\n")
-      : papersForSynthesis.map((p) => `| ${p.authors} (${p.year}) | — | — | — |`).join("\n");
+      : "Effect sizes were not yet extracted for these studies. Authors should populate this table with numeric estimates (e.g., OR, RR, MD, SMD) and 95% CIs before running metafor/meta/OpenMEE.";
 
     const methodsBlock = isMeta
       ? `**Synthesis method:** Random-effects meta-analysis (DerSimonian–Laird), implemented in **metafor** (R) or **meta** (R). Heterogeneity assessed via I² and τ². Certainty of evidence via GRADE/robvis integration.\n\n**Risk of bias:** Per-domain robvis template (${robLabel}) with Cochrane colours.`
@@ -615,19 +616,23 @@ export default function EvidenceSynthesisTab() {
       ? `\n### Meta-analysis Interpretation\n\nPooled estimate (${metaforResult.model}-effects): μ = ${metaforResult.pooledEstimate.toFixed(3)} (95% CI ${metaforResult.ciLower.toFixed(3)}–${metaforResult.ciUpper.toFixed(3)}). Heterogeneity: I² = ${metaforResult.I2.toFixed(1)}%, τ² = ${metaforResult.tau2.toFixed(4)}, Q(${metaforResult.k - 1}) = ${metaforResult.Q.toFixed(2)}, p = ${metaforResult.Qp.toFixed(4)}. Prediction interval: ${metaforResult.predictionLower.toFixed(3)}–${metaforResult.predictionUpper.toFixed(3)}.`
       : `\n### Meta-analysis Interpretation\n\nEffect estimates should be pooled using a random-effects model. Expected direction of effect: see effect table above. Heterogeneity: ${heterogeneityNotes} Use **forestplot**, **meta**, **metafor**, or **OpenMEE** for publication-ready figures.\n\n**Reporting:** Export effect table to **PRISMA 2020**-compliant format.\n`;
 
+    const studySummaryBullets = papersForSynthesis.map((p, i) => {
+      const paper = allPapersForSynthesis.find(ap => ap.id === p.id);
+      const abstractSnippet = paper?.abstract ? paper.abstract.replace(/[<>=]/g, "").trim().slice(0, 220) + "…" : "No abstract available.";
+      return `${i + 1}. **${p.authors} (${p.year})** — *${p.title}*.\n   - Type: ${p.studyType || "Not specified"}. Outcome: ${p.outcome || "As reported"}.\n   - Risk of bias: ${robAssessments[p.id]?.overall || "Pending (assess in Step 3)"}.\n   - Key evidence: ${abstractSnippet}`;
+    }).join("\n\n");
+
+    const narrativeParagraphs = papersForSynthesis.length > 0
+      ? `The body of evidence comprises ${papersForSynthesis.length} ${studyTypes.join(", ").toLowerCase() || "studies"} examining ${query || "the review topic"}. ${papersForSynthesis.length >= 5 ? "Across the included studies, consistent themes emerge regarding the intervention/exposure and its association with the primary outcome." : "Given the limited number of included studies, findings should be interpreted with caution."}\n\n${studySummaryBullets}`
+      : "No papers have been selected for synthesis.";
+
     return `## Evidence Synthesis\n**Review type:** ${reviewType}\n**Studies included:** ${papersForSynthesis.length}\n**Year range:** ${yearMin}–${yearMax}\n**Databases:** ${databases.join(", ") || "multiple"}\n\n---
 
 ${methodsBlock}\n\n---
 
 ### Narrative Summary
 
-The body of evidence comprises ${papersForSynthesis.length} ${studyTypes.join(", ").toLowerCase() || "studies"} examining ${query || "the review topic"}. ${papersForSynthesis.length > 5 ? "Across the included studies, consistent themes emerge regarding the intervention/exposure and its association with the primary outcome." : "Findings should be interpreted with caution given the small number of included studies."}
-
-**Key findings by study:**
-${papersForSynthesis.map((p, i) => `${i + 1}. **${p.authors} (${p.year})** — ${p.title}
-   - Study type: ${p.studyType || "Not specified"}
-   - Outcome: ${p.outcome || "As reported"}
-   - Risk of bias: ${robAssessments[p.id]?.overall || "Pending (assess in Step 3)"}`).join("\n\n")}
+${narrativeParagraphs}
 
 ---
 
@@ -942,7 +947,7 @@ At the end, include a References section with all papers in Vancouver style:
           notes: robAssessments[p.id]?.notes || "",
         }));
 
-      const prompt = `You are an expert evidence synthesis researcher using methods from the awesome-evidence-synthesis toolkit (metafor, meta, metaumbrella, robvis, PRISMA 2020).
+      const prompt = `You are an expert evidence synthesis researcher using methods from the awesome-evidence-synthesis toolkit (metafor, meta, metaumbrella, robvis, PRISMA 2020, GRADE).
 
 REVIEW TYPE: ${reviewType}
 
@@ -952,37 +957,39 @@ ${reviewRequirements || "No specific requirements provided."}
 SYNTHESIS INSTRUCTIONS:
 ${synthesisInstructions || "Use standard systematic review methodology appropriate for the review type."}
 
-EXTRACTED STUDIES:
+EXTRACTED STUDIES WITH ABSTRACTS:
 ${papersForSynthesis.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. Type: ${p.studyType}. Outcome: ${p.outcome}. RoB: ${p.ROB}.${p.notes ? ` Notes: ${p.notes}` : ""}`).join("\n\n")}
 
 REQUIREMENTS:
-1. Summarize the body of evidence thematically or narratively as appropriate for the review type
-2. Note heterogeneity (clinical, methodological, statistical)
-3. Summarize effect sizes where available (or state if not extractable)
-4. Acknowledge risk-of-bias patterns
-5. Provide a forest-plot-ready effect-size table with columns: Study, Effect Estimate, 95% CI, Weight
-6. Include PRISMA-compliant narrative structure (for reviews where PRISMA applies)
-7. Reference tools: metafor, meta, metaumbrella, robvis, forestplot, PRISMA 2020
-${reviewType.includes("Meta-analysis") ? "8. Provide meta-analysis interpretation: fixed vs random effects, heterogeneity statistics (I², τ²), certainty of evidence" : ""}
+1. Summarize the body of evidence thematically or narratively as appropriate for the review type. Draw on the actual study data provided above — do not write generic placeholder text.
+2. For each study or cluster of studies, quote or paraphrase specific findings, effect estimates, or conclusions from the provided data.
+3. Note heterogeneity (clinical, methodological, statistical) with concrete examples from the included studies.
+4. Summarize effect sizes where available (or state honestly if not extractable from the provided data).
+5. Acknowledge risk-of-bias patterns and their likely impact on the pooled/narrative evidence.
+6. Provide a forest-plot-ready effect-size table with columns: Study, Effect Estimate, 95% CI, Weight. If exact numeric effect sizes are not available, leave the table empty with a note explaining why.
+7. Include PRISMA-compliant narrative structure (for reviews where PRISMA applies).
+8. Reference tools: metafor, meta, metaumbrella, robvis, forestplot, PRISMA 2020, GRADE.
+${reviewType.includes("Meta-analysis") ? "9. Provide meta-analysis interpretation: fixed vs random effects, heterogeneity statistics (I², τ²), certainty of evidence, and prediction interval interpretation." : ""}
 
-OUTPUT FORMAT:
+OUTPUT FORMAT (strict Markdown — no extra commentary outside the sections):
 ## Evidence Synthesis
 
 ### Narrative Summary
-[Thematic synthesis of findings]
+Write 4-6 detailed paragraphs. Cite specific studies by author/year. Describe converging and diverging findings. Do not write vague statements like "the evidence suggests" without grounding them in the provided studies.
 
 ### Effect Size Summary
 | Study | Effect Estimate | 95% CI | Weight |
 |-------|----------------|--------|--------|
+[Populate with real numbers if available; otherwise write: "Effect sizes were not extractable from the available abstracts. Authors should manually enter values in the effect-size table before running metafor/meta/OpenMEE."]
 
 ### Risk of Bias Commentary
-[How RoB patterns affect confidence in evidence]
+Discuss how the distribution of RoB judgments across the included studies affects confidence in the pooled or narrative findings. Mention specific study-level concerns.
 
 ### Meta-analysis Interpretation
-[Fixed vs random effects, heterogeneity, certainty]
+[If meta-analysis was performed, interpret the pooled estimate, heterogeneity (I², τ², Q), prediction interval, and GRADE certainty. If not performed, state what would be needed.]
 
 ### Gaps and Future Directions
-[Remaining uncertainties]`;
+Identify evidence gaps that are actually supported by the included studies, not generic recommendations.`;
 
       const apiKey = state.geminiApiKey || state.groqApiKey;
       if (!apiKey) {
@@ -1225,27 +1232,33 @@ Generate the full manuscript now.`;
     selectedDbs: string[];
   }): string => {
     const relatedWorksBlock = papersForSynthesis.slice(0, 8).map((p, i) => {
-      const limitation = p.outcome
-        ? `The study focused on ${p.outcome.toLowerCase()}, leaving broader contextual factors unexamined.`
-        : "The scope was limited, and generalizability to broader populations remains uncertain.";
-      return `${i + 1}. ${p.authors} (${p.year}). *${p.title}*. ${p.studyType || "Study type not specified"}. ${limitation}`;
+      const paper = papers.find(ap => ap.id === p.id);
+      const abstractSnippet = paper?.abstract ? paper.abstract.replace(/[<>=]/g, "").trim().slice(0, 200) + "…" : "Abstract not available.";
+      return `${i + 1}. ${p.authors} (${p.year}). *${p.title}*. ${p.studyType || "Study type not specified"}. Key finding: ${abstractSnippet}`;
     }).join("\n\n");
 
+    const topPapers = papersForSynthesis.slice(0, 3);
+    const backgroundSentences = topPapers.map((p, i) => {
+      const paper = papers.find(ap => ap.id === p.id);
+      const snippet = paper?.abstract ? paper.abstract.replace(/[<>=]/g, "").trim().split(".").slice(0, 3).join(".") + "." : "";
+      return `${p.authors} (${p.year}) reported on ${p.title.toLowerCase()}: ${snippet || "No abstract available."}`;
+    }).join(" ");
+
     const methodologyParagraph = isMeta
-      ? `The present ${reviewTypeLabel.toLowerCase()} employed a structured evidence-synthesis methodology. The approach combined systematic database searching, duplicate screening, structured data extraction, per-domain risk-of-bias assessment using ${robLabel}, and random-effects meta-analysis where feasible. This design differs from prior reviews by integrating robvis-standardized domain-level bias judgments with GRADE certainty assessment, enabling transparent quantification of both within-study bias and between-study heterogeneity. Key methods included PICO-framed search strategies, PRISMA 2020-compliant reporting, and forest-plot-ready effect-size extraction compatible with metafor, meta, and forestplot.`
+      ? `The present ${reviewTypeLabel.toLowerCase()} employed a structured evidence-synthesis methodology. The approach combined systematic database searching, duplicate screening, structured data extraction, per-domain risk-of-bias assessment using ${robLabel}, and random-effects meta-analysis where feasible. This design integrates robvis-standardized domain-level bias judgments with GRADE certainty assessment, enabling transparent quantification of both within-study bias and between-study heterogeneity. Key methods included PICO-framed search strategies, PRISMA 2020-compliant reporting, and forest-plot-ready effect-size extraction compatible with metafor, meta, and forestplot.`
       : `The present ${reviewTypeLabel.toLowerCase()} employed a structured evidence-synthesis methodology. The approach combined systematic database searching, duplicate screening, and structured data extraction. Risk-of-bias assessment was conducted using ${robLabel}, and findings were synthesized narratively following awesome-evidence-synthesis guidance. This design emphasizes transparent reproducibility, PRISMA 2020-aligned reporting, and thematic mapping of the evidence base.`;
 
     const resultsOverview = papersForSynthesis.length > 0
-      ? `The evidence base comprised ${papersForSynthesis.length} studies (${yearMin}–${yearMax}) encompassing ${studyTypes.join(", ").toLowerCase() || "mixed study designs"}. Pooled or narrative findings indicate a meaningful direction of effect for the outcome of interest. Heterogeneity was assessed via I² and $\tau^2$; ${robSummary.high} studies were rated at high risk of bias. The overall certainty of evidence was rated as moderate following GRADE criteria, primarily downgraded for risk of bias and inconsistency.`
+      ? `The evidence base comprised ${papersForSynthesis.length} studies (${yearMin}–${yearMax}) encompassing ${studyTypes.join(", ").toLowerCase() || "mixed study designs"}. ${backgroundSentences} Pooled or narrative findings indicate a direction of effect for the outcome of interest. Heterogeneity was assessed via I² and τ²; ${robSummary.high} studies were rated at high risk of bias. The overall certainty of evidence was rated as moderate following GRADE criteria, primarily downgraded for risk of bias and inconsistency.`
       : "No studies met the inclusion criteria.";
 
     const discussionImplications = isMeta
       ? "The meta-analytic estimate should be interpreted alongside the GRADE certainty assessment and robvis domain-level judgments. High risk-of-bias studies may overestimate effects; sensitivity analyses excluding these studies are recommended. Findings align with prior evidence in the field, though methodological differences preclude direct comparison. Limitations include potential publication bias and varying follow-up periods."
       : "Narrative findings should be interpreted in light of the methodological quality of included studies. The review followed PRISMA 2020 and robvis methodology; however, heterogeneity in study designs limits statistical pooling. Findings are consistent with prior reviews in the field but highlight unresolved gaps. Limitations include restricted database coverage and potential selection bias.";
 
-    const conclusionPara1 = `This ${reviewTypeLabel.toLowerCase()} synthesized evidence from ${included} studies examining ${topic}. The findings indicate a meaningful association between the intervention/exposure and the primary outcome. Methodological quality varied across studies, with ${robSummary.low} rated low risk, ${robSummary.some} some/moderate concerns, and ${robSummary.high} at high risk of bias. ${isMeta ? "The pooled effect estimate provides a quantitative synthesis that should inform clinical and policy decision-making." : "The narrative synthesis maps the current state of evidence and identifies priorities for future inquiry."}`;
+    const conclusionPara1 = `This ${reviewTypeLabel.toLowerCase()} synthesized evidence from ${included} studies examining ${topic}. ${topPapers.length > 0 ? `Key contributions include ${topPapers[0].authors} (${topPapers[0].year}) finding that ${(papers.find(p => p.id === topPapers[0].id)?.abstract || "").replace(/[<>=]/g, "").trim().split(".").slice(0, 2).join(".") || "measurable associations were reported"}.` : ""} Methodological quality varied across studies, with ${robSummary.low} rated low risk, ${robSummary.some} some/moderate concerns, and ${robSummary.high} at high risk of bias. ${isMeta ? "The pooled effect estimate provides a quantitative synthesis that should inform clinical and policy decision-making, subject to the GRADE certainty rating." : "The narrative synthesis maps the current state of evidence and identifies priorities for future inquiry, aligned with PRISMA 2020 reporting."}`;
 
-    const conclusionPara2 = `Future research should address the identified gaps, employ standardized outcome measures, and report effect sizes with confidence intervals. Prospective registration and open-access data sharing are recommended to enhance reproducibility. ${isMeta ? "Network meta-analysis and individual patient data synthesis may clarify treatment effects across heterogeneous populations." : "Scoping and systematic review updates are warranted as new evidence emerges."}`;
+    const conclusionPara2 = `Future research should address the gaps identified across the included studies, employ standardized outcome measures, and report effect sizes with confidence intervals. Prospective registration and open-access data sharing are recommended to enhance reproducibility. ${isMeta ? "Network meta-analysis and individual patient data synthesis may clarify treatment effects across heterogeneous populations." : "Systematic review updates are warranted as new evidence emerges."} Sensitivity analyses excluding high-RoB studies are recommended to test the robustness of the present findings.`;
 
     const figurePlaceholders = isMeta
       ? `\\begin{figure*}[ht]\n  \\centering\n  \\includegraphics[width=\\textwidth]{forest_plot}\n  \\caption{Forest plot of pooled effect estimates.}\n\\end{figure*}\n\n\\begin{figure}[ht]\n  \\centering\n  \\includegraphics[width=0.5\\textwidth]{funnel_plot}\n  \\caption{Funnel plot assessing publication bias.}\n\\end{figure}\n\n\\begin{figure}[ht]\n  \\centering\n  \\includegraphics[width=0.5\\textwidth]{robvis_traffic_light}\n  \\caption{Risk-of-bias traffic-light plot (${robLabel}).}\n\\end{figure}`
@@ -1280,15 +1293,15 @@ This ${reviewTypeLabel.toLowerCase()} examined ${topic}. A systematic search of 
 
 ### 1.1 Background and Context
 
-${topic} represents an important area of research that has attracted substantial scholarly attention over the past decade. Despite existing research, key questions remain unanswered regarding the specific mechanisms and contexts in which the primary intervention or exposure exerts its effects. Prior reviews have synthesized evidence on related topics, yet methodological limitations reduce confidence in current conclusions. The problem is clear: existing evidence remains fragmented, the gap lies in the lack of a unified quantitative synthesis integrating bias assessments with effect-size pooling, and the hook is the urgent need for evidence that can directly inform guidelines and policy.
+${topic} has attracted considerable scholarly attention in recent years, as reflected by the studies included in this review. ${topPapers.length > 0 ? `For example, ${topPapers[0].authors} (${topPapers[0].year}) examined ${topPapers[0].title.toLowerCase()}, finding that ${(papers.find(p => p.id === topPapers[0].id)?.abstract || "").replace(/[<>=]/g, "").trim().split(".").slice(0, 3).join(".") || "the intervention/exposure showed measurable effects"}.` : ""} ${topPapers.length > 1 ? `In related work, ${topPapers[1].authors} (${topPapers[1].year}) investigated ${topPapers[1].title.toLowerCase()}, adding further evidence on this question.` : ""} Prior reviews have synthesized related findings, yet methodological limitations in study design, outcome measurement, and population coverage reduce confidence in current conclusions. The problem is clear: the evidence base remains fragmented, the gap lies in the lack of a unified quantitative synthesis integrating bias assessments with effect-size pooling, and the hook is the urgent need for robust, reproducible evidence to inform guidelines and policy.
 
 ### 1.2 Rationale
 
-This ${reviewTypeLabel.toLowerCase()} was conducted to address the evidence gap identified above. We integrated systematic database searching, duplicate screening, structured data extraction, per-domain risk-of-bias assessment, and random-effects meta-analysis where feasible. This design differs from prior reviews by combining robvis-standardized domain-level judgments with meta-analytic pooling.
+This ${reviewTypeLabel.toLowerCase()} was conducted to address the evidence gap identified above. We integrated systematic database searching across ${databases.join(", ") || selectedDbs.join(", ")}, duplicate screening, structured data extraction, per-domain risk-of-bias assessment using ${robLabel}, and random-effects meta-analysis where feasible. This design integrates robvis-standardized domain-level judgments with GRADE-certainty assessment, enabling transparent quantification of both within-study bias and between-study heterogeneity.
 
 ### 1.3 Objectives
 
-The primary objective was to synthesize evidence on ${topic}. Secondary objectives included assessing risk of bias using ${robLabel}, evaluating certainty of evidence via GRADE, and mapping heterogeneity across study designs.
+The primary objective was to synthesize evidence on ${topic}. Secondary objectives included assessing risk of bias using ${robLabel}, evaluating certainty of evidence via GRADE, and mapping heterogeneity across study designs and populations.
 
 ---
 
