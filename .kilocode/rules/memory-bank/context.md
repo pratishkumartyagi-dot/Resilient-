@@ -1009,3 +1009,39 @@ A fully functional qualitative data analysis tool for text, images, audio, and v
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes
 - `bun run build` ✅ passes cleanly
+
+## awesome-evidence-synthesis Toolkit Deepening — Step 4 Enhanced (2026-07-06)
+
+**Feature**: Expanded Step 4 ("Synthesis & Meta-analysis") with additional awesome-evidence-synthesis tools and methodologies: Publication Bias assessment, Sensitivity Analysis, expanded meta-analysis taxonomy, and diagnostic test accuracy support.
+
+### New File
+- `src/lib/evidence-synthesis-tools.ts` — Typed registry of 40+ tools from https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis organized by category:
+  - Literature search: OpenAlex, PubMed E-utilities, Europe PMC, CitationChaser, litsearchr
+  - Screening: ASReview, prismAId, ReAct-ExtrAct
+  - Data extraction: WebPlotDigitizer, metaDigitise, SurvdigitizeR
+  - Risk of bias: RobotReviewer, robvis, Critiplot
+  - Text mining: LitLLMs, MetaNLP
+  - Workflow: PRISMA 2020, ROSES
+  - Meta-analysis: metafor, meta, forestplot, OpenMEE, JASP, metaumbrella, netmeta, gemtc, multinma, metasens, robumeta, clubSandwich, baggr, bayesmeta, metaBMA, dosresmeta, metaSEM
+  - Diagnostic test accuracy: meta4diag, mada, DiagMeta, MetaDTA, bamdit
+  - Statistics: apprise
+  - Visualization: VOSviewer, EviAtlas, Gephi, Cytoscape, Open Knowledge Maps, bibliometrix
+  - Helper functions: `getToolsForSynthesis`, `getToolsForMetaAnalysis`, `getToolsForReporting`, `buildSynthesisToolReference`, `buildMetaAnalysisToolReference`, `buildReportingToolReference`
+
+### EvidenceSynthesisTab Updates
+- Added `publicationBiasNote`, `sensitivityNote`, `isDiagnosticReview` state
+- `useEffect` updates publication bias and sensitivity notes based on `reviewType`
+- `generateSynthesis()` prompt expanded to include:
+  - Publication bias assessment (funnel plots, Egger's test, trim-and-fill via metasens/meta/metafor)
+  - Sensitivity analysis recommendations (excluding high-RoB studies, robumeta/clubSandwich)
+  - Diagnostic test accuracy meta-analysis guidance (meta4diag, mada, MetaDTA, bamdit)
+- `generateLocalSynthesis()` now includes:
+  - Publication Bias section with tool references
+  - Sensitivity Analysis section with leave-one-out and RVE guidance
+  - Enhanced tools footer with direct link to awesome-evidence-synthesis repo
+- Step 4 UI added Publication Bias and Sensitivity Analysis info cards after metafor results
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes
+- `bun run build` ✅ passes cleanly
