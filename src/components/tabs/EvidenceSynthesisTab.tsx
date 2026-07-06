@@ -771,6 +771,8 @@ Using **${robLabel}** (robvis), the overall distribution of risk-of-bias judgmen
       metaforResult,
       synthesisExcerpt: synthesisOutput || "Narrative synthesis was generated from extracted data using the local awesome-evidence-synthesis workflow, incorporating study-level findings, thematic analysis, and GRADE-informed certainty assessment.",
       generatedDate: today,
+      screeningMethod: "Title/abstract and full-text screening aligned with prismAId protocol-based methodology (Open-and-Sustainable/prismAId).",
+      extractionMethod: "Structured data extraction aligned with meta-pipe stage 05_extraction and prismAId review-extraction methodology.",
     });
     setSynthesisReport(report);
   };
@@ -1022,7 +1024,7 @@ At the end, include a References section with all papers in Vancouver style:
           notes: robAssessments[p.id]?.notes || "",
         }));
 
-      const prompt = `You are an expert evidence synthesis researcher using methods and tools from the awesome-evidence-synthesis open-source toolkit (https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis).
+      const prompt = `You are an expert evidence synthesis researcher using methods and tools from the awesome-evidence-synthesis open-source toolkit (https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis), prismAId (https://github.com/Open-and-Sustainable/prismAId) for AI-assisted screening/extraction, and meta-pipe (https://github.com/htlin222/meta-pipe) for end-to-end pipeline alignment.
 
 REVIEW TYPE: ${reviewType}
 
@@ -1046,7 +1048,9 @@ REQUIREMENTS:
 8. Address publication bias using funnel plots, Egger's test, or trim-and-fill analysis (metasens, meta, metafor).
 9. Recommend sensitivity analysis excluding high-RoB studies (robumeta, clubSandwich, robvis).
 10. If this is a Diagnostic Test Accuracy review, reference meta4diag, mada, MetaDTA, or bamdit for DTA-specific meta-analysis.
-${reviewType.includes("Meta-analysis") ? "11. Provide meta-analysis interpretation: fixed vs random effects (DerSimonian–Laird / inverse-variance), heterogeneity statistics (I², τ², Q-test), prediction interval, and certainty of evidence" : ""}
+11. Align with prismAId protocol-based screening and extraction methodology where applicable.
+12. Align with meta-pipe 9-stage pipeline: protocol → search → screening → fulltext → extraction → analysis → manuscript → reviews → QA.
+${reviewType.includes("Meta-analysis") ? "13. Provide meta-analysis interpretation: fixed vs random effects (DerSimonian–Laird / inverse-variance), heterogeneity statistics (I², τ², Q-test), prediction interval, and certainty of evidence" : ""}
 
 OUTPUT FORMAT:
 ## Evidence Synthesis
@@ -2032,9 +2036,10 @@ ${referencesList}
                 <Table size={18} className="text-yellow-400" />
                 <h3 className="text-lg font-bold text-white">Synthesis & Meta-analysis</h3>
               </div>
-               <p className="text-sm text-blue-300 mb-4">
-                 Generate evidence synthesis using methods from the awesome-evidence-synthesis toolkit. No API key required — the local synthesis builder produces PRISMA/ROSES-ready output from your extracted data. Configure an API key in Settings for AI-enhanced output.
-               </p>
+                <p className="text-sm text-blue-300 mb-4">
+                  Generate evidence synthesis using methods from the awesome-evidence-synthesis toolkit. No API key required — the local synthesis builder produces PRISMA/ROSES-ready output from your extracted data. Configure an API key in Settings for AI-enhanced output. Methodology aligned with <a href="https://github.com/Open-and-Sustainable/prismAId" target="_blank" rel="noreferrer" className="text-yellow-300 underline">prismAId</a> (screening/extraction) and <a href="https://github.com/htlin222/meta-pipe" target="_blank" rel="noreferrer" className="text-yellow-300 underline">meta-pipe</a> (end-to-end pipeline).
+                </p>
+
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
@@ -2280,7 +2285,7 @@ ${referencesList}
                   Awesome-Evidence-Synthesis Report
                 </h4>
                 <p className="text-[11px] text-blue-300 mb-3">
-                  Generate a comprehensive synthesis report aligned with the awesome-evidence-synthesis methodology. The report includes PRISMA 2020 flow, metafor results, robvis RoB summary, effect size table, GRADE certainty assessment, and narrative synthesis. Output: a publication-ready Markdown document.
+                  Generate a comprehensive synthesis report aligned with the awesome-evidence-synthesis methodology, metafor (R) analysis, prismAId screening/extraction, and meta-pipe pipeline. The report includes PRISMA 2020 flow, metafor results, robvis RoB summary, effect size table, GRADE certainty assessment, R code for reproducibility, and narrative synthesis. Output: a publication-ready Markdown document.
                 </p>
                 <div className="flex flex-wrap items-center gap-3">
                   <button
@@ -2306,6 +2311,14 @@ ${referencesList}
                       Download Report (.md)
                     </button>
                   )}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-blue-400">
+                  <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">metafor (R)</span>
+                  <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">prismAId</span>
+                  <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">meta-pipe</span>
+                  <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">awesome-evidence-synthesis</span>
+                  <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">robvis</span>
+                  <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">PRISMA 2020</span>
                 </div>
               </div>
 

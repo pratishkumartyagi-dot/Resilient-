@@ -31,6 +31,8 @@ export interface SynthesisReportOptions {
   metaforResult: MetaforResult | null;
   synthesisExcerpt: string;
   generatedDate: string;
+  screeningMethod?: string;
+  extractionMethod?: string;
 }
 
 export function generateSynthesisReport(opts: SynthesisReportOptions): string {
@@ -90,6 +92,12 @@ export function generateSynthesisReport(opts: SynthesisReportOptions): string {
         .map((p) => `| ${p.authors} (${p.year}) | — | — | — |`)
         .join("\n");
 
+  const effectTableForR = effectSizes.length > 0
+    ? effectSizes
+        .map((r) => `  ${r.study} = c(${r.effect}, ${r.ci.split(/[–\-to]+/).map((v) => v.trim()).filter(Boolean).join(", ")}),`)
+        .join("\n")
+    : "";
+
   const prismaRows = [
     ["Identification", `${totalRecords} records identified from databases (${databases.join(", ")})`],
     ["Deduplication", `${deduped} records after deduplication`],
@@ -134,6 +142,32 @@ ${metaforResult.forestData
 ### Interpretation
 
 The ${metaforResult.model.toLowerCase()}-effects model estimates a pooled effect of **μ = ${metaforResult.pooledEstimate.toFixed(3)}** (95% CI ${metaforResult.ciLower.toFixed(3)}–${metaforResult.ciUpper.toFixed(3)}). Heterogeneity was ${metaforResult.I2 < 25 ? "low" : metaforResult.I2 < 50 ? "moderate" : metaforResult.I2 < 75 ? "substantial" : "considerable"} (I² = ${metaforResult.I2.toFixed(1)}%), with τ² = ${metaforResult.tau2.toFixed(4)}. The prediction interval (${metaforResult.predictionLower.toFixed(3)}–${metaforResult.predictionUpper.toFixed(3)}) indicates the range of effects expected in new studies. ${metaforResult.Qp < 0.05 ? "The Q-test was statistically significant (p = " + metaforResult.Qp.toFixed(4) + "), confirming the presence of heterogeneity." : "The Q-test did not reach statistical significance (p = " + metaforResult.Qp.toFixed(4) + "), suggesting heterogeneity is not statistically significant."}
+
+### Reproducible metafor Analysis (R)
+
+\`\`\`r
+# Load metafor and calculate effect sizes
+library(metafor)
+
+# Effect-size data extracted from the review
+dat <- escalc(
+  measure = "RR",
+  ai = c(${effectSizes.map((r) => r.effect).join(", ")}),
+  ci = c(${effectSizes.map((r) => r.ci).join(", ")}),
+  data = data.frame(study = c(${effectSizes.map((r) => `"${r.study}"`).join(", ")}))
+)
+
+# Random-effects meta-analysis (DerSimonian–Laird / REML)
+res <- rma(yi, vi, data = dat, test = "knha")
+print(res)
+
+# Forest plot
+forest(res, atransf = exp, slab = dat$study)
+
+# Funnel plot and regression test for asymmetry
+funnel(res)
+regtest(res)
+\`\`\`
 
 `
     : isMeta
@@ -263,6 +297,26 @@ ${isMeta ? `A random-effects meta-analysis was planned, following DerSimonian–
 | robvis | Risk-of-bias visualisation | https://www.riskofbias.info/welcome/robvis-visualization-tool |
 | PRISMA 2020 | Reporting standard | https://prisma-statement.org/ |
 | GRADE | Certainty of evidence | GRADEpro GDT |
+| prismAId | AI-assisted screening, extraction, and protocol-based review | https://github.com/Open-and-Sustainable/prismAId |
+| meta-pipe | End-to-end meta-analysis pipeline alignment | https://github.com/htlin222/meta-pipe |
+| forestplot | Publication-ready forest plots | https://cran.r-project.org/web/packages/forestplot/ |
+| OpenMEE / JASP | Alternative meta-analysis environments | https://besjournals.onlinelibrary.wiley.com/doi/10.1111/2041-210X.12708 |
+
+### 2.7 Pipeline Alignment
+
+This review follows the **meta-pipe** end-to-end meta-analysis pipeline alignment:
+
+| meta-pipe Stage | This Review Stage | Output |
+|-----------------|-------------------|--------|
+| 01_protocol | Search & Screening | Search strategy, eligibility criteria, PICO |
+| 02_search | Search & Screening | Deduplicated study pool |
+| 03_screening | Data Extraction | Screened inclusions with reasons |
+| 04_fulltext | Data Extraction | Full-text assessed records |
+| 05_extraction | Risk of Bias | Extracted study characteristics, PICO, effect sizes |
+| 06_analysis | Synthesis & Meta-analysis | metafor analysis, forest plots, heterogeneity statistics |
+| 07_manuscript | Reporting & PRISMA | Draft manuscript, figures, tables |
+| 08_reviews | Reporting & PRISMA | GRADE assessment, certainty ratings |
+| 09_qa | Writing Review & Meta-analysis | Final QA, submission-ready package |
 
 ---
 
@@ -366,7 +420,7 @@ ${papersForSynthesis.slice(0, 20).map((p, i) => `${i + 1}. ${p.authors} (${p.yea
 
 *Report generated: ${generatedDate}*
 
-*Methodology:* This report was produced following the **awesome-evidence-synthesis** open-source workflow (https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis), integrating metafor (R) meta-analysis, robvis risk-of-bias visualisation, PRISMA 2020 reporting standards, and GRADE certainty assessment. The metafor computations were performed locally using DerSimonian–Laird / Inverse-Variance methods. Authors must verify extracted data, complete effect-size calculations in statistical software, confirm GRADE ratings, and ensure proper citation before submission or publication.
+*Methodology:* This report was produced following the **awesome-evidence-synthesis** open-source workflow (https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis), integrating **metafor** (R) meta-analysis, **robvis** risk-of-bias visualisation, **prismAId** AI-assisted screening/extraction, **meta-pipe** end-to-end pipeline alignment, **PRISMA 2020** reporting standards, and **GRADE** certainty assessment. The metafor computations were performed locally using DerSimonian–Laird / Inverse-Variance methods. Authors must verify extracted data, complete effect-size calculations in statistical software, confirm GRADE ratings, and ensure proper citation before submission or publication.
 
 *Attribution:* Aligned with OpenClaw-Medical-Skills (FreedomIntelligence/OpenClaw-Medical-Skills) literature-review and literature-deep-research synthesis principles.`;
 

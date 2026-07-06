@@ -1037,11 +1037,45 @@ A fully functional qualitative data analysis tool for text, images, audio, and v
   - Diagnostic test accuracy meta-analysis guidance (meta4diag, mada, MetaDTA, bamdit)
 - `generateLocalSynthesis()` now includes:
   - Publication Bias section with tool references
-  - Sensitivity Analysis section with leave-one-out and RVE guidance
-  - Enhanced tools footer with direct link to awesome-evidence-synthesis repo
-- Step 4 UI added Publication Bias and Sensitivity Analysis info cards after metafor results
+   - Sensitivity Analysis section with leave-one-out and RVE guidance
+   - Enhanced tools footer with direct link to awesome-evidence-synthesis repo
+ - Step 4 UI added Publication Bias and Sensitivity Analysis info cards after metafor results
+
+ ### Validation
+ - `bun typecheck` ✅ passes
+ - `bun lint` ✅ passes
+ - `bun run build` ✅ passes cleanly
+
+## metafor / prismAId / meta-pipe Integration — Synthesis Report Enhancement (2026-07-06)
+
+**Feature**: Integrated `metafor` R package, `prismAId` AI-assisted screening/extraction, and `meta-pipe` end-to-end pipeline into the synthesis report and evidence synthesis workflow.
+
+### New Files
+- `src/lib/evidence-synthesis-tools.ts` — Expanded to 40+ tools from `awesome-evidence-synthesis` with categories: literature search, screening, data extraction, risk-of-bias, text mining, workflow, meta-analysis, DTA, statistics, visualization
+- `src/lib/synthesis-report-generator.ts` — Enhanced report generator with:
+  - `screeningMethod` and `extractionMethod` options
+  - metafor reproducible R code block (`escalc`, `rma`, `forest`, `funnel`, `regtest`)
+  - prismAId methodology references
+  - meta-pipe 9-stage pipeline alignment table in Methods
+  - Enhanced tools table with prismAId, meta-pipe, forestplot, OpenMEE, JASP
+  - Footer referencing all four toolkits
+
+### EvidenceSynthesisTab Updates
+- `generateSynthesis()` prompt expanded to reference:
+  - prismAId protocol-based screening and extraction
+  - meta-pipe 9-stage pipeline alignment
+  - metafor R code reproducibility
+- `generateLocalSynthesis()` includes:
+  - Publication Bias section with `metasens`/`metafor` references
+  - Sensitivity Analysis section with `robumeta`/`clubSandwich`/`robvis`
+  - Enhanced footer linking to `awesome-evidence-synthesis` repo
+- `generateReport()` passes `screeningMethod` and `extractionMethod`
+- Step 4 UI updated:
+  - Description references prismAId and meta-pipe
+  - Report section shows tool badges: metafor, prismAId, meta-pipe, awesome-evidence-synthesis, robvis, PRISMA 2020
 
 ### Validation
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes
 - `bun run build` ✅ passes cleanly
+
