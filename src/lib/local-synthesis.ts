@@ -302,15 +302,20 @@ function buildSynopsis(paper: Paper): string {
 /* ------------------------------------------------------------------ */
 export async function generateLocalSynthesis(papers: Paper[]): Promise<SynthesisRow[]> {
   // Parallel DOI validation (Crossref) — same as AI-Research-Analyzer citation-validator approach
+  // Limited to 5 concurrent requests to avoid Crossref rate limits
   const doisToValidate = papers.filter((p) => p.doi && p.doi.length > 3).map((p) => p.doi!);
   const citationResults = new Map<string, { valid: boolean; title?: string; message: string }>();
+  const BATCH_SIZE = 5;
 
-  await Promise.allSettled(
-    doisToValidate.map(async (doi) => {
-      const result = await validateDoiViaCrossref(doi);
-      citationResults.set(doi.toLowerCase(), result);
-    })
-  );
+  for (let i = 0; i < doisToValidate.length; i += BATCH_SIZE) {
+    const batch = doisToValidate.slice(i, i + BATCH_SIZE);
+    await Promise.allSettled(
+      batch.map(async (doi) => {
+        const result = await validateDoiViaCrossref(doi);
+        citationResults.set(doi.toLowerCase(), result);
+      })
+    );
+  }
 
   return papers.map((paper, idx) => {
     const verifiedDoi = paper.doi ? citationResults.get(paper.doi.toLowerCase()) : undefined;

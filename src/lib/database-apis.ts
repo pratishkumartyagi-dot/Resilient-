@@ -654,13 +654,17 @@ export async function validateDoiViaCrossref(doi: string): Promise<{ valid: bool
 export async function verifyCitations(papers: Paper[]): Promise<Map<string, { valid: boolean; title?: string; message: string }>> {
   const results = new Map<string, { valid: boolean; title?: string; message: string }>();
   const dois = papers.filter((p) => p.doi && p.doi.length > 3).map((p) => p.doi!);
+  const BATCH_SIZE = 5;
 
-  await Promise.allSettled(
-    dois.map(async (doi) => {
-      const result = await validateDoiViaCrossref(doi);
-      results.set(doi.toLowerCase(), result);
-    })
-  );
+  for (let i = 0; i < dois.length; i += BATCH_SIZE) {
+    const batch = dois.slice(i, i + BATCH_SIZE);
+    await Promise.allSettled(
+      batch.map(async (doi) => {
+        const result = await validateDoiViaCrossref(doi);
+        results.set(doi.toLowerCase(), result);
+      })
+    );
+  }
 
   return results;
 }

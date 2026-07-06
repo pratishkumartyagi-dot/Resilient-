@@ -12,13 +12,11 @@ import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
 import { fetchRealPapers, generateMockLegacy, type Paper, validateDoiViaCrossref } from "@/lib/database-apis";
 import { downloadLiteratureReviewPDF, downloadLiteratureReviewWord } from "@/lib/exporters";
 import { parseEffectSizeRow, fixedEffectsMetaAnalysis, randomEffectsMetaAnalysis, type MetaforResult, type EffectSizeRow } from "@/lib/metafor-compute";
-import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
+import { getOpenClawSkillsBrief, type OpenClawSkillId } from "@/lib/openclaw-skills";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Legend
 } from "recharts";
-
-const INTEGRATED_EVIDENCE_SKILLS = getIntegratedSkills().filter(s => ["literature-review", "literature-deep-research", "clinical-trials-database", "scientific-writing"].includes(s.id));
 
 const SR_DATABASES = [
   "PubMed", "OpenAlex", "Europe PMC", "Google Scholar",
@@ -728,7 +726,7 @@ Domain-level traffic-light plots are available in the reporting step.
       { pattern: /^(#+\s*)?(2\.\s*)?(global\s*&\s*indian\s*situation|global\s*indian\s*situation|global\s+indian|global\s+situation|problem\s+statement)$/i, key: "globalIndian" },
       { pattern: /^(#+\s*)?(3\.\s*)?(research\s*gaps|research\s*gaps\s*\/\s*limitations|gaps\s*\/\s*limitations|gaps|limitations)$/i, key: "gaps" },
       { pattern: /^(#+\s*)?(4\.\s*)?(advice\s*for\s*future\s*research|future\s*research\s*advice|future\s*advice|future\s+studies\s+to\s+be\s+carried\s+out)$/i, key: "futureAdvice" },
-      { pattern: /^(#+\s*)?(5\.\s*)?(summary|summary\s+of\s+all\s+studies|conclusion)$/i, key: "summary" },
+      { pattern: /^(#+\s*)?(5\.\s*)?(summary|summary\s+of\s+all\s+studies)$/i, key: "summary" },
       { pattern: /^(#+\s*)?(6\.\s*)?(references|bibliography)$/i, key: "references" },
     ];
 
@@ -819,9 +817,11 @@ ${selectedPapers.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. 
         ? `PLAN (follow this outline exactly):\n${planLines.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n`
         : "";
 
-      const prompt = `You are an expert academic writer using OpenClaw Medical Skills (FreedomIntelligence/OpenClaw-Medical-Skills) — specifically the literature-review skill for systematic review methodology, the scientific-writing skill for IMRAD structure and reporting guidelines (PRISMA, CONSORT, STROBE), and the clinical-decision-support skill for GRADE evidence grading.
+      const openClawLiteratureBrief = getOpenClawSkillsBrief(["literature-review", "scientific-writing"]);
 
-TASK: Write a comprehensive, publication-ready narrative literature review based ONLY on the selected studies provided below, using thematic synthesis (NOT study-by-study summaries).
+      const prompt = `${openClawLiteratureBrief}
+
+TASK: Write a comprehensive, publication-ready narrative literature review based ONLY on the selected studies provided below, using thematic synthesis (NOT study-by-study summaries) and following the OpenClaw Medical Skills methodology above.
 
 REVIEW METHODOLOGY (OpenClaw Medical Skills framework):
 - Phase 1 — Planning/Scoping: Use PICO framework. State inclusion/exclusion criteria. Document search strategy.
@@ -877,8 +877,7 @@ References
 At the end, include a References section with all papers in Vancouver style:
 1. Author(s) (Year). Title. Journal. doi:DOI`;
 
-      const apiKeyForCall = state.geminiApiKey || state.groqApiKey;
-      if (!apiKeyForCall) {
+      if (!apiKey) {
         setLiteratureReviewSections({
           introduction: "No API key configured. Please add your Gemini or Groq API key in Settings to generate the literature review.",
           globalIndian: "",
@@ -966,7 +965,11 @@ At the end, include a References section with all papers in Vancouver style:
           notes: robAssessments[p.id]?.notes || "",
         }));
 
-      const prompt = `You are an expert evidence synthesis researcher using methods from the OpenClaw Medical Skills library (FreedomIntelligence/OpenClaw-Medical-Skills), specifically the literature-review, scientific-writing, and clinical-decision-support skills, combined with the awesome-evidence-synthesis toolkit (metafor, meta, metaumbrella, robvis, PRISMA 2020).
+      const openClawBrief = getOpenClawSkillsBrief(["literature-review", "scientific-writing", "clinical-decision-support"]);
+
+      const prompt = `${openClawBrief}
+
+You are an expert evidence synthesis researcher using the above OpenClaw Medical Skills methodology, combined with the awesome-evidence-synthesis toolkit (metafor, meta, metaumbrella, robvis, PRISMA 2020).
 
 REVIEW TYPE: ${reviewType}
 
@@ -1048,15 +1051,10 @@ Databases searched, search strings, date range
         return;
       }
 
-      let text: string;
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
-      if (state.geminiApiKey) {
-        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
-      } else if (state.groqApiKey) {
-        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
-      } else {
-        throw new Error("No API key configured. Please open Settings (gear icon).");
-      }
+      const text: string = state.geminiApiKey
+        ? await callGemini(state.geminiApiKey, prompt, searchOptions)
+        : await callGroq(state.groqApiKey!, prompt, searchOptions);
 
       const cleaned = text.replace(/```markdown/g, "").replace(/```/g, "").trim();
       setSynthesisOutput(cleaned);
@@ -1098,46 +1096,48 @@ Databases searched, search strings, date range
     }
     setManuscriptLoading(true);
     setManuscript("");
+    const papersForSynthesis = getPapersForReview();
+    const template = getRobToolTemplate();
+    const robLabel = template ? template.label : robTool;
+    const isMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
+    const yearMin = papersForSynthesis.length ? Math.min(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
+    const yearMax = papersForSynthesis.length ? Math.max(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
+    const studyTypes = Array.from(new Set(papersForSynthesis.map((p) => p.studyType))).filter(Boolean);
+    const databases = Array.from(new Set(papersForSynthesis.map((p) => p.database))).filter(Boolean);
+    const totalRecords = papers.length;
+    const deduped = prismaCounts.deduped;
+    const screened = prismaCounts.screened;
+    const excluded = prismaCounts.excluded;
+      const included = papersForSynthesis.length;
+
+    const robSummary = papersForSynthesis.reduce(
+      (acc: { low: number; some: number; high: number; pending: number }, row) => {
+        const a = robAssessments[row.id];
+        if (!a) return acc;
+        const jl = a.overall.toLowerCase();
+        if (jl.includes("low") && !jl.includes("high")) acc.low += 1;
+        else if (jl.includes("some concerns") || jl.includes("moderate") || jl.includes("unclear") || jl.includes("serious") && !jl.includes("critical")) acc.some += 1;
+        else if (jl.includes("high") || jl.includes("critical") || jl.includes("very high")) acc.high += 1;
+        else acc.pending += 1;
+        return acc;
+      },
+      { low: 0, some: 0, high: 0, pending: 0 }
+    );
+
+    const reviewTypeLabel = reviewType;
+    const topic = query || "the research topic";
+
     try {
-      const papersForSynthesis = getPapersForReview();
-      const template = getRobToolTemplate();
-      const robLabel = template ? template.label : robTool;
-      const isMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
-      const yearMin = papersForSynthesis.length ? Math.min(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
-      const yearMax = papersForSynthesis.length ? Math.max(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
-      const studyTypes = Array.from(new Set(papersForSynthesis.map((p) => p.studyType))).filter(Boolean);
-      const databases = Array.from(new Set(papersForSynthesis.map((p) => p.database))).filter(Boolean);
-      const totalRecords = papers.length;
-      const deduped = prismaCounts.deduped;
-      const screened = prismaCounts.screened;
-      const excluded = prismaCounts.excluded;
-      const included = prismaCounts.included;
-
-      const robSummary = papersForSynthesis.reduce(
-        (acc: { low: number; some: number; high: number; pending: number }, row) => {
-          const a = robAssessments[row.id];
-          if (!a) return acc;
-          const jl = a.overall.toLowerCase();
-          if (jl.includes("low") && !jl.includes("high")) acc.low += 1;
-          else if (jl.includes("some concerns") || jl.includes("moderate") || jl.includes("unclear") || jl.includes("serious") && !jl.includes("critical")) acc.some += 1;
-          else if (jl.includes("high") || jl.includes("critical") || jl.includes("very high")) acc.high += 1;
-          else acc.pending += 1;
-          return acc;
-        },
-        { low: 0, some: 0, high: 0, pending: 0 }
-      );
-
-      const reviewTypeLabel = reviewType;
-      const topic = query || "the research topic";
-
       const apiKey = state.geminiApiKey || state.groqApiKey;
 
       if (apiKey) {
-        const outlinePrompt = `You are an expert scientific writer using the OpenClaw Medical Skills library (FreedomIntelligence/OpenClaw-Medical-Skills), specifically the scientific-writing skill for IMRAD structure and PRISMA/CONSORT/STROBE reporting guidelines, plus the clinical-decision-support skill for GRADE evidence grading and forest plots.
+        const openClawManuscriptBrief = getOpenClawSkillsBrief(["literature-review", "scientific-writing", "clinical-decision-support"]);
+
+      const outlinePrompt = `${openClawManuscriptBrief}
 
 REVIEW TYPE: ${reviewType}
 
-TASK: Create a DETAILED SECTION OUTLINE for a scientific manuscript using OpenClaw Medical Skills methodology. The outline will later be converted to full paragraphs (never bullet points in final manuscript — use full prose).
+TASK: Create a DETAILED SECTION OUTLINE for a scientific manuscript using the OpenClaw Medical Skills methodology above. The outline will later be converted to full paragraphs (never bullet points in final manuscript — use full prose).
 
 REQUIRED STRUCTURE (use exactly these headings):
 - Abstract (structured: Background, Methods, Results, Discussion, Keywords)
@@ -1178,7 +1178,7 @@ OUTPUT FORMAT: Markdown with section headings and bullet points.`;
           ? await callGemini(state.geminiApiKey, outlinePrompt, outlineSearchOptions)
           : await callGroq(state.groqApiKey!, outlinePrompt, outlineSearchOptions);
 
-        const manuscriptPrompt = `You are an expert scientific writer using the OpenClaw Scientific Research & Writing skill (FreedomIntelligence/OpenClaw-Medical-Skills).
+        const manuscriptPrompt = `${openClawManuscriptBrief}
 
 CRITICAL RULES:
 - Write EVERYTHING in full paragraphs with flowing prose. Never use bullet points in the final manuscript.
@@ -1236,7 +1236,30 @@ Generate the full manuscript now.`;
         setManuscript(localManuscript);
       }
     } catch (err: any) {
-      setManuscript(`# Error\n\n**Failed to generate manuscript:** ${err.message || "Unknown error"}\n\nPlease complete Steps 1–5 and try again. If using AI-generated mode, ensure your API key is valid.`);
+      const fallback = `# Error\n\n**Failed to generate manuscript:** ${err.message || "Unknown error"}\n\nFalling back to local manuscript builder.\n\n`;
+      setManuscript(fallback + buildLocalManuscript({
+        reviewType,
+        reviewTypeLabel,
+        topic,
+        papersForSynthesis,
+        robLabel,
+        isMeta,
+        yearMin,
+        yearMax,
+        studyTypes,
+        databases,
+        totalRecords,
+        deduped,
+        screened,
+        excluded,
+        included,
+        robSummary,
+        metaforResult,
+        synthesisOutput,
+        effectSizes,
+        query,
+        selectedDbs,
+      }));
     } finally {
       setManuscriptLoading(false);
     }
@@ -1447,7 +1470,7 @@ ${referencesList}
     screened: selectedPaperIds.size,
     excluded: Math.max(0, selectedPaperIds.size - extractedData.length),
     assessed: extractedData.length,
-    included: effectSizes.length || extractedData.length,
+    included: extractedData.length,
   };
 
   const downloadPrismaCsv = () => {
@@ -1461,7 +1484,7 @@ ${referencesList}
       ["Excluded (Records excluded after screening)", prismaCounts.excluded, "—", `Reason: not meeting inclusion criteria (${prismaCounts.excluded})`],
       ["Reports assessed for eligibility", prismaCounts.assessed, "—", "Full-text assessment"],
       ["Excluded (Reports excluded after eligibility)", Math.max(0, prismaCounts.assessed - effectSizes.length), "—", "Not meeting final inclusion criteria"],
-      ["Studies included in qualitative synthesis (${reviewType})", prismaCounts.included, "—", `${extractedData.length} studies`],
+      [`Studies included in qualitative synthesis (${reviewType})`, prismaCounts.included, "—", `${extractedData.length} studies`],
       ...(reviewType.includes("Meta-analysis") || reviewType.includes("Meta")
         ? [["Studies included in quantitative synthesis (meta-analysis)", effectSizes.length || extractedData.length, "—", `Tool: metafor / meta / forestplot`]]
         : [["Studies included in narrative synthesis", prismaCounts.included, "—", `${extractedData.length} studies`]]),
