@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
-import { fetchRealPapers, type Paper, validateDoiViaCrossref } from "@/lib/database-apis";
+import { fetchRealPapers, fetchRealPapersWithCounts, type Paper, validateDoiViaCrossref } from "@/lib/database-apis";
 import { downloadLiteratureReviewPDF, downloadLiteratureReviewWord } from "@/lib/exporters";
 import { parseEffectSizeRow, fixedEffectsMetaAnalysis, randomEffectsMetaAnalysis, type MetaforResult, type EffectSizeRow } from "@/lib/metafor-compute";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
@@ -249,6 +249,7 @@ export default function EvidenceSynthesisTab() {
   const [publicationBiasNote, setPublicationBiasNote] = useState("");
   const [sensitivityNote, setSensitivityNote] = useState("");
   const [isDiagnosticReview, setIsDiagnosticReview] = useState(false);
+  const [dedupCount, setDedupCount] = useState(0);
 
   const reviewPapersForStep4 = robSelectedPaperIds.size > 0
     ? papers.filter((p) => robSelectedPaperIds.has(p.id))
@@ -285,12 +286,15 @@ export default function EvidenceSynthesisTab() {
     setLoading(true);
     setPapers([]);
     setSelectedPaperIds(new Set());
+    setDedupCount(0);
     try {
-      const results = await fetchRealPapers(query, selectedDbs, yearFrom, yearTo, studyTypeFilter === "All Study Types" ? undefined : studyTypeFilter);
+      const { papers: results, dedupedCount } = await fetchRealPapersWithCounts(query, selectedDbs, yearFrom, yearTo, studyTypeFilter === "All Study Types" ? undefined : studyTypeFilter);
       setPapers(results);
+      setDedupCount(dedupedCount);
     } catch (err) {
       console.error("Search failed:", err);
       setPapers([]);
+      setDedupCount(0);
       alert("Search failed. Please try again or check your network connection.");
     } finally {
       setLoading(false);
@@ -1053,7 +1057,7 @@ Using **${robLabel}** (robvis), the overall distribution of risk-of-bias judgmen
       robToolName: robLabel,
       effectSizes,
       metaforResult,
-      synthesisExcerpt: synthesisOutput || "Narrative synthesis was generated from extracted data using the local awesome-evidence-synthesis workflow, incorporating study-level findings, thematic analysis, and GRADE-informed certainty assessment.",
+      synthesisExcerpt: synthesisOutput || "Narrative synthesis was generated from extracted data using the local awesome-evidence-synthesis workflow, incorporating study-level findings, thematic analysis, and robvis risk-of-bias assessment. GRADE certainty assessment should be completed separately before submission.",
       generatedDate: today,
       screeningMethod: "Title/abstract and full-text screening aligned with prismAId protocol-based methodology (Open-and-Sustainable/prismAId).",
       extractionMethod: "Structured data extraction aligned with meta-pipe stage 05_extraction and prismAId review-extraction methodology.",
@@ -1630,7 +1634,7 @@ Generate the full manuscript now.`;
       : `The present ${reviewTypeLabel.toLowerCase()} employed a structured evidence-synthesis methodology. The approach combined systematic database searching, duplicate screening, and structured data extraction. Risk-of-bias assessment was conducted using ${robLabel}, and findings were synthesized narratively following awesome-evidence-synthesis guidance. This design emphasizes transparent reproducibility, PRISMA 2020-aligned reporting, and thematic mapping of the evidence base.`;
 
     const resultsOverview = papersForSynthesis.length > 0
-      ? `The evidence base comprised ${papersForSynthesis.length} studies (${yearMin}–${yearMax}) encompassing ${studyTypes.join(", ").toLowerCase() || "mixed study designs"}. Pooled or narrative findings indicate a meaningful direction of effect for the outcome of interest. Heterogeneity was assessed via I² and $\tau^2$; ${robSummary.high} studies were rated at high risk of bias. The overall certainty of evidence was rated as moderate following GRADE criteria, primarily downgraded for risk of bias and inconsistency.`
+      ? `The evidence base comprised ${papersForSynthesis.length} studies (${yearMin}–${yearMax}) encompassing ${studyTypes.join(", ").toLowerCase() || "mixed study designs"}. Pooled or narrative findings indicate a meaningful direction of effect for the outcome of interest. Heterogeneity was assessed via I² and $\tau^2$; ${robSummary.high} studies were rated at high risk of bias. The overall certainty of evidence should be formally assessed using GRADE; based on risk of bias and inconsistency alone, certainty may be downgraded.`
       : "No studies met the inclusion criteria.";
 
     const discussionImplications = isMeta
@@ -1736,7 +1740,7 @@ ${resultsOverview}
 
 ### 4.2 Interpretation
 
-${discussionImplications} The present review extends prior work by integrating robvis-domain-level bias judgments with ${isMeta ? "random-effects meta-analytic pooling, enabling transparent quantification of both within-study bias and between-study heterogeneity." : "narrative thematic mapping."} ${metaforResult ? `Statistical heterogeneity (I² = ${metaforResult.I2.toFixed(1)}%, τ² = ${metaforResult.tau2.toFixed(4)}) informed subgroup analyses.` : isMeta ? "Statistical heterogeneity informed subgroup analyses." : "Thematic mapping revealed consistent patterns across study designs."} The GRADE assessment rated the certainty of evidence as moderate, primarily downgraded for risk of bias and inconsistency.
+${discussionImplications} The present review extends prior work by integrating robvis-domain-level bias judgments with ${isMeta ? "random-effects meta-analytic pooling, enabling transparent quantification of both within-study bias and between-study heterogeneity." : "narrative thematic mapping."} ${metaforResult ? `Statistical heterogeneity (I² = ${metaforResult.I2.toFixed(1)}%, τ² = ${metaforResult.tau2.toFixed(4)}) informed subgroup analyses.` : isMeta ? "Statistical heterogeneity informed subgroup analyses." : "Thematic mapping revealed consistent patterns across study designs."} The risk-of-bias profile should be interpreted together with a formal GRADE assessment; formal GRADE rating is pending and should be completed prior to guideline submission.
 
 ### 4.3 Limitations
 
@@ -1773,8 +1777,8 @@ ${referencesList}
   };
 
   const prismaCounts = {
-    identification: papers.length,
-    deduped: Math.max(papers.length - Math.floor(papers.length * 0.15), selectedPaperIds.size + Math.floor(selectedPaperIds.size * 0.1)),
+    identification: papers.length + dedupCount,
+    deduped: papers.length,
     screened: selectedPaperIds.size,
     excluded: Math.max(0, selectedPaperIds.size - extractedData.length),
     assessed: extractedData.length,

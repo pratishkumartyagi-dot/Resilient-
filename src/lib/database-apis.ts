@@ -399,7 +399,9 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
     })
   );
 
+  const totalBeforeDedup = allPapers.length;
   const deduped = deduplicatePapers(allPapers);
+  const dedupedCount = totalBeforeDedup - deduped.length;
 
   const enriched = await enrichPapersWithDois(deduped);
 
@@ -408,6 +410,65 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
   }
 
   return enriched;
+}
+
+export interface FetchRealPapersResult {
+  papers: Paper[];
+  dedupedCount: number;
+}
+
+export async function fetchRealPapersWithCounts(query: string, databases: string[], yearFrom?: string, yearTo?: string, studyType?: string): Promise<FetchRealPapersResult> {
+  const allPapers: Paper[] = [];
+
+  const apiDatabases: Record<string, () => Promise<Paper[]>> = {
+    "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
+    "PubMed": () => fetchPubMed(query, yearFrom, yearTo, studyType),
+    "Europe PMC": () => fetchEuropePMC(query, yearFrom, yearTo, studyType),
+    "ERIC": () => fetchEuropePMC(`education ${query}`, yearFrom, yearTo, studyType),
+    "Google Scholar": () => fetchOpenAlex(`scholar ${query}`, yearFrom, yearTo, studyType),
+    "Shodhganga": () => fetchOpenAlex(`thesis ${query}`, yearFrom, yearTo, studyType, ["type:dissertation", "authorships.institutions.country_code:IN"]),
+    "CTRI – India": () => fetchEuropePMC(`clinical trial India ${query}`, yearFrom, yearTo, studyType),
+    "scite.ai": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
+    "WHO IRIS": () => fetchEuropePMC(`WHO ${query}`, yearFrom, yearTo, studyType),
+    "Semantic Scholar": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
+    "ClinicalTrials.gov": () => fetchEuropePMC(`clinical trial ${query}`, yearFrom, yearTo, studyType),
+    "DOAJ": () => fetchOpenAlex(`open access ${query}`, yearFrom, yearTo, studyType),
+    "Prospero": () => fetchEuropePMC(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
+    "ScienceDirect": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
+    "Clarivate": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
+  };
+
+  const selectedApis = databases.filter((db) => apiDatabases[db]);
+
+  await Promise.allSettled(
+    selectedApis.map(async (db) => {
+      try {
+        const fetchFn = apiDatabases[db];
+        if (!fetchFn) return;
+        const papers = await fetchFn();
+        papers.forEach((p) => {
+          p.database = db;
+          p.sourceBackend = getDatabaseBackend(db);
+          p.sources = [db];
+        });
+        allPapers.push(...papers);
+      } catch (err) {
+        console.warn(`[${db}] fetch failed:`, err);
+      }
+    })
+  );
+
+  const totalBeforeDedup = allPapers.length;
+  const deduped = deduplicatePapers(allPapers);
+  const dedupedCount = totalBeforeDedup - deduped.length;
+
+  const enriched = await enrichPapersWithDois(deduped);
+
+  if (enriched.length === 0) {
+    throw new Error(`No papers found across ${databases.length} selected databases. Try broadening your query or selecting more databases.`);
+  }
+
+  return { papers: enriched, dedupedCount };
 }
 
 function getDatabaseBackend(uiDatabase: string): string {
