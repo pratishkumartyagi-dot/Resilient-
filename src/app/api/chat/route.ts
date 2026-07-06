@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { provider, prompt, apiKey, test = false, searchQuery, searchEnabled = false } = body as {
-      provider: "gemini" | "groq" | "openrouter";
+      provider: "gemini" | "groq";
       prompt: string;
       apiKey: string;
       test?: boolean;
@@ -118,33 +118,6 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Groq returned empty content" }, { status: 502 });
       }
       return NextResponse.json({ content: groqContent, searchPerformed });
-    }
-
-    if (provider === "openrouter") {
-      const model = "openrouter/perplexity/sonar-pro-search";
-      const openRouterRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model,
-          messages: [{ role: "user", content: finalPrompt }],
-        }),
-      });
-
-      if (!openRouterRes.ok) {
-        const text = await openRouterRes.text();
-        return NextResponse.json({ error: `OpenRouter API error: ${openRouterRes.status} — ${text}` }, { status: openRouterRes.status });
-      }
-
-      const openRouterData = await openRouterRes.json();
-      const openRouterContent = openRouterData?.choices?.[0]?.message?.content;
-      if (!openRouterContent) {
-        return NextResponse.json({ error: "OpenRouter returned empty content" }, { status: 502 });
-      }
-      return NextResponse.json({ content: openRouterContent, searchPerformed: true });
     }
 
     return NextResponse.json({ error: `Unsupported provider: ${provider}` }, { status: 400 });

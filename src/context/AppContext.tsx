@@ -13,8 +13,6 @@ export interface Paper {
   database: string;
   studyType: string;
   selected: boolean;
-  url?: string;
-  pmid?: string;
 }
 
 export interface SynthesisRow {
@@ -111,14 +109,11 @@ export interface AppState {
   selectedDatabases: string[];
   geminiApiKey: string;
   groqApiKey: string;
-  openRouterApiKey: string;
   srStudyTypeCategory: "systematic" | "meta" | null;
   dedupPapers: Paper[];
   filteredPapers: Paper[];
-  citationValidationResults: Record<string, { valid: boolean; title?: string; message: string; source?: string; bibtex?: string }>;
+  citationValidationResults: Record<string, { valid: boolean; title?: string; message: string }>;
   citationValidationStatus: "idle" | "running" | "done";
-  meshExpansion: { originalQuery: string; meshTerms: string[]; expandedQueries: string[]; booleanQuery: string; method: "ai" | "local" | "none" } | null;
-  meshExpansionStatus: "idle" | "running" | "done";
   omicsEnabled: boolean;
   predictionStep: number;
   predictionAim: string;
@@ -177,7 +172,6 @@ type Action =
   | { type: "SET_SELECTED_PAPERS"; payload: Paper[] }
   | { type: "SET_GEMINI_KEY"; payload: string }
   | { type: "SET_GROQ_KEY"; payload: string }
-  | { type: "SET_OPENROUTER_KEY"; payload: string }
   | { type: "SET_SYSTEMATIC_STEP"; payload: number }
   | { type: "SET_SR_CATEGORY"; payload: "systematic" | "meta" | null }
   | { type: "SET_DEDUP_PAPERS"; payload: any[] }
@@ -208,8 +202,6 @@ type Action =
   | { type: "SET_PREDICTION_REPORT_NOTES"; payload: string }
   | { type: "SET_PREDICTION_CAPTUM_ENABLED"; payload: boolean }
   | { type: "SET_PREDICTION_CAPTUM_RESULTS"; payload: string }
-  | { type: "SET_MESH_EXPANSION"; payload: { originalQuery: string; meshTerms: string[]; expandedQueries: string[]; booleanQuery: string; method: "ai" | "local" | "none" } | null }
-  | { type: "SET_MESH_EXPANSION_STATUS"; payload: "idle" | "running" | "done" }
   | { type: "RESET_STATE" };
 
 const initialState: AppState = {
@@ -275,7 +267,6 @@ const initialState: AppState = {
   ],
   geminiApiKey: "",
   groqApiKey: "",
-  openRouterApiKey: "",
   srStudyTypeCategory: null,
   dedupPapers: [],
   filteredPapers: [],
@@ -304,8 +295,6 @@ const initialState: AppState = {
   predictionReportNotes: "",
   predictionCaptumEnabled: false,
   predictionCaptumResults: "",
-  meshExpansion: null,
-  meshExpansionStatus: "idle",
 };
 
 function appReducer(state: AppState, action: Action): AppState {
@@ -429,8 +418,6 @@ function appReducer(state: AppState, action: Action): AppState {
       return { ...state, geminiApiKey: action.payload };
     case "SET_GROQ_KEY":
       return { ...state, groqApiKey: action.payload };
-    case "SET_OPENROUTER_KEY":
-      return { ...state, openRouterApiKey: action.payload };
     case "SET_SYSTEMATIC_STEP":
       return { ...state, systematicStep: action.payload };
     case "SET_SR_CATEGORY":
@@ -489,10 +476,6 @@ function appReducer(state: AppState, action: Action): AppState {
       return { ...state, predictionCaptumEnabled: action.payload };
     case "SET_PREDICTION_CAPTUM_RESULTS":
       return { ...state, predictionCaptumResults: action.payload };
-    case "SET_MESH_EXPANSION":
-      return { ...state, meshExpansion: action.payload };
-    case "SET_MESH_EXPANSION_STATUS":
-      return { ...state, meshExpansionStatus: action.payload };
     case "RESET_STATE":
       return { ...initialState };
     default:

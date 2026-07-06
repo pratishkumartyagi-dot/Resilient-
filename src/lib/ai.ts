@@ -10,7 +10,7 @@ export interface AICallOptions {
   searchEnabled?: boolean;
 }
 
-async function postChat(provider: "gemini" | "groq" | "openrouter", apiKey: string, prompt: string, options?: AICallOptions): Promise<{ content: string; searchPerformed: boolean }> {
+async function postChat(provider: "gemini" | "groq", apiKey: string, prompt: string, options?: AICallOptions): Promise<{ content: string; searchPerformed: boolean }> {
   const res = await withTimeout(fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -35,11 +35,6 @@ export async function callGroq(apiKey: string, prompt: string, options?: AICallO
   return result.content;
 }
 
-export async function callOpenRouter(apiKey: string, prompt: string, options?: AICallOptions): Promise<string> {
-  const result = await postChat("openrouter", apiKey, prompt, options);
-  return result.content;
-}
-
 export async function testGeminiKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
   try {
     await callGemini(apiKey, "Hello, this is a test message. Please respond with OK.");
@@ -52,15 +47,6 @@ export async function testGeminiKey(apiKey: string): Promise<{ ok: boolean; erro
 export async function testGroqKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
   try {
     await callGroq(apiKey, "Hello, this is a test message. Please respond with OK.");
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Unknown error" };
-  }
-}
-
-export async function testOpenRouterKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
-  try {
-    await callOpenRouter(apiKey, "Hello, this is a test message. Please respond with OK.");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error" };

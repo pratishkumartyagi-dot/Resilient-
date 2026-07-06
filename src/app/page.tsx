@@ -26,9 +26,9 @@ const AutoPrognosisTab = dynamic(() => import("@/components/tabs/AutoPrognosisTa
 const EvidenceSynthesisTab = dynamic(() => import("@/components/tabs/EvidenceSynthesisTab"), { ssr: false });
 const PaperWriterTab = dynamic(() => import("@/components/tabs/PaperWriterTab"), { ssr: false });
 const ProtocolChatTab = dynamic(() => import("@/components/tabs/ProtocolChatTab"), { ssr: false });
+const AutomaticEvidenceSynthesisTab = dynamic(() => import("@/components/tabs/AutomaticEvidenceSynthesisTab"), { ssr: false });
 const GrantWritingTab = dynamic(() => import("@/components/tabs/GrantWritingTab"), { ssr: false });
 const OmicsBioinformaticsTab = dynamic(() => import("@/components/tabs/OmicsBioinformaticsTab"), { ssr: false });
-const QualitativeAnalysisTab = dynamic(() => import("@/components/tabs/QualitativeAnalysisTab"), { ssr: false });
 
 import SettingsModal from "@/components/SettingsModal";
 
@@ -58,15 +58,14 @@ function AppContent() {
       case "omics": return <OmicsBioinformaticsTab />;
       case "chat": return <ResilientChatTab />;
       case "stats": return <StatisticalAnalysisTab />;
-      case "qualitative": return <QualitativeAnalysisTab />;
       case "samplesize": return <SampleSizeTab />;
       case "predictive": return <PredictiveAnalysisTab />;
       case "autoprognosis": return <AutoPrognosisTab />;
       case "systematic": return <EvidenceSynthesisTab />;
       case "paperwriter": return <PaperWriterTab />;
       case "protocol": return <ProtocolChatTab />;
-      case "grantwriting": return <GrantWritingTab />;
-      default: return <StepNavigator>{renderMainPipeline()}</StepNavigator>;
+      case "auto_evidence": return <AutomaticEvidenceSynthesisTab />;
+      default: return <GrantWritingTab />;
     }
   };
 

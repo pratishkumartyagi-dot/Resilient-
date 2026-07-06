@@ -2,21 +2,20 @@
 
 import React, { useMemo } from "react";
 import { useApp } from "@/context/AppContext";
-import { FlaskConical as FlaskConicalIcon, Dna, MessageSquare, BarChart3, Sigma, FileText, PenLine, ScrollText, Sparkles, BookOpen, FileSignature, MicVocal } from "lucide-react";
+import { FlaskConical as FlaskConicalIcon, Dna, MessageSquare, BarChart3, Sigma, FileText, PenLine, ScrollText, Sparkles, BookOpen } from "lucide-react";
 
 const MAIN_TABS = [
   { id: "main", label: "Research Pipeline", icon: FlaskConicalIcon },
   { id: "omics", label: "Omics & Bioinformatics", icon: Dna },
   { id: "chat", label: "Resilient Chat", icon: MessageSquare },
   { id: "stats", label: "Statistical Analysis", icon: BarChart3 },
-  { id: "qualitative", label: "Qualitative Analysis", icon: MicVocal },
   { id: "samplesize", label: "Sample Size Calculator", icon: Sigma },
   { id: "predictive", label: "Predictive Analysis", icon: BarChart3 },
   { id: "autoprognosis", label: "AutoPrognosis", icon: Sparkles },
   { id: "systematic", label: "Evidence Synthesis & Meta-analysis", icon: FileText },
   { id: "paperwriter", label: "Paper Writer & Reviewer", icon: PenLine },
   { id: "protocol", label: "Protocol Generator", icon: ScrollText },
-  { id: "grantwriting", label: "Grant Writing", icon: FileSignature },
+  { id: "auto_evidence", label: "Automatic Evidence Synthesis", icon: BookOpen },
 ];
 
 const TopTabs = () => {

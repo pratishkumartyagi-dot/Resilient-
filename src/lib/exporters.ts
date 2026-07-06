@@ -2,7 +2,6 @@ import { marked } from "marked";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType, ShadingType } from "docx";
 import ExcelJS from "exceljs";
 import PptxGenJS from "pptxgenjs";
-import markdownDocx from "markdown-docx";
 
 function extractText(tokens: any[]): string {
   return tokens.map((t) => t.text || "").join("");
@@ -32,7 +31,119 @@ function textRunsFromTokens(tokens: any[]): TextRun[] {
   return runs;
 }
 
-async function buildLiteratureReviewDocx(sections: Record<string, string>, title: string): Promise<any> {
+function tokensToElement(token: any, index: number): any {
+  if (token.type === "heading") {
+    const level = Math.min(token.depth, 6) as 1 | 2 | 3 | 4 | 5 | 6;
+    const runs = token.tokens ? textRunsFromTokens(token.tokens) : [new TextRun(token.text)];
+    return new Paragraph({
+      children: runs.length > 0 ? runs : [new TextRun(token.text || "")],
+      heading: HeadingLevel[`HEADING_${level}`],
+      spacing: { before: 300, after: 150 },
+    });
+  }
+  if (token.type === "paragraph") {
+    const runs = textRunsFromTokens(token.tokens || [{ type: "text", text: token.text }]);
+    return new Paragraph({
+      children: runs.length > 0 ? runs : [new TextRun(token.text || "")],
+      spacing: { after: 100, line: 360 },
+    });
+  }
+  if (token.type === "list") {
+    const items: any[] = [];
+    for (const item of token.items) {
+      const runs = textRunsFromTokens(item.tokens || [{ type: "text", text: item.text }]);
+      const text = runs.length > 0 ? runs : [new TextRun(item.text || "")];
+      if (token.ordered) {
+        items.push(
+          new Paragraph({
+            children: text,
+            numbering: { reference: "default-numbering", level: item.level || 0 },
+            spacing: { after: 60, line: 360 },
+          })
+        );
+      } else {
+        items.push(
+          new Paragraph({
+            children: text,
+            bullet: { level: item.level || 0 },
+            spacing: { after: 60, line: 360 },
+          })
+        );
+      }
+    }
+    return items;
+  }
+  if (token.type === "code") {
+    return new Paragraph({
+      text: token.text || "",
+      style: "Code",
+      spacing: { after: 100 },
+    });
+  }
+  if (token.type === "table") {
+    const headerCells = token.header.map((cell: any) => {
+      const cellRuns = textRunsFromTokens(cell.tokens || [{ type: "text", text: cell.text }]);
+      return new TableCell({
+        children: [new Paragraph({ children: [new TextRun({ text: extractText(cell.tokens || [{ type: "text", text: cell.text }]), bold: true, color: "FFFFFF" })] })],
+        shading: { type: ShadingType.SOLID, fill: "1e3a8a" },
+        width: { size: 100 / token.header.length, type: WidthType.PERCENTAGE },
+      });
+    });
+    const rows = [
+      new TableRow({
+        children: headerCells,
+        tableHeader: true,
+      }),
+    ];
+    for (const row of token.rows) {
+      const cells = row.map((cell: any) => {
+        const cellRuns = textRunsFromTokens(cell.tokens || [{ type: "text", text: cell.text }]);
+        return new TableCell({
+          children: [new Paragraph(cellRuns.length > 0 ? { children: cellRuns } : { text: cell.text || "" })],
+          width: { size: 100 / row.length, type: WidthType.PERCENTAGE },
+        });
+      });
+      rows.push(new TableRow({ children: cells }));
+    }
+    return new Table({
+      rows,
+      width: { size: 100, type: WidthType.PERCENTAGE },
+    });
+  }
+  if (token.type === "blockquote") {
+    const text = token.text || "";
+    const runs = token.tokens ? textRunsFromTokens(token.tokens) : [new TextRun(text)];
+    return new Paragraph({
+      children: runs.length > 0 ? runs : [new TextRun(text)],
+      indent: { left: 360 },
+      border: { left: { style: BorderStyle.SINGLE, size: 12, color: "1e3a8a" } },
+      spacing: { after: 100 },
+    });
+  }
+  if (token.type === "hr") {
+    return new Paragraph({
+      border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: "d9d9d9" } },
+      spacing: { after: 100 },
+    });
+  }
+  return null;
+}
+
+function tokensToDocxElements(tokens: any[]): any[] {
+  const elements: any[] = [];
+  for (const token of tokens) {
+    if (token.type === "space") continue;
+    const el = tokensToElement(token, elements.length);
+    if (Array.isArray(el)) {
+      elements.push(...el);
+    } else if (el) {
+      elements.push(el);
+    }
+  }
+  return elements;
+}
+
+function buildLiteratureReviewDocx(sections: Record<string, string>, title: string) {
   const sectionOrder = [
     "introduction",
     "problemGlobal",
@@ -45,28 +156,57 @@ async function buildLiteratureReviewDocx(sections: Record<string, string>, title
   ];
   const sectionLabels: Record<string, string> = {
     introduction: "Introduction / Background",
-    problemGlobal: "Problem Statement — Global",
-    problemSEA: "Problem Statement — South-East Asia",
-    problemIndia: "Problem Statement — India",
+    problemGlobal: "Problem Statement \u2014 Global",
+    problemSEA: "Problem Statement \u2014 South-East Asia",
+    problemIndia: "Problem Statement \u2014 India",
     gaps: "Research Gaps",
     future: "Future Studies to Be Carried Out",
     conclusion: "Conclusion",
     references: "References",
   };
 
-  let md = `# ${title}\n\n`;
+  const children: any[] = [
+    new Paragraph({
+      children: [new TextRun({ text: title, bold: true })],
+      heading: HeadingLevel.HEADING_1,
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 300 },
+    }),
+  ];
+
   for (const key of sectionOrder) {
     const content = sections[key] || "";
     if (!content.trim()) continue;
-    md += `## ${sectionLabels[key]}\n\n${content}\n\n`;
+    const tokens = marked.lexer(content);
+    children.push(
+      new Paragraph({
+        children: [new TextRun({ text: sectionLabels[key], bold: true })],
+        heading: HeadingLevel.HEADING_2,
+        spacing: { before: 400, after: 200 },
+      })
+    );
+    children.push(...tokensToDocxElements(tokens));
   }
 
-  return markdownDocx(md, {
-    theme: {
-      bodySize: 12,
-      lineSpacing: 1.5,
-      margin: "2cm",
+  return new Document({
+    styles: {
+      default: {
+        document: {
+          run: { font: "Calibri", size: 24 },
+          paragraph: { spacing: { after: 120, line: 360 } },
+        },
+      },
     },
+    sections: [
+      {
+        properties: {
+          page: {
+            margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
+          },
+        },
+        children,
+      },
+    ],
   });
 }
 
@@ -411,7 +551,7 @@ export function downloadLiteratureReviewPDF(sections: Record<string, string>, ti
 }
 
 export async function downloadLiteratureReviewWord(sections: Record<string, string>, fileName = "literature-review.docx") {
-  const doc = await buildLiteratureReviewDocx(sections, "Literature Review");
+  const doc = buildLiteratureReviewDocx(sections, "Literature Review");
   const buffer = await Packer.toBuffer(doc);
   const blob = new Blob([new Uint8Array(buffer)], {
     type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document;charset=utf-8;",
@@ -427,15 +567,34 @@ export async function downloadLiteratureReviewWord(sections: Record<string, stri
 }
 
 export async function downloadMarkdownAsWord(markdown: string, filename = "document.docx") {
-  const doc = await markdownDocx(markdown, {
-    theme: {
-      bodySize: 12,
-      lineSpacing: 1.5,
-      margin: "2cm",
+  const tokens = marked.lexer(markdown);
+  const elements = tokensToDocxElements(tokens);
+
+  const doc = new Document({
+    styles: {
+      default: {
+        document: {
+          run: { font: "Calibri", size: 24 },
+          paragraph: { spacing: { after: 120, line: 360 } },
+        },
+      },
     },
+    sections: [
+      {
+        properties: {
+          page: {
+            margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
+          },
+        },
+        children: elements,
+      },
+    ],
   });
 
-  const blob = await Packer.toBlob(doc);
+  const buffer = await Packer.toBuffer(doc);
+  const blob = new Blob([new Uint8Array(buffer)], {
+    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document;charset=utf-8;",
+  });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

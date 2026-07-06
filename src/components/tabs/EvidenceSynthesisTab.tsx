@@ -12,11 +12,13 @@ import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
 import { fetchRealPapers, generateMockLegacy, type Paper, validateDoiViaCrossref } from "@/lib/database-apis";
 import { downloadLiteratureReviewPDF, downloadLiteratureReviewWord } from "@/lib/exporters";
 import { parseEffectSizeRow, fixedEffectsMetaAnalysis, randomEffectsMetaAnalysis, type MetaforResult, type EffectSizeRow } from "@/lib/metafor-compute";
-import { getOpenClawSkillsBrief, type OpenClawSkillId } from "@/lib/openclaw-skills";
+import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Legend
 } from "recharts";
+
+const INTEGRATED_EVIDENCE_SKILLS = getIntegratedSkills().filter(s => ["literature-review", "literature-deep-research", "clinical-trials-database", "scientific-writing"].includes(s.id));
 
 const SR_DATABASES = [
   "PubMed", "OpenAlex", "Europe PMC", "Google Scholar",
@@ -548,7 +550,6 @@ export default function EvidenceSynthesisTab() {
         authors: p.authors,
         year: p.year,
         doi: p.doi,
-        database: p.database,
         studyType: p.studyType,
         population: "Extracted from abstract",
         intervention: "Extracted from abstract",
@@ -571,7 +572,7 @@ export default function EvidenceSynthesisTab() {
   };
 
   const generateLocalSynthesis = () => {
-    const papersForSynthesis = getPapersForReview();
+    const papersForSynthesis = extractedData.filter((p) => selectedPaperIds.has(p.id));
     const template = getRobToolTemplate();
     const robLabel = template ? template.label : robTool;
     const isMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
@@ -610,28 +611,11 @@ export default function EvidenceSynthesisTab() {
       ? `\n### Meta-analysis Interpretation\n\nPooled estimate (${metaforResult.model}-effects): μ = ${metaforResult.pooledEstimate.toFixed(3)} (95% CI ${metaforResult.ciLower.toFixed(3)}–${metaforResult.ciUpper.toFixed(3)}). Heterogeneity: I² = ${metaforResult.I2.toFixed(1)}%, τ² = ${metaforResult.tau2.toFixed(4)}, Q(${metaforResult.k - 1}) = ${metaforResult.Q.toFixed(2)}, p = ${metaforResult.Qp.toFixed(4)}. Prediction interval: ${metaforResult.predictionLower.toFixed(3)}–${metaforResult.predictionUpper.toFixed(3)}.`
       : `\n### Meta-analysis Interpretation\n\nEffect estimates should be pooled using a random-effects model. Expected direction of effect: see effect table above. Heterogeneity: ${heterogeneityNotes} Use **forestplot**, **meta**, **metafor**, or **OpenMEE** for publication-ready figures.\n\n**Reporting:** Export effect table to **PRISMA 2020**-compliant format.\n`;
 
-    return `## Evidence Synthesis
-**Review type:** ${reviewType}
-**Studies included:** ${papersForSynthesis.length}
-**Year range:** ${yearMin}–${yearMax}
-**Databases:** ${databases.join(", ") || "multiple"}
-**Methodology:** OpenClaw Medical Skills — literature-review (thematic synthesis, PRISMA 2020), scientific-writing (IMRAD, reporting guidelines), clinical-decision-support (GRADE evidence grading)
+    return `## Evidence Synthesis\n**Review type:** ${reviewType}\n**Studies included:** ${papersForSynthesis.length}\n**Year range:** ${yearMin}–${yearMax}\n**Databases:** ${databases.join(", ") || "multiple"}\n\n---
 
----
+${methodsBlock}\n\n---
 
-${methodsBlock}
-
----
-
-### PRISMA Flow Note
-
-Initial search → n=${papersForSynthesis.length} (plus broader search results) → Deduplication → Title screening → Abstract screening → Full-text screening → Included in review: ${papersForSynthesis.length} papers
-
-### Search Strategy
-
-Systematic search conducted across selected databases. Date range: ${yearMin}–${yearMax}. Search terms derived from research question using PICO framework.
-
-### Narrative Summary (Thematic Synthesis)
+### Narrative Summary
 
 The body of evidence comprises ${papersForSynthesis.length} ${studyTypes.join(", ").toLowerCase() || "studies"} examining ${query || "the review topic"}. ${papersForSynthesis.length > 5 ? "Across the included studies, consistent themes emerge regarding the intervention/exposure and its association with the primary outcome." : "Findings should be interpreted with caution given the small number of included studies."}
 
@@ -652,17 +636,9 @@ ${effectTable}
 ${metaBlockText}
 ---
 
-### Risk of Bias Commentary (GRADE / Cochrane ROB)
+### Risk of Bias Commentary
 
-Using **${robLabel}** (robvis), the overall distribution of risk-of-bias judgments across ${papersForSynthesis.length} studies is: Low ${robSummary.low}, Some/Moderate concerns ${robSummary.some}, High/Critical ${robSummary.high}, Pending ${robSummary.pending}.
-
-**Certainty of Evidence (GRADE):**
-- High: Further research is very unlikely to change our confidence in the estimate of effect.
-- Moderate: Further research is likely to have an important impact on our confidence in the estimate of effect.
-- Low: Further research is very likely to have an important impact on our confidence in the estimate of effect.
-- Very Low: The estimate of effect is very uncertain.
-
-Domain-level traffic-light plots are available in the reporting step.
+Using **${robLabel}** (robvis), the overall distribution of risk-of-bias judgments across ${papersForSynthesis.length} studies is: Low ${robSummary.low}, Some/Moderate concerns ${robSummary.some}, High/Critical ${robSummary.high}, Pending ${robSummary.pending}. ${robSummary.high > 0 ? "Studies at high risk of bias may overestimate effects; sensitivity analysis excluding these studies is recommended." : "No studies were rated at high risk of bias."} Domain-level traffic-light plots are available in the reporting step.
 
 ---
 
@@ -670,10 +646,10 @@ Domain-level traffic-light plots are available in the reporting step.
 
 - Unpublished or grey literature not searched in this run.
 - Subgroup analyses and meta-regression should be explored if heterogeneity is high.
+- Certainty of evidence (GRADE) should be formally assessed prior to guideline submission.
 - Sensitivity analysis excluding high-RoB studies recommended for robustness.
-- Certainty of evidence should be formally assessed using GRADE prior to guideline submission.
 
-> Generated locally using OpenClaw Medical Skills — awesome-evidence-synthesis open-source workflow standards. For meta-analysis statistics, export the effect table to **R (metafor/meta)**, **JASP**, or **OpenMEE**.
+> Generated locally using awesome-evidence-synthesis open-source workflow standards. For meta-analysis statistics, export the effect table to **R (metafor/meta)**, **JASP**, or **OpenMEE**.
 `;
   };
 
@@ -726,7 +702,7 @@ Domain-level traffic-light plots are available in the reporting step.
       { pattern: /^(#+\s*)?(2\.\s*)?(global\s*&\s*indian\s*situation|global\s*indian\s*situation|global\s+indian|global\s+situation|problem\s+statement)$/i, key: "globalIndian" },
       { pattern: /^(#+\s*)?(3\.\s*)?(research\s*gaps|research\s*gaps\s*\/\s*limitations|gaps\s*\/\s*limitations|gaps|limitations)$/i, key: "gaps" },
       { pattern: /^(#+\s*)?(4\.\s*)?(advice\s*for\s*future\s*research|future\s*research\s*advice|future\s*advice|future\s+studies\s+to\s+be\s+carried\s+out)$/i, key: "futureAdvice" },
-      { pattern: /^(#+\s*)?(5\.\s*)?(summary|summary\s+of\s+all\s+studies)$/i, key: "summary" },
+      { pattern: /^(#+\s*)?(5\.\s*)?(summary|summary\s+of\s+all\s+studies|conclusion)$/i, key: "summary" },
       { pattern: /^(#+\s*)?(6\.\s*)?(references|bibliography)$/i, key: "references" },
     ];
 
@@ -817,23 +793,7 @@ ${selectedPapers.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. 
         ? `PLAN (follow this outline exactly):\n${planLines.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n`
         : "";
 
-      const openClawLiteratureBrief = getOpenClawSkillsBrief(["literature-review", "scientific-writing"]);
-
-      const prompt = `${openClawLiteratureBrief}
-
-TASK: Write a comprehensive, publication-ready narrative literature review based ONLY on the selected studies provided below, using thematic synthesis (NOT study-by-study summaries) and following the OpenClaw Medical Skills methodology above.
-
-REVIEW METHODOLOGY (OpenClaw Medical Skills framework):
-- Phase 1 — Planning/Scoping: Use PICO framework. State inclusion/exclusion criteria. Document search strategy.
-- Phase 2 — Evidence Mapping: Map papers to themes. Assess quality using Cochrane RoB / Newcastle-Ottawa / AMSTAR 2.
-- Phase 3 — Thematic Synthesis: Group findings into 3-5 coherent themes. For each theme: summarize convergent findings, highlight divergent results, identify strongest evidence tier (T1 Mechanistic, T2 Functional, T3 Associational, T4 Mention).
-- Phase 4 — Feasible Reflection: Acknowledge contradictions. Distinguish evidence-limited claims. Identify knowledge gaps.
-
-REPORTING GUIDELINES:
-- Follow PRISMA 2020 for systematic reviews
-- Use GRADE for certainty of evidence (High/Moderate/Low/Very Low)
-- Vancouver-style citations with DOIs
-- Full paragraphs, never bullet points in the final manuscript
+      const prompt = `You are an expert academic writer using deep reasoning methodology. Write a comprehensive, publication-ready narrative literature review based ONLY on the selected studies provided below.
 
 Follow this exact structure and headings:
 - Introduction / Background
@@ -861,9 +821,7 @@ DEEP REASONING RULES:
 1. Think step-by-step before drafting each section.
 2. Explicitly acknowledge conflicting or limited evidence.
 3. Ensure global, South-East Asia, and India perspectives are all addressed where relevant.
-4. Grade every claim by evidence strength (T1/T2/T3/T4).
-5. Synthesize across studies within each theme — compare and contrast, do NOT list studies one by one.
-6. Use ONLY author-year inline citations (Author Year). Include a complete References section at the end.
+4. Use ONLY author-year inline citations (Author Year). Include a complete References section at the end.
 
 OUTPUT FORMAT:
 Use plain text with these exact headings on their own lines:
@@ -877,7 +835,8 @@ References
 At the end, include a References section with all papers in Vancouver style:
 1. Author(s) (Year). Title. Journal. doi:DOI`;
 
-      if (!apiKey) {
+      const apiKeyForCall = state.geminiApiKey || state.groqApiKey;
+      if (!apiKeyForCall) {
         setLiteratureReviewSections({
           introduction: "No API key configured. Please add your Gemini or Groq API key in Settings to generate the literature review.",
           globalIndian: "",
@@ -937,16 +896,6 @@ At the end, include a References section with all papers in Vancouver style:
     }
   };
 
-  const getPapersForReview = () => {
-    if (robSelectedPaperIds.size > 0) {
-      return extractedData.filter((p) => robSelectedPaperIds.has(p.id));
-    }
-    if (selectedPaperIds.size > 0) {
-      return extractedData.filter((p) => selectedPaperIds.has(p.id));
-    }
-    return [...extractedData];
-  };
-
   const generateSynthesis = async () => {
     if (extractedData.length === 0) {
       alert("Please complete data extraction first.");
@@ -955,7 +904,9 @@ At the end, include a References section with all papers in Vancouver style:
     setSynthesisLoading(true);
     setSynthesisOutput("");
     try {
-      const papersForSynthesis = getPapersForReview().map((p) => ({
+      const papersForSynthesis = extractedData
+        .filter((p) => selectedPaperIds.has(p.id))
+        .map((p) => ({
           title: p.title,
           authors: p.authors,
           year: p.year,
@@ -965,11 +916,7 @@ At the end, include a References section with all papers in Vancouver style:
           notes: robAssessments[p.id]?.notes || "",
         }));
 
-      const openClawBrief = getOpenClawSkillsBrief(["literature-review", "scientific-writing", "clinical-decision-support"]);
-
-      const prompt = `${openClawBrief}
-
-You are an expert evidence synthesis researcher using the above OpenClaw Medical Skills methodology, combined with the awesome-evidence-synthesis toolkit (metafor, meta, metaumbrella, robvis, PRISMA 2020).
+      const prompt = `You are an expert evidence synthesis researcher using methods from the awesome-evidence-synthesis toolkit (metafor, meta, metaumbrella, robvis, PRISMA 2020).
 
 REVIEW TYPE: ${reviewType}
 
@@ -982,59 +929,34 @@ ${synthesisInstructions || "Use standard systematic review methodology appropria
 EXTRACTED STUDIES:
 ${papersForSynthesis.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. Type: ${p.studyType}. Outcome: ${p.outcome}. RoB: ${p.ROB}.${p.notes ? ` Notes: ${p.notes}` : ""}`).join("\n\n")}
 
-OPENCLAW MEDICAL SKILLS — EVIDENCE GRADING FRAMEWORK:
-Grade every finding by evidence strength:
-- T1 (★★★) Mechanistic: in-target study with direct experimental evidence
-- T2 (★★☆) Functional: functional study showing role in pathway context  
-- T3 (★☆☆) Association: screen hit, GWAS association, correlation
-- T4 (☆☆☆) Mention: review mention, text-mined interaction, peripheral reference
-
-OPENCLAW MEDICAL SKILLS — SYSTEMATIC REVIEW WORKFLOW:
-Phase 1 — Planning/Scoping: Define PICO framework. State inclusion/exclusion criteria. Document search strategy (databases, date range, search strings).
-Phase 2 — Evidence Mapping: Map each paper to themes. Assess study quality using Cochrane RoB for RCTs, Newcastle-Ottawa for observational, AMSTAR 2 for reviews.
-Phase 3 — Thematic Synthesis: Group findings into coherent themes (NOT study-by-study summaries). For each theme: summarize convergent findings, highlight divergent results, identify strongest evidence tier.
-Phase 4 — Feasible Reflection: Acknowledge contradictions. Distinguish evidence-limited claims from well-supported claims. Identify knowledge gaps.
-
 REQUIREMENTS:
-1. Summarize the body of evidence thematically or narratively as appropriate for the review type (organize by themes, NOT by individual studies)
-2. Note heterogeneity (clinical, methodological, statistical) and assess using I², τ² where possible
+1. Summarize the body of evidence thematically or narratively as appropriate for the review type
+2. Note heterogeneity (clinical, methodological, statistical)
 3. Summarize effect sizes where available (or state if not extractable)
-4. Acknowledge risk-of-bias patterns using GRADE and Cochrane ROB frameworks
+4. Acknowledge risk-of-bias patterns
 5. Provide a forest-plot-ready effect-size table with columns: Study, Effect Estimate, 95% CI, Weight
-6. Include PRISMA-compliant narrative structure (for reviews where PRISMA applies): PRISMA flow note, search strategy, inclusion/exclusion criteria, quality assessment
-7. Reference tools and frameworks: metafor, meta, metaumbrella, robvis, forestplot, PRISMA 2020, GRADE, Cochrane ROB, CONSORT/STROBE as applicable
-${reviewType.includes("Meta-analysis") ? "8. Provide meta-analysis interpretation: fixed vs random effects, heterogeneity statistics (I², τ²), Q-test p-value, prediction interval, certainty of evidence using GRADE" : ""}
+6. Include PRISMA-compliant narrative structure (for reviews where PRISMA applies)
+7. Reference tools: metafor, meta, metaumbrella, robvis, forestplot, PRISMA 2020
+${reviewType.includes("Meta-analysis") ? "8. Provide meta-analysis interpretation: fixed vs random effects, heterogeneity statistics (I², τ²), certainty of evidence" : ""}
 
 OUTPUT FORMAT:
 ## Evidence Synthesis
 
-### Review Metadata
-- Review Type: ${reviewType}
-- Studies included: ${papersForSynthesis.length}
-- Year range: [derived from papers]
-- Databases: [derived from papers]
-
-### PRISMA Flow Note
-Initial search → [n] records → Deduplication → Title screening → Abstract screening → Full-text screening → Included in review: ${papersForSynthesis.length} papers
-
-### Search Strategy
-Databases searched, search strings, date range
-
 ### Narrative Summary
-[Thematic synthesis of findings organized by themes, not study-by-study. Grade each claim T1-T4.]
+[Thematic synthesis of findings]
 
 ### Effect Size Summary
 | Study | Effect Estimate | 95% CI | Weight |
 |-------|----------------|--------|--------|
 
 ### Risk of Bias Commentary
-[How RoB patterns affect confidence in evidence. Use GRADE certainty ratings: High/Moderate/Low/Very Low.]
+[How RoB patterns affect confidence in evidence]
 
 ### Meta-analysis Interpretation
-[Fixed vs random effects, heterogeneity, certainty — only if meta-analysis review type]
+[Fixed vs random effects, heterogeneity, certainty]
 
 ### Gaps and Future Directions
-[Remaining uncertainties, whitespace analysis]`;
+[Remaining uncertainties]`;
 
       const apiKey = state.geminiApiKey || state.groqApiKey;
       if (!apiKey) {
@@ -1051,10 +973,15 @@ Databases searched, search strings, date range
         return;
       }
 
+      let text: string;
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
-      const text: string = state.geminiApiKey
-        ? await callGemini(state.geminiApiKey, prompt, searchOptions)
-        : await callGroq(state.groqApiKey!, prompt, searchOptions);
+      if (state.geminiApiKey) {
+        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
+      } else if (state.groqApiKey) {
+        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
+      } else {
+        throw new Error("No API key configured. Please open Settings (gear icon).");
+      }
 
       const cleaned = text.replace(/```markdown/g, "").replace(/```/g, "").trim();
       setSynthesisOutput(cleaned);
@@ -1074,8 +1001,7 @@ Databases searched, search strings, date range
         if (rows.length > 0) setEffectSizes(rows);
       }
     } catch (err: any) {
-      const fallback = `## Evidence Synthesis\n\n**AI synthesis failed:** ${err.message || "Unknown error"}\n\nFalling back to local synthesis builder.\n\n`;
-      setSynthesisOutput(fallback + generateLocalSynthesis());
+      setSynthesisOutput(`## Evidence Synthesis\n\n**Error generating synthesis:** ${err.message || "Unknown error"}\n\nPlease try again, adjust your instructions, or use local synthesis (no API key required).`);
     } finally {
       setSynthesisLoading(false);
     }
@@ -1096,48 +1022,46 @@ Databases searched, search strings, date range
     }
     setManuscriptLoading(true);
     setManuscript("");
-    const papersForSynthesis = getPapersForReview();
-    const template = getRobToolTemplate();
-    const robLabel = template ? template.label : robTool;
-    const isMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
-    const yearMin = papersForSynthesis.length ? Math.min(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
-    const yearMax = papersForSynthesis.length ? Math.max(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
-    const studyTypes = Array.from(new Set(papersForSynthesis.map((p) => p.studyType))).filter(Boolean);
-    const databases = Array.from(new Set(papersForSynthesis.map((p) => p.database))).filter(Boolean);
-    const totalRecords = papers.length;
-    const deduped = prismaCounts.deduped;
-    const screened = prismaCounts.screened;
-    const excluded = prismaCounts.excluded;
-      const included = papersForSynthesis.length;
-
-    const robSummary = papersForSynthesis.reduce(
-      (acc: { low: number; some: number; high: number; pending: number }, row) => {
-        const a = robAssessments[row.id];
-        if (!a) return acc;
-        const jl = a.overall.toLowerCase();
-        if (jl.includes("low") && !jl.includes("high")) acc.low += 1;
-        else if (jl.includes("some concerns") || jl.includes("moderate") || jl.includes("unclear") || jl.includes("serious") && !jl.includes("critical")) acc.some += 1;
-        else if (jl.includes("high") || jl.includes("critical") || jl.includes("very high")) acc.high += 1;
-        else acc.pending += 1;
-        return acc;
-      },
-      { low: 0, some: 0, high: 0, pending: 0 }
-    );
-
-    const reviewTypeLabel = reviewType;
-    const topic = query || "the research topic";
-
     try {
+      const papersForSynthesis = extractedData.filter((p) => selectedPaperIds.has(p.id));
+      const template = getRobToolTemplate();
+      const robLabel = template ? template.label : robTool;
+      const isMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
+      const yearMin = papersForSynthesis.length ? Math.min(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
+      const yearMax = papersForSynthesis.length ? Math.max(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
+      const studyTypes = Array.from(new Set(papersForSynthesis.map((p) => p.studyType))).filter(Boolean);
+      const databases = Array.from(new Set(papersForSynthesis.map((p) => p.database))).filter(Boolean);
+      const totalRecords = papers.length;
+      const deduped = prismaCounts.deduped;
+      const screened = prismaCounts.screened;
+      const excluded = prismaCounts.excluded;
+      const included = prismaCounts.included;
+
+      const robSummary = papersForSynthesis.reduce(
+        (acc: { low: number; some: number; high: number; pending: number }, row) => {
+          const a = robAssessments[row.id];
+          if (!a) return acc;
+          const jl = a.overall.toLowerCase();
+          if (jl.includes("low") && !jl.includes("high")) acc.low += 1;
+          else if (jl.includes("some concerns") || jl.includes("moderate") || jl.includes("unclear") || jl.includes("serious") && !jl.includes("critical")) acc.some += 1;
+          else if (jl.includes("high") || jl.includes("critical") || jl.includes("very high")) acc.high += 1;
+          else acc.pending += 1;
+          return acc;
+        },
+        { low: 0, some: 0, high: 0, pending: 0 }
+      );
+
+      const reviewTypeLabel = reviewType;
+      const topic = query || "the research topic";
+
       const apiKey = state.geminiApiKey || state.groqApiKey;
 
       if (apiKey) {
-        const openClawManuscriptBrief = getOpenClawSkillsBrief(["literature-review", "scientific-writing", "clinical-decision-support"]);
-
-      const outlinePrompt = `${openClawManuscriptBrief}
+        const outlinePrompt = `You are an expert scientific writer using the OpenClaw Scientific Research & Writing skill (FreedomIntelligence/OpenClaw-Medical-Skills).
 
 REVIEW TYPE: ${reviewType}
 
-TASK: Create a DETAILED SECTION OUTLINE for a scientific manuscript using the OpenClaw Medical Skills methodology above. The outline will later be converted to full paragraphs (never bullet points in final manuscript — use full prose).
+TASK: Create a DETAILED SECTION OUTLINE for a scientific manuscript. The outline will later be converted to full paragraphs.
 
 REQUIRED STRUCTURE (use exactly these headings):
 - Abstract (structured: Background, Methods, Results, Discussion, Keywords)
@@ -1148,16 +1072,10 @@ REQUIRED STRUCTURE (use exactly these headings):
 - 5. Conclusion
 - References (Vancouver style, numbered inline citations like [1], [2])
 
-APPLIED FRAMEWORKS (from OpenClaw Medical Skills):
-- Literature Review Skill: PICO-framed search strategy, thematic synthesis, PRISMA 2020 flow diagram
-- Scientific Writing Skill: IMRAD structure, reporting guideline compliance, full-paragraph prose
-- Clinical Decision Support Skill: GRADE evidence grading (1A/1B/2A/2B/2C), forest plots, risk-of-bias commentary
-
 ADDITIONAL SECTIONS FOR META-ANALYSIS:
 - PRISMA 2020 flow diagram data
 - Forest plot data
-- Risk of Bias summary (robvis)
-- GRADE certainty of evidence table
+- Risk of Bias summary
 
 For EACH section, list 4-6 bullet points with the exact key points, studies to cite, data to include, and arguments to make. This is a PLANNING document only — do NOT write full paragraphs.
 
@@ -1178,7 +1096,7 @@ OUTPUT FORMAT: Markdown with section headings and bullet points.`;
           ? await callGemini(state.geminiApiKey, outlinePrompt, outlineSearchOptions)
           : await callGroq(state.groqApiKey!, outlinePrompt, outlineSearchOptions);
 
-        const manuscriptPrompt = `${openClawManuscriptBrief}
+        const manuscriptPrompt = `You are an expert scientific writer using the OpenClaw Scientific Research & Writing skill (FreedomIntelligence/OpenClaw-Medical-Skills).
 
 CRITICAL RULES:
 - Write EVERYTHING in full paragraphs with flowing prose. Never use bullet points in the final manuscript.
@@ -1236,30 +1154,7 @@ Generate the full manuscript now.`;
         setManuscript(localManuscript);
       }
     } catch (err: any) {
-      const fallback = `# Error\n\n**Failed to generate manuscript:** ${err.message || "Unknown error"}\n\nFalling back to local manuscript builder.\n\n`;
-      setManuscript(fallback + buildLocalManuscript({
-        reviewType,
-        reviewTypeLabel,
-        topic,
-        papersForSynthesis,
-        robLabel,
-        isMeta,
-        yearMin,
-        yearMax,
-        studyTypes,
-        databases,
-        totalRecords,
-        deduped,
-        screened,
-        excluded,
-        included,
-        robSummary,
-        metaforResult,
-        synthesisOutput,
-        effectSizes,
-        query,
-        selectedDbs,
-      }));
+      setManuscript(`# Error\n\n**Failed to generate manuscript:** ${err.message || "Unknown error"}\n\nPlease complete Steps 1–5 and try again. If using AI-generated mode, ensure your API key is valid.`);
     } finally {
       setManuscriptLoading(false);
     }
@@ -1370,7 +1265,7 @@ ${topic} represents an important area of research that has attracted substantial
 
 ### 1.2 Rationale
 
-This ${reviewTypeLabel.toLowerCase()} was conducted following OpenClaw Medical Skills methodology (FreedomIntelligence/OpenClaw-Medical-Skills), integrating literature-review (systematic search, thematic synthesis, PRISMA 2020), scientific-writing (IMRAD structure, reporting guidelines), and clinical-decision-support (GRADE evidence grading). The study integrated systematic database searching, duplicate screening, structured data extraction, per-domain risk-of-bias assessment, and random-effects meta-analysis where feasible. This design differs from prior reviews by combining robvis-standardized domain-level judgments with meta-analytic pooling.
+This ${reviewTypeLabel.toLowerCase()} was conducted to address the evidence gap identified above. We integrated systematic database searching, duplicate screening, structured data extraction, per-domain risk-of-bias assessment, and random-effects meta-analysis where feasible. This design differs from prior reviews by combining robvis-standardized domain-level judgments with meta-analytic pooling.
 
 ### 1.3 Objectives
 
@@ -1470,7 +1365,7 @@ ${referencesList}
     screened: selectedPaperIds.size,
     excluded: Math.max(0, selectedPaperIds.size - extractedData.length),
     assessed: extractedData.length,
-    included: extractedData.length,
+    included: effectSizes.length || extractedData.length,
   };
 
   const downloadPrismaCsv = () => {
@@ -1484,7 +1379,7 @@ ${referencesList}
       ["Excluded (Records excluded after screening)", prismaCounts.excluded, "—", `Reason: not meeting inclusion criteria (${prismaCounts.excluded})`],
       ["Reports assessed for eligibility", prismaCounts.assessed, "—", "Full-text assessment"],
       ["Excluded (Reports excluded after eligibility)", Math.max(0, prismaCounts.assessed - effectSizes.length), "—", "Not meeting final inclusion criteria"],
-      [`Studies included in qualitative synthesis (${reviewType})`, prismaCounts.included, "—", `${extractedData.length} studies`],
+      ["Studies included in qualitative synthesis (${reviewType})", prismaCounts.included, "—", `${extractedData.length} studies`],
       ...(reviewType.includes("Meta-analysis") || reviewType.includes("Meta")
         ? [["Studies included in quantitative synthesis (meta-analysis)", effectSizes.length || extractedData.length, "—", `Tool: metafor / meta / forestplot`]]
         : [["Studies included in narrative synthesis", prismaCounts.included, "—", `${extractedData.length} studies`]]),
@@ -2019,11 +1914,9 @@ ${referencesList}
                 <Table size={18} className="text-yellow-400" />
                 <h3 className="text-lg font-bold text-white">Synthesis & Meta-analysis</h3>
               </div>
-                 <p className="text-sm text-blue-300 mb-4">
-                  Generate evidence synthesis using methods from the awesome-evidence-synthesis toolkit and the
-                  <a href="https://github.com/FreedomIntelligence/OpenClaw-Medical-Skills" target="_blank" rel="noopener noreferrer" className="text-yellow-300 underline ml-1">OpenClaw Medical Skills</a>
-                  (literature-review, scientific-writing, clinical-decision-support). No API key required — the local synthesis builder produces PRISMA/ROSES-ready output. Configure an API key in Settings for AI-enhanced output.
-                </p>
+               <p className="text-sm text-blue-300 mb-4">
+                 Generate evidence synthesis using methods from the awesome-evidence-synthesis toolkit. No API key required — the local synthesis builder produces PRISMA/ROSES-ready output from your extracted data. Configure an API key in Settings for AI-enhanced output.
+               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
@@ -2059,35 +1952,25 @@ ${referencesList}
                 />
               </div>
 
-               <button
-                 onClick={generateSynthesis}
-                 disabled={synthesisLoading || extractedData.length === 0}
-                 className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50 mb-4"
-               >
-                 {synthesisLoading ? (
-                   <>
-                     <div className="w-4 h-4 border-2 border-[#a1a1aa] border-t-transparent rounded-full animate-spin" />
-                     Generating Synthesis...
-                   </>
-                 ) : (
-                   <>
-                     <Sparkles size={16} />
-                     {(state.geminiApiKey || state.groqApiKey)
-                       ? `Generate AI Synthesis (${reviewType})`
-                       : `Generate Local Synthesis (${reviewType})`}
-                   </>
-                 )}
-               </button>
-
-               <div className="flex items-center gap-3 mb-4">
-                 <span className="text-[10px] text-blue-400">
-                   Powered by
-                   <a href="https://github.com/FreedomIntelligence/OpenClaw-Medical-Skills" target="_blank" rel="noopener noreferrer" className="text-yellow-300 underline ml-1">OpenClaw Medical Skills</a>
-                   — 869 curated skills for biomedical research
-                 </span>
-                 <span className="text-[10px] text-blue-500">·</span>
-                 <span className="text-[10px] text-blue-400">Skills: literature-review · scientific-writing · clinical-decision-support</span>
-               </div>
+              <button
+                onClick={generateSynthesis}
+                disabled={synthesisLoading || extractedData.length === 0}
+                className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50 mb-4"
+              >
+                {synthesisLoading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-[#0a1a3a] border-t-transparent rounded-full animate-spin" />
+                    Generating Synthesis...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={16} />
+                    {(state.geminiApiKey || state.groqApiKey)
+                      ? `Generate AI Synthesis (${reviewType})`
+                      : `Generate Local Synthesis (${reviewType})`}
+                  </>
+                )}
+              </button>
 
               {synthesisOutput && (
                 <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4 mb-4">

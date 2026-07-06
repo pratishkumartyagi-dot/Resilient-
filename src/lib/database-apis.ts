@@ -1,5 +1,4 @@
 import { getSkillById, MEDICAL_SKILLS_REGISTRY } from "./medical-skills/skills-registry";
-import { callGemini } from "./ai";
 
 export interface Paper {
   id: string;
@@ -14,20 +13,6 @@ export interface Paper {
   selected: boolean;
   url?: string;
   pmid?: string;
-}
-
-export interface MeshTerm {
-  term: string;
-  treeNumber?: string;
-  scopeNote?: string;
-  synonyms?: string[];
-}
-
-export interface SearchExpansion {
-  originalQuery: string;
-  meshTerms: MeshTerm[];
-  expandedQueries: string[];
-  booleanQuery: string;
 }
 
 const STUDY_TYPE_KEYWORDS: Record<string, string[]> = {
@@ -127,33 +112,6 @@ export async function enrichPapersWithDois(papers: Paper[]): Promise<Paper[]> {
   });
 }
 
-export async function enrichMetadata(papers: Paper[]): Promise<Paper[]> {
-  const CHUNK_SIZE = 10;
-  const updated = new Map<string, Paper>();
-
-  for (let i = 0; i < papers.length; i += CHUNK_SIZE) {
-    const chunk = papers.slice(i, i + CHUNK_SIZE);
-    const results = await Promise.allSettled(
-      chunk.map(async (p) => {
-        if (!p.doi || p.doi.length < 5) {
-          const found = await findDoiByTitleAuthor(p.title, p.authors);
-          if (found.doi) {
-            return { ...p, doi: found.doi, url: `https://doi.org/${found.doi}` };
-          }
-        }
-        return p;
-      })
-    );
-    results.forEach((r, idx) => {
-      if (r.status === "fulfilled") {
-        updated.set(chunk[idx].id, r.value);
-      }
-    });
-  }
-
-  return papers.map((p) => updated.get(p.id) || p);
-}
-
 function normalizeOpenAlexWork(work: any): Paper {
   const title = work.title || `Untitled (${work.id?.split("/").pop() || "unknown"})`;
   const authors =
@@ -197,12 +155,12 @@ async function fetchOpenAlex(query: string, yearFrom?: string, yearTo?: string, 
   if (additionalFilters) filterParts.push(...additionalFilters);
   const filterStr = filterParts.length ? `&filter=${filterParts.join(",")}` : "";
 
-  const baseUrl = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=200&mailto=contact@resilient-research.app${filterStr}`;
+  const baseUrl = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=100&mailto=research@example.com${filterStr}`;
   const papers: Paper[] = [];
   let cursor = "*";
   let cursorUrl = `${baseUrl}&cursor=${cursor}`;
 
-  for (let page = 0; page < 500; page++) {
+  for (let page = 0; page < 100; page++) {
     let res: Response;
     try {
       res = await fetchWithTimeout(cursorUrl);
@@ -223,7 +181,7 @@ async function fetchOpenAlex(query: string, yearFrom?: string, yearTo?: string, 
   const seenTitles = new Set<string>();
   const deduped = papers.filter((p) => {
     const doiKey = p.doi?.toLowerCase();
-    const titleKey = (p.title || "").toLowerCase().trim().slice(0, 60);
+    const titleKey = p.title.toLowerCase().trim().slice(0, 60);
     if (doiKey && seenDois.has(doiKey)) return false;
     if (titleKey && seenTitles.has(titleKey)) return false;
     if (doiKey) seenDois.add(doiKey);
@@ -233,8 +191,8 @@ async function fetchOpenAlex(query: string, yearFrom?: string, yearTo?: string, 
 
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
-    const filtered = deduped.filter((p) => keywords.some((kw) => `${p.title || ""} ${p.abstract || ""}`.toLowerCase().includes(kw)));
-    return filtered.length > 0 ? filtered : deduped;
+    const filtered = deduped.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+    return filtered.length > 0 ? filtered : deduped.slice(0, 20);
   }
 
   return deduped;
@@ -311,7 +269,7 @@ async function fetchPubMed(query: string, yearFrom?: string, yearTo?: string, st
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
     const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
-    return filtered.length > 0 ? filtered : papers;
+    return filtered.length > 0 ? filtered : papers.slice(0, 20);
   }
 
   return papers;
@@ -381,7 +339,7 @@ async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string,
   const seenTitles = new Set<string>();
   const deduped = papers.filter((p) => {
     const doiKey = p.doi?.toLowerCase();
-    const titleKey = (p.title || "").toLowerCase().trim().slice(0, 60);
+    const titleKey = p.title.toLowerCase().trim().slice(0, 60);
     if (doiKey && seenDois.has(doiKey)) return false;
     if (titleKey && seenTitles.has(titleKey)) return false;
     if (doiKey) seenDois.add(doiKey);
@@ -391,152 +349,32 @@ async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string,
 
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
-    const filtered = deduped.filter((p) => keywords.some((kw) => `${p.title || ""} ${p.abstract || ""}`.toLowerCase().includes(kw)));
-    return filtered.length > 0 ? filtered : deduped;
+    const filtered = deduped.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+    return filtered.length > 0 ? filtered : deduped.slice(0, 20);
   }
 
   return deduped;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Specialized database fetchers for databases that previously       */
-/*  aliased to generic OpenAlex/Europe PMC queries.                   */
-/* ------------------------------------------------------------------ */
-
-async function fetchClinicalTrialsGov(query: string): Promise<Paper[]> {
-  const url = `https://clinicaltrials.gov/api/v2/studies?query=${encodeURIComponent(query)}&pageSize=1000`;
-  try {
-    const res = await fetchWithTimeout(url);
-    if (!res.ok) return [];
-    const data = await res.json();
-    const studies = data.studies || [];
-    return studies.map((s: any) => {
-      const p = s.protocolSection || {};
-      const d = p.designModule || {};
-      const c = p.conditionsModule || {};
-      const sponsor = p.sponsorCollaboratorsModule?.leadSponsor?.name || "ClinicalTrials.gov";
-      const id = s.nctId || `ctg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const title = p.titleModule?.briefTitle || c.briefTitle || s.briefTitle || "Clinical Trial Study";
-      const status = d.phase || s.phase || "";
-      const dateStr = s.lastUpdatePostDateStruct?.date || s.startDateStruct?.date || "";
-      const year = dateStr ? new Date(dateStr).getFullYear() : new Date().getFullYear();
-      return {
-        id,
-        title: `${title}${status ? ` (${status})` : ""}`,
-        authors: sponsor,
-        journal: "ClinicalTrials.gov",
-        year,
-        doi: s.organization || "",
-        abstract: c.briefSummary || c.detailedDescription || "Clinical trial study. No abstract available.",
-        database: "ClinicalTrials.gov",
-        studyType: "Clinical Trial",
-        selected: false,
-        url: `https://clinicaltrials.gov/study/${id}`,
-        pmid: undefined,
-      };
-    });
-  } catch {
-    return [];
-  }
-}
-
-async function fetchDOAJ(query: string): Promise<Paper[]> {
-  const url = `https://doaj.org/api/v1/search/articles/${encodeURIComponent(query)}?pageSize=100`;
-  try {
-    const res = await fetchWithTimeout(url);
-    if (!res.ok) return [];
-    const data = await res.json();
-    const results = data.results || [];
-    return results.map((r: any) => {
-      const bib = r.bibjson || {};
-      const authors = (bib.author || [])
-        .slice(0, 8)
-        .map((a: any) => `${a.name || ""}`.trim())
-        .filter(Boolean)
-        .join(", ");
-      const identifiers = (bib.identifier || []);
-      const doi = identifiers.find((id: any) => id.type === "doi")?.id || r.doi || "";
-      return {
-        id: doi || `doaj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        title: bib.title || "Open Access Article",
-        authors: authors || "Unknown authors",
-        journal: bib.journal?.title || "DOAJ",
-        year: parseInt(bib.year || String(new Date().getFullYear())) || new Date().getFullYear(),
-        doi,
-        abstract: bib.abstract || "Open access article. No abstract available.",
-        database: "DOAJ",
-        studyType: "Review Article",
-        selected: false,
-        url: doi ? `https://doi.org/${doi}` : r.link || "",
-        pmid: undefined,
-      };
-    });
-  } catch {
-    return [];
-  }
-}
-
-async function fetchSemanticScholar(query: string): Promise<Paper[]> {
-  const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=title,authors,year,externalIds,venue,abstract&limit=100`;
-  try {
-    const res = await fetchWithTimeout(url, 12000);
-    if (!res.ok) return [];
-    const data = await res.json();
-    const papers = data.data || [];
-    return papers.map((p: any) => {
-      const authors = (p.authors || [])
-        .slice(0, 8)
-        .map((a: any) => a.name)
-        .filter(Boolean)
-        .join(", ");
-      const doi = p.externalIds?.DOI || "";
-      const id = doi || `s2-${p.paperId || Math.random().toString(36).slice(2, 8)}`;
-      return {
-        id,
-        title: p.title || "Semantic Scholar Paper",
-        authors: authors || "Unknown authors",
-        journal: p.venue || "Semantic Scholar",
-        year: parseInt(p.year) || new Date().getFullYear(),
-        doi,
-        abstract: p.abstract || "Semantic Scholar paper. No abstract available.",
-        database: "Semantic Scholar",
-        studyType: "Research Article",
-        selected: false,
-        url: doi ? `https://doi.org/${doi}` : `https://www.semanticscholar.org/paper/${p.paperId}`,
-        pmid: undefined,
-      };
-    });
-  } catch {
-    return [];
-  }
-}
-
-export const SUPPORTED_REAL_DATABASES = [
-  "OpenAlex", "PubMed", "Europe PMC", "ERIC", "Google Scholar",
-  "Shodhganga", "CTRI – India", "scite.ai", "WHO IRIS",
-  "Semantic Scholar", "ClinicalTrials.gov", "DOAJ", "Prospero",
-  "ScienceDirect", "Clarivate"
-];
-
 export async function fetchRealPapers(query: string, databases: string[], yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const allPapers: Paper[] = [];
 
   const apiDatabases: Record<string, () => Promise<Paper[]>> = {
-  "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
-  "PubMed": () => fetchPubMed(query, yearFrom, yearTo, studyType),
-  "Europe PMC": () => fetchEuropePMC(query, yearFrom, yearTo, studyType),
-  "ERIC": () => fetchEuropePMC(`education ${query}`, yearFrom, yearTo, studyType),
-  "Google Scholar": () => fetchOpenAlex(`scholar ${query}`, yearFrom, yearTo, studyType),
-  "Shodhganga": () => fetchOpenAlex(`thesis ${query}`, yearFrom, yearTo, studyType, ["type:dissertation", "authorships.institutions.country_code:IN"]),
-  "CTRI – India": () => fetchEuropePMC(`clinical trial India ${query}`, yearFrom, yearTo, studyType),
-  "scite.ai": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
-  "WHO IRIS": () => fetchEuropePMC(`WHO ${query}`, yearFrom, yearTo, studyType),
-  "Semantic Scholar": () => fetchSemanticScholar(query),
-  "ClinicalTrials.gov": () => fetchClinicalTrialsGov(query),
-  "DOAJ": () => fetchDOAJ(query),
-  "Prospero": () => fetchEuropePMC(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
-  "ScienceDirect": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
-  "Clarivate": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
+    "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
+    "PubMed": () => fetchPubMed(query, yearFrom, yearTo, studyType),
+    "Europe PMC": () => fetchEuropePMC(query, yearFrom, yearTo, studyType),
+    "ERIC": () => fetchEuropePMC(`education ${query}`, yearFrom, yearTo, studyType),
+    "Google Scholar": () => fetchOpenAlex(`scholar ${query}`, yearFrom, yearTo, studyType),
+    "Shodhganga": () => fetchOpenAlex(`thesis ${query}`, yearFrom, yearTo, studyType, ["type:dissertation", "authorships.institutions.country_code:IN"]),
+    "CTRI – India": () => fetchEuropePMC(`clinical trial India ${query}`, yearFrom, yearTo, studyType),
+    "scite.ai": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
+    "WHO IRIS": () => fetchEuropePMC(`WHO ${query}`, yearFrom, yearTo, studyType),
+    "Semantic Scholar": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
+    "ClinicalTrials.gov": () => fetchEuropePMC(`clinical trial ${query}`, yearFrom, yearTo, studyType),
+    "DOAJ": () => fetchOpenAlex(`open access ${query}`, yearFrom, yearTo, studyType),
+    "Prospero": () => fetchEuropePMC(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
+    "ScienceDirect": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
+    "Clarivate": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
   };
 
   const selectedApis = databases.filter((db) => apiDatabases[db]);
@@ -563,7 +401,7 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
   const seenTitles = new Set<string>();
   const deduped = allPapers.filter((p) => {
     const doiKey = p.doi?.toLowerCase();
-    const titleKey = (p.title || "").toLowerCase().trim().slice(0, 60);
+    const titleKey = p.title.toLowerCase().trim().slice(0, 60);
     if (doiKey && seenDois.has(doiKey)) return false;
     if (titleKey && seenTitles.has(titleKey)) return false;
     if (doiKey) seenDois.add(doiKey);
@@ -571,7 +409,7 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
     return true;
   });
 
-  const enriched = await enrichMetadata(deduped);
+  const enriched = await enrichPapersWithDois(deduped);
 
   if (enriched.length === 0) {
     throw new Error(`No papers found across ${databases.length} selected databases. Try broadening your query or selecting more databases.`);
@@ -591,9 +429,9 @@ export function getDatabaseBackendMapping(): Record<string, string> {
     "CTRI – India": "Europe PMC (clinical trial India)",
     "scite.ai": "OpenAlex",
     "WHO IRIS": "Europe PMC (WHO filtered)",
-    "Semantic Scholar": "Semantic Scholar API",
-    "ClinicalTrials.gov": "ClinicalTrials.gov API v2",
-    "DOAJ": "DOAJ API",
+    "Semantic Scholar": "OpenAlex",
+    "ClinicalTrials.gov": "Europe PMC (clinical trial)",
+    "DOAJ": "OpenAlex (open access)",
     "Prospero": "Europe PMC (systematic review protocol)",
     "ScienceDirect": "OpenAlex",
     "Clarivate": "OpenAlex",
@@ -654,17 +492,13 @@ export async function validateDoiViaCrossref(doi: string): Promise<{ valid: bool
 export async function verifyCitations(papers: Paper[]): Promise<Map<string, { valid: boolean; title?: string; message: string }>> {
   const results = new Map<string, { valid: boolean; title?: string; message: string }>();
   const dois = papers.filter((p) => p.doi && p.doi.length > 3).map((p) => p.doi!);
-  const BATCH_SIZE = 5;
 
-  for (let i = 0; i < dois.length; i += BATCH_SIZE) {
-    const batch = dois.slice(i, i + BATCH_SIZE);
-    await Promise.allSettled(
-      batch.map(async (doi) => {
-        const result = await validateDoiViaCrossref(doi);
-        results.set(doi.toLowerCase(), result);
-      })
-    );
-  }
+  await Promise.allSettled(
+    dois.map(async (doi) => {
+      const result = await validateDoiViaCrossref(doi);
+      results.set(doi.toLowerCase(), result);
+    })
+  );
 
   return results;
 }
@@ -697,320 +531,4 @@ export async function quickSearch(query: string, maxResults: number = 8): Promis
   } catch {
     return [];
   }
-}
-
-export interface MeshExpansionResult {
-  originalQuery: string;
-  meshTerms: string[];
-  expandedQueries: string[];
-  booleanQuery: string;
-  method: "ai" | "local" | "none";
-}
-
-const LOCAL_MESH_KNOWLEDGE_BASE: Record<string, string[]> = {
-  "latent tuberculosis": ["latent tuberculosis infection", "LTBI", "Mycobacterium tuberculosis", "tuberculosis latent", "tuberculosis reactivation"],
-  "healthcare workers": ["healthcare personnel", "HCW", "HCP", "medical staff", "nurses", "physicians", "hospital staff", "health workers", "healthcare workers tuberculosis screening"],
-  "tuberculosis": ["TB", "Mycobacterium tuberculosis", "tuberculosis infection", "pulmonary tuberculosis", "extrapulmonary tuberculosis", "latent TB infection", "LTBI", "active TB"],
-  "diabetes": ["diabetes mellitus", "type 2 diabetes", "type 1 diabetes", "T2DM", "T1DM", "hyperglycemia", "glycemic control", "diabetic complications"],
-  "hypertension": ["high blood pressure", "arterial hypertension", "essential hypertension", "hypertensive", "blood pressure control", "antihypertensive"],
-  "cancer": ["oncology", "neoplasm", "malignancy", "tumor", "carcinoma", "cancer screening", "oncology treatment", "cancer survival"],
-  "mental health": ["depression", "anxiety", "psychological distress", "mental illness", "psychiatric", "wellbeing", "mental wellbeing"],
-  "covid": ["COVID-19", "SARS-CoV-2", "coronavirus", "pandemic", "COVID"],
-  "antibiotic": ["antimicrobial resistance", "AMR", "antibiotic resistance", "antibiotic stewardship", "antimicrobial", "antibiotic use"],
-  "vaccine": ["vaccination", "immunization", "vaccine efficacy", "vaccine hesitancy", "immunization coverage"],
-  "maternal": ["pregnancy", "childbirth", "obstetric", "antenatal", "postnatal", "perinatal", "maternal health"],
-  "child": ["pediatric", "paediatric", "infant", "childhood", "neonatal", "adolescent", "children health"],
-  "obesity": ["overweight", "BMI", "body mass index", "adiposity", "obese", "weight management"],
-  "heart disease": ["cardiac", "cardiovascular", "coronary artery disease", "myocardial infarction", "heart failure", "CVD"],
-  "stroke": ["cerebrovascular", "ischemic stroke", "hemorrhagic stroke", "brain infarction", "cerebral"],
-  "asthma": ["respiratory", "bronchial", "pulmonary", "airway", "COPD", "respiratory disease"],
-  "parkinson": ["neurodegenerative", "neurological", "movement disorder", "parkinson disease"],
-  "alzheimer": ["dementia", "cognitive decline", "neurodegenerative", "memory loss", "Alzheimer disease"],
-  "hiv": ["AIDS", "HIV infection", "antiretroviral", "viral load", "HIV prevention"],
-  "malaria": ["plasmodium", "mosquito-borne", "antimalarial", "malaria prevention", "malaria treatment"],
-  "anemia": ["iron deficiency", "haemoglobin", "blood disorder", "iron deficiency anemia", "nutritional anemia"],
-  "kidney": ["renal", "nephrology", "chronic kidney disease", "CKD", "dialysis", "hemodialysis"],
-  "liver": ["hepatic", "hepatitis", "cirrhosis", "liver disease", "NAFLD", "fatty liver"],
-  "surgery": ["operative", "perioperative", "postoperative", "preoperative", "surgical"],
-  "diagnosis": ["diagnostic", "screening", "sensitivity", "specificity", "diagnostic accuracy", "DTA"],
-  "prognosis": ["outcome", "survival", "mortality", "prognostic factor", "prognostic model", "risk factor"],
-  "treatment": ["intervention", "therapy", "therapeutic", "clinical trial", "RCT", "treatment outcome"],
-  "epidemiology": ["prevalence", "incidence", "public health", "population study", "surveillance"],
-};
-
-const LOCAL_QUERY_FRAGMENTS = [
-  "diagnosis", "treatment", "prevalence", "risk factors", "outcomes", "systematic review",
-  "meta-analysis", "observational study", "RCT", "clinical trial", "cohort study",
-  "case-control", "cross-sectional",
-];
-
-function expandQueryLocally(query: string): { meshTerms: string[]; expandedQueries: string[] } {
-  const normalized = query.toLowerCase();
-  const meshTerms: string[] = [];
-  const expandedQueries: string[] = [query];
-
-  for (const [key, terms] of Object.entries(LOCAL_MESH_KNOWLEDGE_BASE)) {
-    if (normalized.includes(key) || key.split(" ").some((k) => k.length > 3 && normalized.includes(k))) {
-      meshTerms.push(key, ...terms.slice(0, 3));
-      for (const t of terms) {
-        if (!expandedQueries.includes(t)) {
-          expandedQueries.push(`${query} ${t}`);
-        }
-      }
-    }
-  }
-
-  if (expandedQueries.length <= 1) {
-    for (const fragment of LOCAL_QUERY_FRAGMENTS) {
-      expandedQueries.push(`${query} ${fragment}`);
-    }
-  }
-
-  return {
-    meshTerms: [...new Set(meshTerms)],
-    expandedQueries: [...new Set(expandedQueries)],
-  };
-}
-
-export async function expandQueryWithMesh(
-  query: string,
-  geminiApiKey?: string,
-  groqApiKey?: string
-): Promise<MeshExpansionResult> {
-  if (!query || query.trim().length < 3) {
-    return { originalQuery: query, meshTerms: [], expandedQueries: [], booleanQuery: query, method: "none" };
-  }
-
-  const localExpansion = expandQueryLocally(query);
-
-  const aiPrompt = `You are a biomedical search expansion assistant. Given the research topic: "${query}"
-
-Return JSON ONLY (no markdown, no commentary) with this exact structure:
-{
-  "meshTerms": ["Up to 8 relevant MeSH/medical subject heading terms for "query"", ...],
-  "expandedQueries": ["5 expanded biomedical search queries derived from the original topic", ...],
-  "booleanQuery": "A single concise boolean search string combining the original query with MeSH terms using OR operators for PubMed/Europe PMC"
-}
-
-Rules:
-- Terms must be specific biomedical/medical concepts
-- Expanded queries should explore subtopics, synonyms, study designs, populations
-- Boolean query should be practical for PubMed style e.g. (original) OR (mesh1[MeSH Terms]) OR (mesh2[MeSH Terms])
-- Return ONLY valid JSON, no explanation text`;
-
-  let meshTerms = localExpansion.meshTerms;
-  let expandedQueries = localExpansion.expandedQueries;
-  let booleanQuery = "";
-  const aiKey = geminiApiKey || groqApiKey;
-  const provider = geminiApiKey ? "gemini" : "groq";
-
-  if (aiKey) {
-    try {
-      const { callGemini, callGroq } = await import("./ai");
-      const result = await (provider === "gemini" ? callGemini(aiKey, aiPrompt) : callGroq(aiKey, aiPrompt));
-      const jsonMatch = result.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (parsed.meshTerms?.length) meshTerms = [...new Set([...meshTerms, ...parsed.meshTerms])].slice(0, 12);
-        if (parsed.expandedQueries?.length) expandedQueries = [...new Set([...expandedQueries, ...parsed.expandedQueries])].slice(0, 8);
-        if (parsed.booleanQuery) booleanQuery = parsed.booleanQuery;
-      }
-    } catch {
-      booleanQuery = `${query} OR ${meshTerms.slice(0, 4).map((m) => `"${m}"`).join(" OR ")}`;
-    }
-  } else {
-    booleanQuery = `${query} OR ${meshTerms.slice(0, 4).map((m) => `"${m}"`).join(" OR ")}`;
-  }
-
-  if (!booleanQuery) {
-    booleanQuery = `${query} OR ${meshTerms.slice(0, 4).map((m) => `"${m}"`).join(" OR ")}`;
-  }
-
-  return {
-    originalQuery: query,
-    meshTerms: [...new Set(meshTerms)].slice(0, 12),
-    expandedQueries: [...new Set(expandedQueries)].slice(0, 10),
-    booleanQuery,
-    method: aiKey ? "ai" : "local",
-  };
-}
-
-export async function buildMeshSearchStrategy(
-  query: string,
-  databases: string[],
-  meshExpansion?: MeshExpansionResult
-): Promise<{ primaryQuery: string; databaseStrategies: Array<{ database: string; query: string; notes: string }> }> {
-  const expansion = meshExpansion || (await expandQueryWithMesh(query));
-  const primaryQuery = expansion.booleanQuery || query;
-
-  const databaseStrategies = databases.map((db) => {
-    switch (db) {
-      case "PubMed":
-        return {
-          database: db,
-          query: primaryQuery,
-          notes: "MeSH terms combined via OR for maximum recall in PubMed",
-        };
-      case "Europe PMC":
-        return {
-          database: db,
-          query: expansion.expandedQueries.join(" OR "),
-          notes: "Expanded queries used for Europe PMC REST API",
-        };
-      case "OpenAlex":
-      case "Google Scholar":
-      case "Semantic Scholar":
-      case "ScienceDirect":
-      case "Clarivate":
-        return {
-          database: db,
-          query: query,
-          notes: "Semantic search via OpenAlex with original + expanded terms",
-        };
-      case "WHO IRIS":
-        return {
-          database: db,
-          query: `${query} WHO`,
-          notes: "WHO IRIS search with topic + WHO filter",
-        };
-      case "Shodhganga":
-        return {
-          database: db,
-          query: `thesis ${query}`,
-          notes: "Shodhganga thesis search",
-        };
-      case "ClinicalTrials.gov":
-        return {
-          database: db,
-          query: `clinical trial ${query}`,
-          notes: "Clinical trial focus",
-        };
-      case "DOAJ":
-        return {
-          database: db,
-          query: `open access ${query}`,
-          notes: "Open access journal filter",
-        };
-      case "Prospero":
-        return {
-          database: db,
-          query: `systematic review protocol ${query}`,
-          notes: "Systematic review protocol search",
-        };
-      default:
-        return { database: db, query, notes: "Direct query" };
-    }
-  });
-
-  return { primaryQuery, databaseStrategies };
-}
-
-export interface CitationQuality {
-  doi: string;
-  valid: boolean;
-  source: "doi-org" | "crossref" | "openalex" | "pubmed" | "none";
-  title?: string;
-  message: string;
-  bibtex?: string;
-}
-
-export async function validateDoi(doi: string): Promise<CitationQuality> {
-  if (!doi || doi.length < 5) {
-    return { doi, valid: false, source: "none", message: "Missing or invalid DOI" };
-  }
-
-  const cleanDoi = doi.replace(/https?:\/\/(?:doi\.org|dx\.doi\.org)\//, "").trim();
-
-  try {
-    const url = `https://doi.org/api/handles/${encodeURIComponent(cleanDoi)}`;
-    const res = await fetchWithTimeout(url);
-    if (res.ok) {
-      const data = await res.json();
-      if (data.responseCode === 1) {
-        const crossref = await enrichMetadataFromCrossref(cleanDoi);
-        return {
-          doi: cleanDoi,
-          valid: true,
-          source: "doi-org",
-          title: crossref.title,
-          message: "DOI verified via doi.org",
-          bibtex: crossref.bibtex,
-        };
-      }
-      if (data.responseCode === 100) {
-        return { doi: cleanDoi, valid: false, source: "doi-org", message: "DOI does not exist" };
-      }
-    }
-  } catch {
-    // Fall through to Crossref
-  }
-
-  const crossref = await enrichMetadataFromCrossref(cleanDoi);
-  if (crossref.valid) {
-    return {
-      doi: cleanDoi,
-      valid: true,
-      source: "crossref",
-      title: crossref.title,
-      message: "DOI verified via Crossref",
-      bibtex: crossref.bibtex,
-    };
-  }
-
-  return { doi: cleanDoi, valid: false, source: "none", message: "DOI could not be verified" };
-}
-
-async function enrichMetadataFromCrossref(doi: string): Promise<{ valid: boolean; title?: string; bibtex?: string }> {
-  try {
-    const url = `https://api.crossref.org/v1/works/${encodeURIComponent(doi)}`;
-    const res = await fetchWithTimeout(url);
-    if (!res.ok) return { valid: false };
-    const data = await res.json();
-    const work = data.message;
-    const title = work.title?.[0] || "";
-    const bibtex = buildBibtexFromCrossref(work, doi);
-    return { valid: true, title, bibtex };
-  } catch {
-    return { valid: false };
-  }
-}
-
-function buildBibtexFromCrossref(work: any, doi: string): string {
-  const authors = work.author || [];
-  const authorStr = authors.length > 0
-    ? authors.slice(0, 5).map((a: any) => `${a.family || ""}, ${a.given || ""}`).join(" and ")
-    : "Unknown";
-  const year = work.published?.["date-parts"]?.[0]?.[0] || work.published || "n.d.";
-  const title = work.title?.[0] || "";
-  const journal = work["container-title"]?.[0] || "";
-  const volume = work.volume || "";
-  const issue = work.issue || "";
-  const page = work.page || "";
-  const citationKey = `${authors[0]?.family || "Unknown"}${year}`;
-
-  return `@article{${citationKey},
-  author  = {${authorStr}},
-  title   = {${title}},
-  journal = {${journal}},
-  year    = {${year}},
-  volume  = {${volume}},
-  number  = {${issue}},
-  pages   = {${page}},
-  doi     = {${doi}}
-}`;
-}
-
-export async function checkCitationQuality(papers: Paper[]): Promise<CitationQuality[]> {
-  const papersWithDoi = papers.filter((p): p is Paper & { doi: string } => !!p.doi && p.doi.length > 4);
-  if (papersWithDoi.length === 0) return [];
-
-  const results = await Promise.allSettled(
-    papersWithDoi.map((p) => validateDoi(p.doi))
-  );
-
-  return results.map((r, idx) =>
-    r.status === "fulfilled"
-      ? r.value
-      : { doi: papersWithDoi[idx].doi, valid: false, source: "none", message: "Validation failed" }
-  );
 }

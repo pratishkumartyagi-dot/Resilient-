@@ -9,7 +9,6 @@ import {
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq } from "@/lib/ai";
 import { downloadMarkdownAsWord, downloadMarkdownAsPDF } from "@/lib/exporters";
-import { REPORTING_GUIDELINES } from "@/lib/reporting-guidelines";
 
 const renderMarkdown = (text: string): string => {
   let html = text;
@@ -55,8 +54,6 @@ const MODEL_TYPES = [
   "RETAIN",
 ];
 
-const TRIPOD_GUIDELINE = REPORTING_GUIDELINES.byStudyType["Prediction model study"];
-
 export default function PredictiveAnalysisTab() {
   const { state, dispatch } = useApp();
   const [localLoading, setLocalLoading] = useState(false);
@@ -85,14 +82,7 @@ export default function PredictiveAnalysisTab() {
     let prompt = "";
     switch (step) {
       case 1:
-        prompt = `Draft a clinical prediction model protocol based on: target population: ${state.predictionPopulation || "not specified"}, outcome: ${state.predictionOutcome || "not specified"}, setting: general hospital. Follow TRIPOD reporting guidelines.
-
-Reporting Guideline: TRIPOD (Transparent Reporting of a multivariable prediction model for Individual Prognosis Or Diagnosis) 2015 — https://www.tripod-statement.org/
-
-Key checklist items to address:
-${TRIPOD_GUIDELINE?.checklistItems.map((item, idx) => `${idx + 1}. ${item}`).join("\n") || "Title, abstract, background, data source, outcomes, predictors, sample size, missing data, model building, model specification, performance measures, risk groups, participant flow, model development results, model performance, model updating."}
-
-Ensure the protocol draft addresses each TRIPOD checklist item where applicable.`;
+        prompt = `Draft a clinical prediction model protocol based on: target population: ${state.predictionPopulation || "not specified"}, outcome: ${state.predictionOutcome || "not specified"}, setting: general hospital. Follow TRIPOD reporting guidelines.`;
         break;
       case 2:
         prompt = `Recommend whether to develop a new prediction model or update an existing one, following the step-by-step guide in Efthimiou et al. (BMJ 2024, PMC11369751). If data is limited, note that PyHealth trainers with penalisation (ridge/LASSO) can help prevent overfitting. Justify with 3 bullets.`;
@@ -128,14 +118,7 @@ Ensure the protocol draft addresses each TRIPOD checklist item where applicable.
         prompt = "Describe how to assess individual predictor importance using SHAP, permutation importance, and Captum (https://github.com/meta-pytorch/captum), following the optional step 12 guidance in Efthimiou et al. (BMJ 2024, PMC11369751). Explain how to extract predictions from PyHealth models (predict_proba) and apply these methods for a clinical audience. For deep learning models, emphasize Captum's Integrated Gradients and DeepLift for attribution-based reasoning over SHAP when model gradients are available.";
         break;
       case 13:
-        prompt = `Generate a TRIPOD checklist summary for reporting this clinical prediction model study, following step 13 in Efthimiou et al. (BMJ 2024, PMC11369751). Include model equation, code, and deployment guidance (e.g., FastAPI + HTML calculator). Reference PyHealth export patterns.
-
-Reporting Guideline: TRIPOD (Transparent Reporting of a multivariable prediction model for Individual Prognosis Or Diagnosis) 2015 — https://www.tripod-statement.org/
-
-Complete TRIPOD Checklist Items to Address:
-${TRIPOD_GUIDELINE?.checklistItems.map((item, idx) => `${idx + 1}. ${item}`).join("\n") || "Title, abstract, background, data source, outcomes, predictors, sample size, missing data, model building, model specification, performance measures, risk groups, participant flow, model development results, model performance, model updating."}
-
-For each checklist item, indicate whether it is fully addressed, partially addressed, or needs author input. Provide the TRIPOD adherence statement for inclusion in the manuscript Methods section.`;
+        prompt = "Generate a TRIPOD checklist summary for reporting this clinical prediction model study, following step 13 in Efthimiou et al. (BMJ 2024, PMC11369751). Include model equation, code, and deployment guidance (e.g., FastAPI + HTML calculator). Reference PyHealth export patterns.";
         break;
       case 14:
         prompt = "Provide guidance for analyzing relationships in the uploaded dataset. Identify likely predictor variables, outcome variable, and potential relationships. Suggest appropriate statistical methods for the analysis.";
@@ -841,14 +824,7 @@ For each checklist item, indicate whether it is fully addressed, partially addre
         return (
           <div className="space-y-4">
             <h3 className="text-lg font-bold text-white">Step 13: Report & Publish</h3>
-            <p className="text-sm text-blue-300">
-              Generate a TRIPOD-compliant report draft and provide model access instructions.
-              {TRIPOD_GUIDELINE && (
-                <span className="block text-xs text-yellow-300 mt-1">
-                  Reporting Guideline: {TRIPOD_GUIDELINE.guideline} ({TRIPOD_GUIDELINE.fullName}) — {TRIPOD_GUIDELINE.version} — {TRIPOD_GUIDELINE.url}
-                </span>
-              )}
-            </p>
+            <p className="text-sm text-blue-300">Generate a TRIPOD-compliant report draft and provide model access instructions.</p>
             <div>
               <label className="block text-sm font-medium text-blue-200 mb-2">Report Notes</label>
               <textarea

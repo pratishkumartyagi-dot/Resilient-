@@ -1,4 +1,4 @@
-export interface PRISMA2020FlowData {
+export interface PRISMAFlowData {
   identification: {
     recordsFromDatabases: number;
     additionalRecordsFromOtherSources: number;
@@ -52,31 +52,38 @@ export interface QualityAssessment {
   }>;
 }
 
-export function buildPRISMA2020FlowDiagram(flow: PRISMA2020FlowData): { nodes: any[]; edges: any[] } {
-  const nodes: any[] = [
-    { id: "identification", label: `Identification\nrecords from databases: ${flow.identification.recordsFromDatabases}\nadditional records: ${flow.identification.additionalRecordsFromOtherSources}\ntotal identified: ${flow.identification.totalRecordsIdentified}`, type: "identification" },
-    { id: "duplicates", label: `Records after duplicates removed:\n${flow.screening.recordsAfterDuplicatesRemoved}`, type: "duplicates" },
-    { id: "screened", label: `Records screened by title/abstract:\n${flow.screening.recordsScreenedByTitleAbstract}\nexcluded: ${flow.screening.recordsExcludedByTitleAbstract}`, type: "screened" },
-    { id: "eligible", label: `Full-text articles assessed:\n${flow.screening.fullTextArticlesAssessed}\nexcluded: ${flow.screening.fullTextArticlesExcludedWithReasons}`, type: "eligible" },
-    { id: "included", label: `Studies included in qualitative synthesis:\n${flow.screening.studiesIncludedInQualitativeSynthesis}`, type: "included" },
+export function buildPRISMAFlowDiagram(flow: PRISMAFlowData): string {
+  const lines: string[] = [
+    `**Identification via databases:** ${flow.identification.recordsFromDatabases} records`,
+    `**Additional records identified through other sources:** ${flow.identification.additionalRecordsFromOtherSources} records`,
+    `**Total records identified:** ${flow.identification.totalRecordsIdentified} records`,
+    ``,
+    `**Records after duplicates removed:** ${flow.screening.recordsAfterDuplicatesRemoved}`,
+    `**Records screened by title/abstract:** ${flow.screening.recordsScreenedByTitleAbstract}`,
+    `**Records excluded by title/abstract:** ${flow.screening.recordsExcludedByTitleAbstract}`,
+    ``,
+    `**Full-text articles assessed for eligibility:** ${flow.screening.fullTextArticlesAssessed}`,
+    `**Full-text articles excluded (with reasons):** ${flow.screening.fullTextArticlesExcludedWithReasons}`,
   ];
 
-  if (flow.screening.studiesIncludedInMetaAnalysis !== undefined) {
-    nodes.push({ id: "meta", label: `Studies included in meta-analysis:\n${flow.screening.studiesIncludedInMetaAnalysis}`, type: "meta" });
+  if (flow.excludedFullTextReasons.length > 0) {
+    for (const reason of flow.excludedFullTextReasons) {
+      lines.push(`> - ${reason.reason}: n = ${reason.count}`);
+    }
   }
 
-  const edges = [
-    { from: "identification", to: "duplicates", label: "duplicates removed" },
-    { from: "duplicates", to: "screened", label: "screened" },
-    { from: "screened", to: "eligible", label: "full-text assessed" },
-    { from: "eligible", to: "included", label: "included" },
-  ];
+  lines.push(``);
+  lines.push(
+    `**Studies included in qualitative synthesis:** ${flow.screening.studiesIncludedInQualitativeSynthesis}`
+  );
 
   if (flow.screening.studiesIncludedInMetaAnalysis !== undefined) {
-    edges.push({ from: "included", to: "meta", label: "meta-analysis" });
+    lines.push(
+      `**Studies included in meta-analysis:** ${flow.screening.studiesIncludedInMetaAnalysis}`
+    );
   }
 
-  return { nodes, edges };
+  return lines.join("\n");
 }
 
 export function buildSearchStrategyDocument(strategies: SearchStrategy[]): string {
