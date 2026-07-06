@@ -13,6 +13,8 @@ export interface Paper {
   selected: boolean;
   url?: string;
   pmid?: string;
+  sourceBackend?: string;
+  sources?: string[];
 }
 
 const STUDY_TYPE_KEYWORDS: Record<string, string[]> = {
@@ -385,11 +387,11 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
         const fetchFn = apiDatabases[db];
         if (!fetchFn) return;
         const papers = await fetchFn();
-        if (studyType && studyType !== "All Study Types") {
-          papers.forEach((p) => (p.database = db));
-        } else {
-          papers.forEach((p) => (p.database = db));
-        }
+        papers.forEach((p) => {
+          p.database = db;
+          p.sourceBackend = getDatabaseBackend(db);
+          p.sources = [db];
+        });
         allPapers.push(...papers);
       } catch (err) {
         console.warn(`[${db}] fetch failed:`, err);
@@ -397,17 +399,7 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
     })
   );
 
-  const seenDois = new Set<string>();
-  const seenTitles = new Set<string>();
-  const deduped = allPapers.filter((p) => {
-    const doiKey = p.doi?.toLowerCase();
-    const titleKey = p.title.toLowerCase().trim().slice(0, 60);
-    if (doiKey && seenDois.has(doiKey)) return false;
-    if (titleKey && seenTitles.has(titleKey)) return false;
-    if (doiKey) seenDois.add(doiKey);
-    if (titleKey) seenTitles.add(titleKey);
-    return true;
-  });
+  const deduped = deduplicatePapers(allPapers);
 
   const enriched = await enrichPapersWithDois(deduped);
 
@@ -418,24 +410,53 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
   return enriched;
 }
 
-export function getDatabaseBackendMapping(): Record<string, string> {
-  return {
+function getDatabaseBackend(uiDatabase: string): string {
+  const mapping: Record<string, string> = {
     "OpenAlex": "OpenAlex API",
     "PubMed": "NCBI E-utilities",
     "Europe PMC": "Europe PMC REST API",
-    "ERIC": "Europe PMC (education filtered)",
-    "Google Scholar": "OpenAlex (scholar query)",
-    "Shodhganga": "OpenAlex (thesis query, India)",
-    "CTRI – India": "Europe PMC (clinical trial India)",
-    "scite.ai": "OpenAlex",
-    "WHO IRIS": "Europe PMC (WHO filtered)",
-    "Semantic Scholar": "OpenAlex",
-    "ClinicalTrials.gov": "Europe PMC (clinical trial)",
-    "DOAJ": "OpenAlex (open access)",
-    "Prospero": "Europe PMC (systematic review protocol)",
-    "ScienceDirect": "OpenAlex",
-    "Clarivate": "OpenAlex",
+    "ERIC": "Europe PMC REST API",
+    "Google Scholar": "OpenAlex API",
+    "Shodhganga": "OpenAlex API",
+    "CTRI – India": "Europe PMC REST API",
+    "scite.ai": "OpenAlex API",
+    "WHO IRIS": "Europe PMC REST API",
+    "Semantic Scholar": "OpenAlex API",
+    "ClinicalTrials.gov": "Europe PMC REST API",
+    "DOAJ": "OpenAlex API",
+    "Prospero": "Europe PMC REST API",
+    "ScienceDirect": "OpenAlex API",
+    "Clarivate": "OpenAlex API",
   };
+  return mapping[uiDatabase] || uiDatabase;
+}
+
+function deduplicatePapers(papers: Paper[]): Paper[] {
+  const seen = new Map<string, Paper>();
+
+  papers.forEach((paper) => {
+    const doiKey = paper.doi?.toLowerCase().trim();
+    const titleKey = paper.title.toLowerCase().trim().slice(0, 80);
+
+    const key = doiKey || titleKey;
+    if (!key) {
+      seen.set(`${paper.id}-${paper.database}`, paper);
+      return;
+    }
+
+    if (seen.has(key)) {
+      const existing = seen.get(key)!;
+      existing.sources = Array.from(new Set([...(existing.sources || []), paper.database]));
+      if (!existing.doi && paper.doi) existing.doi = paper.doi;
+      if (!existing.pmid && paper.pmid) existing.pmid = paper.pmid;
+      if (!existing.url && paper.url) existing.url = paper.url;
+      if (!existing.abstract && paper.abstract) existing.abstract = paper.abstract;
+    } else {
+      seen.set(key, { ...paper, sources: [paper.database] });
+    }
+  });
+
+  return Array.from(seen.values());
 }
 
 export function getOpenClawSkillDatabaseMapping(): Array<{ skill: string; supportedDatabases: string[]; notes: string }> {

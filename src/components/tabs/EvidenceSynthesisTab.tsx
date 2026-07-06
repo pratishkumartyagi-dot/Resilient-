@@ -2053,6 +2053,16 @@ ${referencesList}
                         <div className="flex-1 min-w-0">
                           <h4 className="text-sm font-semibold text-white truncate">{p.title}</h4>
                           <p className="text-xs text-blue-300">{p.authors} • {p.year} • {p.database}</p>
+                          <div className="flex flex-wrap items-center gap-1 mt-1">
+                            <span className="text-[10px] bg-blue-900/60 text-blue-200 px-1.5 py-0.5 rounded border border-blue-800">
+                              {p.sourceBackend || p.database}
+                            </span>
+                            {Array.isArray(p.sources) && p.sources.length > 1 && (
+                              <span className="text-[10px] bg-yellow-900/40 text-yellow-200 px-1.5 py-0.5 rounded border border-yellow-800">
+                                Also in: {p.sources.filter((s) => s !== p.database).join(", ")}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
