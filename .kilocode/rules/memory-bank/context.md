@@ -1079,3 +1079,41 @@ A fully functional qualitative data analysis tool for text, images, audio, and v
 - `bun lint` ✅ passes
 - `bun run build` ✅ passes cleanly
 
+## Step 4A — Evidence Analysis Phase (metafor / forestplot aligned) (2026-07-06)
+
+**Feature**: Split Step 4 synthesis generation into two sequential phases. Phase A (`analyzePapersForSynthesis`) analyses the selected papers first using `metafor` / `forestplot` methodology and PMC12402582 step-by-step guide, aligned with `awesome-evidence-synthesis` workflow (stage 06_analysis) and `meta-pipe` stage 06_analysis. Phase B (`generateLocalSynthesis` / AI path) then builds the narrative synthesis on top of the analysis.
+
+### New File
+- `analyzePapersForSynthesis()` inside `src/components/tabs/EvidenceSynthesisTab.tsx` — Generates Step 4A analysis Markdown including:
+  - PICO summary derived from extracted data
+  - Study design breakdown with counts
+  - Effect direction by study
+  - metafor readiness check (requires ≥ 2 studies with extractable effect sizes)
+  - forestplot readiness check
+  - metafor R workflow template (`escalc`, `rma`, `forest`, `funnel`, `regtest`) per PMC12402582
+  - Heterogeneity thresholds (I² 0–40%/30–60%/50–90%/75–100%) from Thorlund et al.
+  - prismAId screening/extraction quality notes
+  - `meta-pipe` stage 06_analysis alignment reference
+
+### EvidenceSynthesisTab Updates
+- Added `synthesisAnalysis` state to store Step 4A output separately from synthesis
+- `generateSynthesis()` now:
+  1. Calls `analyzePapersForSynthesis()` first and stores result in `synthesisAnalysis`
+  2. Passes analysis output into AI prompt so the model reasons on top of structured analysis
+  3. Concatenates analysis + synthesis for combined display in preview
+- AI prompt now includes `EVIDENCE ANALYSIS (Step 4A — metafor / forestplot aligned):` section
+- Step 4 UI now renders two distinct preview cards:
+  - "Step 4A — Paper Analysis (metafor / forestplot aligned)"
+  - "Narrative Synthesis Output" (Step 4B)
+
+### Design Decisions
+- Phase A follows PMC12402582 methodology: PICO, heterogeneity assessment, metafor R workflow, forestplot readiness
+- Phase B places `analyzePapersForSynthesis()` output BEFORE synthesis in the preview
+- Effect table and metafor results are still generated in Step 4B from editable `effectSizes`
+- Local synthesis mode concatenates analysis + synthesis in the same output stream
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes
+- `bun run build` ✅ passes cleanly
+

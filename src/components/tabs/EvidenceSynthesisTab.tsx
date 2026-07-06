@@ -223,6 +223,7 @@ export default function EvidenceSynthesisTab() {
   const [robInstructions, setRobInstructions] = useState("");
   const [synthesisInstructions, setSynthesisInstructions] = useState("");
   const [synthesisOutput, setSynthesisOutput] = useState("");
+  const [synthesisAnalysis, setSynthesisAnalysis] = useState("");
   const [synthesisReport, setSynthesisReport] = useState("");
   const [synthesisLoading, setSynthesisLoading] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
@@ -596,6 +597,133 @@ export default function EvidenceSynthesisTab() {
     });
   };
 
+  const analyzePapersForSynthesis = () => {
+    const papersForSynthesis = extractedData.filter((p) => selectedPaperIds.has(p.id));
+    const template = getRobToolTemplate();
+    const robLabel = template ? template.label : robTool;
+    const isMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
+    const yearMin = papersForSynthesis.length ? Math.min(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
+    const yearMax = papersForSynthesis.length ? Math.max(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
+    const studyTypes = Array.from(new Set(papersForSynthesis.map((p) => p.studyType))).filter(Boolean);
+    const databases = Array.from(new Set(papersForSynthesis.map((p) => p.database))).filter(Boolean);
+
+    const robSummary = papersForSynthesis.reduce(
+      (acc, row) => {
+        const a = robAssessments[row.id];
+        if (!a) return acc;
+        const jl = a.overall.toLowerCase();
+        if (jl.includes("low") && !jl.includes("high")) acc.low += 1;
+        else if (jl.includes("some concerns") || jl.includes("moderate") || jl.includes("unclear") || jl.includes("serious") && !jl.includes("critical")) acc.some += 1;
+        else if (jl.includes("high") || jl.includes("critical") || jl.includes("very high")) acc.high += 1;
+        else acc.pending += 1;
+        return acc;
+      },
+      { low: 0, some: 0, high: 0, pending: 0 }
+    );
+
+    const outcomes = Array.from(new Set(papersForSynthesis.map((p) => p.outcome).filter(Boolean)));
+    const populations = Array.from(new Set(papersForSynthesis.map((p) => p.population || "Not specified").filter(Boolean)));
+    const interventions = Array.from(new Set(papersForSynthesis.map((p) => p.intervention || "Not specified").filter(Boolean)));
+
+    const picoSummary = `Population: ${populations.slice(0, 3).join(", ") || "various"}. Intervention/Exposure: ${interventions.slice(0, 3).join(", ") || "various"}. Outcomes: ${outcomes.slice(0, 3).join(", ") || "various"}.`;
+
+    const studyDesignBreakdown = studyTypes.length > 0
+      ? studyTypes.map((st) => `- ${st}: ${papersForSynthesis.filter((p) => p.studyType === st).length} study(ies)`).join("\n")
+      : "- Study design not specified";
+
+    const effectDirectionSummary = papersForSynthesis.length > 0
+      ? papersForSynthesis.map((p, i) => {
+          const direction = p.outcome?.toLowerCase().includes("improve") || p.outcome?.toLowerCase().includes("benefit")
+            ? "benefit"
+            : p.outcome?.toLowerCase().includes("reduce") || p.outcome?.toLowerCase().includes("decrease")
+              ? "harm/reduction"
+              : "unclear";
+          return `${i + 1}. ${p.authors} (${p.year}): ${direction}`;
+        }).join("\n")
+      : "No studies available";
+
+    const metaforReadiness = isMeta && effectSizes.length >= 2
+      ? `Ready for meta-analysis: ${effectSizes.length} studies with extractable effect sizes. Pool using **metafor** (R) random-effects model (DerSimonian–Laird) or fixed-effects model (Inverse-Variance). Forest plot and funnel plot can be generated with **forestplot** (R) and **metafor**. Heterogeneity: assess I², τ², Q-test.`
+      : isMeta
+        ? `Not yet ready for meta-analysis: ${effectSizes.length} effect size(s) extracted. At least 2 studies with numeric effect estimates and 95% CIs are needed. Use **WebPlotDigitizer** or **metaDigitise** to extract data from figures if raw numbers are unavailable.`
+        : "Narrative synthesis only — meta-analysis not planned for this review type.";
+
+    const forestplotReadiness = effectSizes.length > 0
+      ? `Forest-plot data prepared for ${effectSizes.length} studies. Use **forestplot** (R) or **OpenMEE** for publication-ready visualisation. Scales should be standardised (e.g., log scale for RR/OR).`
+      : "No effect-size data available for forest-plot generation.";
+
+    return `## Step 4A — Evidence Analysis (metafor / forestplot aligned)
+
+**Review type:** ${reviewType}
+**Studies analysed:** ${papersForSynthesis.length}
+**Year range:** ${yearMin}–${yearMax}
+**Databases:** ${databases.join(", ") || "multiple"}
+
+---
+
+### Analysis Methodology (PMC12402582 / awesome-evidence-synthesis / meta-pipe)
+
+This analysis follows the step-by-step methodology from **Writing a Systematic Review and Meta-analysis: A Step-by-Step Guide** (PMC12402582), aligned with **awesome-evidence-synthesis** workflow and **meta-pipe** stage 06_analysis.
+
+**PICO Summary:**
+${picoSummary}
+
+**Study Design Breakdown:**
+${studyDesignBreakdown}
+
+**Effect Direction by Study:**
+${effectDirectionSummary}
+
+**metafor Readiness:**
+${metaforReadiness}
+
+**forestplot Readiness:**
+${forestplotReadiness}
+
+---
+
+### metafor Analysis Plan
+
+When effect sizes are available, the following **metafor** (R) workflow should be applied:
+
+\`\`\`r
+library(metafor)
+dat <- escalc(
+  measure = "RR",
+  ai = c(...),
+  bi = c(...),
+  ci = c(...),
+  di = c(...)
+)
+res <- rma(yi, vi, data = dat, test = "knha")
+print(res)
+forest(res, atransf = exp)
+funnel(res)
+regtest(res)
+\`\`\`
+
+Heterogeneity thresholds (PMC12402582 / Thorlund et al.):
+- I² 0–40%: minimal
+- I² 30–60%: moderate
+- I² 50–90%: substantial
+- I² 75–100%: considerable
+
+---
+
+### prismAId Screening & Extraction Quality
+
+- Screening method: Title/abstract + full-text duplicate screening (prismAId protocol-based methodology).
+- Extraction method: Structured extraction with a priori template, piloted on subset (meta-pipe stage 05_extraction).
+- Inter-rater reliability: Cohen's κ should be calculated and reported.
+
+---
+
+### Next Step
+
+Proceed to Synthesis & Meta-analysis (Step 4B) to generate the narrative synthesis and evidence report.
+`;
+  };
+
   const generateLocalSynthesis = () => {
     const papersForSynthesis = extractedData.filter((p) => selectedPaperIds.has(p.id));
     const template = getRobToolTemplate();
@@ -688,7 +816,6 @@ Using **${robLabel}** (robvis), the overall distribution of risk-of-bias judgmen
 > Generated locally using awesome-evidence-synthesis open-source workflow standards (https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis). For meta-analysis statistics, export the effect table to **R (metafor/meta)**, **JASP**, or **OpenMEE**.
 `;
   };
-
 
   const runMetaforAnalysis = () => {
     if (effectSizes.length === 0) {
@@ -1011,7 +1138,11 @@ At the end, include a References section with all papers in Vancouver style:
     }
     setSynthesisLoading(true);
     setSynthesisOutput("");
+    setSynthesisAnalysis("");
     try {
+      const analysisOutput = analyzePapersForSynthesis();
+      setSynthesisAnalysis(analysisOutput);
+
       const papersForSynthesis = extractedData
         .filter((p) => selectedPaperIds.has(p.id))
         .map((p) => ({
@@ -1036,6 +1167,9 @@ ${synthesisInstructions || "Use standard systematic review methodology appropria
 
 EXTRACTED STUDIES:
 ${papersForSynthesis.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. Type: ${p.studyType}. Outcome: ${p.outcome}. RoB: ${p.ROB}.${p.notes ? ` Notes: ${p.notes}` : ""}`).join("\n\n")}
+
+EVIDENCE ANALYSIS (Step 4A — metafor / forestplot aligned):
+${analysisOutput}
 
 REQUIREMENTS:
 1. Summarize the body of evidence thematically or narratively as appropriate for the review type, referencing the specific awesome-evidence-synthesis tools where relevant.
@@ -2095,6 +2229,23 @@ ${referencesList}
                 )}
               </button>
 
+              {synthesisAnalysis && (
+                <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4 mb-4">
+                  <h4 className="text-sm font-bold text-white mb-3">Step 4A — Paper Analysis (metafor / forestplot aligned)</h4>
+                  <div className="text-blue-100 whitespace-pre-wrap max-h-[500px] overflow-y-auto text-sm leading-relaxed">
+                    {synthesisAnalysis.split("\n").map((line, i) => {
+                      if (line.startsWith("# ")) return <h1 key={i} className="text-lg font-bold text-white mt-4 mb-2">{line.slice(2)}</h1>;
+                      if (line.startsWith("## ")) return <h2 key={i} className="text-base font-bold text-yellow-200 mt-3 mb-2">{line.slice(3)}</h2>;
+                      if (line.startsWith("### ")) return <h3 key={i} className="text-sm font-bold text-blue-200 mt-2 mb-1">{line.slice(4)}</h3>;
+                      if (line.startsWith("| ")) return <pre key={i} className="text-xs overflow-x-auto my-2 bg-blue-900/20 p-2 rounded">{line}</pre>;
+                      if (line.trim() === "") return <br key={i} />;
+                      if (line.startsWith("```")) return null;
+                      return <p key={i} className="text-sm text-blue-100 mb-1">{line}</p>;
+                    })}
+                  </div>
+                </div>
+              )}
+
               {synthesisOutput && (
                 <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4 mb-4">
                   <h4 className="text-sm font-bold text-white mb-3">Narrative Synthesis Output</h4>
@@ -2105,6 +2256,7 @@ ${referencesList}
                       if (line.startsWith("### ")) return <h3 key={i} className="text-sm font-bold text-blue-200 mt-2 mb-1">{line.slice(4)}</h3>;
                       if (line.startsWith("| ")) return <pre key={i} className="text-xs overflow-x-auto my-2 bg-blue-900/20 p-2 rounded">{line}</pre>;
                       if (line.trim() === "") return <br key={i} />;
+                      if (line.startsWith("```")) return null;
                       return <p key={i} className="text-sm text-blue-100 mb-1">{line}</p>;
                     })}
                   </div>
