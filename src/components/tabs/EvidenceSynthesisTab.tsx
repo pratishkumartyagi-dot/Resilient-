@@ -1032,6 +1032,7 @@ Using **${robLabel}** (robvis), the overall distribution of risk-of-bias judgmen
       reviewType,
       query: query || "the research topic",
       totalRecords: papers.length,
+      totalRecordsRaw: prismaCounts.identification > prismaCounts.deduped ? prismaCounts.identification : undefined,
       deduped: prismaCounts.deduped,
       screened: prismaCounts.screened,
       excluded: prismaCounts.excluded,
