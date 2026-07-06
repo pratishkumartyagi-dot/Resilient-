@@ -986,3 +986,26 @@ A fully functional qualitative data analysis tool for text, images, audio, and v
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes
 - `bun run build` ✅ passes cleanly
+
+## Step 4 — Synthesis & Meta-analysis Report Generation (2026-07-06)
+
+**Feature**: Added comprehensive "Generate Synthesis Report" action to Step 4 of Evidence Synthesis & Meta-analysis tab, aligned with https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis methodology. Once papers are selected and extracted, users click once to generate a full synthesis and meta-analysis report.
+
+### New File
+- `src/lib/synthesis-report-generator.ts` — Pure `generateSynthesisReport(opts: SynthesisReportOptions)` + `downloadSynthesisReport(report, reviewType)`. Report includes: structured abstract, PRISMA 2020 flow table, per-study characteristics, robvis traffic-light + narrative, effect size summary table, meta-analysis block (pooled estimate, CI, Q-test, I², τ², prediction interval, forest-plot data with study-level + pooled row), GRADE certainty table, conclusions, Vancouver-style references, awesome-evidence-synthesis toolchain footer.
+
+### EvidenceSynthesisTab Updates (Step 4)
+- Added `synthesisReport` and `reportLoading` state
+- `generateReport()` builds report from pipeline state; computes year range, study types, RoB summary locally; stores Markdown in state
+- `downloadReport()` calls `downloadSynthesisReport()` for `.md` download
+- "Generate Synthesis Report" button (emerald, disabled until extracted data exists)
+- "Download Report (.md)" button (appears after generation)
+- Scrollable Markdown report preview with section heading highlighting
+
+### Tools Referenced in Report
+- awesome-evidence-synthesis, metafor (R), meta (R), robvis, PRISMA 2020, GRADE, forestplot (R), OpenMEE, JASP, RevMan
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes
+- `bun run build` ✅ passes cleanly

@@ -13,6 +13,7 @@ import { fetchRealPapers, generateMockLegacy, type Paper, validateDoiViaCrossref
 import { downloadLiteratureReviewPDF, downloadLiteratureReviewWord } from "@/lib/exporters";
 import { parseEffectSizeRow, fixedEffectsMetaAnalysis, randomEffectsMetaAnalysis, type MetaforResult, type EffectSizeRow } from "@/lib/metafor-compute";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
+import { generateSynthesisReport, downloadSynthesisReport } from "@/lib/synthesis-report-generator";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Legend
@@ -222,7 +223,9 @@ export default function EvidenceSynthesisTab() {
   const [robInstructions, setRobInstructions] = useState("");
   const [synthesisInstructions, setSynthesisInstructions] = useState("");
   const [synthesisOutput, setSynthesisOutput] = useState("");
+  const [synthesisReport, setSynthesisReport] = useState("");
   const [synthesisLoading, setSynthesisLoading] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
   const [manuscript, setManuscript] = useState("");
   const [manuscriptLoading, setManuscriptLoading] = useState(false);
   const [literatureReviewSections, setLiteratureReviewSections] = useState({
@@ -672,6 +675,75 @@ Using **${robLabel}** (robvis), the overall distribution of risk-of-bias judgmen
     if (result) {
       setMetaforResult(result);
     }
+  };
+
+  const generateReport = () => {
+    const selectedForSynthesis = extractedData.filter((p) => selectedPaperIds.has(p.id));
+    const papersForReport = selectedForSynthesis.length > 0 ? selectedForSynthesis : extractedData;
+    if (papersForReport.length === 0) {
+      alert("Please complete data extraction and select papers before generating the synthesis report.");
+      return;
+    }
+
+    const template = getRobToolTemplate();
+    const today = new Date().toISOString().split("T")[0];
+    const robLabel = template ? template.label : robTool;
+
+    const rYearMin = papersForReport.length ? Math.min(...papersForReport.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
+    const rYearMax = papersForReport.length ? Math.max(...papersForReport.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
+    const rStudyTypes = Array.from(new Set(papersForReport.map((p) => p.studyType))).filter(Boolean);
+    const rRobSummary = papersForReport.reduce(
+      (acc: { low: number; some: number; high: number; pending: number }, row) => {
+        const a = robAssessments[row.id];
+        if (!a) return acc;
+        const jl = a.overall.toLowerCase();
+        if (jl.includes("low") && !jl.includes("high")) acc.low += 1;
+        else if (jl.includes("some concerns") || jl.includes("moderate") || jl.includes("unclear") || jl.includes("serious") && !jl.includes("critical")) acc.some += 1;
+        else if (jl.includes("high") || jl.includes("critical") || jl.includes("very high")) acc.high += 1;
+        else acc.pending += 1;
+        return acc;
+      },
+      { low: 0, some: 0, high: 0, pending: 0 }
+    );
+
+    const report = generateSynthesisReport({
+      reviewType,
+      query: query || "the research topic",
+      totalRecords: papers.length,
+      deduped: prismaCounts.deduped,
+      screened: prismaCounts.screened,
+      excluded: prismaCounts.excluded,
+      included: prismaCounts.included,
+      databases: selectedDbs,
+      yearFrom,
+      yearTo,
+      yearMin: rYearMin,
+      yearMax: rYearMax,
+      studyTypes: rStudyTypes,
+      papersForSynthesis: papersForReport.map((p) => ({
+        id: p.id,
+        title: p.title,
+        authors: p.authors,
+        year: p.year,
+        studyType: p.studyType,
+        outcome: p.outcome,
+        intervention: p.intervention,
+        population: p.population,
+        robOverall: robAssessments[p.id]?.overall,
+      })),
+      robSummary: rRobSummary,
+      robToolName: robLabel,
+      effectSizes,
+      metaforResult,
+      synthesisExcerpt: synthesisOutput || "Narrative synthesis was generated from extracted data using the local awesome-evidence-synthesis workflow, incorporating study-level findings, thematic analysis, and GRADE-informed certainty assessment.",
+      generatedDate: today,
+    });
+    setSynthesisReport(report);
+  };
+
+  const downloadReport = () => {
+    if (!synthesisReport) return;
+    downloadSynthesisReport(synthesisReport, reviewType);
   };
 
   const parseLiteratureReview = (text: string): Record<string, string> => {
@@ -1138,7 +1210,7 @@ Generate the full manuscript now.`;
           yearMin,
           yearMax,
           studyTypes,
-          databases,
+      databases: selectedDbs,
           totalRecords,
           deduped,
           screened,
@@ -2138,6 +2210,57 @@ ${referencesList}
                       <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm bg-yellow-500/80" /> Pooled</span>
                       <span>Scale: {metaforResult.forestData.length > 0 ? `${Math.min(...metaforResult.forestData.flatMap(r => [r.ciLower, r.ciUpper, r.effect])).toFixed(2)} – ${Math.max(...metaforResult.forestData.flatMap(r => [r.ciLower, r.ciUpper, r.effect])).toFixed(2)}` : "—"}</span>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-4 bg-blue-950/40 border border-blue-900/40 rounded-lg p-4">
+                <h4 className="text-sm font-bold text-white mb-2 flex items-center gap-2">
+                  <FileText size={14} className="text-emerald-400" />
+                  Awesome-Evidence-Synthesis Report
+                </h4>
+                <p className="text-[11px] text-blue-300 mb-3">
+                  Generate a comprehensive synthesis report aligned with the awesome-evidence-synthesis methodology. The report includes PRISMA 2020 flow, metafor results, robvis RoB summary, effect size table, GRADE certainty assessment, and narrative synthesis. Output: a publication-ready Markdown document.
+                </p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    onClick={generateReport}
+                    disabled={reportLoading || extractedData.length === 0}
+                    className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-600 text-white font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
+                  >
+                    {reportLoading ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Generating Report...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={16} />
+                        Generate Synthesis Report
+                      </>
+                    )}
+                  </button>
+                  {synthesisReport && (
+                    <button onClick={downloadReport} className="flex items-center gap-2 bg-blue-700 hover:bg-blue-600 text-white font-bold px-4 py-2.5 rounded-lg">
+                      <Download size={14} />
+                      Download Report (.md)
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {synthesisReport && (
+                <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+                  <h4 className="text-sm font-bold text-white mb-3">Synthesis Report Preview</h4>
+                  <div className="text-blue-100 whitespace-pre-wrap max-h-[400px] overflow-y-auto text-xs leading-relaxed bg-[#0a1530] p-3 rounded border border-blue-900/50">
+                    {synthesisReport.split("\n").map((line, i) => {
+                      if (line.startsWith("# ")) return <h1 key={i} className="text-base font-bold text-white mt-3 mb-1">{line.slice(2)}</h1>;
+                      if (line.startsWith("## ")) return <h2 key={i} className="text-sm font-bold text-yellow-200 mt-2 mb-1">{line.slice(3)}</h2>;
+                      if (line.startsWith("### ")) return <h3 key={i} className="text-xs font-bold text-blue-200 mt-1 mb-0.5">{line.slice(4)}</h3>;
+                      if (line.startsWith("| ")) return <pre key={i} className="text-[10px] overflow-x-auto my-1 bg-blue-900/20 p-1.5 rounded">{line}</pre>;
+                      if (line.trim() === "") return <br key={i} />;
+                      return <p key={i} className="text-xs text-blue-100 mb-0.5">{line}</p>;
+                    })}
                   </div>
                 </div>
               )}
