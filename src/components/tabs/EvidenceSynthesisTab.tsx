@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
-import { fetchRealPapers, generateMockLegacy, type Paper, validateDoiViaCrossref } from "@/lib/database-apis";
+import { fetchRealPapers, type Paper, validateDoiViaCrossref } from "@/lib/database-apis";
 import { downloadLiteratureReviewPDF, downloadLiteratureReviewWord } from "@/lib/exporters";
 import { parseEffectSizeRow, fixedEffectsMetaAnalysis, randomEffectsMetaAnalysis, type MetaforResult, type EffectSizeRow } from "@/lib/metafor-compute";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
@@ -288,8 +288,10 @@ export default function EvidenceSynthesisTab() {
     try {
       const results = await fetchRealPapers(query, selectedDbs, yearFrom, yearTo, studyTypeFilter === "All Study Types" ? undefined : studyTypeFilter);
       setPapers(results);
-    } catch {
-      setPapers(generateMockLegacy(query, selectedDbs));
+    } catch (err) {
+      console.error("Search failed:", err);
+      setPapers([]);
+      alert("Search failed. Please try again or check your network connection.");
     } finally {
       setLoading(false);
     }
@@ -456,17 +458,34 @@ export default function EvidenceSynthesisTab() {
     }
   };
 
-  const autoAssessRob = () => {
+  const autoAssessRob = async () => {
     if (extractedData.length === 0) return;
     const template = getRobToolTemplate();
     if (!template) return;
+
+    const apiKey = state.geminiApiKey || state.groqApiKey;
+    let aiAssessments: Record<string, RobAssessment> = {};
+    if (apiKey) {
+      try {
+        aiAssessments = await aiAssessRob(extractedData, template);
+      } catch (err) {
+        console.error("AI RoB assessment failed, falling back to heuristic:", err);
+      }
+    }
+
     setRobAssessments((prev) => {
       const next: Record<string, RobAssessment> = {};
       extractedData.forEach((row) => {
         const existing = prev[row.id];
-        const base = existing ? { ...existing, tool: robTool, domains: { ...existing.domains } } : initRobAssessment(row.id, { studyType: row.studyType, year: row.year, title: row.title });
-        applyRobHeuristic(base, { studyType: row.studyType, year: row.year, title: row.title }, template);
-        next[row.id] = base;
+        if (aiAssessments[row.id]) {
+          next[row.id] = { ...aiAssessments[row.id], tool: robTool };
+        } else {
+          const base = existing
+            ? { ...existing, tool: robTool, domains: { ...existing.domains } }
+            : initRobAssessment(row.id, { studyType: row.studyType, year: row.year, title: row.title });
+          applyRobHeuristic(base, { studyType: row.studyType, year: row.year, title: row.title }, template);
+          next[row.id] = base;
+        }
       });
       return next;
     });
@@ -562,27 +581,165 @@ export default function EvidenceSynthesisTab() {
     alert("Risk of Bias assessments saved locally.");
   };
 
-  const runExtraction = () => {
+  const extractPicoHeuristic = (paper: Paper): { population: string; intervention: string; outcome: string } => {
+    const title = (paper.title || "").toLowerCase();
+    const abstract = (paper.abstract || "").toLowerCase();
+    const text = `${title} ${abstract}`;
+
+    const populationKeywords = ["patients", "children", "adults", "elderly", "adolescents", "population", "individuals", "participants", "subjects", "cohort", "sample", "people", "workers", "students", "mothers", "infants", "men", "women"];
+    const interventionKeywords = ["treatment", "therapy", "intervention", "drug", "vaccine", "program", "policy", "surgery", "medication", "exercise", "diet", "supplement", "counseling", "rehabilitation", "screening", "education", "protocol"];
+    const outcomeKeywords = ["mortality", "morbidity", "improvement", "reduction", "survival", "outcome", "score", "scale", "event", "complication", "recovery", "prevalence", "incidence", "effect", "benefit", "risk", "symptom"];
+
+    const extractSnippet = (keywords: string[], maxLen = 120): string => {
+      const sorted = keywords
+        .map((kw) => ({ kw, idx: text.indexOf(kw) }))
+        .filter((x) => x.idx >= 0)
+        .sort((a, b) => a.idx - b.idx);
+
+      if (sorted.length === 0) {
+        const snippet = abstract.length > 0 ? abstract.substring(0, maxLen) : title.substring(0, maxLen);
+        return snippet.length > 8 ? snippet : "";
+      }
+
+      const start = Math.max(0, sorted[0].idx - 40);
+      const end = Math.min(text.length, sorted[sorted.length - 1].idx + 80);
+      let snippet = text.substring(start, end).replace(/\s+/g, " ").trim();
+      if (snippet.length > maxLen) snippet = snippet.substring(0, maxLen);
+      return snippet;
+    };
+
+    return {
+      population: extractSnippet(populationKeywords),
+      intervention: extractSnippet(interventionKeywords),
+      outcome: extractSnippet(outcomeKeywords),
+    };
+  };
+
+  const aiExtractPico = async (
+    papers: Paper[]
+  ): Promise<Record<string, { population: string; intervention: string; outcome: string }>> => {
+    const apiKey = state.geminiApiKey || state.groqApiKey;
+    if (!apiKey || papers.length === 0) return {};
+
+    const prompt = `You are a systematic review extraction assistant. Extract Population, Intervention, and Outcome (PICO) elements from the following study titles/abstracts.
+Return ONLY valid JSON in this exact format:
+{"results":[{"id":"<paper id>","population":"...","intervention":"...","outcome":"..."}]}
+
+Studies:
+${papers.map((p, i) => `${i + 1}. [${p.id}] ${p.title}\n   ${p.abstract ? p.abstract.substring(0, 300) : "No abstract available"}`).join("\n\n")}
+
+Rules:
+- Be concise (10-30 words per field).
+- If a field cannot be identified, write "".
+- Do not include any text outside the JSON.`;
+
+    try {
+      const text = state.geminiApiKey
+        ? await callGemini(state.geminiApiKey, prompt, { searchEnabled: false })
+        : await callGroq(state.groqApiKey!, prompt, { searchEnabled: false });
+
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return {};
+      const parsed = JSON.parse(jsonMatch[0]);
+      const out: Record<string, { population: string; intervention: string; outcome: string }> = {};
+      const arr = Array.isArray(parsed.results) ? parsed.results : [];
+      arr.forEach((r: any) => {
+        if (r.id) out[r.id] = { population: r.population || "", intervention: r.intervention || "", outcome: r.outcome || "" };
+      });
+      return out;
+    } catch {
+      return {};
+    }
+  };
+
+  const aiAssessRob = async (
+    papers: Paper[],
+    template: RobToolTemplate
+  ): Promise<Record<string, RobAssessment>> => {
+    const apiKey = state.geminiApiKey || state.groqApiKey;
+    if (!apiKey || papers.length === 0) return {};
+
+    const prompt = `You are a risk-of-bias assessment assistant using the ${template.label} tool.
+Tool domains: ${template.domains.map((d) => `${d.id}: ${d.label}`).join(", ")}.
+Valid judgments: ${template.judgments.join(", ")}.
+
+For each study below, provide a JSON object with domain judgments and an overall judgment.
+Return ONLY valid JSON in this exact format:
+{"results":[{"id":"<paper id>","overall":"...","notes":"...","domains":{"D1":{"judgment":"..."},"D2":{"judgment":"..."} }}]}
+
+Studies:
+${papers.map((p, i) => `${i + 1}. [${p.id}] ${p.title}\n   Type: ${p.studyType || "unknown"}\n   Year: ${p.year || "unknown"}`).join("\n\n")}
+
+Rules:
+- Use the exact judgment strings from the valid list.
+- Do not include any text outside the JSON.`;
+
+    try {
+      const text = state.geminiApiKey
+        ? await callGemini(state.geminiApiKey, prompt, { searchEnabled: false })
+        : await callGroq(state.groqApiKey!, prompt, { searchEnabled: false });
+
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return {};
+      const parsed = JSON.parse(jsonMatch[0]);
+      const out: Record<string, RobAssessment> = {};
+      const arr = Array.isArray(parsed.results) ? parsed.results : [];
+      arr.forEach((r: any) => {
+        if (!r.id) return;
+        const domains: Record<string, DomainJudgment> = {};
+        (template.domains || []).forEach((d) => {
+          domains[d.id] = { judgment: r.domains?.[d.id]?.judgment || "No information" };
+        });
+        out[r.id] = {
+          tool: robTool,
+          overall: r.overall || template.overallDefault,
+          notes: r.notes || "",
+          domains,
+        };
+      });
+      return out;
+    } catch {
+      return {};
+    }
+  };
+
+  const runExtraction = async () => {
     const selected = papers.filter((p) => selectedPaperIds.has(p.id));
+    if (selected.length === 0) {
+      alert("Please select at least one paper before extraction.");
+      return;
+    }
+
+    let aiExtractions: Record<string, { population: string; intervention: string; outcome: string }> = {};
+    const apiKey = state.geminiApiKey || state.groqApiKey;
+    if (apiKey) {
+      try {
+        aiExtractions = await aiExtractPico(selected);
+      } catch (err) {
+        console.error("AI extraction failed, falling back to heuristic:", err);
+      }
+    }
+
     const assessments: Record<string, RobAssessment> = {};
-    selected.forEach((p) => {
+    const extracted = selected.map((p) => {
+      const pico = aiExtractions[p.id] || extractPicoHeuristic(p);
       assessments[p.id] = initRobAssessment(p.id, { studyType: p.studyType, year: p.year, title: p.title });
-    });
-    setRobAssessments(assessments);
-    setExtractedData(
-      selected.map((p) => ({
+      return {
         id: p.id,
         title: p.title,
         authors: p.authors,
         year: p.year,
         doi: p.doi,
         studyType: p.studyType,
-        population: "Extracted from abstract",
-        intervention: "Extracted from abstract",
-        outcome: "Extracted from abstract",
+        population: pico.population || extractPicoHeuristic(p).population,
+        intervention: pico.intervention || extractPicoHeuristic(p).intervention,
+        outcome: pico.outcome || extractPicoHeuristic(p).outcome,
         ROB: "Pending — assess in Step 3",
-      }))
-    );
+      };
+    });
+
+    setRobAssessments(assessments);
+    setExtractedData(extracted);
     setPipelineStep(3);
   };
 
