@@ -563,6 +563,8 @@ ${effectTable}
 ${isMeta && metaforResult ? `
 ### Embedded Forest Plot (analysis result)
 
+![Forest Plot — ${reviewType}](data:image/svg+xml;base64,${Buffer.from(
+      generateForestChartSVG(
         `Forest Plot: ${reviewType} — ${metaforResult.model}-effects`,
         robToolName,
         metaforResult.forestData.map((r) => ({
