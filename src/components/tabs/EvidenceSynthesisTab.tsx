@@ -259,6 +259,9 @@ export default function EvidenceSynthesisTab() {
   const [scopingRows, setScopingRows] = useState<{ study: string; intervention: string; population: string; robRating: string }[]>([
     { study: "", intervention: "", population: "", robRating: "Low" },
   ]);
+  const [writingMode, setWritingMode] = useState<"openclaw" | "academic">("openclaw");
+  const [academicManuscript, setAcademicManuscript] = useState("");
+  const [academicManuscriptLoading, setAcademicManuscriptLoading] = useState(false);
 
   const reviewPapersForStep4 = robSelectedPaperIds.size > 0
     ? papers.filter((p) => robSelectedPaperIds.has(p.id))
@@ -1693,6 +1696,188 @@ Generate the full manuscript now.`;
       setManuscript(`# Error\n\n**Failed to generate manuscript:** ${err.message || "Unknown error"}\n\nPlease complete Steps 1–5 and try again. If using AI-generated mode, ensure your API key is valid.`);
     } finally {
       setManuscriptLoading(false);
+    }
+  };
+
+  const generateAcademicWritingManuscript = async () => {
+    if (extractedData.length === 0) {
+      alert("Please complete data extraction first.");
+      return;
+    }
+    setAcademicManuscriptLoading(true);
+    setAcademicManuscript("");
+    try {
+      const papersForSynthesis = extractedData.filter((p) => selectedPaperIds.has(p.id));
+      const template = getRobToolTemplate();
+      const robLabel = template ? template.label : robTool;
+      const isMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
+      const yearMin = papersForSynthesis.length ? Math.min(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
+      const yearMax = papersForSynthesis.length ? Math.max(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
+      const studyTypes = Array.from(new Set(papersForSynthesis.map((p) => p.studyType))).filter(Boolean);
+      const databases = Array.from(new Set(papersForSynthesis.map((p) => p.database))).filter(Boolean);
+      const totalRecords = papers.length;
+      const deduped = prismaCounts.deduped;
+      const screened = prismaCounts.screened;
+      const excluded = prismaCounts.excluded;
+      const included = prismaCounts.included;
+
+      const robSummary = papersForSynthesis.reduce(
+        (acc: { low: number; some: number; high: number; pending: number }, row) => {
+          const a = robAssessments[row.id];
+          if (!a) return acc;
+          const jl = a.overall.toLowerCase();
+          if (jl.includes("low") && !jl.includes("high")) acc.low += 1;
+          else if (jl.includes("some concerns") || jl.includes("moderate") || jl.includes("unclear") || jl.includes("serious") && !jl.includes("critical")) acc.some += 1;
+          else if (jl.includes("high") || jl.includes("critical") || jl.includes("very high")) acc.high += 1;
+          else acc.pending += 1;
+          return acc;
+        },
+        { low: 0, some: 0, high: 0, pending: 0 }
+      );
+
+      const reviewTypeLabel = reviewType;
+      const topic = query || "the research topic";
+
+      const apiKey = state.geminiApiKey || state.groqApiKey;
+      if (!apiKey) {
+        setAcademicManuscript("Error: Configure an API key in Settings to activate the Academic Writing Agents engine.");
+        setAcademicManuscriptLoading(false);
+        return;
+      }
+
+      const pipelineContext = `
+TOPIC: ${topic}
+REVIEW TYPE: ${reviewType}
+YEAR RANGE: ${yearMin}–${yearMax}
+STUDY TYPES: ${studyTypes.join(", ")}
+DATABASES: ${databases.join(", ") || "multiple"}
+PRISMA COUNTS: ${totalRecords} identified → ${deduped} deduplicated → ${screened} screened → ${excluded} excluded → ${included} included
+RISK OF BIAS (${robLabel}): Low=${robSummary.low}, Some/Moderate=${robSummary.some}, High=${robSummary.high}
+SYNTHESIS OUTPUT: ${synthesisOutput ? synthesisOutput.split("\n").slice(0, 30).join("\n") : "Not yet generated"}
+EFFECT SIZES: ${effectSizes.length > 0 ? effectSizes.map((r) => `${r.study}: ${r.effect} (95% CI ${r.ci}), weight ${r.weight}`).join("; ") : "None"}
+${metaforResult ? `META-ANALYSIS: Pooled μ = ${metaforResult.pooledEstimate.toFixed(3)} (95% CI ${metaforResult.ciLower.toFixed(3)}–${metaforResult.ciUpper.toFixed(3)}). I² = ${metaforResult.I2.toFixed(1)}%, τ² = ${metaforResult.tau2.toFixed(4)}, Q(${metaforResult.k - 1}) = ${metaforResult.Q.toFixed(2)}, p = ${metaforResult.Qp.toFixed(4)}.` : ""}
+PAPERS: ${papersForSynthesis.slice(0, 15).map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.studyType}.${p.doi ? ` doi:${p.doi}` : ""}`).join("\n")}
+`;
+
+      const callWithFailover = async (prompt: string, structuredJson = false): Promise<string> => {
+        if (state.geminiApiKey) {
+          try {
+            return await callGemini(state.geminiApiKey, prompt, { searchEnabled: false });
+          } catch {
+            if (state.groqApiKey) return await callGroq(state.groqApiKey!, prompt, { searchEnabled: false });
+          }
+        } else if (state.groqApiKey) {
+          return await callGroq(state.groqApiKey!, prompt, { searchEnabled: false });
+        }
+        throw new Error("No API key configured.");
+      };
+
+      const draftPrompt = `You are an expert academic writer using the academic-writing-agents methodology ( andrehuang/academic-writing-agents ) for multi-agent review, research, drafting, and polishing.
+
+TASK: Draft a complete academic manuscript for a ${reviewType}.
+
+PIPELINE CONTEXT:
+${pipelineContext}
+
+REQUIRED STRUCTURE:
+- Abstract (structured: Background, Methods, Results, Discussion, Keywords)
+- 1. Introduction
+- 2. Methods
+- 3. Results
+- 4. Discussion
+- 5. Conclusion
+- References (Vancouver-style numbered inline citations [1], [2])
+
+STYLE REQUIREMENTS:
+- Write in full paragraphs with flowing prose
+- Use Vancouver-style numbered inline citations
+- Include a complete References section
+- Follow IMRAD + PRISMA 2020 structure where applicable
+- Integrate all available pipeline data naturally
+
+Generate the complete manuscript draft now.`;
+
+      const draft = await callWithFailover(draftPrompt);
+      setAcademicManuscript(`# Draft Generated\n\n${draft}\n\n---\n\n## Academic Writing Agents Review\n\nRunning multi-agent review passes...`);
+
+      const reviewPasses = [
+        {
+          name: "Structure & Narrative",
+          prompt: `You are a structure-and-narrative reviewer (academic-writing-agents: A1-A7 principles). Review the following manuscript draft for logical flow, section coherence, claim-first organization, and GPS rhythm (Goal-Problem-Solution). Provide specific revision suggestions.
+
+MANUSCRIPT DRAFT:
+${draft}
+
+Provide a prioritized list of revisions (Critical / Important / Minor) for structure and narrative.`,
+        },
+        {
+          name: "Prose & Style",
+          prompt: `You are a prose-and-style reviewer (academic-writing-agents: B1-B8 principles). Review the following manuscript draft for clarity, conciseness, academic tone, grammar, and AI-tell detection. Provide specific revision suggestions.
+
+MANUSCRIPT DRAFT:
+${draft}
+
+Provide a prioritized list of revisions (Critical / Important / Minor) for prose and style.`,
+        },
+        {
+          name: "Technical & Methodological",
+          prompt: `You are a technical reviewer (academic-writing-agents: C1-C3 principles). Review the following manuscript draft for methodological accuracy, statistical reporting correctness, and technical clarity. Focus on meta-analysis interpretation, heterogeneity statistics, and risk-of-bias reporting.
+
+MANUSCRIPT DRAFT:
+${draft}
+
+PIPELINE DATA:
+${pipelineContext}
+
+Provide a prioritized list of revisions (Critical / Important / Minor) for technical accuracy.`,
+        },
+        {
+          name: "Citations & Bibliography",
+          prompt: `You are a bibliography-auditor reviewer (academic-writing-agents: E1-E3 principles). Review the following manuscript draft for citation completeness, formatting consistency, and reference accuracy. Flag missing citations, incorrect formats, and incomplete references.
+
+MANUSCRIPT DRAFT:
+${draft}
+
+PAPERS AVAILABLE:
+${papersForSynthesis.slice(0, 20).map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || p.database}.${p.doi ? ` doi:${p.doi}` : ""}`).join("\n")}
+
+Provide a prioritized list of revisions (Critical / Important / Minor) for citations and bibliography.`,
+        },
+      ];
+
+      let reviewResults: string[] = [];
+      for (const reviewPass of reviewPasses) {
+        const result = await callWithFailover(reviewPass.prompt);
+        reviewResults.push(`### ${reviewPass.name} Review\n\n${result}`);
+      }
+
+      const synthesisPrompt = `You are an academic writing polisher (academic-writing-agents: prose-polisher + section-drafter). You have reviewed a manuscript draft and received feedback from multiple specialist reviewers.
+
+ORIGINAL DRAFT:
+${draft}
+
+REVIEW FEEDBACK:
+${reviewResults.join("\n\n")}
+
+TASK: Produce the final polished manuscript. Address all Critical and Important revisions from the review feedback. Maintain the required structure:
+- Abstract (structured: Background, Methods, Results, Discussion, Keywords)
+- 1. Introduction
+- 2. Methods
+- 3. Results
+- 4. Discussion
+- 5. Conclusion
+- References (Vancouver-style numbered inline citations [1], [2])
+
+Write in full paragraphs with flowing prose. Integrate all pipeline data naturally. Ensure technical accuracy, proper citation formatting, and publication-ready quality.
+
+Generate the final polished manuscript now.`;
+
+      const finalManuscript = await callWithFailover(synthesisPrompt);
+      setAcademicManuscript(finalManuscript);
+    } catch (err: any) {
+      setAcademicManuscript(`# Error\n\n**Failed to generate academic manuscript:** ${err.message || "Unknown error"}\n\nPlease complete Steps 1–5 and try again. Ensure your API key is valid.`);
+    } finally {
+      setAcademicManuscriptLoading(false);
     }
   };
 
@@ -3248,10 +3433,35 @@ ${referencesList}
                 <h3 className="text-lg font-bold text-white">Writing Review & Meta-analysis</h3>
               </div>
               <p className="text-xs text-blue-400 mb-4">
-                This step uses the <a href="https://github.com/FreedomIntelligence/OpenClaw-Medical-Skills#scientific-research--writing" target="_blank" rel="noreferrer" className="text-yellow-300 underline">OpenClaw Scientific Research &amp; Writing</a> skill to read through your completed pipeline (search, screening, extraction, risk of bias, synthesis, and analysis results) and generate a full manuscript in flowing prose. Configure an API key in Settings for AI-enhanced generation; otherwise a local PRISMA/IMRAD manuscript is produced.
+                This step generates a full academic manuscript from your completed pipeline. Choose a writing engine below.
               </p>
 
-              {!manuscript ? (
+              <div className="flex gap-2 mb-4">
+                <button
+                  onClick={() => setWritingMode("openclaw")}
+                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-colors ${
+                    writingMode === "openclaw"
+                      ? "bg-yellow-500 text-[#0a1a3a]"
+                      : "bg-blue-900/40 text-blue-300 hover:bg-blue-800/50"
+                  }`}
+                >
+                  <Sparkles size={14} />
+                  OpenClaw Scientific Writing
+                </button>
+                <button
+                  onClick={() => setWritingMode("academic")}
+                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-colors ${
+                    writingMode === "academic"
+                      ? "bg-yellow-500 text-[#0a1a3a]"
+                      : "bg-blue-900/40 text-blue-300 hover:bg-blue-800/50"
+                  }`}
+                >
+                  <PenTool size={14} />
+                  Academic Writing Agents
+                </button>
+              </div>
+
+              {writingMode === "openclaw" && (
                 <div className="space-y-4">
                   <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
                     <h4 className="text-sm font-bold text-white mb-2">Generated Output</h4>
@@ -3316,37 +3526,137 @@ ${referencesList}
                     )}
                   </button>
                 </div>
-              ) : (
+              )}
+
+              {writingMode === "academic" && (
                 <div className="space-y-4">
                   <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
-                    <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-                      Generated Manuscript
-                      <span className="text-[10px] text-blue-400 font-normal">powered by OpenClaw Scientific Research &amp; Writing</span>
-                    </h4>
-                    <div className="text-blue-100 whitespace-pre-wrap max-h-[600px] overflow-y-auto text-sm leading-relaxed">
-                      {manuscript.split("\n").map((line, i) => {
-                        if (line.startsWith("# ")) return <h1 key={i} className="text-lg font-bold text-white mt-4 mb-2">{line.slice(2)}</h1>;
-                        if (line.startsWith("## ")) return <h2 key={i} className="text-base font-bold text-yellow-200 mt-3 mb-2">{line.slice(3)}</h2>;
-                        if (line.startsWith("### ")) return <h3 key={i} className="text-sm font-bold text-blue-200 mt-2 mb-1">{line.slice(4)}</h3>;
-                        if (line.startsWith("| ")) return <pre key={i} className="text-xs overflow-x-auto my-2 bg-blue-900/20 p-2 rounded">{line}</pre>;
-                        if (line.trim() === "") return <br key={i} />;
-                        return <p key={i} className="text-sm text-blue-100 mb-1">{line}</p>;
-                      })}
+                    <h4 className="text-sm font-bold text-white mb-2">Academic Writing Agents Engine</h4>
+                    <p className="text-xs text-blue-300 leading-relaxed">
+                      Uses the <a href="https://github.com/andrehuang/academic-writing-agents" target="_blank" rel="noreferrer" className="text-yellow-300 underline">academic-writing-agents</a> multi-agent methodology: 12 specialist agents for review, research, drafting, and polishing. The engine runs a draft generation pass followed by sequential review passes (Structure & Narrative, Prose & Style, Technical & Methodological, Citations & Bibliography) and produces a final polished manuscript. Configure an API key in Settings for AI-enhanced generation.
+                    </p>
+                  </div>
+
+                  <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+                    <h4 className="text-sm font-bold text-white mb-2">Manuscript Structure (Academic Writing Agents)</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-blue-200">
+                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
+                        <p className="font-bold text-yellow-200 mb-1">Abstract</p>
+                        <p className="text-blue-300">Structured (Background, Methods, Results, Discussion, Keywords)</p>
+                      </div>
+                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
+                        <p className="font-bold text-yellow-200 mb-1">1. Introduction</p>
+                        <p className="text-blue-300">Background, rationale, objectives — full paragraphs</p>
+                      </div>
+                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
+                        <p className="font-bold text-yellow-200 mb-1">2. Methods</p>
+                        <p className="text-blue-300">Search strategy, data extraction, RoB assessment, synthesis methods</p>
+                      </div>
+                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
+                        <p className="font-bold text-yellow-200 mb-1">3. Results</p>
+                        <p className="text-blue-300">Study characteristics, RoB summary, synthesis findings, meta-analysis</p>
+                      </div>
+                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
+                        <p className="font-bold text-yellow-200 mb-1">4. Discussion</p>
+                        <p className="text-blue-300">Principal findings, interpretation, limitations, future directions</p>
+                      </div>
+                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
+                        <p className="font-bold text-yellow-200 mb-1">5. Conclusion</p>
+                        <p className="text-blue-300">Concise take-home messages and recommendations</p>
+                      </div>
+                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
+                        <p className="font-bold text-yellow-200 mb-1">References</p>
+                        <p className="text-blue-300">Vancouver-style numbered citations [1], [2], arranged in order of appearance</p>
+                      </div>
+                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
+                        <p className="font-bold text-yellow-200 mb-1">Review Passes</p>
+                        <p className="text-blue-300">Structure, Prose, Technical, Citations — then polished final</p>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex justify-end gap-3">
-                    <button onClick={downloadManuscript} className="flex items-center gap-2 bg-emerald-900/50 text-emerald-300 px-4 py-2 rounded-lg hover:bg-emerald-800/70 text-sm">
-                      <Download size={14} />
-                      Download Manuscript (.md)
-                    </button>
-                    <button onClick={() => setPipelineStep(1)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
-                      <RotateCcw size={16} />
-                      Start New Review
-                    </button>
-                  </div>
+
+                  <button
+                    onClick={generateAcademicWritingManuscript}
+                    disabled={academicManuscriptLoading || extractedData.length === 0}
+                    className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
+                  >
+                    {academicManuscriptLoading ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-[#0a1a3a] border-t-transparent rounded-full animate-spin" />
+                        Generating Academic Manuscript...
+                      </>
+                    ) : (
+                      <>
+                        <PenTool size={16} />
+                        Generate Academic Manuscript
+                      </>
+                    )}
+                  </button>
                 </div>
               )}
             </div>
+
+            {manuscript && writingMode === "openclaw" && (
+              <div className="space-y-4">
+                <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+                  <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+                    Generated Manuscript
+                    <span className="text-[10px] text-blue-400 font-normal">powered by OpenClaw Scientific Research &amp; Writing</span>
+                  </h4>
+                  <div className="text-blue-100 whitespace-pre-wrap max-h-[600px] overflow-y-auto text-sm leading-relaxed">
+                    {manuscript.split("\n").map((line, i) => {
+                      if (line.startsWith("# ")) return <h1 key={i} className="text-lg font-bold text-white mt-4 mb-2">{line.slice(2)}</h1>;
+                      if (line.startsWith("## ")) return <h2 key={i} className="text-base font-bold text-yellow-200 mt-3 mb-2">{line.slice(3)}</h2>;
+                      if (line.startsWith("### ")) return <h3 key={i} className="text-sm font-bold text-blue-200 mt-2 mb-1">{line.slice(4)}</h3>;
+                      if (line.startsWith("| ")) return <pre key={i} className="text-xs overflow-x-auto my-2 bg-blue-900/20 p-2 rounded">{line}</pre>;
+                      if (line.trim() === "") return <br key={i} />;
+                      return <p key={i} className="text-sm text-blue-100 mb-1">{line}</p>;
+                    })}
+                  </div>
+                </div>
+                <div className="flex justify-end gap-3">
+                  <button onClick={downloadManuscript} className="flex items-center gap-2 bg-emerald-900/50 text-emerald-300 px-4 py-2 rounded-lg hover:bg-emerald-800/70 text-sm">
+                    <Download size={14} />
+                    Download Manuscript (.md)
+                  </button>
+                  <button onClick={() => setPipelineStep(1)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
+                    <RotateCcw size={16} />
+                    Start New Review
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {academicManuscript && writingMode === "academic" && (
+              <div className="space-y-4">
+                <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+                  <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+                    Generated Manuscript
+                    <span className="text-[10px] text-blue-400 font-normal">powered by Academic Writing Agents (andrehuang/academic-writing-agents)</span>
+                  </h4>
+                  <div className="text-blue-100 whitespace-pre-wrap max-h-[600px] overflow-y-auto text-sm leading-relaxed">
+                    {academicManuscript.split("\n").map((line, i) => {
+                      if (line.startsWith("# ")) return <h1 key={i} className="text-lg font-bold text-white mt-4 mb-2">{line.slice(2)}</h1>;
+                      if (line.startsWith("## ")) return <h2 key={i} className="text-base font-bold text-yellow-200 mt-3 mb-2">{line.slice(3)}</h2>;
+                      if (line.startsWith("### ")) return <h3 key={i} className="text-sm font-bold text-blue-200 mt-2 mb-1">{line.slice(4)}</h3>;
+                      if (line.startsWith("| ")) return <pre key={i} className="text-xs overflow-x-auto my-2 bg-blue-900/20 p-2 rounded">{line}</pre>;
+                      if (line.trim() === "") return <br key={i} />;
+                      return <p key={i} className="text-sm text-blue-100 mb-1">{line}</p>;
+                    })}
+                  </div>
+                </div>
+                <div className="flex justify-end gap-3">
+                  <button onClick={() => { setAcademicManuscript(""); setWritingMode("openclaw"); }} className="flex items-center gap-2 bg-emerald-900/50 text-emerald-300 px-4 py-2 rounded-lg hover:bg-emerald-800/70 text-sm">
+                    <Download size={14} />
+                    Download Manuscript (.md)
+                  </button>
+                  <button onClick={() => setPipelineStep(1)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
+                    <RotateCcw size={16} />
+                    Start New Review
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
