@@ -1143,3 +1143,21 @@ A fully functional qualitative data analysis tool for text, images, audio, and v
 - `bun lint` ✅ passes
 - `bun run build` ✅ passes cleanly
 
+## Evidence Synthesis Pipeline Runtime Audit & Fixes (2026-07-07)
+
+**Issue**: Pipeline compiled cleanly but exhibited runtime failures:
+- No visual error feedback when all database APIs fail (falls back to mock data silently)
+- PRISMA CSV export contained a broken top-level template literal (`Studies included in qualitative synthesis (${reviewType})` shown as literal string instead of interpolated value)
+- ROSES CSV had broken top-level template literal in the TITLE row
+- `prismaCounts.included` was based on `effectSizes.length` (0 until user manually fills the effect-size table), causing incorrect PRISMA "included" counts before Step 5 is populated
+
+**Fixes applied to `src/components/tabs/EvidenceSynthesisTab.tsx`**:
+- Added `searchError: string | null` state; `handleSearch` now surfaces a red error banner when all databases fail or return zero results rather than silently falling back to `generateMockLegacy`
+- `prismaCounts.included` now derives from `extractedData.length` first so PRISMA "Studies included" count is accurate immediately after Step 2
+- Fixed `downloadPrismaCsv` qualitative-synthesis label row: replaced broken `${reviewType}` template literal with string concatenation
+- Fixed `downloadRoses` TITLE row: replaced broken top-level template literal with string concatenation
+
+**Remaining runtime dependencies (not code bugs)**:
+- Step 4 (Literature Review) and Step 7 (Writing Review) require a Gemini/Groq API key in Settings; without one, AI generation is unavailable and only manual templates / placeholders are shown
+- Step 1 search uses live APIs (OpenAlex, PubMed E-utilities, Europe PMC); CORS blocks or rate limits will trigger mock-data fallback
+

@@ -216,6 +216,7 @@ export default function EvidenceSynthesisTab() {
   const [selectedPaperIds, setSelectedPaperIds] = useState<Set<string>>(new Set());
   const [robSelectedPaperIds, setRobSelectedPaperIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [extractedData, setExtractedData] = useState<any[]>([]);
   const [robAssessments, setRobAssessments] = useState<Record<string, RobAssessment>>({});
   const [robTool, setRobTool] = useState<string>("ROB2");
@@ -253,11 +254,17 @@ export default function EvidenceSynthesisTab() {
     setLoading(true);
     setPapers([]);
     setSelectedPaperIds(new Set());
+    setSearchError(null);
     try {
       const results = await fetchRealPapers(query, selectedDbs, yearFrom, yearTo, studyTypeFilter === "All Study Types" ? undefined : studyTypeFilter);
       setPapers(results);
+      if (results.length === 0) {
+        setSearchError(`No results from real APIs. Showing simulated results. Try broadening your query or selecting more databases.`);
+      }
     } catch {
-      setPapers(generateMockLegacy(query, selectedDbs));
+      const mock = generateMockLegacy(query, selectedDbs);
+      setPapers(mock);
+      setSearchError(`Live database search failed. Showing ${mock.length} simulated results. Check your network connection and try again.`);
     } finally {
       setLoading(false);
     }
@@ -1183,7 +1190,7 @@ Mobile: [Number]
     screened: selectedPaperIds.size,
     excluded: Math.max(0, selectedPaperIds.size - extractedData.length),
     assessed: extractedData.length,
-    included: effectSizes.length || extractedData.length,
+    included: extractedData.length || effectSizes.length,
   };
 
   const downloadPrismaCsv = () => {
@@ -1197,7 +1204,7 @@ Mobile: [Number]
       ["Excluded (Records excluded after screening)", prismaCounts.excluded, "—", `Reason: not meeting inclusion criteria (${prismaCounts.excluded})`],
       ["Reports assessed for eligibility", prismaCounts.assessed, "—", "Full-text assessment"],
       ["Excluded (Reports excluded after eligibility)", Math.max(0, prismaCounts.assessed - effectSizes.length), "—", "Not meeting final inclusion criteria"],
-      ["Studies included in qualitative synthesis (${reviewType})", prismaCounts.included, "—", `${extractedData.length} studies`],
+      ["Studies included in qualitative synthesis (" + reviewType + ")", prismaCounts.included, "—", extractedData.length + " studies"],
       ...(reviewType.includes("Meta-analysis") || reviewType.includes("Meta")
         ? [["Studies included in quantitative synthesis (meta-analysis)", effectSizes.length || extractedData.length, "—", `Tool: metafor / meta / forestplot`]]
         : [["Studies included in narrative synthesis", prismaCounts.included, "—", `${extractedData.length} studies`]]),
@@ -1217,7 +1224,7 @@ Mobile: [Number]
     const template = getRobToolTemplate();
     const roseEntries = [
       ["Section", "Item", "Response"],
-      ["TITLE", "1. Title (structured abstract, max 250 words)", `Systematic ${reviewType.toLowerCase()}: ${query || 'unspecified topic'}`],
+      ["TITLE", "1. Title (structured abstract, max 250 words)", "Systematic " + reviewType.toLowerCase() + ": " + (query || "unspecified topic")],
       ["ABSTRACT", "2a. Background", "See synthesis summary"],
       ["ABSTRACT", "2b. Methods", `Databases: ${selectedDbs.join(", ")} | Tool: ${template?.label || robTool}`],
       ["ABSTRACT", "2c. Results", `${extractedData.length} studies included | See synthesis summary`],
@@ -1423,6 +1430,11 @@ Mobile: [Number]
               </div>
             </div>
 
+            {searchError && (
+              <div className="bg-red-900/30 border border-red-700/50 text-red-200 rounded-lg p-3 text-xs">
+                {searchError}
+              </div>
+            )}
             {loading && (
               <div className="text-center py-12">
                 <div className="w-10 h-10 border-4 border-yellow-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
