@@ -278,11 +278,25 @@ async function fetchPubMed(query: string, yearFrom?: string, yearTo?: string, st
 }
 
 
-async function fetchWithTimeout(url: string, ms = 15000): Promise<Response> {
+async function fetchWithTimeout(url: string, ms = 20000): Promise<Response> {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), ms);
   try {
-    return await fetch(url, { signal: controller.signal });
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
+    }
+    return res;
+  } catch (err: any) {
+    const name = err?.name || "";
+    const msg = (err?.message || String(err)).toLowerCase();
+    if (name === "AbortError" || msg.includes("abort")) {
+      throw new Error(`Timeout after ${ms}ms fetching ${url}`);
+    }
+    if (msg.includes("failed to fetch") || msg.includes("networkerror") || msg.includes("network error") || msg.includes("cors")) {
+      throw new Error(`Network/CORS failure for ${url}: ${err.message}`);
+    }
+    throw new Error(`Fetch failed for ${url}: ${err.message}`);
   } finally {
     clearTimeout(id);
   }
@@ -360,6 +374,8 @@ async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string,
 
 export async function fetchRealPapers(query: string, databases: string[], yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const allPapers: Paper[] = [];
+  const failedDbs: string[] = [];
+  const succeededDbs: string[] = [];
 
   const apiDatabases: Record<string, () => Promise<Paper[]>> = {
     "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
@@ -387,17 +403,25 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
         const fetchFn = apiDatabases[db];
         if (!fetchFn) return;
         const papers = await fetchFn();
+        if (papers.length > 0) succeededDbs.push(db);
+        else console.warn(`[fetchRealPapers] ${db}: returned 0 results for query="${query}"`);
         papers.forEach((p) => {
           p.database = db;
           p.sourceBackend = getDatabaseBackend(db);
           p.sources = [db];
         });
         allPapers.push(...papers);
-      } catch (err) {
-        console.warn(`[${db}] fetch failed:`, err);
+      } catch (err: any) {
+        failedDbs.push(db);
+        const reason = err?.message || `${err?.name || String(err)}`;
+        console.warn(`[fetchRealPapers] ${db} failed: ${reason}`);
       }
     })
   );
+
+  if (allPapers.length === 0 && failedDbs.length > 0) {
+    console.error(`[fetchRealPapers] ALL databases failed: ${failedDbs.join(", ")} — network or CORS restrictions are likely blocking external API calls from this environment.`);
+  }
 
   const totalBeforeDedup = allPapers.length;
   const deduped = deduplicatePapers(allPapers);
@@ -406,7 +430,16 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
   const enriched = await enrichPapersWithDois(deduped);
 
   if (enriched.length === 0) {
-    throw new Error(`No papers found across ${databases.length} selected databases. Try broadening your query or selecting more databases.`);
+    throw new Error(
+      `No papers found across ${selectedApis.length} selected databases. ` +
+      (failedDbs.length > 0
+        ? `Failed databases: ${failedDbs.join(", ")}. `
+        : "") +
+      (succeededDbs.length > 0
+        ? `Succeeded but returned no results: ${succeededDbs.join(", ")}. `
+        : "") +
+      `Try broadening your query or selecting more databases.`
+    );
   }
 
   return enriched;

@@ -1145,19 +1145,32 @@ A fully functional qualitative data analysis tool for text, images, audio, and v
 
 ## Evidence Synthesis Pipeline Runtime Audit & Fixes (2026-07-07)
 
-**Issue**: Pipeline compiled cleanly but exhibited runtime failures:
-- No visual error feedback when all database APIs fail (falls back to mock data silently)
-- PRISMA CSV export contained a broken top-level template literal (`Studies included in qualitative synthesis (${reviewType})` shown as literal string instead of interpolated value)
-- ROSES CSV had broken top-level template literal in the TITLE row
-- `prismaCounts.included` was based on `effectSizes.length` (0 until user manually fills the effect-size table), causing incorrect PRISMA "included" counts before Step 5 is populated
+**Issue reported**: Even with working API keys in Settings, Step 1 search showed mock papers instead of real results. API keys shown in Settings belong to AI providers (Gemini/Groq), not to the literature-search APIs.
+
+**Root causes found in `src/lib/database-apis.ts`**:
+- `fetchWithTimeout` did not check `res.ok`, so OpenAlex HTTP 429 (rate-limited anonymous access) returned as a 200-style response body containing an error JSON. Downstream callers then produced 0 papers, which triggered the `enriched.length === 0` throw and silent mock fallback.
+- No per-database failure logging: all failures were silently caught in `Promise.allSettled` with only a generic `console.warn`, making it impossible to tell why zero papers were returned.
+- `fetchRealPapers` threw on empty results and lumped “network failure” together with “no results returned”, so the UI showed the same fallback behavior for both cases.
+
+**Fixes applied to `src/lib/database-apis.ts`**:
+- `fetchWithTimeout` now checks `res.ok` before returning. Non-2xx responses throw a descriptive `HTTP <code> <statusText>` error, replacing the previous silent empty-result path.
+- `fetchWithTimeout` now classifies failures as timeout vs CORS/network vs HTTP error, emitting clearer messages including the URL.
+- `fetchRealPapers` now logs `failedDbs` and `succeededDbs` per call with explicit console output; the final throw message lists which databases failed and which returned zero results.
+- Timeout increased from 15s to 20s to reduce premature aborts.
 
 **Fixes applied to `src/components/tabs/EvidenceSynthesisTab.tsx`**:
-- Added `searchError: string | null` state; `handleSearch` now surfaces a red error banner when all databases fail or return zero results rather than silently falling back to `generateMockLegacy`
-- `prismaCounts.included` now derives from `extractedData.length` first so PRISMA "Studies included" count is accurate immediately after Step 2
-- Fixed `downloadPrismaCsv` qualitative-synthesis label row: replaced broken `${reviewType}` template literal with string concatenation
-- Fixed `downloadRoses` TITLE row: replaced broken top-level template literal with string concatenation
+- `handleSearch` now surfaces a red banner (`searchError`) that clearly distinguishes:
+  - total API failure from the sandbox/network (with DevTools hint to check Console)
+  - API failure with fallback mock count
+- `fetchRealPapers` never returns 0 papers silently — it throws with detailed reasons, so `handleSearch` always intentionally enters the fallback path and explains why.
+- `prismaCounts.included` fixed to prefer `extractedData.length`.
+- PRISMA/ROSES CSV template-literal bugs fixed.
 
-**Remaining runtime dependencies (not code bugs)**:
-- Step 4 (Literature Review) and Step 7 (Writing Review) require a Gemini/Groq API key in Settings; without one, AI generation is unavailable and only manual templates / placeholders are shown
-- Step 1 search uses live APIs (OpenAlex, PubMed E-utilities, Europe PMC); CORS blocks or rate limits will trigger mock-data fallback
+**Environment note (not fixable in code)**:
+- OpenAlex rate-limits anonymous requests after sustained use. A 429 response causes a short wait before the next request clears; this is expected behavior from the upstream API.
+- PubMed E-utilities and Europe PMC work without credentials.
+
+**Remaining runtime dependencies**:
+- Step 4 (Literature Review) and Step 7 (Writing Review) require a Gemini/Groq API key for AI generation
+- If the sandbox fully blocks outbound HTTPS to all external APIs, live search cannot work; mocks remain as a graceful fallback
 

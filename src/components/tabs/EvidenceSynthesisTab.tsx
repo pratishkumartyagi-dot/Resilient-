@@ -258,13 +258,17 @@ export default function EvidenceSynthesisTab() {
     try {
       const results = await fetchRealPapers(query, selectedDbs, yearFrom, yearTo, studyTypeFilter === "All Study Types" ? undefined : studyTypeFilter);
       setPapers(results);
-      if (results.length === 0) {
-        setSearchError(`No results from real APIs. Showing simulated results. Try broadening your query or selecting more databases.`);
-      }
-    } catch {
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      const isTotalFailure = msg.toLowerCase().includes("all databases failed");
       const mock = generateMockLegacy(query, selectedDbs);
       setPapers(mock);
-      setSearchError(`Live database search failed. Showing ${mock.length} simulated results. Check your network connection and try again.`);
+      setSearchError(
+        isTotalFailure
+          ? `Live search blocked in this environment — all database calls failed. Showing ${mock.length} simulated results. Open browser DevTools Console for per-database failure details.`
+          : `No live results: ${msg}. Showing ${mock.length} simulated results as a fallback.`
+      );
+      console.warn("[EvidenceSynthesis] handleSearch fallback reason:", msg);
     } finally {
       setLoading(false);
     }
