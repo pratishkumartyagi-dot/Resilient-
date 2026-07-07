@@ -391,7 +391,9 @@ Effect estimates were extracted for ${effectSizes.length || k} studies. After en
   const _methodsMetaText = `Effect sizes were pooled using a ${metaforResult ? metaforResult.model.toLowerCase() : "random-effects"} meta-analysis (metafor, R; DerSimonian–Laird).`;
   const _methodsDtAText = "Diagnostic accuracy was synthesised using hierarchical bivariate modelling (meta4diag / mada).";
   const _methodsSynthesisPrinciples = `Findings were synthesized narratively following ${isScoping ? "scoping review" : isRapid ? "rapid review" : "awesome-evidence-synthesis"} principles.`;
-  const _resultsMetaText = `The pooled estimate was μ = ${metaforResult.pooledEstimate.toFixed(3)} (95% CI ${metaforResult.ciLower.toFixed(3)}–${metaforResult.ciUpper.toFixed(3)}), with I² = ${metaforResult.I2.toFixed(1)}%.`;
+  const _resultsMetaText = metaforResult
+    ? `The pooled estimate was μ = ${metaforResult.pooledEstimate.toFixed(3)} (95% CI ${metaforResult.ciLower.toFixed(3)}–${metaforResult.ciUpper.toFixed(3)}), with I² = ${metaforResult.I2.toFixed(1)}%.`
+    : "";
 
   return `# ${reviewType}: ${topic}
 
