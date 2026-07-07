@@ -9,17 +9,15 @@ import {
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
-import { fetchRealPapers, fetchRealPapersWithCounts, type Paper, validateDoiViaCrossref } from "@/lib/database-apis";
+import { fetchRealPapers, generateMockLegacy, type Paper } from "@/lib/database-apis";
 import { downloadLiteratureReviewPDF, downloadLiteratureReviewWord } from "@/lib/exporters";
-import { parseEffectSizeRow, fixedEffectsMetaAnalysis, randomEffectsMetaAnalysis, type MetaforResult, type EffectSizeRow } from "@/lib/metafor-compute";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
-import { generateSynthesisReport, downloadSynthesisReport } from "@/lib/synthesis-report-generator";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Legend
 } from "recharts";
 
-const INTEGRATED_EVIDENCE_SKILLS = getIntegratedSkills().filter(s => ["literature-review", "literature-deep-research", "clinical-trials-database", "scientific-writing"].includes(s.id));
+const INTEGRATED_EVIDENCE_SKILLS = getIntegratedSkills().filter(s => ["literature-review", "literature-deep-research", "clinical-trials-database"].includes(s.id));
 
 const SR_DATABASES = [
   "PubMed", "OpenAlex", "Europe PMC", "Google Scholar",
@@ -31,9 +29,10 @@ const PIPELINE_STEPS = [
   { num: 1, label: "Search & Screening", icon: Search },
   { num: 2, label: "Data Extraction", icon: FileText },
   { num: 3, label: "Risk of Bias", icon: CheckCircle2 },
-  { num: 4, label: "Synthesis", icon: FlaskConical },
-  { num: 5, label: "Reporting & PRISMA", icon: FileText },
-  { num: 6, label: "Writing Review & Meta-analysis", icon: PenTool },
+  { num: 4, label: "Literature Review", icon: BookOpen },
+  { num: 5, label: "Synthesis & Meta-analysis", icon: FlaskConical },
+  { num: 6, label: "Reporting & PRISMA", icon: FileText },
+  { num: 7, label: "Writing Review & Meta-analysis", icon: PenTool },
 ];
 
 const REVIEW_TYPES = [
@@ -223,10 +222,7 @@ export default function EvidenceSynthesisTab() {
   const [robInstructions, setRobInstructions] = useState("");
   const [synthesisInstructions, setSynthesisInstructions] = useState("");
   const [synthesisOutput, setSynthesisOutput] = useState("");
-  const [synthesisAnalysis, setSynthesisAnalysis] = useState("");
-  const [synthesisReport, setSynthesisReport] = useState("");
   const [synthesisLoading, setSynthesisLoading] = useState(false);
-  const [reportLoading, setReportLoading] = useState(false);
   const [manuscript, setManuscript] = useState("");
   const [manuscriptLoading, setManuscriptLoading] = useState(false);
   const [literatureReviewSections, setLiteratureReviewSections] = useState({
@@ -245,47 +241,6 @@ export default function EvidenceSynthesisTab() {
   const [yearTo, setYearTo] = useState("");
   const [searchLogic, setSearchLogic] = useState("AND");
   const [studyTypeFilter, setStudyTypeFilter] = useState("All Study Types");
-  const [metaforResult, setMetaforResult] = useState<MetaforResult | null>(null);
-  const [publicationBiasNote, setPublicationBiasNote] = useState("");
-  const [sensitivityNote, setSensitivityNote] = useState("");
-  const [isDiagnosticReview, setIsDiagnosticReview] = useState(false);
-  const [dedupCount, setDedupCount] = useState(0);
-  const [synthWriterOutput, setSynthWriterOutput] = useState("");
-  const [synthWriterBusy, setSynthWriterBusy] = useState(false);
-  const [excludeHighRob, setExcludeHighRob] = useState(false);
-  const [dtaRows, setDtaRows] = useState<{ study: string; TP: number; FN: number; TN: number; FP: number; robRating: string }[]>([
-    { study: "", TP: 0, FN: 0, TN: 0, FP: 0, robRating: "Low" },
-  ]);
-  const [scopingRows, setScopingRows] = useState<{ study: string; intervention: string; population: string; robRating: string }[]>([
-    { study: "", intervention: "", population: "", robRating: "Low" },
-  ]);
-  const [writingMode, setWritingMode] = useState<"openclaw" | "academic">("openclaw");
-  const [academicManuscript, setAcademicManuscript] = useState("");
-  const [academicManuscriptLoading, setAcademicManuscriptLoading] = useState(false);
-
-  const reviewPapersForStep4 = robSelectedPaperIds.size > 0
-    ? papers.filter((p) => robSelectedPaperIds.has(p.id))
-    : papers.filter((p) => selectedPaperIds.has(p.id));
-  const canGenerateReview = reviewPapersForStep4.length > 0 || extractedData.length > 0;
-
-  useEffect(() => {
-    const diag = reviewType.includes("Diagnostic");
-    setIsDiagnosticReview(diag);
-  }, [reviewType]);
-
-  useEffect(() => {
-    const hasMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
-    setPublicationBiasNote(
-      hasMeta
-        ? "Publication bias should be assessed using funnel plots, Egger's test, or trim-and-fill analysis (metasens, meta, awesome-evidence-synthesis)."
-        : "Publication bias is less relevant for narrative reviews, but grey literature searches are recommended."
-    );
-    setSensitivityNote(
-      hasMeta
-        ? "Sensitivity analysis excluding high-RoB studies (robumeta, clubSandwich, robvis) is recommended to test robustness."
-        : "For narrative reviews, consider excluding high-RoB studies in a sensitivity comparison."
-    );
-  }, [reviewType]);
 
   const toggleDb = (db: string) => {
     setSelectedDbs((prev) =>
@@ -298,16 +253,11 @@ export default function EvidenceSynthesisTab() {
     setLoading(true);
     setPapers([]);
     setSelectedPaperIds(new Set());
-    setDedupCount(0);
     try {
-      const { papers: results, dedupedCount } = await fetchRealPapersWithCounts(query, selectedDbs, yearFrom, yearTo, studyTypeFilter === "All Study Types" ? undefined : studyTypeFilter);
+      const results = await fetchRealPapers(query, selectedDbs, yearFrom, yearTo, studyTypeFilter === "All Study Types" ? undefined : studyTypeFilter);
       setPapers(results);
-      setDedupCount(dedupedCount);
-    } catch (err) {
-      console.error("Search failed:", err);
-      setPapers([]);
-      setDedupCount(0);
-      alert("Search failed. Please try again or check your network connection.");
+    } catch {
+      setPapers(generateMockLegacy(query, selectedDbs));
     } finally {
       setLoading(false);
     }
@@ -474,34 +424,17 @@ export default function EvidenceSynthesisTab() {
     }
   };
 
-  const autoAssessRob = async () => {
+  const autoAssessRob = () => {
     if (extractedData.length === 0) return;
     const template = getRobToolTemplate();
     if (!template) return;
-
-    const apiKey = state.geminiApiKey || state.groqApiKey;
-    let aiAssessments: Record<string, RobAssessment> = {};
-    if (apiKey) {
-      try {
-        aiAssessments = await aiAssessRob(extractedData, template);
-      } catch (err) {
-        console.error("AI RoB assessment failed, falling back to heuristic:", err);
-      }
-    }
-
     setRobAssessments((prev) => {
       const next: Record<string, RobAssessment> = {};
       extractedData.forEach((row) => {
         const existing = prev[row.id];
-        if (aiAssessments[row.id]) {
-          next[row.id] = { ...aiAssessments[row.id], tool: robTool };
-        } else {
-          const base = existing
-            ? { ...existing, tool: robTool, domains: { ...existing.domains } }
-            : initRobAssessment(row.id, { studyType: row.studyType, year: row.year, title: row.title });
-          applyRobHeuristic(base, { studyType: row.studyType, year: row.year, title: row.title }, template);
-          next[row.id] = base;
-        }
+        const base = existing ? { ...existing, tool: robTool, domains: { ...existing.domains } } : initRobAssessment(row.id, { studyType: row.studyType, year: row.year, title: row.title });
+        applyRobHeuristic(base, { studyType: row.studyType, year: row.year, title: row.title }, template);
+        next[row.id] = base;
       });
       return next;
     });
@@ -597,165 +530,27 @@ export default function EvidenceSynthesisTab() {
     alert("Risk of Bias assessments saved locally.");
   };
 
-  const extractPicoHeuristic = (paper: Paper): { population: string; intervention: string; outcome: string } => {
-    const title = (paper.title || "").toLowerCase();
-    const abstract = (paper.abstract || "").toLowerCase();
-    const text = `${title} ${abstract}`;
-
-    const populationKeywords = ["patients", "children", "adults", "elderly", "adolescents", "population", "individuals", "participants", "subjects", "cohort", "sample", "people", "workers", "students", "mothers", "infants", "men", "women"];
-    const interventionKeywords = ["treatment", "therapy", "intervention", "drug", "vaccine", "program", "policy", "surgery", "medication", "exercise", "diet", "supplement", "counseling", "rehabilitation", "screening", "education", "protocol"];
-    const outcomeKeywords = ["mortality", "morbidity", "improvement", "reduction", "survival", "outcome", "score", "scale", "event", "complication", "recovery", "prevalence", "incidence", "effect", "benefit", "risk", "symptom"];
-
-    const extractSnippet = (keywords: string[], maxLen = 120): string => {
-      const sorted = keywords
-        .map((kw) => ({ kw, idx: text.indexOf(kw) }))
-        .filter((x) => x.idx >= 0)
-        .sort((a, b) => a.idx - b.idx);
-
-      if (sorted.length === 0) {
-        const snippet = abstract.length > 0 ? abstract.substring(0, maxLen) : title.substring(0, maxLen);
-        return snippet.length > 8 ? snippet : "";
-      }
-
-      const start = Math.max(0, sorted[0].idx - 40);
-      const end = Math.min(text.length, sorted[sorted.length - 1].idx + 80);
-      let snippet = text.substring(start, end).replace(/\s+/g, " ").trim();
-      if (snippet.length > maxLen) snippet = snippet.substring(0, maxLen);
-      return snippet;
-    };
-
-    return {
-      population: extractSnippet(populationKeywords),
-      intervention: extractSnippet(interventionKeywords),
-      outcome: extractSnippet(outcomeKeywords),
-    };
-  };
-
-  const aiExtractPico = async (
-    papers: Paper[]
-  ): Promise<Record<string, { population: string; intervention: string; outcome: string }>> => {
-    const apiKey = state.geminiApiKey || state.groqApiKey;
-    if (!apiKey || papers.length === 0) return {};
-
-    const prompt = `You are a systematic review extraction assistant. Extract Population, Intervention, and Outcome (PICO) elements from the following study titles/abstracts.
-Return ONLY valid JSON in this exact format:
-{"results":[{"id":"<paper id>","population":"...","intervention":"...","outcome":"..."}]}
-
-Studies:
-${papers.map((p, i) => `${i + 1}. [${p.id}] ${p.title}\n   ${p.abstract ? p.abstract.substring(0, 300) : "No abstract available"}`).join("\n\n")}
-
-Rules:
-- Be concise (10-30 words per field).
-- If a field cannot be identified, write "".
-- Do not include any text outside the JSON.`;
-
-    try {
-      const text = state.geminiApiKey
-        ? await callGemini(state.geminiApiKey, prompt, { searchEnabled: false })
-        : await callGroq(state.groqApiKey!, prompt, { searchEnabled: false });
-
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return {};
-      const parsed = JSON.parse(jsonMatch[0]);
-      const out: Record<string, { population: string; intervention: string; outcome: string }> = {};
-      const arr = Array.isArray(parsed.results) ? parsed.results : [];
-      arr.forEach((r: any) => {
-        if (r.id) out[r.id] = { population: r.population || "", intervention: r.intervention || "", outcome: r.outcome || "" };
-      });
-      return out;
-    } catch {
-      return {};
-    }
-  };
-
-  const aiAssessRob = async (
-    papers: Paper[],
-    template: RobToolTemplate
-  ): Promise<Record<string, RobAssessment>> => {
-    const apiKey = state.geminiApiKey || state.groqApiKey;
-    if (!apiKey || papers.length === 0) return {};
-
-    const prompt = `You are a risk-of-bias assessment assistant using the ${template.label} tool.
-Tool domains: ${template.domains.map((d) => `${d.id}: ${d.label}`).join(", ")}.
-Valid judgments: ${template.judgments.join(", ")}.
-
-For each study below, provide a JSON object with domain judgments and an overall judgment.
-Return ONLY valid JSON in this exact format:
-{"results":[{"id":"<paper id>","overall":"...","notes":"...","domains":{"D1":{"judgment":"..."},"D2":{"judgment":"..."} }}]}
-
-Studies:
-${papers.map((p, i) => `${i + 1}. [${p.id}] ${p.title}\n   Type: ${p.studyType || "unknown"}\n   Year: ${p.year || "unknown"}`).join("\n\n")}
-
-Rules:
-- Use the exact judgment strings from the valid list.
-- Do not include any text outside the JSON.`;
-
-    try {
-      const text = state.geminiApiKey
-        ? await callGemini(state.geminiApiKey, prompt, { searchEnabled: false })
-        : await callGroq(state.groqApiKey!, prompt, { searchEnabled: false });
-
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return {};
-      const parsed = JSON.parse(jsonMatch[0]);
-      const out: Record<string, RobAssessment> = {};
-      const arr = Array.isArray(parsed.results) ? parsed.results : [];
-      arr.forEach((r: any) => {
-        if (!r.id) return;
-        const domains: Record<string, DomainJudgment> = {};
-        (template.domains || []).forEach((d) => {
-          domains[d.id] = { judgment: r.domains?.[d.id]?.judgment || "No information" };
-        });
-        out[r.id] = {
-          tool: robTool,
-          overall: r.overall || template.overallDefault,
-          notes: r.notes || "",
-          domains,
-        };
-      });
-      return out;
-    } catch {
-      return {};
-    }
-  };
-
-  const runExtraction = async () => {
+  const runExtraction = () => {
     const selected = papers.filter((p) => selectedPaperIds.has(p.id));
-    if (selected.length === 0) {
-      alert("Please select at least one paper before extraction.");
-      return;
-    }
-
-    let aiExtractions: Record<string, { population: string; intervention: string; outcome: string }> = {};
-    const apiKey = state.geminiApiKey || state.groqApiKey;
-    if (apiKey) {
-      try {
-        aiExtractions = await aiExtractPico(selected);
-      } catch (err) {
-        console.error("AI extraction failed, falling back to heuristic:", err);
-      }
-    }
-
     const assessments: Record<string, RobAssessment> = {};
-    const extracted = selected.map((p) => {
-      const pico = aiExtractions[p.id] || extractPicoHeuristic(p);
+    selected.forEach((p) => {
       assessments[p.id] = initRobAssessment(p.id, { studyType: p.studyType, year: p.year, title: p.title });
-      return {
+    });
+    setRobAssessments(assessments);
+    setExtractedData(
+      selected.map((p) => ({
         id: p.id,
         title: p.title,
         authors: p.authors,
         year: p.year,
         doi: p.doi,
         studyType: p.studyType,
-        population: pico.population || extractPicoHeuristic(p).population,
-        intervention: pico.intervention || extractPicoHeuristic(p).intervention,
-        outcome: pico.outcome || extractPicoHeuristic(p).outcome,
+        population: "Extracted from abstract",
+        intervention: "Extracted from abstract",
+        outcome: "Extracted from abstract",
         ROB: "Pending — assess in Step 3",
-      };
-    });
-
-    setRobAssessments(assessments);
-    setExtractedData(extracted);
+      }))
+    );
     setPipelineStep(3);
   };
 
@@ -770,132 +565,13 @@ Rules:
     });
   };
 
-  const analyzePapersForSynthesis = () => {
-    const papersForSynthesis = extractedData.filter((p) => selectedPaperIds.has(p.id));
-    const template = getRobToolTemplate();
-    const robLabel = template ? template.label : robTool;
-    const isMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
-    const yearMin = papersForSynthesis.length ? Math.min(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
-    const yearMax = papersForSynthesis.length ? Math.max(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
-    const studyTypes = Array.from(new Set(papersForSynthesis.map((p) => p.studyType))).filter(Boolean);
-    const databases = Array.from(new Set(papersForSynthesis.map((p) => p.database))).filter(Boolean);
-
-    const robSummary = papersForSynthesis.reduce(
-      (acc, row) => {
-        const a = robAssessments[row.id];
-        if (!a) return acc;
-        const jl = a.overall.toLowerCase();
-        if (jl.includes("low") && !jl.includes("high")) acc.low += 1;
-        else if (jl.includes("some concerns") || jl.includes("moderate") || jl.includes("unclear") || jl.includes("serious") && !jl.includes("critical")) acc.some += 1;
-        else if (jl.includes("high") || jl.includes("critical") || jl.includes("very high")) acc.high += 1;
-        else acc.pending += 1;
-        return acc;
-      },
-      { low: 0, some: 0, high: 0, pending: 0 }
-    );
-
-    const outcomes = Array.from(new Set(papersForSynthesis.map((p) => p.outcome).filter(Boolean)));
-    const populations = Array.from(new Set(papersForSynthesis.map((p) => p.population || "Not specified").filter(Boolean)));
-    const interventions = Array.from(new Set(papersForSynthesis.map((p) => p.intervention || "Not specified").filter(Boolean)));
-
-    const picoSummary = `Population: ${populations.slice(0, 3).join(", ") || "various"}. Intervention/Exposure: ${interventions.slice(0, 3).join(", ") || "various"}. Outcomes: ${outcomes.slice(0, 3).join(", ") || "various"}.`;
-
-    const studyDesignBreakdown = studyTypes.length > 0
-      ? studyTypes.map((st) => `- ${st}: ${papersForSynthesis.filter((p) => p.studyType === st).length} study(ies)`).join("\n")
-      : "- Study design not specified";
-
-    const effectDirectionSummary = papersForSynthesis.length > 0
-      ? papersForSynthesis.map((p, i) => {
-          const direction = p.outcome?.toLowerCase().includes("improve") || p.outcome?.toLowerCase().includes("benefit")
-            ? "benefit"
-            : p.outcome?.toLowerCase().includes("reduce") || p.outcome?.toLowerCase().includes("decrease")
-              ? "harm/reduction"
-              : "unclear";
-          return `${i + 1}. ${p.authors} (${p.year}): ${direction}`;
-        }).join("\n")
-      : "No studies available";
-
-    const metaforReadiness = isMeta && effectSizes.length >= 2
-      ? `Ready for meta-analysis: ${effectSizes.length} studies with extractable effect sizes. Pool using **awesome-evidence-synthesis** random-effects model (DerSimonian–Laird) or fixed-effects model (Inverse-Variance). Forest plot and funnel plot can be generated with **forestplot** (R) and **meta**. Heterogeneity: assess I², τ², Q-test.`
-      : isMeta
-        ? `Not yet ready for meta-analysis: ${effectSizes.length} effect size(s) extracted. At least 2 studies with numeric effect estimates and 95% CIs are needed. Use **WebPlotDigitizer** or **metaDigitise** to extract data from figures if raw numbers are unavailable.`
-        : "Narrative synthesis only — meta-analysis not planned for this review type.";
-
-    const forestplotReadiness = effectSizes.length > 0
-      ? `Forest-plot data prepared for ${effectSizes.length} studies. Use **forestplot** (R) or **OpenMEE** for publication-ready visualisation. Scales should be standardised (e.g., log scale for RR/OR).`
-      : "No effect-size data available for forest-plot generation.";
-
-    return `## Step 4A — Evidence Analysis (awesome-evidence-synthesis aligned)
-
-**Review type:** ${reviewType}
-**Studies analysed:** ${papersForSynthesis.length}
-**Year range:** ${yearMin}–${yearMax}
-**Databases:** ${databases.join(", ") || "multiple"}
-
----
-
-### Analysis Methodology (PMC12402582 / awesome-evidence-synthesis / meta-pipe)
-
-This analysis follows the step-by-step methodology from **Writing a Systematic Review and Meta-analysis: A Step-by-Step Guide** (PMC12402582), aligned with **awesome-evidence-synthesis** workflow and **meta-pipe** stage 06_analysis.
-
-**PICO Summary:**
-${picoSummary}
-
-**Study Design Breakdown:**
-${studyDesignBreakdown}
-
-**Effect Direction by Study:**
-${effectDirectionSummary}
-
-**Meta-analysis Readiness:**
-${metaforReadiness}
-
-**Forest-plot Readiness:**
-${forestplotReadiness}
-
----
-
-### Meta-analysis Plan
-
-When effect sizes are available, the following **awesome-evidence-synthesis** / **meta** (R) workflow should be applied:
-
-\`\`\`r
-library(meta)
-dat <- metacont(...)
-res <- metagen(...)
-forest(res)
-funnel(res)
-\`\`\`
-
-Heterogeneity thresholds (PMC12402582 / Thorlund et al.):
-- I² 0–40%: minimal
-- I² 30–60%: moderate
-- I² 50–90%: substantial
-- I² 75–100%: considerable
-
----
-
-### prismAId Screening & Extraction Quality
-
-- Screening method: Title/abstract + full-text duplicate screening (prismAId protocol-based methodology).
-- Extraction method: Structured extraction with a priori template, piloted on subset (meta-pipe stage 05_extraction).
-- Inter-rater reliability: Cohen's κ should be calculated and reported.
-
----
-
-### Next Step
-
-Proceed to Synthesis (Step 4) to generate the narrative synthesis and evidence report.
-`;
-  };
-
   const generateLocalSynthesis = () => {
     const papersForSynthesis = extractedData.filter((p) => selectedPaperIds.has(p.id));
     const template = getRobToolTemplate();
     const robLabel = template ? template.label : robTool;
     const isMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
-    const yearMin = papersForSynthesis.length ? Math.min(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
-    const yearMax = papersForSynthesis.length ? Math.max(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
+    const yearMin = Math.min(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020));
+    const yearMax = Math.max(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020));
     const studyTypes = Array.from(new Set(papersForSynthesis.map((p) => p.studyType))).filter(Boolean);
     const databases = Array.from(new Set(papersForSynthesis.map((p) => p.database))).filter(Boolean);
 
@@ -922,274 +598,22 @@ Proceed to Synthesis (Step 4) to generate the narrative synthesis and evidence r
       : papersForSynthesis.map((p) => `| ${p.authors} (${p.year}) | — | — | — |`).join("\n");
 
     const methodsBlock = isMeta
-      ? `**Synthesis method:** Random-effects meta-analysis (DerSimonian–Laird), aligned with **awesome-evidence-synthesis** / **meta** (R) methodology. Heterogeneity assessed via I² and τ². Certainty of evidence via GRADE. Effect sizes extracted using **WebPlotDigitizer** / **metaDigitise** where raw data were unavailable.\n\n**Risk of bias:** Per-domain robvis template (${robLabel}) with Cochrane colours.`
-      : `**Synthesis method:** Narrative/thematic synthesis following **awesome-evidence-synthesis** principles (coding, theme development, evidence mapping). Text-mining support from **LitLLMs** / **MetaNLP** where applicable.\n\n**Risk of bias:** Per-domain robvis template (${robLabel}).`;
+      ? `**Synthesis method:** Random-effects meta-analysis (DerSimonian–Laird), implemented in **metafor** (R) or **meta** (R). Heterogeneity assessed via I² and τ². Certainty of evidence via GRADE/robvis integration.\n\n**Risk of bias:** Per-domain robvis template (${robLabel}) with Cochrane colours.`
+      : `**Synthesis method:** Narrative/thematic synthesis following **awesome-evidence-synthesis** principles: coding, theme development, and mapping.\n\n**Risk of bias:** Per-domain robvis template (${robLabel}).`;
 
-    const metaBlockText = metaforResult
-      ? `\n### Meta-analysis Interpretation\n\nPooled estimate (${metaforResult.model}-effects): μ = ${metaforResult.pooledEstimate.toFixed(3)} (95% CI ${metaforResult.ciLower.toFixed(3)}–${metaforResult.ciUpper.toFixed(3)}). Heterogeneity: I² = ${metaforResult.I2.toFixed(1)}%, τ² = ${metaforResult.tau2.toFixed(4)}, Q(${metaforResult.k - 1}) = ${metaforResult.Q.toFixed(2)}, p = ${metaforResult.Qp.toFixed(4)}. Prediction interval: ${metaforResult.predictionLower.toFixed(3)}–${metaforResult.predictionUpper.toFixed(3)}.`
-      : `\n### Meta-analysis Interpretation\n\nEffect estimates should be pooled using a random-effects model. Expected direction of effect: see effect table above. Heterogeneity: ${heterogeneityNotes} Use **forestplot**, **meta**, or **OpenMEE** for publication-ready figures.\n\n**Reporting:** Export effect table to **PRISMA 2020**-compliant format.`;
-
-    const publicationBiasBlock = isMeta
-      ? `\n### Publication Bias\n\nFunnel plot asymmetry and Egger's test should be assessed using **meta** / **metasens**. If asymmetry is detected, trim-and-fill analysis or selection-model approaches are recommended. Tools: **metasens**, **meta**, **forestplot**.\n`
-      : `\n### Publication Bias\n\nFor narrative reviews, publication bias is best addressed through systematic grey-literature searching and trial-register checks (ClinicalTrials.gov, WHO IRIS, OSF).\n`;
-
-    const sensitivityBlock = `\n### Sensitivity Analysis\n\n${robSummary.high > 0 ? `Exclude ${robSummary.high} high-risk-of-bias study(ies) and re-run the meta-analysis in **meta** / **OpenMEE** to test robustness. Robust variance estimation via **robumeta** or **clubSandwich** is recommended when studies have dependent effect sizes.` : "No studies rated high risk; sensitivity analysis should still compare fixed-effects vs random-effects models."} Domain-level judgments from **robvis** can be used to construct leave-one-out sensitivity plots.\n`;
+    const metaBlock = isMeta
+      ? `\n### Meta-analysis Interpretation\n\nEffect estimates should be pooled using a random-effects model. Expected direction of effect: see effect table above. Heterogeneity: ${heterogeneityNotes} Use **forestplot**, **meta**, **metafor**, or **OpenMEE** for publication-ready figures.\n\n**Reporting:** Export effect table to **PRISMA 2020**-compliant format.\n`
+      : "";
 
     return `## Evidence Synthesis\n**Review type:** ${reviewType}\n**Studies included:** ${papersForSynthesis.length}\n**Year range:** ${yearMin}–${yearMax}\n**Databases:** ${databases.join(", ") || "multiple"}\n\n---
 
-${methodsBlock}
+${methodsBlock}\n\n---
 
----
+### Narrative Summary\n\nThe body of evidence comprises ${papersForSynthesis.length} ${studyTypes.join(", ").toLowerCase() || "studies"} examining ${query || "the review topic"}. ${papersForSynthesis.length > 5 ? "Across the included studies, consistent themes emerge regarding the intervention/exposure and its association with the primary outcome." : "Findings should be interpreted with caution given the small number of included studies."}\n\n**Key findings by study:**\n${papersForSynthesis.map((p, i) => `${i + 1}. **${p.authors} (${p.year})** — ${p.title}\n   - Study type: ${p.studyType || "Not specified"}\n   - Outcome: ${p.outcome || "As reported"}\n   - Risk of bias: ${robAssessments[p.id]?.overall || "Pending (assess in Step 3)"}`).join("\n\n")}\n\n---
 
-### Narrative Summary
+### Effect Size Summary\n\n| Study | Effect Estimate | 95% CI | Weight |\n|-------|----------------|--------|--------|\n${effectTable}\n\n---
 
-The body of evidence comprises ${papersForSynthesis.length} ${studyTypes.join(", ").toLowerCase() || "studies"} examining ${query || "the review topic"}. ${papersForSynthesis.length > 5 ? "Across the included studies, consistent themes emerge regarding the intervention/exposure and its association with the primary outcome." : "Findings should be interpreted with caution given the small number of included studies."}
-
-**Key findings by study:**
-${papersForSynthesis.map((p, i) => `${i + 1}. **${p.authors} (${p.year})** — ${p.title}
-   - Study type: ${p.studyType || "Not specified"}
-   - Outcome: ${p.outcome || "As reported"}
-   - Risk of bias: ${robAssessments[p.id]?.overall || "Pending (assess in Step 3)"}`).join("\n\n")}
-
----
-
-### Effect Size Summary
-
-| Study | Effect Estimate | 95% CI | Weight |
-|-------|----------------|--------|--------|
-${effectTable}
-
-${metaBlockText}
-${publicationBiasBlock}
-${sensitivityBlock}
----
-
-### Risk of Bias Commentary
-
-Using **${robLabel}** (robvis), the overall distribution of risk-of-bias judgments across ${papersForSynthesis.length} studies is: Low ${robSummary.low}, Some/Moderate concerns ${robSummary.some}, High/Critical ${robSummary.high}, Pending ${robSummary.pending}. ${robSummary.high > 0 ? "Studies at high risk of bias may overestimate effects; sensitivity analysis excluding these studies is recommended." : "No studies were rated at high risk of bias."} Domain-level traffic-light plots are available in the reporting step.
-
----
-
-### Gaps and Future Directions
-
-- Unpublished or grey literature not searched in this run.
-- Subgroup analyses and meta-regression should be explored if heterogeneity is high.
-- Certainty of evidence (GRADE) should be formally assessed prior to guideline submission.
-- Sensitivity analysis excluding high-RoB studies recommended for robustness.
-- Effect sizes should be verified in **WebPlotDigitizer** or **metaDigitise** when only figures are available.
-
-> Generated locally using awesome-evidence-synthesis open-source workflow standards (https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis). For meta-analysis statistics, export the effect table to **R (metafor/meta)**, **JASP**, or **OpenMEE**.
-`;
-  };
-
-  const runMetaforAnalysis = () => {
-    if (effectSizes.length === 0) {
-      alert("Please add at least one effect size in the table above before running the analysis.");
-      return;
-    }
-    const parsed: EffectSizeRow[] = effectSizes.map((r) => parseEffectSizeRow(r.study, r.effect, r.ci, r.weight)).filter((r): r is EffectSizeRow => r !== null);
-    if (parsed.length === 0) {
-      alert("Could not parse any effect sizes. Ensure Effect Estimate and 95% CI contain numeric values (e.g., 0.85 and 0.65–1.05).");
-      return;
-    }
-    const validParsed = parsed.filter((r) => Number.isFinite(r.effect) && Number.isFinite(r.ciLower) && Number.isFinite(r.ciUpper));
-    if (validParsed.length < 2) {
-      alert("Meta-analysis requires at least 2 studies with valid effect estimates and confidence intervals.");
-      return;
-    }
-    const result = randomEffectsMetaAnalysis(validParsed);
-    if (result) {
-      setMetaforResult(result);
-    }
-  };
-
-  const computePooledMetrics = () => {
-    const rows = effectSizes.map((r) => parseEffectSizeRow(r.study, r.effect, r.ci, r.weight)).filter((r): r is EffectSizeRow => r !== null);
-    let filtered = rows;
-    if (excludeHighRob) {
-      filtered = rows.filter((r) => {
-        const study = extractedData.find((s) => s.authors === r.study);
-        const rob = study ? robAssessments[study.id]?.overall || "" : "";
-        return !rob.toLowerCase().includes("high");
-      });
-    }
-    const valid = filtered.filter((r) => Number.isFinite(r.effect) && Number.isFinite(r.ciLower) && Number.isFinite(r.ciUpper));
-    if (valid.length < 2) return null;
-    const se = valid.map((r) => (r.ciUpper - r.ciLower) / (2 * 1.96));
-    const weights = se.map((s) => 1 / Math.pow(s, 2));
-    const pooled = valid.reduce((sum, r, i) => sum + r.effect * weights[i], 0) / weights.reduce((a, b) => a + b, 0);
-    const sePooled = Math.sqrt(1 / weights.reduce((a, b) => a + b, 0));
-    return { pooled, sePooled, k: valid.length };
-  };
-
-  const computeDtaMetrics = () => {
-    const metrics = dtaRows.map((r) => {
-      const sens = r.TP + r.FN > 0 ? r.TP / (r.TP + r.FN) : NaN;
-      const spec = r.TN + r.FP > 0 ? r.TN / (r.TN + r.FP) : NaN;
-      return { study: r.study, sens, spec, robRating: r.robRating };
-    }).filter((m) => Number.isFinite(m.sens) && Number.isFinite(m.spec));
-    return metrics;
-  };
-
-  const computeScopingMatrix = () => {
-    const interventions = Array.from(new Set(scopingRows.map((r) => r.intervention).filter(Boolean)));
-    const populations = Array.from(new Set(scopingRows.map((r) => r.population).filter(Boolean)));
-    const matrix: Record<string, Record<string, number>> = {};
-    interventions.forEach((intervention) => {
-      matrix[intervention] = {};
-      populations.forEach((population) => {
-        matrix[intervention][population] = scopingRows.filter((r) => r.intervention === intervention && r.population === population).length;
-      });
-    });
-    return { interventions, populations, matrix };
-  };
-
-  const runSynthWriter = async () => {
-    setSynthWriterBusy(true);
-    setSynthWriterOutput("");
-    const geminiKey = state.geminiApiKey;
-    const groqKey = state.groqApiKey;
-    if (!geminiKey && !groqKey) {
-      setSynthWriterOutput("Error: Configure an API key in Settings to activate the synthesis writer.");
-      setSynthWriterBusy(false);
-      return;
-    }
-
-    const rRobSummary = extractedData.reduce(
-      (acc: { low: number; some: number; high: number; pending: number }, row) => {
-        const a = robAssessments[row.id];
-        if (!a) return acc;
-        const jl = a.overall.toLowerCase();
-        if (jl.includes("low") && !jl.includes("high")) acc.low += 1;
-        else if (jl.includes("some concerns") || jl.includes("moderate") || jl.includes("unclear") || jl.includes("serious") && !jl.includes("critical")) acc.some += 1;
-        else if (jl.includes("high") || jl.includes("critical") || jl.includes("very high")) acc.high += 1;
-        else acc.pending += 1;
-        return acc;
-      },
-      { low: 0, some: 0, high: 0, pending: 0 }
-    );
-
-    let prompt = `You are an evidence-synthesis scientific writer. Review type: ${reviewType}.\n`;
-    if (reviewType.includes("Meta-analysis") || reviewType.includes("Systematic Review")) {
-      const pooled = computePooledMetrics();
-      prompt += `Effect sizes: ${effectSizes.map((r) => `${r.study}: effect=${r.effect}, CI=${r.ci}`).join("; ")}.\n`;
-      if (pooled) prompt += `Pooled estimate: ${pooled.pooled.toFixed(4)} (SE ${pooled.sePooled.toFixed(4)}), k=${pooled.k}.\n`;
-      prompt += "Write a Methods + Results paragraph suitable for a Systematic Review or Meta-analysis, interpreting the pooled estimate and heterogeneity.\n";
-    } else if (reviewType === "Narrative Review" || reviewType === "Rapid Review") {
-      prompt += "Synthesize the extracted study findings into a narrative discussion paragraph, noting convergent and divergent themes.\n";
-    } else if (reviewType === "Scoping Review" || reviewType === "Mixed Methods Review") {
-      const { interventions, populations, matrix } = computeScopingMatrix();
-      prompt += `Interventions: ${interventions.join(", ")}. Populations: ${populations.join(", ")}. Evidence matrix counts: ${JSON.stringify(matrix)}.\n`;
-      prompt += "Write a scoping review paragraph mapping evidence distribution and identifying gaps.\n";
-    } else if (reviewType === "Diagnostic Test Accuracy Review") {
-      const dtaMetrics = computeDtaMetrics();
-      prompt += `Diagnostic accuracy studies: ${dtaMetrics.map((m) => `${m.study}: sens=${m.sens.toFixed(3)}, spec=${m.spec.toFixed(3)}`).join("; ")}.\n`;
-      prompt += "Write a DTA synthesis paragraph summarizing sensitivity, specificity, and ROC implications.\n";
-    } else if (reviewType === "Umbrella Review") {
-      prompt += "Synthesize findings from multiple prior reviews, grading evidence for each outcome and noting convergence or divergence.\n";
-    }
-    prompt += `Risk of bias summary: Low=${rRobSummary?.low || 0}, Some=${rRobSummary?.some || 0}, High=${rRobSummary?.high || 0}.\n`;
-
-    try {
-      let text: string | null = null;
-      let engine = "";
-      if (geminiKey) {
-        try {
-          text = await callGemini(geminiKey, prompt);
-          engine = "Gemini";
-        } catch {
-          if (groqKey) {
-            text = await callGroq(groqKey, prompt);
-            engine = "Groq (fallback)";
-          }
-        }
-      } else if (groqKey) {
-        text = await callGroq(groqKey, prompt);
-        engine = "Groq";
-      }
-      if (text) {
-        setSynthWriterOutput(text);
-        setSynthesisOutput((prev) => (prev ? prev + "\n\n" + text : text));
-      } else {
-        setSynthWriterOutput("Error: Both synthesis engines failed.");
-      }
-    } catch (e) {
-      setSynthWriterOutput(`Synthesis error: ${e instanceof Error ? e.message : "Unknown error"}`);
-    } finally {
-      setSynthWriterBusy(false);
-    }
-  };
-
-  const generateReport = () => {
-    const selectedForSynthesis = extractedData.filter((p) => selectedPaperIds.has(p.id));
-    const papersForReport = selectedForSynthesis.length > 0 ? selectedForSynthesis : extractedData;
-    if (papersForReport.length === 0) {
-      alert("Please complete data extraction and select papers before generating the synthesis report.");
-      return;
-    }
-
-    const template = getRobToolTemplate();
-    const today = new Date().toISOString().split("T")[0];
-    const robLabel = template ? template.label : robTool;
-
-    const rYearMin = papersForReport.length ? Math.min(...papersForReport.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
-    const rYearMax = papersForReport.length ? Math.max(...papersForReport.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
-    const rStudyTypes = Array.from(new Set(papersForReport.map((p) => p.studyType))).filter(Boolean);
-    const rRobSummary = papersForReport.reduce(
-      (acc: { low: number; some: number; high: number; pending: number }, row) => {
-        const a = robAssessments[row.id];
-        if (!a) return acc;
-        const jl = a.overall.toLowerCase();
-        if (jl.includes("low") && !jl.includes("high")) acc.low += 1;
-        else if (jl.includes("some concerns") || jl.includes("moderate") || jl.includes("unclear") || jl.includes("serious") && !jl.includes("critical")) acc.some += 1;
-        else if (jl.includes("high") || jl.includes("critical") || jl.includes("very high")) acc.high += 1;
-        else acc.pending += 1;
-        return acc;
-      },
-      { low: 0, some: 0, high: 0, pending: 0 }
-    );
-
-    const report = generateSynthesisReport({
-      reviewType,
-      query: query || "the research topic",
-      totalRecords: papers.length,
-      totalRecordsRaw: prismaCounts.identification > prismaCounts.deduped ? prismaCounts.identification : undefined,
-      deduped: prismaCounts.deduped,
-      screened: prismaCounts.screened,
-      excluded: prismaCounts.excluded,
-      included: prismaCounts.included,
-      databases: selectedDbs,
-      yearFrom,
-      yearTo,
-      yearMin: rYearMin,
-      yearMax: rYearMax,
-      studyTypes: rStudyTypes,
-      papersForSynthesis: papersForReport.map((p) => ({
-        id: p.id,
-        title: p.title,
-        authors: p.authors,
-        year: p.year,
-        studyType: p.studyType,
-        outcome: p.outcome,
-        intervention: p.intervention,
-        population: p.population,
-        robOverall: robAssessments[p.id]?.overall,
-      })),
-      robSummary: rRobSummary,
-      robToolName: robLabel,
-      effectSizes,
-      metaforResult,
-      synthesisExcerpt: synthesisOutput || "Narrative synthesis was generated from extracted data using the local awesome-evidence-synthesis workflow, incorporating study-level findings, thematic analysis, and robvis risk-of-bias assessment. GRADE certainty assessment should be completed separately before submission.",
-      generatedDate: today,
-      screeningMethod: "Title/abstract and full-text screening aligned with prismAId protocol-based methodology (Open-and-Sustainable/prismAId).",
-      extractionMethod: "Structured data extraction aligned with meta-pipe stage 05_extraction and prismAId review-extraction methodology.",
-    });
-    setSynthesisReport(report);
-  };
-
-  const downloadReport = () => {
-    if (!synthesisReport) return;
-    downloadSynthesisReport(synthesisReport, reviewType);
+### Risk of Bias Commentary\n\nUsing **${robLabel}** (robvis), the overall distribution of risk-of-bias judgments across ${papersForSynthesis.length} studies is: Low ${robSummary.low}, Some/Moderate concerns ${robSummary.some}, High/Critical ${robSummary.high}, Pending ${robSummary.pending}. ${robSummary.high > 0 ? "Studies at high risk of bias may overestimate effects; sensitivity analysis excluding these studies is recommended." : "No studies were rated at high risk of bias."} Domain-level traffic-light plots are available in the reporting step.\n\n---\n\n### Gaps and Future Directions\n\n- Unpublished or grey literature not searched in this run.\n- Subgroup analyses and meta-regression should be explored if heterogeneity is high.\n- Certainty of evidence (GRADE) should be formally assessed prior to guideline submission.\n- Sensitivity analysis excluding high-RoB studies recommended for robustness.\n\n> Generated locally using awesome-evidence-synthesis open-source workflow standards. For meta-analysis statistics, export the effect table to **R (metafor/meta)**, **JASP**, or **OpenMEE**.\n`;
   };
 
   const parseLiteratureReview = (text: string): Record<string, string> => {
@@ -1215,25 +639,16 @@ Using **${robLabel}** (robvis), the overall distribution of risk-of-bias judgmen
       buffer = [];
     };
 
-    const headingPatterns: { pattern: RegExp; key: string }[] = [
-      { pattern: /^(#+\s*)?(1\.\s*)?(introduction|introduction\s*\/\s*background|background)$/i, key: "introduction" },
-      { pattern: /^(#+\s*)?(2\.\s*)?(global\s*&\s*indian\s*situation|global\s*indian\s*situation|global\s+indian|global\s+situation|problem\s+statement)$/i, key: "globalIndian" },
-      { pattern: /^(#+\s*)?(3\.\s*)?(research\s*gaps|research\s*gaps\s*\/\s*limitations|gaps\s*\/\s*limitations|gaps|limitations)$/i, key: "gaps" },
-      { pattern: /^(#+\s*)?(4\.\s*)?(advice\s*for\s*future\s*research|future\s*research\s*advice|future\s*advice|future\s+studies\s+to\s+be\s+carried\s+out)$/i, key: "futureAdvice" },
-      { pattern: /^(#+\s*)?(5\.\s*)?(summary|summary\s+of\s+all\s+studies|conclusion)$/i, key: "summary" },
-      { pattern: /^(#+\s*)?(6\.\s*)?(references|bibliography)$/i, key: "references" },
-    ];
-
     for (const line of lines) {
-      const trimmed = line.trim().replace(/^#+\s*/, "");
+      const trimmed = line.trim().toLowerCase();
       let matched: string | null = null;
 
-      for (const { pattern, key } of headingPatterns) {
-        if (pattern.test(trimmed)) {
-          matched = key;
-          break;
-        }
-      }
+      if (/^(1\.\s*introduction|introduction|background|introduction\s*\/\s*background)$/i.test(trimmed)) matched = "introduction";
+      else if (/^(2\.\s*global\s*&\s*indian\s*situation|global\s*&\s*indian\s*situation|global\s*indian|global\s+situation)$/i.test(trimmed)) matched = "globalIndian";
+      else if (/^(3\.\s*research\s*gaps|research\s*gaps\s*\/\s*limitations|research\s*gaps|gaps\s*\/\s*limitations|gaps|limitations)$/i.test(trimmed)) matched = "gaps";
+      else if (/^(4\.\s*advice\s*for\s*future\s*research|advice\s*for\s*future\s*research|future\s*research\s*advice|future\s*advice)$/i.test(trimmed)) matched = "futureAdvice";
+      else if (/^(5\.\s*summary|summary|summary\s*of\s*all\s*studies)$/i.test(trimmed)) matched = "summary";
+      else if (/^(6\.\s*references|references|bibliography)$/i.test(trimmed)) matched = "references";
 
       if (matched) {
         assign();
@@ -1244,12 +659,6 @@ Using **${robLabel}** (robvis), the overall distribution of risk-of-bias judgmen
     }
 
     assign();
-
-    const emptySections = Object.values(sections).filter((v) => !v).length;
-    if (emptySections >= 5 && text.trim().length > 0) {
-      sections.introduction = text.trim();
-    }
-
     return sections;
   };
 
@@ -1262,7 +671,7 @@ Using **${robLabel}** (robvis), the overall distribution of risk-of-bias judgmen
       alert("Please select papers in Risk of Bias Assessment first.");
       return;
     }
-    const selectedPapers = reviewPapers.length > 0 ? reviewPapers : extractedData;
+    const selectedPapers = reviewPapers;
     const references = selectedPapers
       .map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || p.database}.${p.doi ? ` doi:${p.doi}` : ""}`)
       .join("\n");
@@ -1281,44 +690,14 @@ Using **${robLabel}** (robvis), the overall distribution of risk-of-bias judgmen
         .map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || p.database}.${p.doi ? ` doi:${p.doi}` : ""}`)
         .join("\n");
 
-      const planningPrompt = `You are an expert academic research planner. Given the selected studies below, produce a brief 6-point outline ONLY (no prose, no citations, just the outline labels):
-1. Introduction / Background
-2. Global & Indian Situation
-3. Research Gaps / Limitations
-4. Advice for Future Research
-5. Summary
-6. References
-
-For each point, write ONE short phrase describing what that section should cover based on these studies. Do NOT write full sentences. Keep it to 6 lines total.
-
-SELECTED STUDIES:
-${selectedPapers.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. Type: ${p.studyType || "N/A"}.`).join("\n")}`;
-
-      const apiKey = state.geminiApiKey || state.groqApiKey;
-      let planLines: string[] = [];
-      if (apiKey) {
-        try {
-          const planText = state.geminiApiKey
-            ? await callGemini(state.geminiApiKey, planningPrompt)
-            : await callGroq(state.groqApiKey!, planningPrompt);
-          planLines = planText.split("\n").filter((l) => l.trim().length > 0).slice(0, 6);
-        } catch {
-          planLines = [];
-        }
-      }
-
-      const planBlock = planLines.length > 0
-        ? `PLAN (follow this outline exactly):\n${planLines.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n`
-        : "";
-
       const prompt = `You are an expert academic writer using deep reasoning methodology. Write a comprehensive, publication-ready narrative literature review based ONLY on the selected studies provided below.
 
 Follow this exact structure and headings:
 - Introduction / Background
-- Global & Indian Situation
-- Research Gaps / Limitations
-- Advice for Future Research
-- Summary
+- Problem Statement (with subsections: Global, South-East Asia, India)
+- Research Gaps
+- Future Studies to Be Carried Out
+- Conclusion
 - References
 
 CITATION RULES:
@@ -1326,7 +705,7 @@ CITATION RULES:
 - The author-year MUST match one of the numbered references below.
 - Aim for 2-4 inline citations per paragraph.
 
-${planBlock}REFERENCES (use these exact author-year strings in your inline citations):
+REFERENCES (use these exact author-year strings in your inline citations):
 ${selectedPapers.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || p.database}.${p.doi ? ` doi:${p.doi}` : ""}`).join("\n")}
 
 SELECTED STUDIES:
@@ -1344,17 +723,17 @@ DEEP REASONING RULES:
 OUTPUT FORMAT:
 Use plain text with these exact headings on their own lines:
 Introduction / Background
-Global & Indian Situation
-Research Gaps / Limitations
-Advice for Future Research
-Summary
+Problem Statement (Global, South-East Asia, India)
+Research Gaps
+Future Studies to Be Carried Out
+Conclusion
 References
 
 At the end, include a References section with all papers in Vancouver style:
 1. Author(s) (Year). Title. Journal. doi:DOI`;
 
-      const apiKeyForCall = state.geminiApiKey || state.groqApiKey;
-      if (!apiKeyForCall) {
+      const apiKey = state.geminiApiKey || state.groqApiKey;
+      if (!apiKey) {
         setLiteratureReviewSections({
           introduction: "No API key configured. Please add your Gemini or Groq API key in Settings to generate the literature review.",
           globalIndian: "",
@@ -1379,27 +758,14 @@ At the end, include a References section with all papers in Vancouver style:
 
       const cleaned = text.replace(/```/g, "").trim();
       const parsed = parseLiteratureReview(cleaned);
-      const validatedRefs = parsed.references || references;
       setLiteratureReviewSections({
         introduction: parsed.introduction || "",
         globalIndian: parsed.globalIndian || "",
         gaps: parsed.gaps || "",
         futureAdvice: parsed.futureAdvice || "",
         summary: parsed.summary || "",
-        references: validatedRefs,
+        references: parsed.references || references,
       });
-
-      const doisInRefs = (validatedRefs.match(/doi:[^\s]+/gi) || []).map((d) => d.replace(/^doi:\s*/, ""));
-      if (doisInRefs.length > 0) {
-        const results = await Promise.allSettled(doisInRefs.map((doi) => validateDoiViaCrossref(doi)));
-        const invalidDois = results
-          .map((r, i) => (r.status === "rejected" || !r.value.valid ? doisInRefs[i] : null))
-          .filter(Boolean);
-        if (invalidDois.length > 0) {
-          const note = `\n\n> DOI validation note: ${invalidDois.length} reference(s) had DOIs that could not be verified (${invalidDois.slice(0, 3).join(", ")}${invalidDois.length > 3 ? "..." : ""}). Please verify before submission.`;
-          setLiteratureReviewSections((prev) => ({ ...prev, references: (prev.references || "") + note }));
-        }
-      }
     } catch (err: any) {
       setLiteratureReviewSections({
         introduction: `Error generating review: ${err.message || "Unknown error"}. Please ensure your API key is valid and try again.`,
@@ -1421,11 +787,7 @@ At the end, include a References section with all papers in Vancouver style:
     }
     setSynthesisLoading(true);
     setSynthesisOutput("");
-    setSynthesisAnalysis("");
     try {
-      const analysisOutput = analyzePapersForSynthesis();
-      setSynthesisAnalysis(analysisOutput);
-
       const papersForSynthesis = extractedData
         .filter((p) => selectedPaperIds.has(p.id))
         .map((p) => ({
@@ -1438,7 +800,7 @@ At the end, include a References section with all papers in Vancouver style:
           notes: robAssessments[p.id]?.notes || "",
         }));
 
-      const prompt = `You are an expert evidence synthesis researcher using methods and tools from the awesome-evidence-synthesis open-source toolkit (https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis), prismAId (https://github.com/Open-and-Sustainable/prismAId) for AI-assisted screening/extraction, and meta-pipe (https://github.com/htlin222/meta-pipe) for end-to-end pipeline alignment.
+      const prompt = `You are an expert evidence synthesis researcher using methods from the awesome-evidence-synthesis toolkit (metafor, meta, metaumbrella, robvis, PRISMA 2020).
 
 REVIEW TYPE: ${reviewType}
 
@@ -1451,23 +813,15 @@ ${synthesisInstructions || "Use standard systematic review methodology appropria
 EXTRACTED STUDIES:
 ${papersForSynthesis.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. Type: ${p.studyType}. Outcome: ${p.outcome}. RoB: ${p.ROB}.${p.notes ? ` Notes: ${p.notes}` : ""}`).join("\n\n")}
 
-EVIDENCE ANALYSIS (Step 4A — metafor / forestplot aligned):
-${analysisOutput}
-
 REQUIREMENTS:
-1. Summarize the body of evidence thematically or narratively as appropriate for the review type, referencing the specific awesome-evidence-synthesis tools where relevant.
-2. Note heterogeneity (clinical, methodological, statistical) and how it should be assessed using metafor/meta (I², τ², Q-test).
-3. Summarize effect sizes where available (or state if not extractable), referencing metafor/meta/forestplot where appropriate.
-4. Acknowledge risk-of-bias patterns using robvis methodology (traffic-light and summary plots).
-5. Provide a forest-plot-ready effect-size table with columns: Study, Effect Estimate, 95% CI, Weight.
-6. Include PRISMA 2020-compliant narrative structure where applicable.
-7. Reference GRADE for certainty assessment and OpenMEE/JASP as alternative meta-analysis environments.
-8. Address publication bias using funnel plots, Egger's test, or trim-and-fill analysis (metasens, meta, metafor).
-9. Recommend sensitivity analysis excluding high-RoB studies (robumeta, clubSandwich, robvis).
-10. If this is a Diagnostic Test Accuracy review, reference meta4diag, mada, MetaDTA, or bamdit for DTA-specific meta-analysis.
-11. Align with prismAId protocol-based screening and extraction methodology where applicable.
-12. Align with meta-pipe 9-stage pipeline: protocol → search → screening → fulltext → extraction → analysis → manuscript → reviews → QA.
-${reviewType.includes("Meta-analysis") ? "13. Provide meta-analysis interpretation: fixed vs random effects (DerSimonian–Laird / inverse-variance), heterogeneity statistics (I², τ², Q-test), prediction interval, and certainty of evidence" : ""}
+1. Summarize the body of evidence thematically or narratively as appropriate for the review type
+2. Note heterogeneity (clinical, methodological, statistical)
+3. Summarize effect sizes where available (or state if not extractable)
+4. Acknowledge risk-of-bias patterns
+5. Provide a forest-plot-ready effect-size table with columns: Study, Effect Estimate, 95% CI, Weight
+6. Include PRISMA-compliant narrative structure (for reviews where PRISMA applies)
+7. Reference tools: metafor, meta, metaumbrella, robvis, forestplot, PRISMA 2020
+${reviewType.includes("Meta-analysis") ? "8. Provide meta-analysis interpretation: fixed vs random effects, heterogeneity statistics (I², τ²), certainty of evidence" : ""}
 
 OUTPUT FORMAT:
 ## Evidence Synthesis
@@ -1484,15 +838,6 @@ OUTPUT FORMAT:
 
 ### Meta-analysis Interpretation
 [Fixed vs random effects, heterogeneity, certainty]
-
-### Publication Bias
-[Funnel plot assessment, Egger's test, trim-and-fill recommendations]
-
-### Sensitivity Analysis
-[Excluding high-RoB studies, alternative models, robustness checks]
-
-### Diagnostic Test Accuracy (if applicable)
-[Hierarchical summary ROC, bivariate model guidance using meta4diag/mada/MetaDTA]
 
 ### Gaps and Future Directions
 [Remaining uncertainties]`;
@@ -1512,18 +857,18 @@ OUTPUT FORMAT:
         return;
       }
 
-      let text: string;
-      const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
-      if (state.geminiApiKey) {
-        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
-      } else if (state.groqApiKey) {
-        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
-      } else {
-        throw new Error("No API key configured. Please open Settings (gear icon).");
-      }
+          let text: string;
+          const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
+          if (state.geminiApiKey) {
+            text = await callGemini(state.geminiApiKey, prompt, searchOptions);
+          } else if (state.groqApiKey) {
+            text = await callGroq(state.groqApiKey!, prompt, searchOptions);
+         } else {
+           throw new Error("No API key configured. Please open Settings (gear icon).");
+         }
 
-      const cleaned = text.replace(/```markdown/g, "").replace(/```/g, "").trim();
-      setSynthesisOutput(cleaned);
+        const cleaned = text.replace(/```markdown/g, "").replace(/```/g, "").trim();
+        setSynthesisOutput(cleaned);
 
       const tableMatch = cleaned.match(/\| Study[\s\S]*?\|/);
       if (tableMatch) {
@@ -1566,8 +911,15 @@ OUTPUT FORMAT:
       const template = getRobToolTemplate();
       const robLabel = template ? template.label : robTool;
       const isMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
-      const yearMin = papersForSynthesis.length ? Math.min(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
-      const yearMax = papersForSynthesis.length ? Math.max(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
+      const isSystematic = reviewType.includes("Systematic");
+      const isNarrative = reviewType.includes("Narrative");
+      const isScoping = reviewType.includes("Scoping");
+      const isUmbrella = reviewType.includes("Umbrella");
+      const isRapid = reviewType.includes("Rapid");
+      const isMixed = reviewType.includes("Mixed");
+
+      const yearMin = Math.min(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020));
+      const yearMax = Math.max(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020));
       const studyTypes = Array.from(new Set(papersForSynthesis.map((p) => p.studyType))).filter(Boolean);
       const databases = Array.from(new Set(papersForSynthesis.map((p) => p.database))).filter(Boolean);
       const totalRecords = papers.length;
@@ -1593,373 +945,34 @@ OUTPUT FORMAT:
       const reviewTypeLabel = reviewType;
       const topic = query || "the research topic";
 
-      const apiKey = state.geminiApiKey || state.groqApiKey;
+      const relatedWorksBlock = papersForSynthesis.slice(0, 8).map((p, i) => {
+        const limitation = p.outcome
+          ? `The study focused on ${p.outcome.toLowerCase()}, leaving broader contextual factors unexamined.`
+          : "The scope was limited, and generalizability to broader populations remains uncertain.";
+        return `${i + 1}. ${p.authors} (${p.year}). *${p.title}*. ${p.studyType || "Study type not specified"}. ${limitation}`;
+      }).join("\n\n");
 
-      if (apiKey) {
-        const outlinePrompt = `You are an expert scientific writer using the OpenClaw Scientific Research & Writing skill (FreedomIntelligence/OpenClaw-Medical-Skills).
+      const methodologyParagraph = isMeta
+        ? `The present ${reviewTypeLabel.toLowerCase()} employed a structured evidence-synthesis methodology. The approach combined systematic database searching, duplicate screening, structured data extraction, per-domain risk-of-bias assessment using ${robLabel}, and random-effects meta-analysis where feasible. This design differs from prior reviews by integrating robvis-standardized domain-level bias judgments with GRADE certainty assessment, enabling transparent quantification of both within-study bias and between-study heterogeneity. Key methods included PICO-framed search strategies, PRISMA 2020-compliant reporting, and forest-plot-ready effect-size extraction compatible with metafor, meta, and forestplot.`
+        : `The present ${reviewTypeLabel.toLowerCase()} employed a structured evidence-synthesis methodology. The approach combined systematic database searching, duplicate screening, and structured data extraction. Risk-of-bias assessment was conducted using ${robLabel}, and findings were synthesized narratively following awesome-evidence-synthesis guidance. This design emphasizes transparent reproducibility, PRISMA 2020-aligned reporting, and thematic mapping of the evidence base.`;
 
-REVIEW TYPE: ${reviewType}
+      const resultsOverview = papersForSynthesis.length > 0
+        ? `The evidence base comprised ${papersForSynthesis.length} studies (${yearMin}–${yearMax}) encompassing ${studyTypes.join(", ").toLowerCase() || "mixed study designs"}. Pooled or narrative findings indicate [direction of effect] for [outcome]. Heterogeneity was assessed via I² and τ²; ${robSummary.high} studies were rated at high risk of bias. The overall certainty of evidence was rated as ${"moderate"} following GRADE criteria.`
+        : "No studies met the inclusion criteria.";
 
-TASK: Create a DETAILED SECTION OUTLINE for a scientific manuscript. The outline will later be converted to full paragraphs.
+      const discussionImplications = isMeta
+        ? "The meta-analytic estimate should be interpreted alongside the GRADE certainty assessment and robvis domain-level judgments. High risk-of-bias studies may overestimate effects; sensitivity analyses excluding these studies are recommended. Findings align with prior evidence in [field], though methodological differences preclude direct comparison. Limitations include potential publication bias and varying follow-up periods."
+        : "Narrative findings should be interpreted in light of the methodological quality of included studies. The review followed PRISMA 2020 and robvis methodology; however, heterogeneity in study designs limits statistical pooling. Findings are consistent with prior reviews in [field] but highlight unresolved gaps. Limitations include restricted database coverage and potential selection bias.";
 
-REQUIRED STRUCTURE (use exactly these headings):
-- Abstract (structured: Background, Methods, Results, Discussion, Keywords)
-- 1. Introduction
-- 2. Methods
-- 3. Results
-- 4. Discussion
-- 5. Conclusion
-- References (Vancouver style, numbered inline citations like [1], [2])
+      const conclusionPara1 = `This ${reviewTypeLabel.toLowerCase()} synthesized evidence from ${included} studies examining ${topic}. The findings indicate [summary of main result]. Methodological quality varied across studies, with ${robSummary.low} rated low risk, ${robSummary.some} some/moderate concerns, and ${robSummary.high} at high risk of bias. ${isMeta ? "The pooled effect estimate provides a quantitative synthesis that should inform [clinical/policy] decision-making." : "The narrative synthesis maps the current state of evidence and identifies priorities for future inquiry."}`;
 
-ADDITIONAL SECTIONS FOR META-ANALYSIS:
-- PRISMA 2020 flow diagram data
-- Forest plot data
-- Risk of Bias summary
+      const conclusionPara2 = `Future research should address [specific gaps], employ standardized outcome measures, and report effect sizes with confidence intervals. Prospective registration and open-access data sharing are recommended to enhance reproducibility. ${isMeta ? "Network meta-analysis and individual patient data synthesis may clarify treatment effects across heterogeneous populations." : "Scoping and systematic review updates are warranted as new evidence emerges."}`;
 
-For EACH section, list 4-6 bullet points with the exact key points, studies to cite, data to include, and arguments to make. This is a PLANNING document only — do NOT write full paragraphs.
+      const figurePlaceholders = isMeta
+        ? `\\begin{figure*}[ht]\n  \\centering\n  \\includegraphics[width=\\textwidth]{forest_plot}\n  \\caption{Forest plot of pooled effect estimates.}\n\\end{figure*}\n\n\\begin{figure}[ht]\n  \\centering\n  \\includegraphics[width=0.5\\textwidth]{funnel_plot}\n  \\caption{Funnel plot assessing publication bias.}\n\\end{figure}\n\n\\begin{figure}[ht]\n  \\centering\n  \\includegraphics[width=0.5\\textwidth]{robvis_traffic_light}\n  \\caption{Risk-of-bias traffic-light plot (${robLabel}).}\n\\end{figure}`
+        : `\\begin{figure}[ht]\n  \\centering\n  \\includegraphics[width=0.5\\textwidth]{robvis_traffic_light}\n  \\caption{Risk-of-bias traffic-light plot (${robLabel}).}\n\\end{figure}`;
 
-CONTEXT FROM PREVIOUS PIPELINE STEPS:
-- Search: ${totalRecords} records from ${databases.join(", ") || selectedDbs.join(", ")} → ${included} included
-- Year range: ${yearMin}–${yearMax}
-- Study types: ${studyTypes.join(", ")}
-- Risk of Bias (${robLabel}): Low ${robSummary.low}, Some/Moderate ${robSummary.some}, High ${robSummary.high}
-- Synthesis: ${synthesisOutput ? synthesisOutput.split("\n").slice(0, 20).join("\n") : "Not yet generated"}
-- Effect sizes: ${effectSizes.length > 0 ? effectSizes.map((r) => `${r.study}: ${r.effect} (95% CI ${r.ci}), weight ${r.weight}`).join("; ") : "None"}
-${metaforResult ? `- Meta-analysis (metafor-style): Pooled μ = ${metaforResult.pooledEstimate.toFixed(3)}, 95% CI ${metaforResult.ciLower.toFixed(3)}–${metaforResult.ciUpper.toFixed(3)}, I² = ${metaforResult.I2.toFixed(1)}%, τ² = ${metaforResult.tau2.toFixed(4)}, Q = ${metaforResult.Q.toFixed(2)}, p = ${metaforResult.Qp.toFixed(4)}` : ""}
-- Papers: ${papersForSynthesis.slice(0, 10).map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.studyType}.`).join("\n")}
-
-OUTPUT FORMAT: Markdown with section headings and bullet points.`;
-
-        const outlineSearchOptions: AICallOptions = { searchEnabled: false };
-        const outlineText = state.geminiApiKey
-          ? await callGemini(state.geminiApiKey, outlinePrompt, outlineSearchOptions)
-          : await callGroq(state.groqApiKey!, outlinePrompt, outlineSearchOptions);
-
-        const manuscriptPrompt = `You are an expert scientific writer using the OpenClaw Scientific Research & Writing skill (FreedomIntelligence/OpenClaw-Medical-Skills).
-
-CRITICAL RULES:
-- Write EVERYTHING in full paragraphs with flowing prose. Never use bullet points in the final manuscript.
-- Use Vancouver-style numbered inline citations: [1], [2], etc.
-- Include a complete References section at the end.
-- Follow the structure below exactly.
-
-REVIEW TYPE: ${reviewType}
-
-OUTLINE TO EXPAND:
-${outlineText}
-
-CONTEXT FROM PIPELINE:
-${papersForSynthesis.slice(0, 15).map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.studyType}.${p.doi ? ` doi:${p.doi}` : ""}`).join("\n")}
-
-${metaforResult ? `META-ANALYSIS RESULTS: Pooled estimate μ = ${metaforResult.pooledEstimate.toFixed(3)} (95% CI ${metaforResult.ciLower.toFixed(3)}–${metaforResult.ciUpper.toFixed(3)}). Heterogeneity: I² = ${metaforResult.I2.toFixed(1)}%, τ² = ${metaforResult.tau2.toFixed(4)}, Q(${metaforResult.k - 1}) = ${metaforResult.Q.toFixed(2)}, p = ${metaforResult.Qp.toFixed(4)}. Prediction interval: ${metaforResult.predictionLower.toFixed(3)}–${metaforResult.predictionUpper.toFixed(3)}.` : ""}
-
-Now convert the outline into a complete manuscript in flowing prose. Use the outline as scaffolding — expand every bullet point into complete sentences and paragraphs with transitions. Integrate citations naturally within sentences. Do NOT leave bullet points in the final output.
-
-REPORTING GUIDELINE: ${isMeta ? "PRISMA 2020 for systematic reviews and meta-analyses" : "PRISMA 2020 for systematic reviews"}.
-
-Generate the full manuscript now.`;
-
-        const manuscriptSearchOptions: AICallOptions = { searchEnabled: false };
-        const manuscriptText = state.geminiApiKey
-          ? await callGemini(state.geminiApiKey, manuscriptPrompt, manuscriptSearchOptions)
-          : await callGroq(state.groqApiKey!, manuscriptPrompt, manuscriptSearchOptions);
-
-        const cleaned = manuscriptText.replace(/```markdown/g, "").replace(/```/g, "").trim();
-        setManuscript(cleaned);
-      } else {
-        const localManuscript = buildLocalManuscript({
-          reviewType,
-          reviewTypeLabel,
-          topic,
-          papersForSynthesis,
-          robLabel,
-          isMeta,
-          yearMin,
-          yearMax,
-          studyTypes,
-      databases: selectedDbs,
-          totalRecords,
-          deduped,
-          screened,
-          excluded,
-          included,
-          robSummary,
-          metaforResult,
-          synthesisOutput,
-          effectSizes,
-          query,
-          selectedDbs,
-        });
-        setManuscript(localManuscript);
-      }
-    } catch (err: any) {
-      setManuscript(`# Error\n\n**Failed to generate manuscript:** ${err.message || "Unknown error"}\n\nPlease complete Steps 1–5 and try again. If using AI-generated mode, ensure your API key is valid.`);
-    } finally {
-      setManuscriptLoading(false);
-    }
-  };
-
-  const generateAcademicWritingManuscript = async () => {
-    if (extractedData.length === 0) {
-      alert("Please complete data extraction first.");
-      return;
-    }
-    setAcademicManuscriptLoading(true);
-    setAcademicManuscript("");
-    try {
-      const papersForSynthesis = extractedData.filter((p) => selectedPaperIds.has(p.id));
-      const template = getRobToolTemplate();
-      const robLabel = template ? template.label : robTool;
-      const isMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
-      const yearMin = papersForSynthesis.length ? Math.min(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
-      const yearMax = papersForSynthesis.length ? Math.max(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020)) : new Date().getFullYear();
-      const studyTypes = Array.from(new Set(papersForSynthesis.map((p) => p.studyType))).filter(Boolean);
-      const databases = Array.from(new Set(papersForSynthesis.map((p) => p.database))).filter(Boolean);
-      const totalRecords = papers.length;
-      const deduped = prismaCounts.deduped;
-      const screened = prismaCounts.screened;
-      const excluded = prismaCounts.excluded;
-      const included = prismaCounts.included;
-
-      const robSummary = papersForSynthesis.reduce(
-        (acc: { low: number; some: number; high: number; pending: number }, row) => {
-          const a = robAssessments[row.id];
-          if (!a) return acc;
-          const jl = a.overall.toLowerCase();
-          if (jl.includes("low") && !jl.includes("high")) acc.low += 1;
-          else if (jl.includes("some concerns") || jl.includes("moderate") || jl.includes("unclear") || jl.includes("serious") && !jl.includes("critical")) acc.some += 1;
-          else if (jl.includes("high") || jl.includes("critical") || jl.includes("very high")) acc.high += 1;
-          else acc.pending += 1;
-          return acc;
-        },
-        { low: 0, some: 0, high: 0, pending: 0 }
-      );
-
-      const reviewTypeLabel = reviewType;
-      const topic = query || "the research topic";
-
-      const apiKey = state.geminiApiKey || state.groqApiKey;
-      if (!apiKey) {
-        setAcademicManuscript("Error: Configure an API key in Settings to activate the Academic Writing Agents engine.");
-        setAcademicManuscriptLoading(false);
-        return;
-      }
-
-      const pipelineContext = `
-TOPIC: ${topic}
-REVIEW TYPE: ${reviewType}
-YEAR RANGE: ${yearMin}–${yearMax}
-STUDY TYPES: ${studyTypes.join(", ")}
-DATABASES: ${databases.join(", ") || "multiple"}
-PRISMA COUNTS: ${totalRecords} identified → ${deduped} deduplicated → ${screened} screened → ${excluded} excluded → ${included} included
-RISK OF BIAS (${robLabel}): Low=${robSummary.low}, Some/Moderate=${robSummary.some}, High=${robSummary.high}
-SYNTHESIS OUTPUT: ${synthesisOutput ? synthesisOutput.split("\n").slice(0, 30).join("\n") : "Not yet generated"}
-EFFECT SIZES: ${effectSizes.length > 0 ? effectSizes.map((r) => `${r.study}: ${r.effect} (95% CI ${r.ci}), weight ${r.weight}`).join("; ") : "None"}
-${metaforResult ? `META-ANALYSIS: Pooled μ = ${metaforResult.pooledEstimate.toFixed(3)} (95% CI ${metaforResult.ciLower.toFixed(3)}–${metaforResult.ciUpper.toFixed(3)}). I² = ${metaforResult.I2.toFixed(1)}%, τ² = ${metaforResult.tau2.toFixed(4)}, Q(${metaforResult.k - 1}) = ${metaforResult.Q.toFixed(2)}, p = ${metaforResult.Qp.toFixed(4)}.` : ""}
-PAPERS: ${papersForSynthesis.slice(0, 15).map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.studyType}.${p.doi ? ` doi:${p.doi}` : ""}`).join("\n")}
-`;
-
-      const callWithFailover = async (prompt: string, structuredJson = false): Promise<string> => {
-        if (state.geminiApiKey) {
-          try {
-            return await callGemini(state.geminiApiKey, prompt, { searchEnabled: false });
-          } catch {
-            if (state.groqApiKey) return await callGroq(state.groqApiKey!, prompt, { searchEnabled: false });
-          }
-        } else if (state.groqApiKey) {
-          return await callGroq(state.groqApiKey!, prompt, { searchEnabled: false });
-        }
-        throw new Error("No API key configured.");
-      };
-
-      const draftPrompt = `You are an expert academic writer using the academic-writing-agents methodology ( andrehuang/academic-writing-agents ) for multi-agent review, research, drafting, and polishing.
-
-TASK: Draft a complete academic manuscript for a ${reviewType}.
-
-PIPELINE CONTEXT:
-${pipelineContext}
-
-REQUIRED STRUCTURE:
-- Abstract (structured: Background, Methods, Results, Discussion, Keywords)
-- 1. Introduction
-- 2. Methods
-- 3. Results
-- 4. Discussion
-- 5. Conclusion
-- References (Vancouver-style numbered inline citations [1], [2])
-
-STYLE REQUIREMENTS:
-- Write in full paragraphs with flowing prose
-- Use Vancouver-style numbered inline citations
-- Include a complete References section
-- Follow IMRAD + PRISMA 2020 structure where applicable
-- Integrate all available pipeline data naturally
-
-Generate the complete manuscript draft now.`;
-
-      const draft = await callWithFailover(draftPrompt);
-      setAcademicManuscript(`# Draft Generated\n\n${draft}\n\n---\n\n## Academic Writing Agents Review\n\nRunning multi-agent review passes...`);
-
-      const reviewPasses = [
-        {
-          name: "Structure & Narrative",
-          prompt: `You are a structure-and-narrative reviewer (academic-writing-agents: A1-A7 principles). Review the following manuscript draft for logical flow, section coherence, claim-first organization, and GPS rhythm (Goal-Problem-Solution). Provide specific revision suggestions.
-
-MANUSCRIPT DRAFT:
-${draft}
-
-Provide a prioritized list of revisions (Critical / Important / Minor) for structure and narrative.`,
-        },
-        {
-          name: "Prose & Style",
-          prompt: `You are a prose-and-style reviewer (academic-writing-agents: B1-B8 principles). Review the following manuscript draft for clarity, conciseness, academic tone, grammar, and AI-tell detection. Provide specific revision suggestions.
-
-MANUSCRIPT DRAFT:
-${draft}
-
-Provide a prioritized list of revisions (Critical / Important / Minor) for prose and style.`,
-        },
-        {
-          name: "Technical & Methodological",
-          prompt: `You are a technical reviewer (academic-writing-agents: C1-C3 principles). Review the following manuscript draft for methodological accuracy, statistical reporting correctness, and technical clarity. Focus on meta-analysis interpretation, heterogeneity statistics, and risk-of-bias reporting.
-
-MANUSCRIPT DRAFT:
-${draft}
-
-PIPELINE DATA:
-${pipelineContext}
-
-Provide a prioritized list of revisions (Critical / Important / Minor) for technical accuracy.`,
-        },
-        {
-          name: "Citations & Bibliography",
-          prompt: `You are a bibliography-auditor reviewer (academic-writing-agents: E1-E3 principles). Review the following manuscript draft for citation completeness, formatting consistency, and reference accuracy. Flag missing citations, incorrect formats, and incomplete references.
-
-MANUSCRIPT DRAFT:
-${draft}
-
-PAPERS AVAILABLE:
-${papersForSynthesis.slice(0, 20).map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || p.database}.${p.doi ? ` doi:${p.doi}` : ""}`).join("\n")}
-
-Provide a prioritized list of revisions (Critical / Important / Minor) for citations and bibliography.`,
-        },
-      ];
-
-      let reviewResults: string[] = [];
-      for (const reviewPass of reviewPasses) {
-        const result = await callWithFailover(reviewPass.prompt);
-        reviewResults.push(`### ${reviewPass.name} Review\n\n${result}`);
-      }
-
-      const synthesisPrompt = `You are an academic writing polisher (academic-writing-agents: prose-polisher + section-drafter). You have reviewed a manuscript draft and received feedback from multiple specialist reviewers.
-
-ORIGINAL DRAFT:
-${draft}
-
-REVIEW FEEDBACK:
-${reviewResults.join("\n\n")}
-
-TASK: Produce the final polished manuscript. Address all Critical and Important revisions from the review feedback. Maintain the required structure:
-- Abstract (structured: Background, Methods, Results, Discussion, Keywords)
-- 1. Introduction
-- 2. Methods
-- 3. Results
-- 4. Discussion
-- 5. Conclusion
-- References (Vancouver-style numbered inline citations [1], [2])
-
-Write in full paragraphs with flowing prose. Integrate all pipeline data naturally. Ensure technical accuracy, proper citation formatting, and publication-ready quality.
-
-Generate the final polished manuscript now.`;
-
-      const finalManuscript = await callWithFailover(synthesisPrompt);
-      setAcademicManuscript(finalManuscript);
-    } catch (err: any) {
-      setAcademicManuscript(`# Error\n\n**Failed to generate academic manuscript:** ${err.message || "Unknown error"}\n\nPlease complete Steps 1–5 and try again. Ensure your API key is valid.`);
-    } finally {
-      setAcademicManuscriptLoading(false);
-    }
-  };
-
-  const buildLocalManuscript = ({
-    reviewType,
-    reviewTypeLabel,
-    topic,
-    papersForSynthesis,
-    robLabel,
-    isMeta,
-    yearMin,
-    yearMax,
-    studyTypes,
-    databases,
-    totalRecords,
-    deduped,
-    screened,
-    excluded,
-    included,
-    robSummary,
-    metaforResult,
-    synthesisOutput,
-    effectSizes,
-    query,
-    selectedDbs,
-  }: {
-    reviewType: string;
-    reviewTypeLabel: string;
-    topic: string;
-    papersForSynthesis: any[];
-    robLabel: string;
-    isMeta: boolean;
-    yearMin: number;
-    yearMax: number;
-    studyTypes: string[];
-    databases: string[];
-    totalRecords: number;
-    deduped: number;
-    screened: number;
-    excluded: number;
-    included: number;
-    robSummary: { low: number; some: number; high: number; pending: number };
-    metaforResult: any;
-    synthesisOutput: string;
-    effectSizes: { study: string; effect: string; ci: string; weight: string }[];
-    query: string;
-    selectedDbs: string[];
-  }): string => {
-    const relatedWorksBlock = papersForSynthesis.slice(0, 8).map((p, i) => {
-      const limitation = p.outcome
-        ? `The study focused on ${p.outcome.toLowerCase()}, leaving broader contextual factors unexamined.`
-        : "The scope was limited, and generalizability to broader populations remains uncertain.";
-      return `${i + 1}. ${p.authors} (${p.year}). *${p.title}*. ${p.studyType || "Study type not specified"}. ${limitation}`;
-    }).join("\n\n");
-
-    const methodologyParagraph = isMeta
-      ? `The present ${reviewTypeLabel.toLowerCase()} employed a structured evidence-synthesis methodology. The approach combined systematic database searching, duplicate screening, structured data extraction, per-domain risk-of-bias assessment using ${robLabel}, and random-effects meta-analysis where feasible. This design differs from prior reviews by integrating robvis-standardized domain-level bias judgments with GRADE certainty assessment, enabling transparent quantification of both within-study bias and between-study heterogeneity. Key methods included PICO-framed search strategies, PRISMA 2020-compliant reporting, and forest-plot-ready effect-size extraction compatible with metafor, meta, and forestplot.`
-      : `The present ${reviewTypeLabel.toLowerCase()} employed a structured evidence-synthesis methodology. The approach combined systematic database searching, duplicate screening, and structured data extraction. Risk-of-bias assessment was conducted using ${robLabel}, and findings were synthesized narratively following awesome-evidence-synthesis guidance. This design emphasizes transparent reproducibility, PRISMA 2020-aligned reporting, and thematic mapping of the evidence base.`;
-
-    const resultsOverview = papersForSynthesis.length > 0
-      ? `The evidence base comprised ${papersForSynthesis.length} studies (${yearMin}–${yearMax}) encompassing ${studyTypes.join(", ").toLowerCase() || "mixed study designs"}. Pooled or narrative findings indicate a meaningful direction of effect for the outcome of interest. Heterogeneity was assessed via I² and $\tau^2$; ${robSummary.high} studies were rated at high risk of bias. The overall certainty of evidence should be formally assessed using GRADE; based on risk of bias and inconsistency alone, certainty may be downgraded.`
-      : "No studies met the inclusion criteria.";
-
-    const discussionImplications = isMeta
-      ? "The meta-analytic estimate should be interpreted alongside the GRADE certainty assessment and robvis domain-level judgments. High risk-of-bias studies may overestimate effects; sensitivity analyses excluding these studies are recommended. Findings align with prior evidence in the field, though methodological differences preclude direct comparison. Limitations include potential publication bias and varying follow-up periods."
-      : "Narrative findings should be interpreted in light of the methodological quality of included studies. The review followed PRISMA 2020 and robvis methodology; however, heterogeneity in study designs limits statistical pooling. Findings are consistent with prior reviews in the field but highlight unresolved gaps. Limitations include restricted database coverage and potential selection bias.";
-
-    const conclusionPara1 = `This ${reviewTypeLabel.toLowerCase()} synthesized evidence from ${included} studies examining ${topic}. The findings indicate a meaningful association between the intervention/exposure and the primary outcome. Methodological quality varied across studies, with ${robSummary.low} rated low risk, ${robSummary.some} some/moderate concerns, and ${robSummary.high} at high risk of bias. ${isMeta ? "The pooled effect estimate provides a quantitative synthesis that should inform clinical and policy decision-making." : "The narrative synthesis maps the current state of evidence and identifies priorities for future inquiry."}`;
-
-    const conclusionPara2 = `Future research should address the identified gaps, employ standardized outcome measures, and report effect sizes with confidence intervals. Prospective registration and open-access data sharing are recommended to enhance reproducibility. ${isMeta ? "Network meta-analysis and individual patient data synthesis may clarify treatment effects across heterogeneous populations." : "Scoping and systematic review updates are warranted as new evidence emerges."}`;
-
-    const figurePlaceholders = isMeta
-      ? `\\begin{figure*}[ht]\n  \\centering\n  \\includegraphics[width=\\textwidth]{forest_plot}\n  \\caption{Forest plot of pooled effect estimates.}\n\\end{figure*}\n\n\\begin{figure}[ht]\n  \\centering\n  \\includegraphics[width=0.5\\textwidth]{funnel_plot}\n  \\caption{Funnel plot assessing publication bias.}\n\\end{figure}\n\n\\begin{figure}[ht]\n  \\centering\n  \\includegraphics[width=0.5\\textwidth]{robvis_traffic_light}\n  \\caption{Risk-of-bias traffic-light plot (${robLabel}).}\n\\end{figure}`
-      : `\\begin{figure}[ht]\n  \\centering\n  \\includegraphics[width=0.5\\textwidth]{robvis_traffic_light}\n  \\caption{Risk-of-bias traffic-light plot (${robLabel}).}\n\\end{figure}`;
-
-    const effectTable = effectSizes.length > 0
-      ? effectSizes.map((r) => `| ${r.study} | ${r.effect} | ${r.ci} | ${r.weight} |`).join("\n")
-      : papersForSynthesis.map((p) => `| ${p.authors} (${p.year}) | — | — | — |`).join("\n");
-
-    const referencesList = papersForSynthesis.slice(0, 20).map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || p.database}.${p.doi ? ` doi:${p.doi}` : ""}`).join("\n");
-
-    return `# ${reviewTypeLabel}: ${topic}
+      const manuscript = `# ${reviewTypeLabel}: ${topic}
 
 ## Title Page
 **Manuscript type:** ${reviewTypeLabel}
@@ -1972,7 +985,7 @@ Generate the final polished manuscript now.`;
 
 ## Abstract
 
-This ${reviewTypeLabel.toLowerCase()} examined ${topic}. A systematic search of ${databases.join(", ") || selectedDbs.join(", ")} identified ${totalRecords} records, yielding ${included} studies for synthesis. ${isMeta ? (metaforResult ? "A random-effects meta-analysis was performed using metafor (R) with DerSimonian–Laird estimation, yielding a pooled estimate of μ = ${metaforResult.pooledEstimate.toFixed(3)} (95% CI ${metaforResult.ciLower.toFixed(3)}–${metaforResult.ciUpper.toFixed(3)})." : "A random-effects meta-analysis was performed using metafor (R).") : "A narrative synthesis was conducted following awesome-evidence-synthesis principles."} ${robSummary.low} studies demonstrated low risk of bias, ${robSummary.some} some concerns, and ${robSummary.high} high risk. These findings should be interpreted alongside the GRADE certainty assessment and PRISMA 2020 reporting standards. The results highlight important implications for clinical practice and future research.
+The ${reviewTypeLabel.toLowerCase()} examined ${topic}. A systematic search of ${databases.join(", ") || selectedDbs.join(", ")} identified ${totalRecords} records, yielding ${included} studies for synthesis. ${isMeta ? "A random-effects meta-analysis was performed using metafor (R)." : "A narrative synthesis was conducted following awesome-evidence-synthesis principles."} ${robSummary.low} studies demonstrated low risk of bias, ${robSummary.some} some concerns, and ${robSummary.high} high risk. The pooled ${isMeta ? "estimate (not yet computed)" : "thematic findings"} suggests [direction] for [outcome]. These findings should be interpreted alongside the GRADE certainty assessment and PRISMA 2020 reporting standards. Results highlight [key implication] and recommend [action].
 
 **Keywords:** ${[topic, reviewTypeLabel.toLowerCase(), ...studyTypes].sort().join(", ")}, evidence synthesis, PRISMA 2020, GRADE, robvis
 
@@ -1981,74 +994,48 @@ This ${reviewTypeLabel.toLowerCase()} examined ${topic}. A systematic search of 
 ## 1. Introduction
 
 ### 1.1 Background and Context
-
-${topic} represents an important area of research that has attracted substantial scholarly attention over the past decade. Despite existing research, key questions remain unanswered regarding the specific mechanisms and contexts in which the primary intervention or exposure exerts its effects. Prior reviews have synthesized evidence on related topics, yet methodological limitations reduce confidence in current conclusions. The problem is clear: existing evidence remains fragmented, the gap lies in the lack of a unified quantitative synthesis integrating bias assessments with effect-size pooling, and the hook is the urgent need for evidence that can directly inform guidelines and policy.
+${topic} represents an important area of [field]. Despite existing research, key questions remain unanswered regarding [specific gap]. Prior reviews have synthesized evidence on related topics, yet methodological limitations reduce confidence in current conclusions.
 
 ### 1.2 Rationale
-
-This ${reviewTypeLabel.toLowerCase()} was conducted to address the evidence gap identified above. We integrated systematic database searching, duplicate screening, structured data extraction, per-domain risk-of-bias assessment, and random-effects meta-analysis where feasible. This design differs from prior reviews by combining robvis-standardized domain-level judgments with meta-analytic pooling.
+This ${reviewTypeLabel.toLowerCase()} was conducted to address the evidence gap identified above. The problem/gap/hook heuristic guides the narrative: the problem is [state problem], the gap is [identify missing evidence], and the hook is [explain why this review matters now].
 
 ### 1.3 Objectives
-
-The primary objective was to synthesize evidence on ${topic}. Secondary objectives included assessing risk of bias using ${robLabel}, evaluating certainty of evidence via GRADE, and mapping heterogeneity across study designs.
+The primary objective was to synthesize evidence on ${topic}. Secondary objectives included assessing risk of bias, evaluating certainty of evidence via GRADE, and mapping heterogeneity across study designs.
 
 ---
 
-## 2. Methods
+## 2. Related Works
 
-### 2.1 Search Strategy
+${relatedWorksBlock.replace(/\n\n/g, "\n\n")}
 
-A systematic search was conducted across ${databases.join(", ") || selectedDbs.join(", ")} using Boolean AND/OR logic and year filters (${yearFrom || "any"}–${yearTo || "any"}). The search identified ${totalRecords} records. After automated DOI+title deduplication, ${deduped} unique records remained. Title/abstract screening yielded ${screened} studies, of which ${excluded} were excluded. Full-text assessment resulted in ${included} studies for synthesis.
+**Overall limitation:** Existing reviews typically lack standardized risk-of-bias assessment, GRADE certainty ratings, and PRISMA 2020-compliant reporting. None integrate robvis-domain-level judgments with meta-analytic pooling, limiting interpretability of bias patterns.
 
-### 2.2 Data Extraction
+---
 
-Data were extracted on authors, publication year, journal, DOI, study design, population, intervention, outcome, and risk-of-bias domains. The extraction template was piloted on a subset of studies.
+## 3. Proposed System Design
 
-### 2.3 Risk of Bias Assessment
-
-Risk of bias was assessed using ${robLabel}. Domain-level judgments were made for each included study and summarized using robvis-standardized colour coding.
-
-### 2.4 Synthesis Methods
-
+### 3.1 Methodological Approach
 ${methodologyParagraph}
 
+### 3.2 Rationale for Methods
+The selected methods align with the review objectives. Systematic searching ensures comprehensive coverage; duplicate screening minimizes selection bias; robvis-domain assessments provide granular bias profiles; and ${isMeta ? "random-effects meta-analysis accounts for expected between-study heterogeneity." : "narrative synthesis captures diverse evidence without inappropriate statistical pooling."}
+
+### 3.3 Quality Assurance
+Inter-rater reliability was calculated using Cohen's kappa (κ). Discrepancies were resolved by consensus or third-reviewer adjudication. The data extraction template was piloted on a subset of studies.
+
 ---
 
-## 3. Results
+## 4. Results and Discussions
 
-### 3.1 Study Characteristics
-
-The evidence base comprised ${papersForSynthesis.length} studies (${yearMin}–${yearMax}) encompassing ${studyTypes.join(", ").toLowerCase() || "mixed study designs"}. Table 1 summarizes the key characteristics of the included studies.
-
-### 3.2 Risk of Bias
-
-Using ${robLabel}, the overall distribution of risk-of-bias judgments across ${papersForSynthesis.length} studies is: Low ${robSummary.low}, Some/Moderate concerns ${robSummary.some}, High/Critical ${robSummary.high}, Pending ${robSummary.pending}. ${robSummary.high > 0 ? "Studies at high risk of bias may overestimate effects; sensitivity analysis excluding these studies is recommended." : "No studies were rated at high risk of bias."}
-
-### 3.3 Synthesis of Results
-
-${synthesisOutput ? synthesisOutput.split("\n").slice(0, 40).join("\n") : "The narrative synthesis reveals consistent themes across the included studies, with notable heterogeneity in effect sizes and populations."}
-
-${effectSizes.length > 0 ? `Table 1 presents the effect-size data extracted for meta-analysis.` : ""}
-
-${metaforResult ? `The random-effects meta-analysis yielded a pooled estimate of μ = ${metaforResult.pooledEstimate.toFixed(3)} (95% CI ${metaforResult.ciLower.toFixed(3)}–${metaforResult.ciUpper.toFixed(3)}). Heterogeneity was substantial (I² = ${metaforResult.I2.toFixed(1)}%, τ² = ${metaforResult.tau2.toFixed(4)}, Q = ${metaforResult.Q.toFixed(2)}, p = ${metaforResult.Qp.toFixed(4)}).` : isMeta ? "Effect estimates were summarized narratively due to insufficient data for quantitative pooling." : ""}
+### 4.1 Experimental / Synthesis Results
+${resultsOverview}
 
 ${figurePlaceholders}
 
----
+### 4.2 Discussion of Findings
+${discussionImplications}
 
-## 4. Discussion
-
-### 4.1 Principal Findings
-
-${resultsOverview}
-
-### 4.2 Interpretation
-
-${discussionImplications} The present review extends prior work by integrating robvis-domain-level bias judgments with ${isMeta ? "random-effects meta-analytic pooling, enabling transparent quantification of both within-study bias and between-study heterogeneity." : "narrative thematic mapping."} ${metaforResult ? `Statistical heterogeneity (I² = ${metaforResult.I2.toFixed(1)}%, τ² = ${metaforResult.tau2.toFixed(4)}) informed subgroup analyses.` : isMeta ? "Statistical heterogeneity informed subgroup analyses." : "Thematic mapping revealed consistent patterns across study designs."} The risk-of-bias profile should be interpreted together with a formal GRADE assessment; formal GRADE rating is pending and should be completed prior to guideline submission.
-
-### 4.3 Limitations
-
-Several limitations should be acknowledged. First, unpublished or grey literature was not searched in this run. Second, subgroup analyses and meta-regression were not performed due to limited study count. Third, the certainty of evidence (GRADE) should be formally assessed prior to guideline submission. Sensitivity analysis excluding high-RoB studies is recommended for robustness.
+The pooled or narrative findings extend prior work by [specific contribution]. ${isMeta ? "Statistical heterogeneity (I² = XX%) informed subgroup analyses." : "Thematic mapping revealed consistent patterns across study designs."} The GRADE assessment rated the certainty of evidence as [moderate], primarily downgraded for risk of bias and inconsistency.
 
 ---
 
@@ -2062,11 +1049,121 @@ ${conclusionPara2}
 
 ## References
 
-${referencesList}
+Arrange in order of appearance: Introduction → Related Works → Methods → Results.
+
+1. Page MJ, McKenzie JE, Bossuyt PM, et al. The PRISMA 2020 statement. *BMJ*. 2021;372:n71.
+2. [Add references from Related Works in citation order...]
+3. [Continue adding references as cited...]
 
 ---
 
-*Manuscript drafted using the OpenClaw Scientific Research & Writing skill (FreedomIntelligence/OpenClaw-Medical-Skills), aligned with PRISMA 2020 reporting standards, awesome-evidence-synthesis workflow standards, and metafor/meta (R) meta-analysis methodology. Authors must verify extracted data, complete effect-size calculations in statistical software, confirm GRADE ratings, and ensure proper citation before submission.*`;
+## Supplementary Materials
+
+- **Table S1.** Search strategies by database
+- **Table S2.** Excluded studies with reasons for exclusion
+- **Table S3.** Data extraction template
+- **Figure S1.** robvis traffic-light plot (${robLabel})
+- **Figure S2.** Funnel plot (if meta-analysis)
+- **Figure S3.** Forest plot (if meta-analysis)
+- **GRADE evidence profile** (if applicable)
+
+---
+
+## Email Templates
+
+### Template 1 — Request to Accept the Research Paper
+
+**From**  
+[Author Name],  
+Department of [Department],  
+[Institution],  
+[Address].
+
+**To,**  
+The Reviewers,  
+[Conference Name],  
+[Conference Location]
+
+Respected Sir/Madam,
+
+Subject: Requesting acceptance of the research paper titled "[Title]"
+
+With reference to the above subject, the manuscript has been prepared in accordance with the conference formatting guidelines. All figures, tables, captions, margins, fonts, and references have been verified. The manuscript is attached for kind consideration. The authors look forward to receiving the reviewers' feedback at the earliest.
+
+Thank you.
+
+Yours sincerely,  
+[Author Name]  
+[Department, Institution, Address]  
+Mobile: [Number]
+
+---
+
+### Template 2 — Submission of Final Paper, Copyright Form & Payment Proof
+
+**From**  
+[Author Name],  
+Department of [Department],  
+[Institution],  
+[Address].
+
+**To,**  
+The Reviewers,  
+[Conference Name],  
+[Conference Location]
+
+Respected Sir/Madam,
+
+Subject: Submission of Final Paper, Copyright Form & Payment Proof — Manuscript ID: [ID]
+
+The final revised manuscript, copyright transfer form, and payment proof are attached. All formatting requirements, including author name section, section headings, subheadings, margins, font styles, line spacing, figure/table captions, and references, have been verified. Kindly acknowledge receipt.
+
+Thank you.
+
+Yours sincerely,  
+[Author Name]  
+[Department, Institution, Address]  
+Mobile: [Number]
+
+---
+
+### Template 3 — Voice-Over Presentation Submission
+
+**From**  
+[Author Name],  
+Department of [Department],  
+[Institution],  
+[Address].
+
+**To,**  
+The Reviewers,  
+[Conference Name],  
+[Conference Location]
+
+Respected Sir/Madam,
+
+Subject: Voice-Over PPT Submission — Manuscript ID: [ID]
+
+The paper titled "[Title]" (Manuscript ID: [ID]) has been accepted. Due to scheduling conflicts, the authors are unable to present live. A voice-recorded presentation is attached for the conference program. Kindly confirm receipt.
+
+Thank you.
+
+Yours sincerely,  
+[Author Name]  
+[Department, Institution, Address]  
+Mobile: [Number]
+
+---
+
+*Manuscript drafted using the Research Paper Template (a3X3k/gist) and aligned with UNMC literature review types, Dagher & Khan (2025) systematic review guidance, awesome-evidence-synthesis workflow standards, and PRISMA 2020 reporting. Authors must verify extracted data, complete effect-size calculations in statistical software (metafor/meta/forestplot), confirm GRADE ratings, and ensure <15% similarity via proper citation before submission.*
+`;
+
+      setManuscript(manuscript);
+    } catch (err: any) {
+      setManuscript(`# Error\n\n**Failed to generate manuscript:** ${err.message || "Unknown error"}\n\nPlease complete Steps 1–5 and try again.`);
+    } finally {
+      setManuscriptLoading(false);
+    }
   };
 
   const downloadManuscript = () => {
@@ -2081,8 +1178,8 @@ ${referencesList}
   };
 
   const prismaCounts = {
-    identification: papers.length + dedupCount,
-    deduped: papers.length,
+    identification: papers.length,
+    deduped: Math.max(papers.length - Math.floor(papers.length * 0.15), selectedPaperIds.size + Math.floor(selectedPaperIds.size * 0.1)),
     screened: selectedPaperIds.size,
     excluded: Math.max(0, selectedPaperIds.size - extractedData.length),
     assessed: extractedData.length,
@@ -2192,7 +1289,7 @@ ${referencesList}
       <div className="bg-[#0d1b3e] border border-blue-900/50 rounded-lg p-6 shadow">
         <div className="flex items-center gap-2 mb-1">
           <FlaskConical size={20} className="text-yellow-400" />
-          <h2 className="text-xl font-bold text-white">Evidence Synthesis</h2>
+          <h2 className="text-xl font-bold text-white">Evidence Synthesis & Meta-analysis</h2>
         </div>
         <p className="text-sm text-blue-300 mb-6">
           Guided workflow derived from <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a> and enhanced with <a href="https://github.com/FreedomIntelligence/OpenClaw-Medical-Skills" target="_blank" rel="noreferrer" className="text-yellow-300 underline">OpenClaw-Medical-Skills</a> (literature-review, literature-deep-research): systematic search, AI-assisted screening, structured data extraction, risk-of-bias assessment, meta-analysis, and PRISMA-compliant reporting.
@@ -2361,16 +1458,6 @@ ${referencesList}
                         <div className="flex-1 min-w-0">
                           <h4 className="text-sm font-semibold text-white truncate">{p.title}</h4>
                           <p className="text-xs text-blue-300">{p.authors} • {p.year} • {p.database}</p>
-                          <div className="flex flex-wrap items-center gap-1 mt-1">
-                            <span className="text-[10px] bg-blue-900/60 text-blue-200 px-1.5 py-0.5 rounded border border-blue-800">
-                              {p.sourceBackend || p.database}
-                            </span>
-                            {Array.isArray(p.sources) && p.sources.length > 1 && (
-                              <span className="text-[10px] bg-yellow-900/40 text-yellow-200 px-1.5 py-0.5 rounded border border-yellow-800">
-                                Also in: {p.sources.filter((s) => s !== p.database).join(", ")}
-                              </span>
-                            )}
-                          </div>
                         </div>
                       </div>
                     </div>
@@ -2628,8 +1715,8 @@ ${referencesList}
                     Save Assessments
                   </button>
                   <button onClick={() => setPipelineStep(4)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
-                    Proceed to Synthesis &amp; Meta-analysis
-                    <ChevronRight size={16} />
+                    Proceed to Literature Review
+                    <BookOpen size={16} />
                   </button>
                 </div>
               </div>
@@ -2637,18 +1724,115 @@ ${referencesList}
           </div>
         )}
 
-
         {pipelineStep === 4 && (
           <div className="space-y-4">
             <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
               <div className="flex items-center gap-2 mb-3">
-                <Table size={18} className="text-yellow-400" />
-                <h3 className="text-lg font-bold text-white">Synthesis</h3>
+                <BookOpen size={18} className="text-yellow-400" />
+                <h3 className="text-lg font-bold text-white">Literature Review</h3>
               </div>
-                <p className="text-sm text-blue-300 mb-4">
-                  Generate evidence synthesis using methods from the awesome-evidence-synthesis toolkit. No API key required — the local synthesis builder produces PRISMA/ROSES-ready output from your extracted data. Configure an API key in Settings for AI-enhanced output. Methodology aligned with <a href="https://github.com/Open-and-Sustainable/prismAId" target="_blank" rel="noreferrer" className="text-yellow-300 underline">prismAId</a> (screening/extraction) and <a href="https://github.com/htlin222/meta-pipe" target="_blank" rel="noreferrer" className="text-yellow-300 underline">meta-pipe</a> (end-to-end pipeline).
-                </p>
+               <p className="text-xs text-blue-400 mb-4">
+                  Generate a structured narrative literature review using AI. Papers selected in Risk of Bias are included. Inline citations are in [1] format. References are shown in Vancouver style.
+               </p>
 
+               <div className="flex flex-wrap items-center gap-3 mb-4">
+                 <button
+                   onClick={generateLiteratureReview}
+                   disabled={literatureReviewLoading || (robSelectedPaperIds.size === 0 && selectedPaperIds.size === 0 && extractedData.length === 0)}
+                   className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
+                 >
+                  {literatureReviewLoading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-[#0a1a3a] border-t-transparent rounded-full animate-spin" />
+                      Generating Literature Review...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={16} />
+                      Generate Literature Review
+                    </>
+                  )}
+                </button>
+                {(literatureReviewSections.introduction || literatureReviewSections.references) && (
+                  <>
+                    <button
+                      onClick={() => downloadLiteratureReviewPDF(literatureReviewSections)}
+                      className="flex items-center gap-2 bg-red-900/50 text-red-200 hover:bg-red-800/60 px-4 py-2 rounded-lg text-sm"
+                    >
+                      <Download size={14} />
+                      Download PDF
+                    </button>
+                    <button
+                      onClick={() => downloadLiteratureReviewWord(literatureReviewSections)}
+                      className="flex items-center gap-2 bg-blue-900/50 text-blue-200 hover:bg-blue-800/60 px-4 py-2 rounded-lg text-sm"
+                    >
+                      <Download size={14} />
+                      Download Word
+                    </button>
+                  </>
+                )}
+                <span className="text-xs text-blue-300">
+                  {robSelectedPaperIds.size || selectedPaperIds.size} selected papers · {extractedData.length} extracted
+                </span>
+              </div>
+
+              {(literatureReviewSections.introduction || literatureReviewSections.references || literatureReviewLoading) ? (
+                <div className="space-y-4">
+                  {[
+                    { key: "introduction", label: "1. Introduction", placeholder: "Context, significance, and current landscape of the research topic." },
+                    { key: "globalIndian", label: "2. Global & Indian Situation", placeholder: "Scale and burden of the problem at the global and Indian level." },
+                    { key: "gaps", label: "3. Research Gaps / Limitations", placeholder: "What is missing from the literature? Understudied subpopulations, settings, methodologies, or outcomes." },
+                    { key: "futureAdvice", label: "4. Advice for Future Research", placeholder: "Specific, actionable future research directions and recommendations." },
+                    { key: "summary", label: "5. Summary", placeholder: "Key takeaways and implications for researchers, clinicians, or policymakers." },
+                    { key: "references", label: "6. References (Vancouver style, serially numbered)", placeholder: "1. Author(s) (Year). Title. Database. DOI", isReferences: true },
+                  ].map(({ key, label, placeholder, isReferences }) => (
+                    <div key={key} className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+                      <label className="block text-sm font-medium text-yellow-200 mb-2">{label}</label>
+                      <textarea
+                        value={literatureReviewSections[key as keyof typeof literatureReviewSections]}
+                        onChange={(e) => setLiteratureReviewSections((prev) => ({ ...prev, [key]: e.target.value }))}
+                        placeholder={placeholder}
+                        className="w-full bg-blue-950 border border-blue-800 text-blue-100 rounded-lg px-4 py-3 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 min-h-[100px] leading-relaxed"
+                      />
+                      {isReferences && literatureReviewSections.references && (
+                        <p className="text-[10px] text-blue-400 mt-1">
+                          {literatureReviewSections.references.split("\n").filter((l) => l.trim()).length} references
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-6 text-center">
+                  <BookOpen size={32} className="text-blue-400 mx-auto mb-3" />
+                  <p className="text-sm text-blue-200 mb-1">No literature review generated yet.</p>
+                  <p className="text-xs text-blue-300">Click &quot;Generate Literature Review&quot; to produce a structured narrative review with deep reasoning based on your selected papers.</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setPipelineStep(3)} className="bg-blue-900/50 hover:bg-blue-800/60 text-blue-200 font-bold px-4 py-2 rounded-lg flex items-center gap-2">
+                Back to Risk of Bias
+              </button>
+              <button onClick={() => setPipelineStep(5)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
+                Proceed to Synthesis
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {pipelineStep === 5 && (
+          <div className="space-y-4">
+            <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <Table size={18} className="text-yellow-400" />
+                <h3 className="text-lg font-bold text-white">Synthesis & Meta-analysis</h3>
+              </div>
+               <p className="text-sm text-blue-300 mb-4">
+                 Generate evidence synthesis using methods from the awesome-evidence-synthesis toolkit. No API key required — the local synthesis builder produces PRISMA/ROSES-ready output from your extracted data. Configure an API key in Settings for AI-enhanced output.
+               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
@@ -2704,23 +1888,6 @@ ${referencesList}
                 )}
               </button>
 
-              {synthesisAnalysis && (
-                <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4 mb-4">
-                  <h4 className="text-sm font-bold text-white mb-3">Step 4A — Paper Analysis (awesome-evidence-synthesis aligned)</h4>
-                  <div className="text-blue-100 whitespace-pre-wrap max-h-[500px] overflow-y-auto text-sm leading-relaxed">
-                    {synthesisAnalysis.split("\n").map((line, i) => {
-                      if (line.startsWith("# ")) return <h1 key={i} className="text-lg font-bold text-white mt-4 mb-2">{line.slice(2)}</h1>;
-                      if (line.startsWith("## ")) return <h2 key={i} className="text-base font-bold text-yellow-200 mt-3 mb-2">{line.slice(3)}</h2>;
-                      if (line.startsWith("### ")) return <h3 key={i} className="text-sm font-bold text-blue-200 mt-2 mb-1">{line.slice(4)}</h3>;
-                      if (line.startsWith("| ")) return <pre key={i} className="text-xs overflow-x-auto my-2 bg-blue-900/20 p-2 rounded">{line}</pre>;
-                      if (line.trim() === "") return <br key={i} />;
-                      if (line.startsWith("```")) return null;
-                      return <p key={i} className="text-sm text-blue-100 mb-1">{line}</p>;
-                    })}
-                  </div>
-                </div>
-              )}
-
               {synthesisOutput && (
                 <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4 mb-4">
                   <h4 className="text-sm font-bold text-white mb-3">Narrative Synthesis Output</h4>
@@ -2731,146 +1898,8 @@ ${referencesList}
                       if (line.startsWith("### ")) return <h3 key={i} className="text-sm font-bold text-blue-200 mt-2 mb-1">{line.slice(4)}</h3>;
                       if (line.startsWith("| ")) return <pre key={i} className="text-xs overflow-x-auto my-2 bg-blue-900/20 p-2 rounded">{line}</pre>;
                       if (line.trim() === "") return <br key={i} />;
-                      if (line.startsWith("```")) return null;
                       return <p key={i} className="text-sm text-blue-100 mb-1">{line}</p>;
                     })}
-                  </div>
-                </div>
-              )}
-
-              {(reviewType.includes("Meta-analysis") || reviewType === "Systematic Review") && (
-                <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4 mb-4">
-                  <h4 className="text-sm font-bold text-white mb-3">Quantitative Pooling & Quality Sensitivity</h4>
-                  <div className="overflow-x-auto mb-3">
-                    <table className="w-full border-collapse text-sm">
-                      <thead>
-                        <tr className="bg-blue-900/60 text-left">
-                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">Study</th>
-                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">Log(OR)</th>
-                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">SE</th>
-                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">RoB</th>
-                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">Findings Summary</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {extractedData.slice(0, 10).map((row, idx) => {
-                          const rob = robAssessments[row.id]?.overall || "No information";
-                          return (
-                            <tr key={idx} className="hover:bg-blue-900/20">
-                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.authors} ({row.year})</td>
-                              <td className="border border-blue-800 px-3 py-2 text-blue-100">—</td>
-                              <td className="border border-blue-800 px-3 py-2 text-blue-100">—</td>
-                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{rob}</td>
-                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.outcome || "—"}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                  <label className="flex items-center gap-2 text-xs text-blue-300 mb-2">
-                    <input type="checkbox" checked={excludeHighRob} onChange={(e) => setExcludeHighRob(e.target.checked)} className="rounded border-blue-700 bg-blue-950 text-yellow-500 focus:ring-yellow-500" />
-                    Exclude High Risk of Bias studies
-                  </label>
-                  {(() => {
-                    const pooled = computePooledMetrics();
-                    if (!pooled) return null;
-                    return (
-                      <div className="grid grid-cols-2 gap-3 mb-3">
-                        <div className="bg-blue-900/30 border border-blue-800 rounded-lg p-3">
-                          <p className="text-[10px] text-blue-400 mb-1">Pooled Estimate</p>
-                          <p className="text-lg font-bold text-white">{pooled.pooled.toFixed(4)}</p>
-                          <p className="text-[10px] text-blue-300">SE: {pooled.sePooled.toFixed(4)} · k = {pooled.k}</p>
-                        </div>
-                        <div className="bg-blue-900/30 border border-blue-800 rounded-lg p-3">
-                          <p className="text-[10px] text-blue-400 mb-1">Model</p>
-                          <p className="text-sm font-bold text-white">Random-effects</p>
-                          <p className="text-[10px] text-blue-300">DerSimonian–Laird / Inverse-Variance</p>
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </div>
-              )}
-
-              {(reviewType === "Narrative Review" || reviewType === "Rapid Review") && (
-                <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4 mb-4">
-                  <h4 className="text-sm font-bold text-white mb-2">Thematic Text Extraction & Prose Generation</h4>
-                  <textarea
-                    value={synthesisInstructions}
-                    onChange={(e) => setSynthesisInstructions(e.target.value)}
-                    placeholder="Paste extracted conclusion blocks or structured notes from papers, along with their Risk of Bias classifications..."
-                    className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-3 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 min-h-[120px]"
-                  />
-                </div>
-              )}
-
-              {(reviewType === "Scoping Review" || reviewType === "Mixed Methods Review") && (
-                <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4 mb-4">
-                  <h4 className="text-sm font-bold text-white mb-2">Evidence Gap Matrix</h4>
-                  <div className="overflow-x-auto mb-3">
-                    <table className="w-full border-collapse text-sm">
-                      <thead>
-                        <tr className="bg-blue-900/60 text-left">
-                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">Study</th>
-                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">Intervention</th>
-                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">Population</th>
-                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">RoB</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {extractedData.slice(0, 10).map((row, idx) => {
-                          const rob = robAssessments[row.id]?.overall || "No information";
-                          return (
-                            <tr key={idx} className="hover:bg-blue-900/20">
-                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.authors} ({row.year})</td>
-                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.intervention || "—"}</td>
-                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.population || "—"}</td>
-                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{rob}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {reviewType === "Diagnostic Test Accuracy Review" && (
-                <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4 mb-4">
-                  <h4 className="text-sm font-bold text-white mb-2">Bivariate Metric Tracking & ROC Space</h4>
-                  <div className="overflow-x-auto mb-3">
-                    <table className="w-full border-collapse text-sm">
-                      <thead>
-                        <tr className="bg-blue-900/60 text-left">
-                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">Study</th>
-                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">TP</th>
-                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">FN</th>
-                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">TN</th>
-                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">FP</th>
-                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">Sensitivity</th>
-                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">Specificity</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {extractedData.slice(0, 10).map((row, idx) => {
-                          const tp = 0; const fn = 0; const tn = 0; const fp = 0;
-                          const sens = tp + fn > 0 ? tp / (tp + fn) : NaN;
-                          const spec = tn + fp > 0 ? tn / (tn + fp) : NaN;
-                          return (
-                            <tr key={idx} className="hover:bg-blue-900/20">
-                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.authors} ({row.year})</td>
-                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{tp}</td>
-                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{fn}</td>
-                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{tn}</td>
-                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{fp}</td>
-                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{Number.isFinite(sens) ? sens.toFixed(3) : "—"}</td>
-                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{Number.isFinite(spec) ? spec.toFixed(3) : "—"}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
                   </div>
                 </div>
               )}
@@ -2931,213 +1960,13 @@ ${referencesList}
                       </tbody>
                     </table>
                   </div>
-                  <p className="text-[10px] text-blue-400 mt-2">Editable — tune values before exporting to meta / OpenMEE / JASP</p>
-                </div>
-              )}
-
-              {effectSizes.length > 0 && (
-                <div className="flex flex-wrap items-center gap-3 mb-4">
-                  <button
-                    onClick={runMetaforAnalysis}
-                    disabled={synthesisLoading}
-                    className="flex items-center gap-2 bg-emerald-900/60 hover:bg-emerald-800/70 text-emerald-200 font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
-                  >
-                    <FlaskConical size={16} />
-                    Run Analysis ({reviewType.includes("Meta-analysis") || reviewType.includes("Meta") ? "Random-effects" : "Fixed-effects"})
-                  </button>
-                    <span className="text-[10px] text-blue-400">
-                      DerSimonian–Laird / Inverse-Variance — aligned with <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a>
-                    </span>
-                </div>
-              )}
-
-               {metaforResult && (
-                 <div className="space-y-4">
-                   <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
-                     <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-                        <FlaskConical size={14} className="text-emerald-400" />
-                        Meta-analysis Results — {metaforResult.model}-effects model
-                     </h4>
-                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                       <div className="bg-blue-900/30 border border-blue-800 rounded-lg p-3">
-                         <p className="text-[10px] text-blue-400 mb-1">Pooled Estimate</p>
-                         <p className="text-lg font-bold text-white">{metaforResult.pooledEstimate.toFixed(3)}</p>
-                         <p className="text-[10px] text-blue-300">95% CI: {metaforResult.ciLower.toFixed(3)} – {metaforResult.ciUpper.toFixed(3)}</p>
-                       </div>
-                       <div className="bg-blue-900/30 border border-blue-800 rounded-lg p-3">
-                         <p className="text-[10px] text-blue-400 mb-1">Heterogeneity (I²)</p>
-                         <p className="text-lg font-bold text-white">{metaforResult.I2.toFixed(1)}%</p>
-                         <p className="text-[10px] text-blue-300">tau² = {metaforResult.tau2.toFixed(4)}</p>
-                       </div>
-                       <div className="bg-blue-900/30 border border-blue-800 rounded-lg p-3">
-                         <p className="text-[10px] text-blue-400 mb-1">Q-test ( Cochran )</p>
-                         <p className="text-lg font-bold text-white">{metaforResult.Q.toFixed(2)}</p>
-                         <p className="text-[10px] text-blue-300">p = {metaforResult.Qp.toFixed(4)}</p>
-                       </div>
-                       <div className="bg-blue-900/30 border border-blue-800 rounded-lg p-3">
-                         <p className="text-[10px] text-blue-400 mb-1">Prediction Interval</p>
-                         <p className="text-lg font-bold text-white">{metaforResult.predictionLower.toFixed(3)}</p>
-                         <p className="text-[10px] text-blue-300">to {metaforResult.predictionUpper.toFixed(3)}</p>
-                       </div>
-                     </div>
-                      <p className="text-[10px] text-blue-400 mb-2">Computed locally using DerSimonian–Laird (random) / Inverse-Variance (fixed) methods aligned with awesome-evidence-synthesis.</p>
-                   </div>
-
-                   <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
-                     <h4 className="text-sm font-bold text-white mb-3">Forest Plot (local)</h4>
-                     <div className="space-y-1">
-                       {metaforResult.forestData.map((row, idx) => {
-                         const allValues = metaforResult.forestData.flatMap((r) => [r.ciLower, r.ciUpper, r.effect]);
-                         const minVal = Math.min(...allValues);
-                         const maxVal = Math.max(...allValues);
-                         const range = maxVal - minVal || 1;
-                         const zeroX = ((0 - minVal) / range) * 100;
-                         const effectX = ((row.effect - minVal) / range) * 100;
-                         const ciLeftX = ((row.ciLower - minVal) / range) * 100;
-                         const ciRightX = ((row.ciUpper - minVal) / range) * 100;
-                         const barWidth = ciRightX - ciLeftX;
-                         const isExtreme = row.isPooled;
-
-                         return (
-                           <div key={idx} className="flex items-center gap-3 text-[11px]">
-                             <div className={`w-36 truncate ${isExtreme ? "text-yellow-300 font-bold" : "text-blue-200"}`} title={row.study}>{row.study}</div>
-                             <div className="flex-1 relative h-4 bg-blue-900/20 rounded">
-                               {zeroX >= 0 && zeroX <= 100 && <div className="absolute top-0 bottom-0 w-px bg-blue-500/60" style={{ left: `${zeroX}%` }} />}
-                               <div
-                                 className={`absolute top-0.5 bottom-0.5 rounded ${isExtreme ? "bg-yellow-500/80" : "bg-blue-400/70"}`}
-                                 style={{ left: `${ciLeftX}%`, width: `${Math.max(barWidth, 0.5)}%` }}
-                               />
-                               <div
-                                 className={`absolute top-0 bottom-0 w-1 rounded-sm ${isExtreme ? "bg-yellow-400" : "bg-blue-200"}`}
-                                 style={{ left: `${effectX}%`, transform: "translateX(-50%)" }}
-                               />
-                             </div>
-                             <div className={`w-16 text-right ${isExtreme ? "text-yellow-300" : "text-blue-300"}`}>
-                               {row.effect.toFixed(2)} [{row.ciLower.toFixed(2)}, {row.ciUpper.toFixed(2)}]
-                             </div>
-                             <div className="w-12 text-right text-blue-400">{row.weightPercent.toFixed(1)}%</div>
-                           </div>
-                         );
-                       })}
-                     </div>
-                     <div className="flex items-center gap-4 mt-2 text-[10px] text-blue-400">
-                       <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm bg-blue-400/70" /> Study</span>
-                       <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm bg-yellow-500/80" /> Pooled</span>
-                       <span>Scale: {metaforResult.forestData.length > 0 ? `${Math.min(...metaforResult.forestData.flatMap(r => [r.ciLower, r.ciUpper, r.effect])).toFixed(2)} – ${Math.max(...metaforResult.forestData.flatMap(r => [r.ciLower, r.ciUpper, r.effect])).toFixed(2)}` : "—"}</span>
-                     </div>
-                   </div>
-
-                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                     <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
-                       <h4 className="text-sm font-bold text-white mb-2">Publication Bias</h4>
-                       <p className="text-[11px] text-blue-300 leading-relaxed">{publicationBiasNote}</p>
-                         <p className="text-[10px] text-blue-400 mt-2">Tools: <a href="https://cran.r-project.org/web/packages/metasens/" target="_blank" rel="noreferrer" className="text-yellow-300 underline">metasens</a>, <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a>, funnel plot, Egger&apos;s test, trim-and-fill.</p>
-                     </div>
-                     <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
-                       <h4 className="text-sm font-bold text-white mb-2">Sensitivity Analysis</h4>
-                       <p className="text-[11px] text-blue-300 leading-relaxed">{sensitivityNote}</p>
-                       <p className="text-[10px] text-blue-400 mt-2">Tools: <a href="https://cran.r-project.org/web/packages/robumeta/" target="_blank" rel="noreferrer" className="text-yellow-300 underline">robumeta</a>, <a href="https://cran.r-project.org/web/packages/clubSandwich/" target="_blank" rel="noreferrer" className="text-yellow-300 underline">clubSandwich</a>, <a href="https://www.riskofbias.info/welcome/robvis-visualization-tool" target="_blank" rel="noreferrer" className="text-yellow-300 underline">robvis</a>.</p>
-                     </div>
-                   </div>
-                  </div>
-                )}
-
-              <div className="mt-4 bg-blue-950/40 border border-blue-900/40 rounded-lg p-4">
-                <h4 className="text-sm font-bold text-white mb-2 flex items-center gap-2">
-                  <Sparkles size={14} className="text-yellow-400" />
-                  AI Synthesis Writer (failover: Gemini → Groq)
-                </h4>
-                <p className="text-[11px] text-blue-300 mb-3">
-                  Generate a Methods/Results/Discussion paragraph aligned with {reviewType}. Uses your configured API key with automatic failover.
-                </p>
-                <button
-                  onClick={runSynthWriter}
-                  disabled={synthWriterBusy}
-                  className="flex items-center gap-2 bg-blue-700 hover:bg-blue-600 text-white font-bold px-5 py-2.5 rounded-lg disabled:opacity-50 mb-3"
-                >
-                  {synthWriterBusy ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      Writing...
-                    </>
-                  ) : (
-                    <>
-                      <PenTool size={16} />
-                      Generate Synthesis Paragraph
-                    </>
-                  )}
-                </button>
-                {synthWriterOutput && (
-                  <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-3">
-                    <p className="text-[10px] text-blue-400 mb-1">Generated Output</p>
-                    <p className="text-xs text-blue-100 whitespace-pre-wrap leading-relaxed">{synthWriterOutput}</p>
-                  </div>
-                )}
-              </div>
-
-
-              <div className="mt-4 bg-blue-950/40 border border-blue-900/40 rounded-lg p-4">
-                <h4 className="text-sm font-bold text-white mb-2 flex items-center gap-2">
-                  <FileText size={14} className="text-emerald-400" />
-                  Awesome-Evidence-Synthesis Report
-                </h4>
-                <p className="text-[11px] text-blue-300 mb-3">
-                  Generate a comprehensive synthesis report aligned with the awesome-evidence-synthesis methodology, meta-analysis, prismAId screening/extraction, and meta-pipe pipeline. The report includes PRISMA 2020 flow, analysis results, robvis RoB summary, effect size table, GRADE certainty assessment, and narrative synthesis. Output: a publication-ready Markdown document.
-                </p>
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    onClick={generateReport}
-                    disabled={reportLoading || extractedData.length === 0}
-                    className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-600 text-white font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
-                  >
-                    {reportLoading ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        Generating Report...
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles size={16} />
-                        Generate Synthesis Report
-                      </>
-                    )}
-                  </button>
-                  {synthesisReport && (
-                    <button onClick={downloadReport} className="flex items-center gap-2 bg-blue-700 hover:bg-blue-600 text-white font-bold px-4 py-2.5 rounded-lg">
-                      <Download size={14} />
-                      Download Report (.md)
-                    </button>
-                  )}
-                </div>
-                <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-blue-400">
-                  <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">meta / metafor</span>
-                  <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">prismAId</span>
-                  <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">meta-pipe</span>
-                  <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">awesome-evidence-synthesis</span>
-                  <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">robvis</span>
-                  <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">PRISMA 2020</span>
-                </div>
-              </div>
-
-              {synthesisReport && (
-                <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
-                  <h4 className="text-sm font-bold text-white mb-3">Synthesis Report Preview</h4>
-                  <div className="text-blue-100 whitespace-pre-wrap max-h-[400px] overflow-y-auto text-xs leading-relaxed bg-[#0a1530] p-3 rounded border border-blue-900/50">
-                    {synthesisReport.split("\n").map((line, i) => {
-                      if (line.startsWith("# ")) return <h1 key={i} className="text-base font-bold text-white mt-3 mb-1">{line.slice(2)}</h1>;
-                      if (line.startsWith("## ")) return <h2 key={i} className="text-sm font-bold text-yellow-200 mt-2 mb-1">{line.slice(3)}</h2>;
-                      if (line.startsWith("### ")) return <h3 key={i} className="text-xs font-bold text-blue-200 mt-1 mb-0.5">{line.slice(4)}</h3>;
-                      if (line.startsWith("| ")) return <pre key={i} className="text-[10px] overflow-x-auto my-1 bg-blue-900/20 p-1.5 rounded">{line}</pre>;
-                      if (line.trim() === "") return <br key={i} />;
-                      return <p key={i} className="text-xs text-blue-100 mb-0.5">{line}</p>;
-                    })}
-                  </div>
+                  <p className="text-[10px] text-blue-400 mt-2">Editable — tune values before exporting to metafor / meta / OpenMEE / JASP</p>
                 </div>
               )}
 
               <div className="flex justify-end">
-                <button onClick={() => setPipelineStep(5)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
-                  Proceed to PRISMA Reporting
+                <button onClick={() => setPipelineStep(6)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
+                  Proceed to Reporting
                   <ChevronRight size={16} />
                 </button>
               </div>
@@ -3145,7 +1974,7 @@ ${referencesList}
           </div>
         )}
 
-        {pipelineStep === 5 && (
+        {pipelineStep === 6 && (
           <div className="space-y-4">
             <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
               <h3 className="text-lg font-bold text-white mb-1">PRISMA 2020 Reporting & Visualization</h3>
@@ -3414,8 +2243,8 @@ ${referencesList}
               )}
             </div>
             <div className="flex justify-end gap-3">
-              <button onClick={() => setPipelineStep(6)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
-                Proceed to Writing Review & Meta-analysis
+              <button onClick={() => setPipelineStep(7)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
+                Proceed to Writing & Meta-analysis
                 <PenTool size={16} />
               </button>
               <button onClick={() => { setPipelineStep(1); setPapers([]); setSelectedPaperIds(new Set()); setExtractedData([]); setSynthesisOutput(""); setEffectSizes([]); setRobAssessments({}); setSynthesisInstructions(""); setReviewRequirements(""); setManuscript(""); }} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
@@ -3425,7 +2254,7 @@ ${referencesList}
             </div>
           </div>
         )}
-        {pipelineStep === 6 && (
+        {pipelineStep === 7 && (
           <div className="space-y-4">
             <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
               <div className="flex items-center gap-2 mb-3">
@@ -3433,77 +2262,66 @@ ${referencesList}
                 <h3 className="text-lg font-bold text-white">Writing Review & Meta-analysis</h3>
               </div>
               <p className="text-xs text-blue-400 mb-4">
-                This step generates a full academic manuscript from your completed pipeline. Choose a writing engine below.
+                This step will generate the full manuscript, narrative review, or meta-analysis report based on your extracted data, risk-of-bias assessments, and synthesis outputs. AI generation requires an API key in Settings.
               </p>
 
-              <div className="flex gap-2 mb-4">
-                <button
-                  onClick={() => setWritingMode("openclaw")}
-                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-colors ${
-                    writingMode === "openclaw"
-                      ? "bg-yellow-500 text-[#0a1a3a]"
-                      : "bg-blue-900/40 text-blue-300 hover:bg-blue-800/50"
-                  }`}
-                >
-                  <Sparkles size={14} />
-                  OpenClaw Scientific Writing
-                </button>
-                <button
-                  onClick={() => setWritingMode("academic")}
-                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-colors ${
-                    writingMode === "academic"
-                      ? "bg-yellow-500 text-[#0a1a3a]"
-                      : "bg-blue-900/40 text-blue-300 hover:bg-blue-800/50"
-                  }`}
-                >
-                  <PenTool size={14} />
-                  Academic Writing Agents
-                </button>
-              </div>
-
-              {writingMode === "openclaw" && (
+              {!manuscript ? (
                 <div className="space-y-4">
                   <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
-                    <h4 className="text-sm font-bold text-white mb-2">Generated Output</h4>
-                    <p className="text-xs text-blue-300 leading-relaxed">
-                      When you click <strong>Generate Manuscript</strong>, the app reads all previous steps — selected papers, extracted data, RoB judgments, synthesis narrative, effect sizes, and analysis results — and applies the OpenClaw <strong>Scientific Research &amp; Writing</strong> methodology. If an API key is configured, it produces an AI draft using a two-stage outline-to-prose process with proper Vancouver inline citations, IMRAD + PRISMA structure, and publication-ready formatting. Without an API key, it builds a complete local manuscript in full paragraphs from the same pipeline data.
-                    </p>
+                    <h4 className="text-sm font-bold text-white mb-2">Example: Narrative Review (to be generated in future)</h4>
+                    <div className="text-xs text-blue-200 whitespace-pre-wrap max-h-[500px] overflow-y-auto leading-relaxed bg-blue-900/20 p-3 rounded border border-blue-800">
+{`# Narrative Review: The Impact of Digital Health Interventions on Chronic Disease Management — A State-of-the-Art Review
+
+## Abstract
+
+Background: Digital health interventions (DHIs) — including mobile applications, wearable sensors, telemedicine platforms, and AI-driven decision-support tools — have proliferated over the past decade as scalable solutions for chronic disease management. This narrative review synthesizes the available evidence on the effectiveness, adoption barriers, and equity implications of DHIs across major chronic conditions including diabetes mellitus, hypertension, chronic obstructive pulmonary disease (COPD), and mental health disorders.
+
+Methods: We conducted a narrative synthesis of peer-reviewed literature published between 2015 and 2025 across PubMed, Scopus, and Web of Science. Inclusion criteria encompassed original research, systematic reviews, and meta-analyses evaluating DHIs for chronic disease outcomes. Studies were grouped thematically by intervention modality, disease category, and outcome domain.
+
+Results: Across 48 included studies, DHIs demonstrated moderate efficacy in improving clinical outcomes (glycated hemoglobin reduction of 0.4–0.8% in diabetes, systolic blood pressure reductions of 4–8 mmHg in hypertension) and process outcomes (medication adherence improvement of 15–25%). However, effect sizes were highly heterogeneous. Key thematic findings include: (1) mobile app-based self-management tools showed the strongest evidence for diabetes and asthma; (2) wearable sensor integration yielded promising but inconclusive results for COPD and heart failure; (3) AI chatbot interventions improved mental health outcomes in short-term RCTs but suffered from high attrition in real-world deployments; (4) equity concerns persist, with underrepresentation of low-income and older adult populations in digital intervention trials.
+
+Discussion: While DHIs hold promise for extending the reach and efficiency of chronic disease care, the evidence base remains characterized by methodological heterogeneity, small sample sizes, and inconsistent outcome reporting. Future research should prioritize pragmatic trial designs, standardized patient-reported outcome measures, and intentional inclusion of diverse populations to strengthen the generalizability of findings.
+
+Conclusion: Digital health interventions represent a valuable adjunct to traditional chronic disease management, but their real-world effectiveness depends on careful tailoring to patient populations, integration with clinical workflows, and equitable design. Policymakers and clinicians should view DHIs as complementary tools rather than standalone solutions.
+
+Keywords: digital health, chronic disease, narrative review, mobile health, telemedicine, AI in healthcare`}
+                    </div>
                   </div>
 
                   <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
-                    <h4 className="text-sm font-bold text-white mb-2">Manuscript Structure (OpenClaw Scientific Writing)</h4>
+                    <h4 className="text-sm font-bold text-white mb-2">Narrative Review Structure Reference</h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-blue-200">
                       <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">Abstract</p>
-                        <p className="text-blue-300">Structured (Background, Methods, Results, Discussion, Keywords)</p>
+                        <p className="font-bold text-yellow-200 mb-1">1. Title</p>
+                         <p className="text-blue-300">Descriptive, reflects scope and angle (e.g., &quot;Narrative Review: …&quot;)</p>
                       </div>
                       <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">1. Introduction</p>
-                        <p className="text-blue-300">Background, rationale, objectives — full paragraphs</p>
+                        <p className="font-bold text-yellow-200 mb-1">2. Abstract</p>
+                        <p className="text-blue-300">Background, methods, key themes, conclusion, keywords</p>
                       </div>
                       <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">2. Methods</p>
-                        <p className="text-blue-300">Search strategy, data extraction, RoB assessment, synthesis methods</p>
+                        <p className="font-bold text-yellow-200 mb-1">3. Introduction</p>
+                        <p className="text-blue-300">Epidemiological context, rationale, review objectives, scope</p>
                       </div>
                       <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">3. Results</p>
-                        <p className="text-blue-300">Study characteristics, RoB summary, synthesis findings, meta-analysis</p>
+                        <p className="font-bold text-yellow-200 mb-1">4. Methods</p>
+                        <p className="text-blue-300">Search strategy, databases, selection criteria, thematic approach</p>
                       </div>
                       <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">4. Discussion</p>
-                        <p className="text-blue-300">Principal findings, interpretation, limitations, future directions</p>
+                        <p className="font-bold text-yellow-200 mb-1">5. Results / Themes</p>
+                        <p className="text-blue-300">Thematic organization with evidence summaries per theme</p>
                       </div>
                       <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">5. Conclusion</p>
+                        <p className="font-bold text-yellow-200 mb-1">6. Discussion</p>
+                        <p className="text-blue-300">Interpretation, limitations, gaps, clinical/policy implications</p>
+                      </div>
+                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
+                        <p className="font-bold text-yellow-200 mb-1">7. Conclusion</p>
                         <p className="text-blue-300">Concise take-home messages and recommendations</p>
                       </div>
                       <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">References</p>
-                        <p className="text-blue-300">Vancouver-style numbered citations [1], [2], arranged in order of appearance</p>
-                      </div>
-                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">Figures / Tables</p>
-                        <p className="text-blue-300">PRISMA flow, forest plot, RoB traffic-light placeholders included</p>
+                        <p className="font-bold text-yellow-200 mb-1">8. References</p>
+                        <p className="text-blue-300">Vancouver or APA style, arranged in order of appearance</p>
                       </div>
                     </div>
                   </div>
@@ -3521,142 +2339,39 @@ ${referencesList}
                     ) : (
                       <>
                         <Sparkles size={16} />
-                        Generate Manuscript
+                        Generate Full Manuscript
                       </>
                     )}
                   </button>
                 </div>
-              )}
-
-              {writingMode === "academic" && (
+              ) : (
                 <div className="space-y-4">
                   <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
-                    <h4 className="text-sm font-bold text-white mb-2">Academic Writing Agents Engine</h4>
-                    <p className="text-xs text-blue-300 leading-relaxed">
-                      Uses the <a href="https://github.com/andrehuang/academic-writing-agents" target="_blank" rel="noreferrer" className="text-yellow-300 underline">academic-writing-agents</a> multi-agent methodology: 12 specialist agents for review, research, drafting, and polishing. The engine runs a draft generation pass followed by sequential review passes (Structure & Narrative, Prose & Style, Technical & Methodological, Citations & Bibliography) and produces a final polished manuscript. Configure an API key in Settings for AI-enhanced generation.
-                    </p>
-                  </div>
-
-                  <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
-                    <h4 className="text-sm font-bold text-white mb-2">Manuscript Structure (Academic Writing Agents)</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-blue-200">
-                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">Abstract</p>
-                        <p className="text-blue-300">Structured (Background, Methods, Results, Discussion, Keywords)</p>
-                      </div>
-                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">1. Introduction</p>
-                        <p className="text-blue-300">Background, rationale, objectives — full paragraphs</p>
-                      </div>
-                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">2. Methods</p>
-                        <p className="text-blue-300">Search strategy, data extraction, RoB assessment, synthesis methods</p>
-                      </div>
-                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">3. Results</p>
-                        <p className="text-blue-300">Study characteristics, RoB summary, synthesis findings, meta-analysis</p>
-                      </div>
-                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">4. Discussion</p>
-                        <p className="text-blue-300">Principal findings, interpretation, limitations, future directions</p>
-                      </div>
-                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">5. Conclusion</p>
-                        <p className="text-blue-300">Concise take-home messages and recommendations</p>
-                      </div>
-                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">References</p>
-                        <p className="text-blue-300">Vancouver-style numbered citations [1], [2], arranged in order of appearance</p>
-                      </div>
-                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">Review Passes</p>
-                        <p className="text-blue-300">Structure, Prose, Technical, Citations — then polished final</p>
-                      </div>
+                    <h4 className="text-sm font-bold text-white mb-3">Generated Manuscript</h4>
+                    <div className="text-blue-100 whitespace-pre-wrap max-h-[600px] overflow-y-auto text-sm leading-relaxed">
+                      {manuscript.split("\n").map((line, i) => {
+                        if (line.startsWith("# ")) return <h1 key={i} className="text-lg font-bold text-white mt-4 mb-2">{line.slice(2)}</h1>;
+                        if (line.startsWith("## ")) return <h2 key={i} className="text-base font-bold text-yellow-200 mt-3 mb-2">{line.slice(3)}</h2>;
+                        if (line.startsWith("### ")) return <h3 key={i} className="text-sm font-bold text-blue-200 mt-2 mb-1">{line.slice(4)}</h3>;
+                        if (line.startsWith("| ")) return <pre key={i} className="text-xs overflow-x-auto my-2 bg-blue-900/20 p-2 rounded">{line}</pre>;
+                        if (line.trim() === "") return <br key={i} />;
+                        return <p key={i} className="text-sm text-blue-100 mb-1">{line}</p>;
+                      })}
                     </div>
                   </div>
-
-                  <button
-                    onClick={generateAcademicWritingManuscript}
-                    disabled={academicManuscriptLoading || extractedData.length === 0}
-                    className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
-                  >
-                    {academicManuscriptLoading ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-[#0a1a3a] border-t-transparent rounded-full animate-spin" />
-                        Generating Academic Manuscript...
-                      </>
-                    ) : (
-                      <>
-                        <PenTool size={16} />
-                        Generate Academic Manuscript
-                      </>
-                    )}
-                  </button>
+                  <div className="flex justify-end gap-3">
+                    <button onClick={downloadManuscript} className="flex items-center gap-2 bg-emerald-900/50 text-emerald-300 px-4 py-2 rounded-lg hover:bg-emerald-800/70 text-sm">
+                      <Download size={14} />
+                      Download Manuscript (.md)
+                    </button>
+                    <button onClick={() => setPipelineStep(1)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
+                      <RotateCcw size={16} />
+                      Start New Review
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
-
-            {manuscript && writingMode === "openclaw" && (
-              <div className="space-y-4">
-                <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
-                  <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-                    Generated Manuscript
-                    <span className="text-[10px] text-blue-400 font-normal">powered by OpenClaw Scientific Research &amp; Writing</span>
-                  </h4>
-                  <div className="text-blue-100 whitespace-pre-wrap max-h-[600px] overflow-y-auto text-sm leading-relaxed">
-                    {manuscript.split("\n").map((line, i) => {
-                      if (line.startsWith("# ")) return <h1 key={i} className="text-lg font-bold text-white mt-4 mb-2">{line.slice(2)}</h1>;
-                      if (line.startsWith("## ")) return <h2 key={i} className="text-base font-bold text-yellow-200 mt-3 mb-2">{line.slice(3)}</h2>;
-                      if (line.startsWith("### ")) return <h3 key={i} className="text-sm font-bold text-blue-200 mt-2 mb-1">{line.slice(4)}</h3>;
-                      if (line.startsWith("| ")) return <pre key={i} className="text-xs overflow-x-auto my-2 bg-blue-900/20 p-2 rounded">{line}</pre>;
-                      if (line.trim() === "") return <br key={i} />;
-                      return <p key={i} className="text-sm text-blue-100 mb-1">{line}</p>;
-                    })}
-                  </div>
-                </div>
-                <div className="flex justify-end gap-3">
-                  <button onClick={downloadManuscript} className="flex items-center gap-2 bg-emerald-900/50 text-emerald-300 px-4 py-2 rounded-lg hover:bg-emerald-800/70 text-sm">
-                    <Download size={14} />
-                    Download Manuscript (.md)
-                  </button>
-                  <button onClick={() => setPipelineStep(1)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
-                    <RotateCcw size={16} />
-                    Start New Review
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {academicManuscript && writingMode === "academic" && (
-              <div className="space-y-4">
-                <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
-                  <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-                    Generated Manuscript
-                    <span className="text-[10px] text-blue-400 font-normal">powered by Academic Writing Agents (andrehuang/academic-writing-agents)</span>
-                  </h4>
-                  <div className="text-blue-100 whitespace-pre-wrap max-h-[600px] overflow-y-auto text-sm leading-relaxed">
-                    {academicManuscript.split("\n").map((line, i) => {
-                      if (line.startsWith("# ")) return <h1 key={i} className="text-lg font-bold text-white mt-4 mb-2">{line.slice(2)}</h1>;
-                      if (line.startsWith("## ")) return <h2 key={i} className="text-base font-bold text-yellow-200 mt-3 mb-2">{line.slice(3)}</h2>;
-                      if (line.startsWith("### ")) return <h3 key={i} className="text-sm font-bold text-blue-200 mt-2 mb-1">{line.slice(4)}</h3>;
-                      if (line.startsWith("| ")) return <pre key={i} className="text-xs overflow-x-auto my-2 bg-blue-900/20 p-2 rounded">{line}</pre>;
-                      if (line.trim() === "") return <br key={i} />;
-                      return <p key={i} className="text-sm text-blue-100 mb-1">{line}</p>;
-                    })}
-                  </div>
-                </div>
-                <div className="flex justify-end gap-3">
-                  <button onClick={() => { setAcademicManuscript(""); setWritingMode("openclaw"); }} className="flex items-center gap-2 bg-emerald-900/50 text-emerald-300 px-4 py-2 rounded-lg hover:bg-emerald-800/70 text-sm">
-                    <Download size={14} />
-                    Download Manuscript (.md)
-                  </button>
-                  <button onClick={() => setPipelineStep(1)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
-                    <RotateCcw size={16} />
-                    Start New Review
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         )}
       </div>

@@ -1041,10 +1041,36 @@ A fully functional qualitative data analysis tool for text, images, audio, and v
    - Enhanced tools footer with direct link to awesome-evidence-synthesis repo
  - Step 4 UI added Publication Bias and Sensitivity Analysis info cards after metafor results
 
- ### Validation
- - `bun typecheck` ✅ passes
- - `bun lint` ✅ passes
- - `bun run build` ✅ passes cleanly
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes
+- `bun run build` ✅ passes cleanly
+
+## Revert Evidence Synthesis Pipeline to 2026-07-02 (stable state)
+
+**Reason**: Post-July 2 changes to the Evidence Synthesis pipeline caused regressions in functionality and user workflow.
+
+### Files Reverted
+- `src/components/tabs/EvidenceSynthesisTab.tsx` — Reverted to commit `5daf58c` (2026-07-02 11:29 IST)
+- `src/components/TopTabs.tsx` — Restored 9-tab layout without `AutoPrognosis` and `Automatic Evidence Synthesis` tabs
+- `src/app/layout.tsx` — Restored original title/description (already matched 2026-07-02 state)
+
+### Restored State
+- Tab label: **Evidence Synthesis & Meta-analysis** (not "Evidence Synthesis")
+- Pipeline steps: 7-step flow including:
+  1. Search & Screening
+  2. Data Extraction
+  3. Risk of Bias
+  4. Literature Review
+  5. Synthesis & Meta-analysis
+  6. Reporting & PRISMA
+  7. Writing Review & Meta-analysis
+- Removed imports and state for newer modules: `metafor-compute`, `synthesis-report-generator`, `fetchRealPapersWithCounts`, `validateDoiViaCrossref`, `scientific-writing` skill
+- Removed newer state fields: `synthesisAnalysis`, `synthesisReport`, `reportLoading`, `metaforResult`, `publicationBiasNote`, `sensitivityNote`, `isDiagnosticReview`, `dedupCount`, `synthWriterOutput`, `synthWriterBusy`, `excludeHighRob`, `dtaRows`, `scopingRows`, `writingMode`, `academicManuscript`, `academicManuscriptLoading`
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes (no errors, only pre-existing not-found.tsx warning)
 
 ## metafor / prismAId / meta-pipe Integration — Synthesis Report Enhancement (2026-07-06)
 
