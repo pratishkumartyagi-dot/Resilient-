@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Search, Database, ChevronRight, FileText,
   RotateCcw, CheckCircle2, ExternalLink, FlaskConical,
@@ -260,19 +260,28 @@ export default function EvidenceSynthesisTab() {
       setPapers(results);
     } catch (err: any) {
       const msg = err?.message || String(err);
-      const isTotalFailure = msg.toLowerCase().includes("all databases failed");
+      const isTotalFailure = msg.toLowerCase().includes("all databases failed") || msg.toLowerCase().includes("no papers found");
       const mock = generateMockLegacy(query, selectedDbs);
       setPapers(mock);
       setSearchError(
         isTotalFailure
-          ? `Live search blocked in this environment — all database calls failed. Showing ${mock.length} simulated results. Open browser DevTools Console for per-database failure details.`
-          : `No live results: ${msg}. Showing ${mock.length} simulated results as a fallback.`
+          ? `Live search failed: ${msg}. Showing ${mock.length} simulated results. Check browser DevTools Console for per-database failure details.`
+          : `Live search failed for selected sources: ${msg}. Showing ${mock.length} simulated results.`
       );
       console.warn("[EvidenceSynthesis] handleSearch fallback reason:", msg);
     } finally {
       setLoading(false);
     }
   };
+
+  const dbBreakdown = useMemo(() => {
+    const map: Record<string, number> = {};
+    papers.forEach((p) => {
+      const db = p.database || p.sourceBackend || "Unknown";
+      map[db] = (map[db] || 0) + 1;
+    });
+    return map;
+  }, [papers]);
 
   const togglePaper = (id: string) => {
     setSelectedPaperIds((prev) => {
@@ -1448,8 +1457,18 @@ Mobile: [Number]
 
             {!loading && papers.length > 0 && (
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-blue-300">{papers.length} records retrieved • {displayPapers.length} after year filter • {selectedPaperIds.size} selected</p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm text-blue-300">{papers.length} records • {displayPapers.length} after filters • {selectedPaperIds.size} selected</p>
+                    <span className="text-blue-700">|</span>
+                    <div className="flex flex-wrap gap-1">
+                      {Object.entries(dbBreakdown).map(([db, count]) => (
+                        <span key={db} className="text-[10px] bg-blue-900/60 text-blue-200 border border-blue-800 rounded px-1.5 py-0.5">
+                          {db}: {count}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
                   <button onClick={selectAll} className="text-xs bg-blue-900/50 text-blue-200 px-3 py-1 rounded hover:bg-blue-900/70">
                     {selectedPaperIds.size === papers.length ? "Deselect All" : "Select All"}
                   </button>

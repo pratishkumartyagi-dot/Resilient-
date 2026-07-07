@@ -150,14 +150,26 @@ function normalizeOpenAlexWork(work: any): Paper {
   };
 }
 
-async function fetchOpenAlex(query: string, yearFrom?: string, yearTo?: string, studyType?: string, additionalFilters?: string[]): Promise<Paper[]> {
+interface OpenAlexOptions {
+  sort?: string;
+  filter?: string;
+}
+
+async function fetchOpenAlex(
+  query: string,
+  yearFrom?: string,
+  yearTo?: string,
+  studyType?: string,
+  options?: OpenAlexOptions
+): Promise<Paper[]> {
   const filterParts: string[] = [];
   if (yearFrom) filterParts.push(`publication_year:>${yearFrom}`);
   if (yearTo) filterParts.push(`publication_year:<${yearTo}`);
-  if (additionalFilters) filterParts.push(...additionalFilters);
+  if (options?.filter) filterParts.push(options.filter);
   const filterStr = filterParts.length ? `&filter=${filterParts.join(",")}` : "";
 
-  const baseUrl = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=100&mailto=research@example.com${filterStr}`;
+  const sortStr = options?.sort ? `&sort=${options.sort}` : "";
+  const baseUrl = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=100&mailto=research@example.com${filterStr}${sortStr}`;
   const papers: Paper[] = [];
   let cursor = "*";
   let cursorUrl = `${baseUrl}&cursor=${cursor}`;
@@ -372,27 +384,77 @@ async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string,
   return deduped;
 }
 
+async function fetchDoaj(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+  const qs = new URLSearchParams({
+    search: query,
+    pageSize: "100",
+    page: "1",
+  });
+  const url = `https://doaj.org/api/v2/search/articles/${qs.toString()}`;
+  const res = await fetchWithTimeout(url);
+  if (!res.ok) throw new Error(`DOAJ error: ${res.status}`);
+  const data = await res.json();
+  const results = data.results || [];
+  const papers: Paper[] = results.map((r: any) => {
+    const bibJson = r.bibjson || {};
+    const title = bibJson.title || "Untitled";
+    const authors = (bibJson.author || []).map((a: any) => `${a.name || ""}`.trim()).filter(Boolean).join(", ") || "Unknown authors";
+    const year = bibJson.year || parseInt(bibJson.month?.slice(0, 4) || "0") || new Date().getFullYear();
+    const doi = bibJson.doi || "";
+    const abstract = bibJson.abstract || "No abstract available.";
+    const journal = bibJson.journal?.title || "Unknown Journal";
+    return {
+      id: `doaj-${r.id || Math.random().toString(36).slice(2, 8)}`,
+      title,
+      authors: authors.substring(0, 300),
+      journal,
+      year,
+      doi,
+      abstract: abstract.substring(0, 3000),
+      database: "DOAJ",
+      studyType: classifyStudyType(title, abstract),
+      selected: false,
+      url: doi ? `https://doi.org/${doi}` : r.id,
+    };
+  });
+
+  let filtered = papers;
+  if (yearFrom || yearTo) {
+    const yFrom = yearFrom ? parseInt(yearFrom) : 0;
+    const yTo = yearTo ? parseInt(yearTo) : 9999;
+    filtered = papers.filter((p) => p.year >= yFrom && p.year <= yTo);
+  }
+
+  if (studyType && studyType !== "All Study Types") {
+    const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
+    const typeFiltered = filtered.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+    return typeFiltered.length > 0 ? typeFiltered : filtered.slice(0, 20);
+  }
+
+  return filtered;
+}
+
 export async function fetchRealPapers(query: string, databases: string[], yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const allPapers: Paper[] = [];
   const failedDbs: string[] = [];
   const succeededDbs: string[] = [];
 
   const apiDatabases: Record<string, () => Promise<Paper[]>> = {
-    "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
+    "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
     "PubMed": () => fetchPubMed(query, yearFrom, yearTo, studyType),
     "Europe PMC": () => fetchEuropePMC(query, yearFrom, yearTo, studyType),
-    "ERIC": () => fetchEuropePMC(`education ${query}`, yearFrom, yearTo, studyType),
-    "Google Scholar": () => fetchOpenAlex(`scholar ${query}`, yearFrom, yearTo, studyType),
-    "Shodhganga": () => fetchOpenAlex(`thesis ${query}`, yearFrom, yearTo, studyType, ["type:dissertation", "authorships.institutions.country_code:IN"]),
-    "CTRI – India": () => fetchEuropePMC(`clinical trial India ${query}`, yearFrom, yearTo, studyType),
-    "scite.ai": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
-    "WHO IRIS": () => fetchEuropePMC(`WHO ${query}`, yearFrom, yearTo, studyType),
-    "Semantic Scholar": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
-    "ClinicalTrials.gov": () => fetchEuropePMC(`clinical trial ${query}`, yearFrom, yearTo, studyType),
-    "DOAJ": () => fetchOpenAlex(`open access ${query}`, yearFrom, yearTo, studyType),
+    "ERIC": () => fetchEuropePMC(`education research ${query}`, yearFrom, yearTo, studyType),
+    "Google Scholar": () => fetchOpenAlex(`scholarly articles ${query}`, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
+    "Shodhganga": () => fetchOpenAlex(`theses dissertations ${query}`, yearFrom, yearTo, studyType, { filter: "type:dissertation,authorships.institutions.country_code:IN" }),
+    "CTRI – India": () => fetchEuropePMC(`clinical trials India ${query}`, yearFrom, yearTo, studyType),
+    "scite.ai": () => fetchOpenAlex(`${query} citation analysis`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
+    "WHO IRIS": () => fetchEuropePMC(`WHO health guidelines ${query}`, yearFrom, yearTo, studyType),
+    "Semantic Scholar": () => fetchOpenAlex(`AI machine learning ${query}`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
+    "ClinicalTrials.gov": () => fetchEuropePMC(`clinical trials registry ${query}`, yearFrom, yearTo, studyType),
+    "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
     "Prospero": () => fetchEuropePMC(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
-    "ScienceDirect": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
-    "Clarivate": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
+    "ScienceDirect": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc", filter: "host_venue:publisher:Elsevier" }),
+    "Clarivate": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc", filter: "has_doi:true" }),
   };
 
   const selectedApis = databases.filter((db) => apiDatabases[db]);
@@ -404,7 +466,7 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
         if (!fetchFn) return;
         const papers = await fetchFn();
         if (papers.length > 0) succeededDbs.push(db);
-        else console.warn(`[fetchRealPapers] ${db}: returned 0 results for query="${query}"`);
+        else console.warn(`[fetchRealPapers] ${db}: returned 0 results for query "${query}"`);
         papers.forEach((p) => {
           p.database = db;
           p.sourceBackend = getDatabaseBackend(db);
@@ -454,21 +516,21 @@ export async function fetchRealPapersWithCounts(query: string, databases: string
   const allPapers: Paper[] = [];
 
   const apiDatabases: Record<string, () => Promise<Paper[]>> = {
-    "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
+    "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
     "PubMed": () => fetchPubMed(query, yearFrom, yearTo, studyType),
     "Europe PMC": () => fetchEuropePMC(query, yearFrom, yearTo, studyType),
-    "ERIC": () => fetchEuropePMC(`education ${query}`, yearFrom, yearTo, studyType),
-    "Google Scholar": () => fetchOpenAlex(`scholar ${query}`, yearFrom, yearTo, studyType),
-    "Shodhganga": () => fetchOpenAlex(`thesis ${query}`, yearFrom, yearTo, studyType, ["type:dissertation", "authorships.institutions.country_code:IN"]),
-    "CTRI – India": () => fetchEuropePMC(`clinical trial India ${query}`, yearFrom, yearTo, studyType),
-    "scite.ai": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
-    "WHO IRIS": () => fetchEuropePMC(`WHO ${query}`, yearFrom, yearTo, studyType),
-    "Semantic Scholar": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
-    "ClinicalTrials.gov": () => fetchEuropePMC(`clinical trial ${query}`, yearFrom, yearTo, studyType),
-    "DOAJ": () => fetchOpenAlex(`open access ${query}`, yearFrom, yearTo, studyType),
+    "ERIC": () => fetchEuropePMC(`education research ${query}`, yearFrom, yearTo, studyType),
+    "Google Scholar": () => fetchOpenAlex(`scholarly articles ${query}`, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
+    "Shodhganga": () => fetchOpenAlex(`theses dissertations ${query}`, yearFrom, yearTo, studyType, { filter: "type:dissertation,authorships.institutions.country_code:IN" }),
+    "CTRI – India": () => fetchEuropePMC(`clinical trials India ${query}`, yearFrom, yearTo, studyType),
+    "scite.ai": () => fetchOpenAlex(`${query} citation analysis`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
+    "WHO IRIS": () => fetchEuropePMC(`WHO health guidelines ${query}`, yearFrom, yearTo, studyType),
+    "Semantic Scholar": () => fetchOpenAlex(`AI machine learning ${query}`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
+    "ClinicalTrials.gov": () => fetchEuropePMC(`clinical trials registry ${query}`, yearFrom, yearTo, studyType),
+    "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
     "Prospero": () => fetchEuropePMC(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
-    "ScienceDirect": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
-    "Clarivate": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
+    "ScienceDirect": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc", filter: "host_venue:publisher:Elsevier" }),
+    "Clarivate": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc", filter: "has_doi:true" }),
   };
 
   const selectedApis = databases.filter((db) => apiDatabases[db]);

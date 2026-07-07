@@ -1174,3 +1174,41 @@ A fully functional qualitative data analysis tool for text, images, audio, and v
 - Step 4 (Literature Review) and Step 7 (Writing Review) require a Gemini/Groq API key for AI generation
 - If the sandbox fully blocks outbound HTTPS to all external APIs, live search cannot work; mocks remain as a graceful fallback
 
+## Per-Database Search Strategies (2026-07-07)
+
+Previous behavior: many of the 12 database buttons were cosmetic aliases of OpenAlex or Europe PMC with the same base query, returning undifferentiated results.
+
+New behavior: each database now issues a genuinely different query/strategy against the underlying public APIs.
+
+### Real API backends (separate networks)
+- **PubMed** (`fetchPubMed`) — NCBI E-utilities: `esearch` + `efetch` XML parse. Distinct from OpenAlex/Europe PMC.
+- **Europe PMC** (`fetchEuropePMC`) — EBI Europe PMC REST with cursor pagination and `resultType=core`.
+- **DOAJ** (`fetchDoaj`) — **new** real DOAJ v2 API (`doaj.org/api/v2/search/articles`). Previously was OpenAlex with `open access` prefix.
+
+### OpenAlex strategies (different query/sort/filter)
+- **OpenAlex** — broad search, sorted by `cited_by_count:desc`.
+- **Google Scholar** — prefixed `scholarly articles`, sorted by citations.
+- **Semantic Scholar** — prefixed `AI machine learning`, sorted by `publication_year:desc`.
+- **ScienceDirect** — same base query but filtered to `host_venue:publisher:Elsevier`, sorted by year.
+- **Clarivate** — `has_doi:true` filter + citation sort (mimics high-citation Web-of-Science-like coverage).
+- **scite.ai** — `citation analysis` suffix, sorted by year (emphasizes recent citing-work context).
+- **Shodhganga** — `theses dissertations` prefix with OpenAlex `type:dissertation` + `country_code:IN` filter.
+
+### Europe PMC strategies (different query wording)
+- **ERIC** — `education research` prefix.
+- **WHO IRIS** — `WHO health guidelines` prefix.
+- **ClinicalTrials.gov** — `clinical trials registry` prefix.
+- **CTRI – India** — `clinical trials India` prefix.
+- **Prospero** — `systematic review protocol` prefix.
+
+### UI changes
+Step 1 results now show:
+- a **per-database breakdown** chip bar (`dbBreakdown`) showing counts per source
+- each result retains its `database` label so you can see which source it came from
+- `fetchRealPapers` and `fetchRealPapersWithCounts` both use the same strategy map
+
+### Validation
+- `bun typecheck` ✅
+- `bun lint` ✅
+- `bun run build` ✅
+
