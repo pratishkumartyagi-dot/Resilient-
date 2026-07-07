@@ -31,7 +31,7 @@ const PIPELINE_STEPS = [
   { num: 1, label: "Search & Screening", icon: Search },
   { num: 2, label: "Data Extraction", icon: FileText },
   { num: 3, label: "Risk of Bias", icon: CheckCircle2 },
-  { num: 4, label: "Synthesis & Meta-analysis", icon: FlaskConical },
+  { num: 4, label: "Synthesis", icon: FlaskConical },
   { num: 5, label: "Reporting & PRISMA", icon: FileText },
   { num: 6, label: "Writing Review & Meta-analysis", icon: PenTool },
 ];
@@ -265,7 +265,7 @@ export default function EvidenceSynthesisTab() {
     const hasMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
     setPublicationBiasNote(
       hasMeta
-        ? "Publication bias should be assessed using funnel plots, Egger's test, or trim-and-fill analysis (metasens, meta, metafor)."
+        ? "Publication bias should be assessed using funnel plots, Egger's test, or trim-and-fill analysis (metasens, meta, awesome-evidence-synthesis)."
         : "Publication bias is less relevant for narrative reviews, but grey literature searches are recommended."
     );
     setSensitivityNote(
@@ -804,7 +804,7 @@ Rules:
       : "No studies available";
 
     const metaforReadiness = isMeta && effectSizes.length >= 2
-      ? `Ready for meta-analysis: ${effectSizes.length} studies with extractable effect sizes. Pool using **metafor** (R) random-effects model (DerSimonian–Laird) or fixed-effects model (Inverse-Variance). Forest plot and funnel plot can be generated with **forestplot** (R) and **metafor**. Heterogeneity: assess I², τ², Q-test.`
+      ? `Ready for meta-analysis: ${effectSizes.length} studies with extractable effect sizes. Pool using **awesome-evidence-synthesis** random-effects model (DerSimonian–Laird) or fixed-effects model (Inverse-Variance). Forest plot and funnel plot can be generated with **forestplot** (R) and **meta**. Heterogeneity: assess I², τ², Q-test.`
       : isMeta
         ? `Not yet ready for meta-analysis: ${effectSizes.length} effect size(s) extracted. At least 2 studies with numeric effect estimates and 95% CIs are needed. Use **WebPlotDigitizer** or **metaDigitise** to extract data from figures if raw numbers are unavailable.`
         : "Narrative synthesis only — meta-analysis not planned for this review type.";
@@ -813,7 +813,7 @@ Rules:
       ? `Forest-plot data prepared for ${effectSizes.length} studies. Use **forestplot** (R) or **OpenMEE** for publication-ready visualisation. Scales should be standardised (e.g., log scale for RR/OR).`
       : "No effect-size data available for forest-plot generation.";
 
-    return `## Step 4A — Evidence Analysis (metafor / forestplot aligned)
+    return `## Step 4A — Evidence Analysis (awesome-evidence-synthesis aligned)
 
 **Review type:** ${reviewType}
 **Studies analysed:** ${papersForSynthesis.length}
@@ -835,32 +835,24 @@ ${studyDesignBreakdown}
 **Effect Direction by Study:**
 ${effectDirectionSummary}
 
-**metafor Readiness:**
+**Meta-analysis Readiness:**
 ${metaforReadiness}
 
-**forestplot Readiness:**
+**Forest-plot Readiness:**
 ${forestplotReadiness}
 
 ---
 
-### metafor Analysis Plan
+### Meta-analysis Plan
 
-When effect sizes are available, the following **metafor** (R) workflow should be applied:
+When effect sizes are available, the following **awesome-evidence-synthesis** / **meta** (R) workflow should be applied:
 
 \`\`\`r
-library(metafor)
-dat <- escalc(
-  measure = "RR",
-  ai = c(...),
-  bi = c(...),
-  ci = c(...),
-  di = c(...)
-)
-res <- rma(yi, vi, data = dat, test = "knha")
-print(res)
-forest(res, atransf = exp)
+library(meta)
+dat <- metacont(...)
+res <- metagen(...)
+forest(res)
 funnel(res)
-regtest(res)
 \`\`\`
 
 Heterogeneity thresholds (PMC12402582 / Thorlund et al.):
@@ -881,7 +873,7 @@ Heterogeneity thresholds (PMC12402582 / Thorlund et al.):
 
 ### Next Step
 
-Proceed to Synthesis & Meta-analysis (Step 4B) to generate the narrative synthesis and evidence report.
+Proceed to Synthesis (Step 4) to generate the narrative synthesis and evidence report.
 `;
   };
 
@@ -918,18 +910,18 @@ Proceed to Synthesis & Meta-analysis (Step 4B) to generate the narrative synthes
       : papersForSynthesis.map((p) => `| ${p.authors} (${p.year}) | — | — | — |`).join("\n");
 
     const methodsBlock = isMeta
-      ? `**Synthesis method:** Random-effects meta-analysis (DerSimonian–Laird), implemented in **metafor** (R) or **meta** (R). Heterogeneity assessed via I² and τ². Certainty of evidence via GRADE. Effect sizes extracted using **WebPlotDigitizer** / **metaDigitise** where raw data were unavailable.\n\n**Risk of bias:** Per-domain robvis template (${robLabel}) with Cochrane colours.`
+      ? `**Synthesis method:** Random-effects meta-analysis (DerSimonian–Laird), aligned with **awesome-evidence-synthesis** / **meta** (R) methodology. Heterogeneity assessed via I² and τ². Certainty of evidence via GRADE. Effect sizes extracted using **WebPlotDigitizer** / **metaDigitise** where raw data were unavailable.\n\n**Risk of bias:** Per-domain robvis template (${robLabel}) with Cochrane colours.`
       : `**Synthesis method:** Narrative/thematic synthesis following **awesome-evidence-synthesis** principles (coding, theme development, evidence mapping). Text-mining support from **LitLLMs** / **MetaNLP** where applicable.\n\n**Risk of bias:** Per-domain robvis template (${robLabel}).`;
 
     const metaBlockText = metaforResult
       ? `\n### Meta-analysis Interpretation\n\nPooled estimate (${metaforResult.model}-effects): μ = ${metaforResult.pooledEstimate.toFixed(3)} (95% CI ${metaforResult.ciLower.toFixed(3)}–${metaforResult.ciUpper.toFixed(3)}). Heterogeneity: I² = ${metaforResult.I2.toFixed(1)}%, τ² = ${metaforResult.tau2.toFixed(4)}, Q(${metaforResult.k - 1}) = ${metaforResult.Q.toFixed(2)}, p = ${metaforResult.Qp.toFixed(4)}. Prediction interval: ${metaforResult.predictionLower.toFixed(3)}–${metaforResult.predictionUpper.toFixed(3)}.`
-      : `\n### Meta-analysis Interpretation\n\nEffect estimates should be pooled using a random-effects model. Expected direction of effect: see effect table above. Heterogeneity: ${heterogeneityNotes} Use **forestplot**, **meta**, **metafor**, or **OpenMEE** for publication-ready figures.\n\n**Reporting:** Export effect table to **PRISMA 2020**-compliant format.`;
+      : `\n### Meta-analysis Interpretation\n\nEffect estimates should be pooled using a random-effects model. Expected direction of effect: see effect table above. Heterogeneity: ${heterogeneityNotes} Use **forestplot**, **meta**, or **OpenMEE** for publication-ready figures.\n\n**Reporting:** Export effect table to **PRISMA 2020**-compliant format.`;
 
     const publicationBiasBlock = isMeta
-      ? `\n### Publication Bias\n\nFunnel plot asymmetry and Egger's test should be assessed using **metafor** (R) or **metasens**. If asymmetry is detected, trim-and-fill analysis or selection-model approaches are recommended. Tools: **metasens**, **meta**, **metafor**, **forestplot**.\n`
+      ? `\n### Publication Bias\n\nFunnel plot asymmetry and Egger's test should be assessed using **meta** / **metasens**. If asymmetry is detected, trim-and-fill analysis or selection-model approaches are recommended. Tools: **metasens**, **meta**, **forestplot**.\n`
       : `\n### Publication Bias\n\nFor narrative reviews, publication bias is best addressed through systematic grey-literature searching and trial-register checks (ClinicalTrials.gov, WHO IRIS, OSF).\n`;
 
-    const sensitivityBlock = `\n### Sensitivity Analysis\n\n${robSummary.high > 0 ? `Exclude ${robSummary.high} high-risk-of-bias study(ies) and re-run the meta-analysis in **metafor** / **meta** / **OpenMEE** to test robustness. Robust variance estimation via **robumeta** or **clubSandwich** is recommended when studies have dependent effect sizes.` : "No studies rated high risk; sensitivity analysis should still compare fixed-effects vs random-effects models."} Domain-level judgments from **robvis** can be used to construct leave-one-out sensitivity plots.\n`;
+    const sensitivityBlock = `\n### Sensitivity Analysis\n\n${robSummary.high > 0 ? `Exclude ${robSummary.high} high-risk-of-bias study(ies) and re-run the meta-analysis in **meta** / **OpenMEE** to test robustness. Robust variance estimation via **robumeta** or **clubSandwich** is recommended when studies have dependent effect sizes.` : "No studies rated high risk; sensitivity analysis should still compare fixed-effects vs random-effects models."} Domain-level judgments from **robvis** can be used to construct leave-one-out sensitivity plots.\n`;
 
     return `## Evidence Synthesis\n**Review type:** ${reviewType}\n**Studies included:** ${papersForSynthesis.length}\n**Year range:** ${yearMin}–${yearMax}\n**Databases:** ${databases.join(", ") || "multiple"}\n\n---
 
@@ -980,7 +972,7 @@ Using **${robLabel}** (robvis), the overall distribution of risk-of-bias judgmen
 
   const runMetaforAnalysis = () => {
     if (effectSizes.length === 0) {
-      alert("Please add at least one effect size in the table above before running metafor analysis.");
+      alert("Please add at least one effect size in the table above before running the analysis.");
       return;
     }
     const parsed: EffectSizeRow[] = effectSizes.map((r) => parseEffectSizeRow(r.study, r.effect, r.ci, r.weight)).filter((r): r is EffectSizeRow => r !== null);
@@ -1889,7 +1881,7 @@ ${referencesList}
       <div className="bg-[#0d1b3e] border border-blue-900/50 rounded-lg p-6 shadow">
         <div className="flex items-center gap-2 mb-1">
           <FlaskConical size={20} className="text-yellow-400" />
-          <h2 className="text-xl font-bold text-white">Evidence Synthesis & Meta-analysis</h2>
+          <h2 className="text-xl font-bold text-white">Evidence Synthesis</h2>
         </div>
         <p className="text-sm text-blue-300 mb-6">
           Guided workflow derived from <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a> and enhanced with <a href="https://github.com/FreedomIntelligence/OpenClaw-Medical-Skills" target="_blank" rel="noreferrer" className="text-yellow-300 underline">OpenClaw-Medical-Skills</a> (literature-review, literature-deep-research): systematic search, AI-assisted screening, structured data extraction, risk-of-bias assessment, meta-analysis, and PRISMA-compliant reporting.
@@ -2340,7 +2332,7 @@ ${referencesList}
             <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
               <div className="flex items-center gap-2 mb-3">
                 <Table size={18} className="text-yellow-400" />
-                <h3 className="text-lg font-bold text-white">Synthesis & Meta-analysis</h3>
+                <h3 className="text-lg font-bold text-white">Synthesis</h3>
               </div>
                 <p className="text-sm text-blue-300 mb-4">
                   Generate evidence synthesis using methods from the awesome-evidence-synthesis toolkit. No API key required — the local synthesis builder produces PRISMA/ROSES-ready output from your extracted data. Configure an API key in Settings for AI-enhanced output. Methodology aligned with <a href="https://github.com/Open-and-Sustainable/prismAId" target="_blank" rel="noreferrer" className="text-yellow-300 underline">prismAId</a> (screening/extraction) and <a href="https://github.com/htlin222/meta-pipe" target="_blank" rel="noreferrer" className="text-yellow-300 underline">meta-pipe</a> (end-to-end pipeline).
@@ -2403,7 +2395,7 @@ ${referencesList}
 
               {synthesisAnalysis && (
                 <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4 mb-4">
-                  <h4 className="text-sm font-bold text-white mb-3">Step 4A — Paper Analysis (metafor / forestplot aligned)</h4>
+                  <h4 className="text-sm font-bold text-white mb-3">Step 4A — Paper Analysis (awesome-evidence-synthesis aligned)</h4>
                   <div className="text-blue-100 whitespace-pre-wrap max-h-[500px] overflow-y-auto text-sm leading-relaxed">
                     {synthesisAnalysis.split("\n").map((line, i) => {
                       if (line.startsWith("# ")) return <h1 key={i} className="text-lg font-bold text-white mt-4 mb-2">{line.slice(2)}</h1>;
@@ -2491,7 +2483,7 @@ ${referencesList}
                       </tbody>
                     </table>
                   </div>
-                  <p className="text-[10px] text-blue-400 mt-2">Editable — tune values before exporting to metafor / meta / OpenMEE / JASP</p>
+                  <p className="text-[10px] text-blue-400 mt-2">Editable — tune values before exporting to meta / OpenMEE / JASP</p>
                 </div>
               )}
 
@@ -2503,11 +2495,11 @@ ${referencesList}
                     className="flex items-center gap-2 bg-emerald-900/60 hover:bg-emerald-800/70 text-emerald-200 font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
                   >
                     <FlaskConical size={16} />
-                    Run metafor Analysis ({reviewType.includes("Meta-analysis") || reviewType.includes("Meta") ? "Random-effects" : "Fixed-effects"})
+                    Run Analysis ({reviewType.includes("Meta-analysis") || reviewType.includes("Meta") ? "Random-effects" : "Fixed-effects"})
                   </button>
-                  <span className="text-[10px] text-blue-400">
-                    DerSimonian–Laird / Inverse-Variance — aligned with <a href="https://github.com/wviechtb/metafor" target="_blank" rel="noreferrer" className="text-yellow-300 underline">metafor (R)</a>
-                  </span>
+                    <span className="text-[10px] text-blue-400">
+                      DerSimonian–Laird / Inverse-Variance — aligned with <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a>
+                    </span>
                 </div>
               )}
 
@@ -2515,8 +2507,8 @@ ${referencesList}
                  <div className="space-y-4">
                    <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
                      <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-                       <FlaskConical size={14} className="text-emerald-400" />
-                       metafor Results — {metaforResult.model}-effects model
+                        <FlaskConical size={14} className="text-emerald-400" />
+                        Meta-analysis Results — {metaforResult.model}-effects model
                      </h4>
                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                        <div className="bg-blue-900/30 border border-blue-800 rounded-lg p-3">
@@ -2540,7 +2532,7 @@ ${referencesList}
                          <p className="text-[10px] text-blue-300">to {metaforResult.predictionUpper.toFixed(3)}</p>
                        </div>
                      </div>
-                     <p className="text-[10px] text-blue-400 mb-2">Computed locally using DerSimonian–Laird (random) / Inverse-Variance (fixed) methods aligned with metafor (R).</p>
+                      <p className="text-[10px] text-blue-400 mb-2">Computed locally using DerSimonian–Laird (random) / Inverse-Variance (fixed) methods aligned with awesome-evidence-synthesis.</p>
                    </div>
 
                    <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
@@ -2591,7 +2583,7 @@ ${referencesList}
                      <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
                        <h4 className="text-sm font-bold text-white mb-2">Publication Bias</h4>
                        <p className="text-[11px] text-blue-300 leading-relaxed">{publicationBiasNote}</p>
-                        <p className="text-[10px] text-blue-400 mt-2">Tools: <a href="https://cran.r-project.org/web/packages/metasens/" target="_blank" rel="noreferrer" className="text-yellow-300 underline">metasens</a>, <a href="https://www.metafor-project.org/" target="_blank" rel="noreferrer" className="text-yellow-300 underline">metafor</a>, funnel plot, Egger&apos;s test, trim-and-fill.</p>
+                         <p className="text-[10px] text-blue-400 mt-2">Tools: <a href="https://cran.r-project.org/web/packages/metasens/" target="_blank" rel="noreferrer" className="text-yellow-300 underline">metasens</a>, <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a>, funnel plot, Egger&apos;s test, trim-and-fill.</p>
                      </div>
                      <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
                        <h4 className="text-sm font-bold text-white mb-2">Sensitivity Analysis</h4>
@@ -2609,7 +2601,7 @@ ${referencesList}
                   Awesome-Evidence-Synthesis Report
                 </h4>
                 <p className="text-[11px] text-blue-300 mb-3">
-                  Generate a comprehensive synthesis report aligned with the awesome-evidence-synthesis methodology, metafor (R) analysis, prismAId screening/extraction, and meta-pipe pipeline. The report includes PRISMA 2020 flow, metafor results, robvis RoB summary, effect size table, GRADE certainty assessment, R code for reproducibility, and narrative synthesis. Output: a publication-ready Markdown document.
+                  Generate a comprehensive synthesis report aligned with the awesome-evidence-synthesis methodology, meta-analysis, prismAId screening/extraction, and meta-pipe pipeline. The report includes PRISMA 2020 flow, analysis results, robvis RoB summary, effect size table, GRADE certainty assessment, and narrative synthesis. Output: a publication-ready Markdown document.
                 </p>
                 <div className="flex flex-wrap items-center gap-3">
                   <button
@@ -2637,7 +2629,7 @@ ${referencesList}
                   )}
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-blue-400">
-                  <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">metafor (R)</span>
+                  <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">meta / metafor</span>
                   <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">prismAId</span>
                   <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">meta-pipe</span>
                   <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">awesome-evidence-synthesis</span>
@@ -2960,7 +2952,7 @@ ${referencesList}
                 <h3 className="text-lg font-bold text-white">Writing Review & Meta-analysis</h3>
               </div>
               <p className="text-xs text-blue-400 mb-4">
-                This step uses the <a href="https://github.com/FreedomIntelligence/OpenClaw-Medical-Skills#scientific-research--writing" target="_blank" rel="noreferrer" className="text-yellow-300 underline">OpenClaw Scientific Research &amp; Writing</a> skill to read through your completed pipeline (search, screening, extraction, risk of bias, synthesis, and metafor results) and generate a full manuscript in flowing prose. Configure an API key in Settings for AI-enhanced generation; otherwise a local PRISMA/IMRAD manuscript is produced.
+                This step uses the <a href="https://github.com/FreedomIntelligence/OpenClaw-Medical-Skills#scientific-research--writing" target="_blank" rel="noreferrer" className="text-yellow-300 underline">OpenClaw Scientific Research &amp; Writing</a> skill to read through your completed pipeline (search, screening, extraction, risk of bias, synthesis, and analysis results) and generate a full manuscript in flowing prose. Configure an API key in Settings for AI-enhanced generation; otherwise a local PRISMA/IMRAD manuscript is produced.
               </p>
 
               {!manuscript ? (
@@ -2968,7 +2960,7 @@ ${referencesList}
                   <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
                     <h4 className="text-sm font-bold text-white mb-2">Generated Output</h4>
                     <p className="text-xs text-blue-300 leading-relaxed">
-                      When you click <strong>Generate Manuscript</strong>, the app reads all previous steps — selected papers, extracted data, RoB judgments, synthesis narrative, effect sizes, and metafor results — and applies the OpenClaw <strong>Scientific Research &amp; Writing</strong> methodology. If an API key is configured, it produces an AI draft using a two-stage outline-to-prose process with proper Vancouver inline citations, IMRAD + PRISMA structure, and publication-ready formatting. Without an API key, it builds a complete local manuscript in full paragraphs from the same pipeline data.
+                      When you click <strong>Generate Manuscript</strong>, the app reads all previous steps — selected papers, extracted data, RoB judgments, synthesis narrative, effect sizes, and analysis results — and applies the OpenClaw <strong>Scientific Research &amp; Writing</strong> methodology. If an API key is configured, it produces an AI draft using a two-stage outline-to-prose process with proper Vancouver inline citations, IMRAD + PRISMA structure, and publication-ready formatting. Without an API key, it builds a complete local manuscript in full paragraphs from the same pipeline data.
                     </p>
                   </div>
 

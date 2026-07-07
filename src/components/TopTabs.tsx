@@ -12,7 +12,7 @@ const MAIN_TABS = [
   { id: "samplesize", label: "Sample Size Calculator", icon: Sigma },
   { id: "predictive", label: "Predictive Analysis", icon: BarChart3 },
   { id: "autoprognosis", label: "AutoPrognosis", icon: Sparkles },
-  { id: "systematic", label: "Evidence Synthesis & Meta-analysis", icon: FileText },
+  { id: "systematic", label: "Evidence Synthesis", icon: FileText },
   { id: "paperwriter", label: "Paper Writer & Reviewer", icon: PenLine },
   { id: "protocol", label: "Protocol Generator", icon: ScrollText },
   { id: "auto_evidence", label: "Automatic Evidence Synthesis", icon: BookOpen },

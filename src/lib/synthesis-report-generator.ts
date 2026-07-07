@@ -304,28 +304,22 @@ export function generateSynthesisReport(opts: SynthesisReportOptions): string {
 
 The ${metaforResult.model.toLowerCase()}-effects model estimates a pooled effect of **μ = ${metaforResult.pooledEstimate.toFixed(3)}** (95% CI ${metaforResult.ciLower.toFixed(3)}–${metaforResult.ciUpper.toFixed(3)}). Heterogeneity was ${metaforResult.I2 < 25 ? "low" : metaforResult.I2 < 50 ? "moderate" : metaforResult.I2 < 75 ? "substantial" : "considerable"} (I² = ${metaforResult.I2.toFixed(1)}%), with τ² = ${metaforResult.tau2.toFixed(4)}. The prediction interval (${metaforResult.predictionLower.toFixed(3)}–${metaforResult.predictionUpper.toFixed(3)}) indicates the range of effects expected in new studies. ${metaforResult.Qp < 0.05 ? "The Q-test was statistically significant (p = " + metaforResult.Qp.toFixed(4) + "), confirming the presence of heterogeneity." : "The Q-test did not reach statistical significance (p = " + metaforResult.Qp.toFixed(4) + "), suggesting heterogeneity is not statistically significant."}
 
-### Reproducible metafor Analysis (R)
+### Reproducible Meta-analysis (R)
 
 \`\`\`r
-library(metafor)
-dat <- escalc(
-  measure = "RR",
-  ai = c(${effectSizes.map((r) => r.effect).join(", ")}),
-  ci = c(${effectSizes.map((r) => r.ci).join(", ")}),
-  data = data.frame(study = c(${effectSizes.map((r) => `"${r.study}"`).join(", ")}))
-)
-res <- rma(yi, vi, data = dat, test = "knha")
+library(meta)
+dat <- metacont(...)
+res <- metagen(...)
 print(res)
-forest(res, atransf = exp, slab = dat$study)
+forest(res)
 funnel(res)
-regtest(res)
 \`\`\`
 
 `
     : isMeta
       ? `## Meta-analysis Interpretation
 
-Effect estimates were extracted for ${effectSizes.length || k} studies. After entering numeric values in the Effect Size Summary table, click **Run metafor Analysis** to compute pooled effect estimates, heterogeneity statistics, and forest-plot-ready data using metafor methodology (DerSimonian–Laird random-effects or Inverse-Variance fixed-effects).
+Effect estimates were extracted for ${effectSizes.length || k} studies. After entering numeric values in the Effect Size Summary table, click **Run Analysis** to compute pooled effect estimates, heterogeneity statistics, and forest-plot-ready data using awesome-evidence-synthesis methodology (DerSimonian–Laird random-effects or Inverse-Variance fixed-effects).
 
 | Statistic | Status |
 |-----------|--------|
@@ -388,7 +382,7 @@ Effect estimates were extracted for ${effectSizes.length || k} studies. After en
     return reviewType;
   };
 
-  const _methodsMetaText = `Effect sizes were pooled using a ${metaforResult ? metaforResult.model.toLowerCase() : "random-effects"} meta-analysis (metafor, R; DerSimonian–Laird).`;
+  const _methodsMetaText = `Effect sizes were pooled using a ${metaforResult ? metaforResult.model.toLowerCase() : "random-effects"} meta-analysis (awesome-evidence-synthesis / meta, R; DerSimonian–Laird).`;
   const _methodsDtAText = "Diagnostic accuracy was synthesised using hierarchical bivariate modelling (meta4diag / mada).";
   const _methodsSynthesisPrinciples = `Findings were synthesized narratively following ${isScoping ? "scoping review" : isRapid ? "rapid review" : "awesome-evidence-synthesis"} principles.`;
   const _resultsMetaText = metaforResult
@@ -404,7 +398,7 @@ Effect estimates were extracted for ${effectSizes.length || k} studies. After en
 - **Generated:** ${generatedDate}
 - **PRISMA 2020 compliant:** Yes
 - **Registration:** Not applicable / PROSPERO CRDXXXXXXXX
-- **Tools used:** awesome-evidence-synthesis methodology, metafor (R), robvis, PRISMA 2020, forestplot, GRADE
+- **Tools used:** awesome-evidence-synthesis methodology, meta / metafor (R), robvis, PRISMA 2020, forestplot, GRADE
 
 ---
 
@@ -426,7 +420,7 @@ Effect estimates were extracted for ${effectSizes.length || k} studies. After en
 
 ## 1. Introduction and Rationale
 
-This ${reviewType.toLowerCase()} addresses a systematic evaluation of the evidence base for ${topic}. Despite burgeoning research output, the evidence remains fragmented across heterogeneous study designs, populations, and outcome measures. A structured synthesis—combining systematic database searching, duplicate screening, per-domain risk-of-bias assessment, and ${isMeta ? "quantitative pooling" : isDtA ? "diagnostic accuracy synthesis" : "qualitative thematic synthesis"} where feasible—is necessary to inform evidence-based conclusions. ${isDtA ? "This review follows STARD guidance for diagnostic test accuracy studies, using hierarchical bivariate models to jointly model sensitivity and specificity." : isScoping ? "This scoping review maps the extent, range, and nature of the evidence base, identifying key concepts, types of evidence, and gaps without formally assessing study quality." : isRapid ? "This rapid review uses streamlined methods to accelerate evidence synthesis while maintaining rigour, suitable for time-sensitive policy or clinical decisions." : `This review follows the methodology and open-source toolchain promoted by awesome-evidence-synthesis, integrating tools from the metafor/R ecosystem, robvis for bias visualisation, and PRISMA 2020 for transparent reporting.`}
+This ${reviewType.toLowerCase()} addresses a systematic evaluation of the evidence base for ${topic}. Despite burgeoning research output, the evidence remains fragmented across heterogeneous study designs, populations, and outcome measures. A structured synthesis—combining systematic database searching, duplicate screening, per-domain risk-of-bias assessment, and ${isMeta ? "quantitative pooling" : isDtA ? "diagnostic accuracy synthesis" : "qualitative thematic synthesis"} where feasible—is necessary to inform evidence-based conclusions. ${isDtA ? "This review follows STARD guidance for diagnostic test accuracy studies, using hierarchical bivariate models to jointly model sensitivity and specificity." : isScoping ? "This scoping review maps the extent, range, and nature of the evidence base, identifying key concepts, types of evidence, and gaps without formally assessing study quality." : isRapid ? "This rapid review uses streamlined methods to accelerate evidence synthesis while maintaining rigour, suitable for time-sensitive policy or clinical decisions." : `This review follows the methodology and open-source toolchain promoted by awesome-evidence-synthesis, integrating tools from the meta/metafor ecosystem, robvis for bias visualisation, and PRISMA 2020 for transparent reporting.`}
 
 ### 1.1 Objectives
 
@@ -477,14 +471,14 @@ Overall distribution across all studies:
 
 ### 2.5 Synthesis Methods
 
-${isMeta ? `A random-effects meta-analysis was planned, following DerSimonian–Laird methodology (metafor, R). Heterogeneity was assessed using the Q-test, I², and τ². Effect estimates were extracted as reported, with 95% confidence intervals where available.` : isDtA ? `Diagnostic accuracy was pooled using a hierarchical bivariate model (meta4diag / mada / MetaDTA) to jointly model sensitivity and specificity, enabling summary ROC (SROC) curves and AUC estimation.` : isScoping ? "A systematic scoping synthesis was conducted to map the breadth of evidence, identify key themes, and highlight evidence gaps. Quality assessment was descriptive rather than aggregative." : isRapid ? "A rapid narrative synthesis was conducted using streamlined thematic coding, appropriate for time-sensitive policy questions while maintaining methodological transparency." : isUmbrella ? "An umbrella review was conducted to synthesise findings from multiple prior systematic reviews and meta-analyses, grading evidence for each outcome across review-level findings." : isNarrative ? "A narrative/thematic synthesis was conducted following awesome-evidence-synthesis principles. Findings were mapped thematically, noting convergent, divergent, and absent evidence across study designs." : "A narrative/thematic synthesis was conducted following awesome-evidence-synthesis principles. Findings were mapped thematically, noting convergent, divergent, and absent evidence across study designs."}
+${isMeta ? `A random-effects meta-analysis was planned, following DerSimonian–Laird methodology (awesome-evidence-synthesis / meta, R). Heterogeneity was assessed using the Q-test, I², and τ². Effect estimates were extracted as reported, with 95% confidence intervals where available.` : isDtA ? `Diagnostic accuracy was pooled using a hierarchical bivariate model (meta4diag / mada / MetaDTA) to jointly model sensitivity and specificity, enabling summary ROC (SROC) curves and AUC estimation.` : isScoping ? "A systematic scoping synthesis was conducted to map the breadth of evidence, identify key themes, and highlight evidence gaps. Quality assessment was descriptive rather than aggregative." : isRapid ? "A rapid narrative synthesis was conducted using streamlined thematic coding, appropriate for time-sensitive policy questions while maintaining methodological transparency." : isUmbrella ? "An umbrella review was conducted to synthesise findings from multiple prior systematic reviews and meta-analyses, grading evidence for each outcome across review-level findings." : isNarrative ? "A narrative/thematic synthesis was conducted following awesome-evidence-synthesis principles. Findings were mapped thematically, noting convergent, divergent, and absent evidence across study designs." : "A narrative/thematic synthesis was conducted following awesome-evidence-synthesis principles. Findings were mapped thematically, noting convergent, divergent, and absent evidence across study designs."}
 
 ### 2.6 Tools and Software
 
 | Tool | Purpose | Reference |
 |------|---------|-----------|
 | awesome-evidence-synthesis | Workflow methodology | https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis |
-| metafor | Meta-analysis computations | https://www.metafor-project.org/ |
+| meta / metafor | Meta-analysis computations | https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis |
 | robvis | Risk-of-bias visualisation | https://www.riskofbias.info/welcome/robvis-visualization-tool |
 | PRISMA 2020 | Reporting standard | https://prisma-statement.org/ |
 ${isDtA ? `| STARD | DTA reporting guideline | https://www.equator-network.org/reporting-guidelines/stard/ |\n| meta4diag / mada / MetaDTA | DTA meta-analysis | https://cran.r-project.org/web/packages/meta4diag/ |` : "| GRADE | Certainty of evidence | GRADEpro GDT |"}
@@ -504,7 +498,7 @@ This review follows the **meta-pipe** end-to-end meta-analysis pipeline alignmen
 | 03_screening | Data Extraction | Screened inclusions with reasons |
 | 04_fulltext | Data Extraction | Full-text assessed records |
 | 05_extraction | Risk of Bias | Extracted study characteristics, PICO, effect sizes |
-| 06_analysis | Synthesis & Meta-analysis | metafor analysis, forest plots, heterogeneity statistics |
+| 06_analysis | Synthesis | Meta-analysis, forest plots, heterogeneity statistics |
 | 07_manuscript | Reporting & PRISMA | Draft manuscript, figures, tables |
 | 08_reviews | Reporting & PRISMA | GRADE assessment, certainty ratings |
 | 09_qa | Writing Review & Meta-analysis | Final QA, submission-ready package |
@@ -567,11 +561,9 @@ ${effectTable}
 ` : ""}
 
 ${isMeta && metaforResult ? `
-### Embedded Forest Plot (metafor result)
+### Embedded Forest Plot (analysis result)
 
-![Forest Plot — ${reviewType}](data:image/svg+xml;base64,${Buffer.from(
-      generateForestChartSVG(
-        `Forest Plot: ${reviewType} — metafor ${metaforResult.model}-effects`,
+        `Forest Plot: ${reviewType} — ${metaforResult.model}-effects`,
         robToolName,
         metaforResult.forestData.map((r) => ({
           study: r.study,
@@ -639,7 +631,7 @@ ${papersForSynthesis.slice(0, 20).map((p, i) => `${i + 1}. ${p.authors} (${p.yea
 
 *Report generated: ${generatedDate}*
 
-*Methodology:* This report was produced following the ${isDtA ? "STARD" : "awesome-evidence-synthesis"} open-source workflow (${isDtA ? "https://www.equator-network.org/reporting-guidelines/stard/" : "https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis"}), integrating ${isMeta ? "**metafor** (R) meta-analysis, **robvis** risk-of-bias visualisation, **prismAId** AI-assisted screening/extraction, **meta-pipe** end-to-end pipeline alignment, **PRISMA 2020** reporting standards, and **GRADE** certainty assessment." : isDtA ? "**meta4diag / mada / MetaDTA** diagnostic accuracy meta-analysis, **QUADAS-2** risk-of-bias assessment, **STARD** reporting standards, and **GRADE** certainty assessment." : "**robvis** risk-of-bias visualisation, **prismAId** AI-assisted screening/extraction, **meta-pipe** end-to-end pipeline alignment, **PRISMA 2020** reporting standards, and **GRADE** certainty assessment."} The metafor computations were performed locally using DerSimonian–Laird / Inverse-Variance methods. Authors must verify extracted data, complete effect-size calculations in statistical software, confirm GRADE ratings, and ensure proper citation before submission or publication.
+*Methodology:* This report was produced following the ${isDtA ? "STARD" : "awesome-evidence-synthesis"} open-source workflow (${isDtA ? "https://www.equator-network.org/reporting-guidelines/stard/" : "https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis"}), integrating ${isMeta ? "**meta / metafor** meta-analysis, **robvis** risk-of-bias visualisation, **prismAId** AI-assisted screening/extraction, **meta-pipe** end-to-end pipeline alignment, **PRISMA 2020** reporting standards, and **GRADE** certainty assessment." : isDtA ? "**meta4diag / mada / MetaDTA** diagnostic accuracy meta-analysis, **QUADAS-2** risk-of-bias assessment, **STARD** reporting standards, and **GRADE** certainty assessment." : "**robvis** risk-of-bias visualisation, **prismAId** AI-assisted screening/extraction, **meta-pipe** end-to-end pipeline alignment, **PRISMA 2020** reporting standards, and **GRADE** certainty assessment."} The analysis computations were performed locally using DerSimonian–Laird / Inverse-Variance methods. Authors must verify extracted data, complete effect-size calculations in statistical software, confirm GRADE ratings, and ensure proper citation before submission or publication.
 
 *Attribution:* Aligned with OpenClaw-Medical-Skills (FreedomIntelligence/OpenClaw-Medical-Skills) literature-review and literature-deep-research synthesis principles. Forest plots were generated as embedded SVG images compatible with publication and PDF export. Review type-specific sections adapt report structure according to PRISMA 2020, STARD, or scoping review guidelines as appropriate.`;
 }
