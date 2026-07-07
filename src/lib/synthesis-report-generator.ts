@@ -388,6 +388,11 @@ Effect estimates were extracted for ${effectSizes.length || k} studies. After en
     return reviewType;
   };
 
+  const _methodsMetaText = `Effect sizes were pooled using a ${metaforResult ? metaforResult.model.toLowerCase() : "random-effects"} meta-analysis (metafor, R; DerSimonian–Laird).`;
+  const _methodsDtAText = "Diagnostic accuracy was synthesised using hierarchical bivariate modelling (meta4diag / mada).";
+  const _methodsSynthesisPrinciples = `Findings were synthesized narratively following ${isScoping ? "scoping review" : isRapid ? "rapid review" : "awesome-evidence-synthesis"} principles.`;
+  const _resultsMetaText = `The pooled estimate was μ = ${metaforResult.pooledEstimate.toFixed(3)} (95% CI ${metaforResult.ciLower.toFixed(3)}–${metaforResult.ciUpper.toFixed(3)}), with I² = ${metaforResult.I2.toFixed(1)}%.`;
+
   return `# ${reviewType}: ${topic}
 
 ## Title Page
@@ -407,9 +412,9 @@ Effect estimates were extracted for ${effectSizes.length || k} studies. After en
 
 **Objective:** To systematically evaluate the evidence on ${topic} using a structured methodology aligned with ${isDtA ? "STARD and diagnostic test accuracy reporting standards" : "awesome-evidence-synthesis open-source tools"}.
 
-**Methods:** A systematic search was conducted across ${databases.length} databases (${databases.join(", ")}), yielding ${totalRecords} records. After deduplication, ${deduped} unique records were screened, resulting in ${included} studies for synthesis. Risk of bias was assessed per domain using **${robToolName}** (robvis methodology). ${isMeta ? `Effect sizes were pooled using a ${metaforResult ? metaforResult.model.toLowerCase() : "random-effects"} meta-analysis (metafor, R; DerSimonian–Laird).` : isDtA ? "Diagnostic accuracy was synthesised using hierarchical bivariate modelling (meta4diag / mada)." : "Findings were synthesized narratively following ${isScoping ? "scoping review" : isRapid ? "rapid review" : "awesome-evidence-synthesis"} principles."}
+**Methods:** A systematic search was conducted across ${databases.length} databases (${databases.join(", ")}), yielding ${totalRecords} records. After deduplication, ${deduped} unique records were screened, resulting in ${included} studies for synthesis. Risk of bias was assessed per domain using **${robToolName}** (robvis methodology). ${isMeta ? _methodsMetaText : isDtA ? _methodsDtAText : _methodsSynthesisPrinciples}
 
-**Results:** The evidence base comprised ${k} studies (${yearMin}–${yearMax}). Domain-level RoB assessments showed ${robSummary.low} low risk, ${robSummary.some} some/moderate concerns, and ${robSummary.high} high risk of bias. ${metaforResult ? `The pooled estimate was μ = ${metaforResult.pooledEstimate.toFixed(3)} (95% CI ${metaforResult.ciLower.toFixed(3)}–${metaforResult.ciUpper.toFixed(3)}), with I² = ${metaforResult.I2.toFixed(1)}%.` : isDtA ? "Diagnostic accuracy metrics (sensitivity, specificity, AUC) were extracted for pooled estimation." : "Thematic synthesis revealed consistent patterns across the included studies."}
+**Results:** The evidence base comprised ${k} studies (${yearMin}–${yearMax}). Domain-level RoB assessments showed ${robSummary.low} low risk, ${robSummary.some} some/moderate concerns, and ${robSummary.high} high risk of bias. ${metaforResult ? _resultsMetaText : isDtA ? "Diagnostic accuracy metrics (sensitivity, specificity, AUC) were extracted for pooled estimation." : "Thematic synthesis revealed consistent patterns across the included studies."}
 
 **Conclusions:** This ${reviewType.toLowerCase()} provides a structured synthesis of evidence on ${topic}, with risk-of-bias assessments informing the interpretation of ${isMeta ? "pooled and narrative" : isDtA ? "diagnostic accuracy" : "narrative"} findings. Recommendations for practice and future research are provided.
 
