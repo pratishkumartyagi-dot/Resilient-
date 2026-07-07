@@ -250,6 +250,15 @@ export default function EvidenceSynthesisTab() {
   const [sensitivityNote, setSensitivityNote] = useState("");
   const [isDiagnosticReview, setIsDiagnosticReview] = useState(false);
   const [dedupCount, setDedupCount] = useState(0);
+  const [synthWriterOutput, setSynthWriterOutput] = useState("");
+  const [synthWriterBusy, setSynthWriterBusy] = useState(false);
+  const [excludeHighRob, setExcludeHighRob] = useState(false);
+  const [dtaRows, setDtaRows] = useState<{ study: string; TP: number; FN: number; TN: number; FP: number; robRating: string }[]>([
+    { study: "", TP: 0, FN: 0, TN: 0, FP: 0, robRating: "Low" },
+  ]);
+  const [scopingRows, setScopingRows] = useState<{ study: string; intervention: string; population: string; robRating: string }[]>([
+    { study: "", intervention: "", population: "", robRating: "Low" },
+  ]);
 
   const reviewPapersForStep4 = robSelectedPaperIds.size > 0
     ? papers.filter((p) => robSelectedPaperIds.has(p.id))
@@ -988,6 +997,123 @@ Using **${robLabel}** (robvis), the overall distribution of risk-of-bias judgmen
     const result = randomEffectsMetaAnalysis(validParsed);
     if (result) {
       setMetaforResult(result);
+    }
+  };
+
+  const computePooledMetrics = () => {
+    const rows = effectSizes.map((r) => parseEffectSizeRow(r.study, r.effect, r.ci, r.weight)).filter((r): r is EffectSizeRow => r !== null);
+    let filtered = rows;
+    if (excludeHighRob) {
+      filtered = rows.filter((r) => {
+        const study = extractedData.find((s) => s.authors === r.study);
+        const rob = study ? robAssessments[study.id]?.overall || "" : "";
+        return !rob.toLowerCase().includes("high");
+      });
+    }
+    const valid = filtered.filter((r) => Number.isFinite(r.effect) && Number.isFinite(r.ciLower) && Number.isFinite(r.ciUpper));
+    if (valid.length < 2) return null;
+    const se = valid.map((r) => (r.ciUpper - r.ciLower) / (2 * 1.96));
+    const weights = se.map((s) => 1 / Math.pow(s, 2));
+    const pooled = valid.reduce((sum, r, i) => sum + r.effect * weights[i], 0) / weights.reduce((a, b) => a + b, 0);
+    const sePooled = Math.sqrt(1 / weights.reduce((a, b) => a + b, 0));
+    return { pooled, sePooled, k: valid.length };
+  };
+
+  const computeDtaMetrics = () => {
+    const metrics = dtaRows.map((r) => {
+      const sens = r.TP + r.FN > 0 ? r.TP / (r.TP + r.FN) : NaN;
+      const spec = r.TN + r.FP > 0 ? r.TN / (r.TN + r.FP) : NaN;
+      return { study: r.study, sens, spec, robRating: r.robRating };
+    }).filter((m) => Number.isFinite(m.sens) && Number.isFinite(m.spec));
+    return metrics;
+  };
+
+  const computeScopingMatrix = () => {
+    const interventions = Array.from(new Set(scopingRows.map((r) => r.intervention).filter(Boolean)));
+    const populations = Array.from(new Set(scopingRows.map((r) => r.population).filter(Boolean)));
+    const matrix: Record<string, Record<string, number>> = {};
+    interventions.forEach((intervention) => {
+      matrix[intervention] = {};
+      populations.forEach((population) => {
+        matrix[intervention][population] = scopingRows.filter((r) => r.intervention === intervention && r.population === population).length;
+      });
+    });
+    return { interventions, populations, matrix };
+  };
+
+  const runSynthWriter = async () => {
+    setSynthWriterBusy(true);
+    setSynthWriterOutput("");
+    const geminiKey = state.geminiApiKey;
+    const groqKey = state.groqApiKey;
+    if (!geminiKey && !groqKey) {
+      setSynthWriterOutput("Error: Configure an API key in Settings to activate the synthesis writer.");
+      setSynthWriterBusy(false);
+      return;
+    }
+
+    const rRobSummary = extractedData.reduce(
+      (acc: { low: number; some: number; high: number; pending: number }, row) => {
+        const a = robAssessments[row.id];
+        if (!a) return acc;
+        const jl = a.overall.toLowerCase();
+        if (jl.includes("low") && !jl.includes("high")) acc.low += 1;
+        else if (jl.includes("some concerns") || jl.includes("moderate") || jl.includes("unclear") || jl.includes("serious") && !jl.includes("critical")) acc.some += 1;
+        else if (jl.includes("high") || jl.includes("critical") || jl.includes("very high")) acc.high += 1;
+        else acc.pending += 1;
+        return acc;
+      },
+      { low: 0, some: 0, high: 0, pending: 0 }
+    );
+
+    let prompt = `You are an evidence-synthesis scientific writer. Review type: ${reviewType}.\n`;
+    if (reviewType.includes("Meta-analysis") || reviewType.includes("Systematic Review")) {
+      const pooled = computePooledMetrics();
+      prompt += `Effect sizes: ${effectSizes.map((r) => `${r.study}: effect=${r.effect}, CI=${r.ci}`).join("; ")}.\n`;
+      if (pooled) prompt += `Pooled estimate: ${pooled.pooled.toFixed(4)} (SE ${pooled.sePooled.toFixed(4)}), k=${pooled.k}.\n`;
+      prompt += "Write a Methods + Results paragraph suitable for a Systematic Review or Meta-analysis, interpreting the pooled estimate and heterogeneity.\n";
+    } else if (reviewType === "Narrative Review" || reviewType === "Rapid Review") {
+      prompt += "Synthesize the extracted study findings into a narrative discussion paragraph, noting convergent and divergent themes.\n";
+    } else if (reviewType === "Scoping Review" || reviewType === "Mixed Methods Review") {
+      const { interventions, populations, matrix } = computeScopingMatrix();
+      prompt += `Interventions: ${interventions.join(", ")}. Populations: ${populations.join(", ")}. Evidence matrix counts: ${JSON.stringify(matrix)}.\n`;
+      prompt += "Write a scoping review paragraph mapping evidence distribution and identifying gaps.\n";
+    } else if (reviewType === "Diagnostic Test Accuracy Review") {
+      const dtaMetrics = computeDtaMetrics();
+      prompt += `Diagnostic accuracy studies: ${dtaMetrics.map((m) => `${m.study}: sens=${m.sens.toFixed(3)}, spec=${m.spec.toFixed(3)}`).join("; ")}.\n`;
+      prompt += "Write a DTA synthesis paragraph summarizing sensitivity, specificity, and ROC implications.\n";
+    } else if (reviewType === "Umbrella Review") {
+      prompt += "Synthesize findings from multiple prior reviews, grading evidence for each outcome and noting convergence or divergence.\n";
+    }
+    prompt += `Risk of bias summary: Low=${rRobSummary?.low || 0}, Some=${rRobSummary?.some || 0}, High=${rRobSummary?.high || 0}.\n`;
+
+    try {
+      let text: string | null = null;
+      let engine = "";
+      if (geminiKey) {
+        try {
+          text = await callGemini(geminiKey, prompt);
+          engine = "Gemini";
+        } catch {
+          if (groqKey) {
+            text = await callGroq(groqKey, prompt);
+            engine = "Groq (fallback)";
+          }
+        }
+      } else if (groqKey) {
+        text = await callGroq(groqKey, prompt);
+        engine = "Groq";
+      }
+      if (text) {
+        setSynthWriterOutput(text);
+        setSynthesisOutput((prev) => (prev ? prev + "\n\n" + text : text));
+      } else {
+        setSynthWriterOutput("Error: Both synthesis engines failed.");
+      }
+    } catch (e) {
+      setSynthWriterOutput(`Synthesis error: ${e instanceof Error ? e.message : "Unknown error"}`);
+    } finally {
+      setSynthWriterBusy(false);
     }
   };
 
@@ -2427,6 +2553,143 @@ ${referencesList}
                 </div>
               )}
 
+              {(reviewType.includes("Meta-analysis") || reviewType === "Systematic Review") && (
+                <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4 mb-4">
+                  <h4 className="text-sm font-bold text-white mb-3">Quantitative Pooling & Quality Sensitivity</h4>
+                  <div className="overflow-x-auto mb-3">
+                    <table className="w-full border-collapse text-sm">
+                      <thead>
+                        <tr className="bg-blue-900/60 text-left">
+                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">Study</th>
+                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">Log(OR)</th>
+                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">SE</th>
+                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">RoB</th>
+                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">Findings Summary</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {extractedData.slice(0, 10).map((row, idx) => {
+                          const rob = robAssessments[row.id]?.overall || "No information";
+                          return (
+                            <tr key={idx} className="hover:bg-blue-900/20">
+                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.authors} ({row.year})</td>
+                              <td className="border border-blue-800 px-3 py-2 text-blue-100">—</td>
+                              <td className="border border-blue-800 px-3 py-2 text-blue-100">—</td>
+                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{rob}</td>
+                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.outcome || "—"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <label className="flex items-center gap-2 text-xs text-blue-300 mb-2">
+                    <input type="checkbox" checked={excludeHighRob} onChange={(e) => setExcludeHighRob(e.target.checked)} className="rounded border-blue-700 bg-blue-950 text-yellow-500 focus:ring-yellow-500" />
+                    Exclude High Risk of Bias studies
+                  </label>
+                  {(() => {
+                    const pooled = computePooledMetrics();
+                    if (!pooled) return null;
+                    return (
+                      <div className="grid grid-cols-2 gap-3 mb-3">
+                        <div className="bg-blue-900/30 border border-blue-800 rounded-lg p-3">
+                          <p className="text-[10px] text-blue-400 mb-1">Pooled Estimate</p>
+                          <p className="text-lg font-bold text-white">{pooled.pooled.toFixed(4)}</p>
+                          <p className="text-[10px] text-blue-300">SE: {pooled.sePooled.toFixed(4)} · k = {pooled.k}</p>
+                        </div>
+                        <div className="bg-blue-900/30 border border-blue-800 rounded-lg p-3">
+                          <p className="text-[10px] text-blue-400 mb-1">Model</p>
+                          <p className="text-sm font-bold text-white">Random-effects</p>
+                          <p className="text-[10px] text-blue-300">DerSimonian–Laird / Inverse-Variance</p>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {(reviewType === "Narrative Review" || reviewType === "Rapid Review") && (
+                <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4 mb-4">
+                  <h4 className="text-sm font-bold text-white mb-2">Thematic Text Extraction & Prose Generation</h4>
+                  <textarea
+                    value={synthesisInstructions}
+                    onChange={(e) => setSynthesisInstructions(e.target.value)}
+                    placeholder="Paste extracted conclusion blocks or structured notes from papers, along with their Risk of Bias classifications..."
+                    className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-3 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 min-h-[120px]"
+                  />
+                </div>
+              )}
+
+              {(reviewType === "Scoping Review" || reviewType === "Mixed Methods Review") && (
+                <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4 mb-4">
+                  <h4 className="text-sm font-bold text-white mb-2">Evidence Gap Matrix</h4>
+                  <div className="overflow-x-auto mb-3">
+                    <table className="w-full border-collapse text-sm">
+                      <thead>
+                        <tr className="bg-blue-900/60 text-left">
+                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">Study</th>
+                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">Intervention</th>
+                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">Population</th>
+                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">RoB</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {extractedData.slice(0, 10).map((row, idx) => {
+                          const rob = robAssessments[row.id]?.overall || "No information";
+                          return (
+                            <tr key={idx} className="hover:bg-blue-900/20">
+                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.authors} ({row.year})</td>
+                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.intervention || "—"}</td>
+                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.population || "—"}</td>
+                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{rob}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {reviewType === "Diagnostic Test Accuracy Review" && (
+                <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4 mb-4">
+                  <h4 className="text-sm font-bold text-white mb-2">Bivariate Metric Tracking & ROC Space</h4>
+                  <div className="overflow-x-auto mb-3">
+                    <table className="w-full border-collapse text-sm">
+                      <thead>
+                        <tr className="bg-blue-900/60 text-left">
+                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">Study</th>
+                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">TP</th>
+                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">FN</th>
+                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">TN</th>
+                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">FP</th>
+                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">Sensitivity</th>
+                          <th className="border border-blue-800 px-3 py-2 text-yellow-200">Specificity</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {extractedData.slice(0, 10).map((row, idx) => {
+                          const tp = 0; const fn = 0; const tn = 0; const fp = 0;
+                          const sens = tp + fn > 0 ? tp / (tp + fn) : NaN;
+                          const spec = tn + fp > 0 ? tn / (tn + fp) : NaN;
+                          return (
+                            <tr key={idx} className="hover:bg-blue-900/20">
+                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.authors} ({row.year})</td>
+                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{tp}</td>
+                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{fn}</td>
+                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{tn}</td>
+                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{fp}</td>
+                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{Number.isFinite(sens) ? sens.toFixed(3) : "—"}</td>
+                              <td className="border border-blue-800 px-3 py-2 text-blue-100">{Number.isFinite(spec) ? spec.toFixed(3) : "—"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
               {effectSizes.length > 0 && (
                 <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
                   <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
@@ -2591,8 +2854,41 @@ ${referencesList}
                        <p className="text-[10px] text-blue-400 mt-2">Tools: <a href="https://cran.r-project.org/web/packages/robumeta/" target="_blank" rel="noreferrer" className="text-yellow-300 underline">robumeta</a>, <a href="https://cran.r-project.org/web/packages/clubSandwich/" target="_blank" rel="noreferrer" className="text-yellow-300 underline">clubSandwich</a>, <a href="https://www.riskofbias.info/welcome/robvis-visualization-tool" target="_blank" rel="noreferrer" className="text-yellow-300 underline">robvis</a>.</p>
                      </div>
                    </div>
-                 </div>
-               )}
+                  </div>
+                )}
+
+              <div className="mt-4 bg-blue-950/40 border border-blue-900/40 rounded-lg p-4">
+                <h4 className="text-sm font-bold text-white mb-2 flex items-center gap-2">
+                  <Sparkles size={14} className="text-yellow-400" />
+                  AI Synthesis Writer (failover: Gemini → Groq)
+                </h4>
+                <p className="text-[11px] text-blue-300 mb-3">
+                  Generate a Methods/Results/Discussion paragraph aligned with {reviewType}. Uses your configured API key with automatic failover.
+                </p>
+                <button
+                  onClick={runSynthWriter}
+                  disabled={synthWriterBusy}
+                  className="flex items-center gap-2 bg-blue-700 hover:bg-blue-600 text-white font-bold px-5 py-2.5 rounded-lg disabled:opacity-50 mb-3"
+                >
+                  {synthWriterBusy ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Writing...
+                    </>
+                  ) : (
+                    <>
+                      <PenTool size={16} />
+                      Generate Synthesis Paragraph
+                    </>
+                  )}
+                </button>
+                {synthWriterOutput && (
+                  <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-3">
+                    <p className="text-[10px] text-blue-400 mb-1">Generated Output</p>
+                    <p className="text-xs text-blue-100 whitespace-pre-wrap leading-relaxed">{synthWriterOutput}</p>
+                  </div>
+                )}
+              </div>
 
 
               <div className="mt-4 bg-blue-950/40 border border-blue-900/40 rounded-lg p-4">
