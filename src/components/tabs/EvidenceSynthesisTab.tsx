@@ -945,6 +945,7 @@ OUTPUT FORMAT:
       const deduped = prismaCounts.deduped;
       const screened = prismaCounts.screened;
       const excluded = prismaCounts.excluded;
+      const assessed = extractedData.length;
       const included = prismaCounts.included;
 
       const robSummary = papersForSynthesis.reduce(
@@ -964,34 +965,69 @@ OUTPUT FORMAT:
       const reviewTypeLabel = reviewType;
       const topic = query || "the research topic";
 
-      const relatedWorksBlock = papersForSynthesis.slice(0, 8).map((p, i) => {
-        const limitation = p.outcome
-          ? `The study focused on ${p.outcome.toLowerCase()}, leaving broader contextual factors unexamined.`
-          : "The scope was limited, and generalizability to broader populations remains uncertain.";
-        return `${i + 1}. ${p.authors} (${p.year}). *${p.title}*. ${p.studyType || "Study type not specified"}. ${limitation}`;
-      }).join("\n\n");
+      const prompt = `You are an expert academic writer using the Research-Paper-Writing-Skills methodology (Master-cai/Research-Paper-Writing-Skills) combined with OpenClaw-Medical-Skills scientific-writing workflow. Your task is to produce a comprehensive, publication-ready manuscript for a ${reviewTypeLabel} on the topic: "${topic}".
 
-      const methodologyParagraph = isMeta
-        ? `The present ${reviewTypeLabel.toLowerCase()} employed a structured evidence-synthesis methodology. The approach combined systematic database searching, duplicate screening, structured data extraction, per-domain risk-of-bias assessment using ${robLabel}, and random-effects meta-analysis where feasible. This design differs from prior reviews by integrating robvis-standardized domain-level bias judgments with GRADE certainty assessment, enabling transparent quantification of both within-study bias and between-study heterogeneity. Key methods included PICO-framed search strategies, PRISMA 2020-compliant reporting, and forest-plot-ready effect-size extraction compatible with metafor, meta, and forestplot.`
-        : `The present ${reviewTypeLabel.toLowerCase()} employed a structured evidence-synthesis methodology. The approach combined systematic database searching, duplicate screening, and structured data extraction. Risk-of-bias assessment was conducted using ${robLabel}, and findings were synthesized narratively following awesome-evidence-synthesis guidance. This design emphasizes transparent reproducibility, PRISMA 2020-aligned reporting, and thematic mapping of the evidence base.`;
+## Writing Methodology (Research-Paper-Writing-Skills)
 
-      const resultsOverview = papersForSynthesis.length > 0
-        ? `The evidence base comprised ${papersForSynthesis.length} studies (${yearMin}–${yearMax}) encompassing ${studyTypes.join(", ").toLowerCase() || "mixed study designs"}. Pooled or narrative findings indicate [direction of effect] for [outcome]. Heterogeneity was assessed via I² and τ²; ${robSummary.high} studies were rated at high risk of bias. The overall certainty of evidence was rated as ${"moderate"} following GRADE criteria.`
-        : "No studies met the inclusion criteria.";
+### Core Workflow
+1. Clarify the paper story before sentence-level edits.
+2. Use section-specific guidance: keep one paragraph for one message only; state the paragraph message in the first sentence.
+3. Rewrite paragraph-by-paragraph with one message per paragraph.
+4. Run reverse outlining after writing each section.
+5. Check every major claim in Abstract/Introduction against experimental evidence.
+6. Run final-paper adversarial review.
 
-      const discussionImplications = isMeta
-        ? "The meta-analytic estimate should be interpreted alongside the GRADE certainty assessment and robvis domain-level judgments. High risk-of-bias studies may overestimate effects; sensitivity analyses excluding these studies are recommended. Findings align with prior evidence in [field], though methodological differences preclude direct comparison. Limitations include potential publication bias and varying follow-up periods."
-        : "Narrative findings should be interpreted in light of the methodological quality of included studies. The review followed PRISMA 2020 and robvis methodology; however, heterogeneity in study designs limits statistical pooling. Findings are consistent with prior reviews in [field] but highlight unresolved gaps. Limitations include restricted database coverage and potential selection bias.";
+### Global Principles
+- Keep one paragraph for one message only.
+- State the paragraph message in the first sentence.
+- Make nouns self-contained; define new terms before reusing them.
+- Maintain sentence-to-sentence flow (cause, contrast, consequence, or refinement).
+- Iterate with adversarial self-review: read as a skeptical reviewer.
+- Treat visual quality as core content, not decoration.
+- Use readable, minimal-ink tables.
+- Keep formatting consistent and tidy.
 
-      const conclusionPara1 = `This ${reviewTypeLabel.toLowerCase()} synthesized evidence from ${included} studies examining ${topic}. The findings indicate [summary of main result]. Methodological quality varied across studies, with ${robSummary.low} rated low risk, ${robSummary.some} some/moderate concerns, and ${robSummary.high} at high risk of bias. ${isMeta ? "The pooled effect estimate provides a quantitative synthesis that should inform [clinical/policy] decision-making." : "The narrative synthesis maps the current state of evidence and identifies priorities for future inquiry."}`;
+### Paper Review Core Points
+- Add an end-of-draft self-review question list in five dimensions: contribution, writing clarity, experimental strength, evaluation completeness, method design soundness.
+- Treat claim-evidence alignment as a hard constraint, especially for Abstract and Introduction.
+- Perform adversarial writing: review as a skeptical reviewer and resolve every high-risk question.
+- Revise until major rejection risks are explicitly addressed.
 
-      const conclusionPara2 = `Future research should address [specific gaps], employ standardized outcome measures, and report effect sizes with confidence intervals. Prospective registration and open-access data sharing are recommended to enhance reproducibility. ${isMeta ? "Network meta-analysis and individual patient data synthesis may clarify treatment effects across heterogeneous populations." : "Scoping and systematic review updates are warranted as new evidence emerges."}`;
+### Execution Rules
+1. Build a mini-outline before drafting prose.
+2. For each subsection, explicitly include motivation, design, and technical advantage when applicable.
+3. Avoid writing style that looks like incremental patching of a naive baseline.
+4. Keep terminology stable across the full paper.
+5. If a claim cannot be supported by results, weaken or remove the claim.
+6. Before finalizing, append and answer a five-dimension self-review question list.
 
-      const figurePlaceholders = isMeta
-        ? `\\begin{figure*}[ht]\n  \\centering\n  \\includegraphics[width=\\textwidth]{forest_plot}\n  \\caption{Forest plot of pooled effect estimates.}\n\\end{figure*}\n\n\\begin{figure}[ht]\n  \\centering\n  \\includegraphics[width=0.5\\textwidth]{funnel_plot}\n  \\caption{Funnel plot assessing publication bias.}\n\\end{figure}\n\n\\begin{figure}[ht]\n  \\centering\n  \\includegraphics[width=0.5\\textwidth]{robvis_traffic_light}\n  \\caption{Risk-of-bias traffic-light plot (${robLabel}).}\n\\end{figure}`
-        : `\\begin{figure}[ht]\n  \\centering\n  \\includegraphics[width=0.5\\textwidth]{robvis_traffic_light}\n  \\caption{Risk-of-bias traffic-light plot (${robLabel}).}\n\\end{figure}`;
+## Review Type: ${reviewTypeLabel}
 
-      const manuscript = `# ${reviewTypeLabel}: ${topic}
+${reviewRequirements ? `USER-SPECIFIC REQUIREMENTS:\n${reviewRequirements}\n` : ""}
+${synthesisInstructions ? `SYNTHESIS INSTRUCTIONS:\n${synthesisInstructions}\n` : ""}
+
+## Evidence Summary
+
+STUDIES INCLUDED: ${papersForSynthesis.length}
+YEAR RANGE: ${yearMin}–${yearMax}
+STUDY TYPES: ${studyTypes.join(", ") || "mixed"}
+DATABASES: ${databases.join(", ") || selectedDbs.join(", ")}
+RISK-OF-BIAS TOOL: ${robLabel}
+RoB SUMMARY: Low ${robSummary.low}, Some/Moderate ${robSummary.some}, High ${robSummary.high}, Pending ${robSummary.pending}
+
+${isMeta ? "META-ANALYSIS: Use random-effects model (DerSimonian-Laird). Report I², τ², and GRADE certainty." : "NARRATIVE SYNTHESIS: Thematic organization following awesome-evidence-synthesis principles."}
+
+EXTRACTED STUDIES:
+${papersForSynthesis.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. Type: ${p.studyType}. Database: ${p.database}. Outcome: ${p.outcome || "As reported"}. RoB: ${robAssessments[p.id]?.overall || "Pending"}.${p.notes ? ` Notes: ${p.notes}` : ""}`).join("\n\n")}
+
+${synthesisOutput ? `SYNTHESIS OUTPUT:\n${synthesisOutput}\n` : ""}
+${effectSizes.length > 0 ? `EFFECT SIZE TABLE:\n${effectSizes.map((r, i) => `${i + 1}. ${r.study}: Effect = ${r.effect}, 95% CI = ${r.ci}, Weight = ${r.weight}`).join("\n")}\n` : ""}
+
+## OUTPUT FORMAT
+
+Generate a complete, publication-ready manuscript in Markdown. Follow this exact structure:
+
+# ${reviewTypeLabel}: ${topic}
 
 ## Title Page
 **Manuscript type:** ${reviewTypeLabel}
@@ -999,185 +1035,128 @@ OUTPUT FORMAT:
 **Date:** ${new Date().toISOString().split("T")[0]}
 **PRISMA 2020 compliant:** Yes
 **Registration:** Not applicable / PROSPERO CRDXXXXXXXX
+**Writing methodology:** Research-Paper-Writing-Skills + OpenClaw scientific-writing
 
 ---
 
 ## Abstract
 
-The ${reviewTypeLabel.toLowerCase()} examined ${topic}. A systematic search of ${databases.join(", ") || selectedDbs.join(", ")} identified ${totalRecords} records, yielding ${included} studies for synthesis. ${isMeta ? "A random-effects meta-analysis was performed using metafor (R)." : "A narrative synthesis was conducted following awesome-evidence-synthesis principles."} ${robSummary.low} studies demonstrated low risk of bias, ${robSummary.some} some concerns, and ${robSummary.high} high risk. The pooled ${isMeta ? "estimate (not yet computed)" : "thematic findings"} suggests [direction] for [outcome]. These findings should be interpreted alongside the GRADE certainty assessment and PRISMA 2020 reporting standards. Results highlight [key implication] and recommend [action].
+[Background (2-3 sentences). Methods (3-4 sentences): databases, search strategy, inclusion criteria, quality assessment approach. Results (3-4 sentences): number of studies, key findings, effect direction if meta-analysis. Conclusion (1-2 sentences). Keep within 250-300 words.]
 
-**Keywords:** ${[topic, reviewTypeLabel.toLowerCase(), ...studyTypes].sort().join(", ")}, evidence synthesis, PRISMA 2020, GRADE, robvis
+**Keywords:** ${[topic, reviewTypeLabel.toLowerCase(), ...studyTypes].sort().join(", ")}, evidence synthesis, PRISMA 2020, GRADE
 
 ---
 
 ## 1. Introduction
 
 ### 1.1 Background and Context
-${topic} represents an important area of [field]. Despite existing research, key questions remain unanswered regarding [specific gap]. Prior reviews have synthesized evidence on related topics, yet methodological limitations reduce confidence in current conclusions.
+[Use Research-Paper-Writing-Skills paragraph-clarity principles: one paragraph = one message. First sentence states the paragraph message. Define new terms before reusing them. Maintain sentence-to-sentence flow with clear relations (cause, contrast, consequence, refinement).]
 
 ### 1.2 Rationale
-This ${reviewTypeLabel.toLowerCase()} was conducted to address the evidence gap identified above. The problem/gap/hook heuristic guides the narrative: the problem is [state problem], the gap is [identify missing evidence], and the hook is [explain why this review matters now].
+[State the problem, identify the gap in evidence, and explain why this review matters now.]
 
 ### 1.3 Objectives
-The primary objective was to synthesize evidence on ${topic}. Secondary objectives included assessing risk of bias, evaluating certainty of evidence via GRADE, and mapping heterogeneity across study designs.
+[State primary and secondary objectives clearly.]
 
 ---
 
-## 2. Related Works
+## 2. Related Works / Background
 
-${relatedWorksBlock.replace(/\n\n/g, "\n\n")}
-
-**Overall limitation:** Existing reviews typically lack standardized risk-of-bias assessment, GRADE certainty ratings, and PRISMA 2020-compliant reporting. None integrate robvis-domain-level judgments with meta-analytic pooling, limiting interpretability of bias patterns.
+[Synthesize prior work thematically, not study-by-study. Use Vancouver-style inline citations (Author Year) matching the numbered references below. Aim for 2-4 citations per paragraph.]
 
 ---
 
-## 3. Proposed System Design
+## 3. Methods
 
-### 3.1 Methodological Approach
-${methodologyParagraph}
+### 3.1 Search Strategy
+[Databases searched: ${databases.join(", ") || selectedDbs.join(", ")}. Search strings, date range, Boolean logic.]
 
-### 3.2 Rationale for Methods
-The selected methods align with the review objectives. Systematic searching ensures comprehensive coverage; duplicate screening minimizes selection bias; robvis-domain assessments provide granular bias profiles; and ${isMeta ? "random-effects meta-analysis accounts for expected between-study heterogeneity." : "narrative synthesis captures diverse evidence without inappropriate statistical pooling."}
+### 3.2 Inclusion / Exclusion Criteria
+[PICO-framed criteria: Population, Intervention/Exposure, Comparator, Outcomes.]
 
-### 3.3 Quality Assurance
-Inter-rater reliability was calculated using Cohen's kappa (κ). Discrepancies were resolved by consensus or third-reviewer adjudication. The data extraction template was piloted on a subset of studies.
+### 3.3 Quality Assessment
+[Tool: ${robLabel}. Approach: per-domain robvis methodology.]
 
----
+### 3.4 PRISMA Flow
+[Identification: ${totalRecords} → Deduplication: ${deduped} → Screening: ${screened} → Assessed: ${assessed} → Included: ${included}]
 
-## 4. Results and Discussions
-
-### 4.1 Experimental / Synthesis Results
-${resultsOverview}
-
-${figurePlaceholders}
-
-### 4.2 Discussion of Findings
-${discussionImplications}
-
-The pooled or narrative findings extend prior work by [specific contribution]. ${isMeta ? "Statistical heterogeneity (I² = XX%) informed subgroup analyses." : "Thematic mapping revealed consistent patterns across study designs."} The GRADE assessment rated the certainty of evidence as [moderate], primarily downgraded for risk of bias and inconsistency.
+${isMeta ? "### 3.5 Synthesis Methods\n[Random-effects meta-analysis (DerSimonian-Laird). Heterogeneity: I², τ². Certainty: GRADE.]" : "### 3.5 Synthesis Methods\n[Narrative/thematic synthesis following awesome-evidence-synthesis principles: coding, theme development, and mapping.]"}
 
 ---
 
-## 5. Conclusion
+## 4. Results
 
-${conclusionPara1}
+### 4.1 Study Characteristics
+[Describe the evidence base: ${papersForSynthesis.length} studies, ${yearMin}–${yearMax}, ${studyTypes.join(", ").toLowerCase()}. Organize thematically.]
 
-${conclusionPara2}
+### 4.2 Thematic Synthesis
+[For each theme: summarize convergent findings, highlight divergent results, identify the strongest evidence tier.]
+
+### 4.3 Meta-analysis (if applicable)
+[Pooled estimates, heterogeneity statistics, forest plot description.]
+
+### 4.4 Risk of Bias
+[Summarize robvis domain-level judgments: Low ${robSummary.low}, Some/Moderate ${robSummary.some}, High ${robSummary.high}.]
+
+---
+
+## 5. Discussion
+
+[Interpret findings in context. Acknowledge limitations explicitly. Identify future directions. Keep terminology stable.]
+
+---
+
+## 6. Conclusion
+
+[Concise take-home messages. Recommendations for clinicians, researchers, and policymakers.]
 
 ---
 
 ## References
 
-Arrange in order of appearance: Introduction → Related Works → Methods → Results.
+[Arrange in order of appearance. Use Vancouver style: Author(s). Title. Journal. Year;Volume(Issue):Pages. doi:DOI]
 
-1. Page MJ, McKenzie JE, Bossuyt PM, et al. The PRISMA 2020 statement. *BMJ*. 2021;372:n71.
-2. [Add references from Related Works in citation order...]
-3. [Continue adding references as cited...]
-
----
-
-## Supplementary Materials
-
-- **Table S1.** Search strategies by database
-- **Table S2.** Excluded studies with reasons for exclusion
-- **Table S3.** Data extraction template
-- **Figure S1.** robvis traffic-light plot (${robLabel})
-- **Figure S2.** Funnel plot (if meta-analysis)
-- **Figure S3.** Forest plot (if meta-analysis)
-- **GRADE evidence profile** (if applicable)
+1. Page MJ, McKenzie JE, Bossuyt PM, et al. The PRISMA 2020 statement. BMJ. 2021;372:n71.
+${papersForSynthesis.slice(0, 8).map((p, i) => `${i + 2}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || p.database}.${p.doi ? ` doi:${p.doi}` : ""}`).join("\n")}
 
 ---
 
-## Email Templates
+## Self-Review Checklist (Research-Paper-Writing-Skills)
 
-### Template 1 — Request to Accept the Research Paper
+Before finalizing, answer these five questions:
 
-**From**  
-[Author Name],  
-Department of [Department],  
-[Institution],  
-[Address].
+1. **Contribution**: What is the single most important contribution of this review?
+2. **Writing clarity**: Does every paragraph have one explicit message stated in the first sentence?
+3. **Experimental strength**: Are all major claims in the Abstract and Introduction supported by the evidence?
+4. **Evaluation completeness**: Have all included studies been accounted for in the synthesis?
+5. **Method design soundness**: Is the review methodology transparent and reproducible?
 
-**To,**  
-The Reviewers,  
-[Conference Name],  
-[Conference Location]
-
-Respected Sir/Madam,
-
-Subject: Requesting acceptance of the research paper titled "[Title]"
-
-With reference to the above subject, the manuscript has been prepared in accordance with the conference formatting guidelines. All figures, tables, captions, margins, fonts, and references have been verified. The manuscript is attached for kind consideration. The authors look forward to receiving the reviewers' feedback at the earliest.
-
-Thank you.
-
-Yours sincerely,  
-[Author Name]  
-[Department, Institution, Address]  
-Mobile: [Number]
+**Claim-Evidence Map (sample):**
+- Claim: [main finding] | Evidence: [study/result] | Status: supported / needs evidence
 
 ---
 
-### Template 2 — Submission of Final Paper, Copyright Form & Payment Proof
+*Manuscript drafted using Research-Paper-Writing-Skills (Master-cai/Research-Paper-Writing-Skills) and OpenClaw-Medical-Skills scientific-writing methodology, aligned with PRISMA 2020, GRADE, and robvis standards.*`;
 
-**From**  
-[Author Name],  
-Department of [Department],  
-[Institution],  
-[Address].
+      const apiKey = state.geminiApiKey || state.groqApiKey;
+      if (!apiKey) {
+        setManuscript(`# ${reviewTypeLabel}: ${topic}\n\n## Abstract\n\nNo API key configured. Please add your Gemini or Groq API key in Settings to generate the AI-powered manuscript using Research-Paper-Writing-Skills methodology.\n\n## References\n\n1. Page MJ, McKenzie JE, Bossuyt PM, et al. The PRISMA 2020 statement. BMJ. 2021;372:n71.\n`);
+         setManuscriptLoading(false);
+         return;
+       }
 
-**To,**  
-The Reviewers,  
-[Conference Name],  
-[Conference Location]
+           let text: string;
+           const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
+           if (state.geminiApiKey) {
+             text = await callGemini(state.geminiApiKey, prompt, searchOptions);
+           } else if (state.groqApiKey) {
+             text = await callGroq(state.groqApiKey!, prompt, searchOptions);
+          } else {
+            throw new Error("No API key configured. Please open Settings (gear icon).");
+          }
 
-Respected Sir/Madam,
-
-Subject: Submission of Final Paper, Copyright Form & Payment Proof — Manuscript ID: [ID]
-
-The final revised manuscript, copyright transfer form, and payment proof are attached. All formatting requirements, including author name section, section headings, subheadings, margins, font styles, line spacing, figure/table captions, and references, have been verified. Kindly acknowledge receipt.
-
-Thank you.
-
-Yours sincerely,  
-[Author Name]  
-[Department, Institution, Address]  
-Mobile: [Number]
-
----
-
-### Template 3 — Voice-Over Presentation Submission
-
-**From**  
-[Author Name],  
-Department of [Department],  
-[Institution],  
-[Address].
-
-**To,**  
-The Reviewers,  
-[Conference Name],  
-[Conference Location]
-
-Respected Sir/Madam,
-
-Subject: Voice-Over PPT Submission — Manuscript ID: [ID]
-
-The paper titled "[Title]" (Manuscript ID: [ID]) has been accepted. Due to scheduling conflicts, the authors are unable to present live. A voice-recorded presentation is attached for the conference program. Kindly confirm receipt.
-
-Thank you.
-
-Yours sincerely,  
-[Author Name]  
-[Department, Institution, Address]  
-Mobile: [Number]
-
----
-
-*Manuscript drafted using the Research Paper Template (a3X3k/gist) and aligned with UNMC literature review types, Dagher & Khan (2025) systematic review guidance, awesome-evidence-synthesis workflow standards, and PRISMA 2020 reporting. Authors must verify extracted data, complete effect-size calculations in statistical software (metafor/meta/forestplot), confirm GRADE ratings, and ensure <15% similarity via proper citation before submission.*
-`;
-
-      setManuscript(manuscript);
+         const cleaned = text.replace(/```/g, "").trim();
+         setManuscript(cleaned);
     } catch (err: any) {
       setManuscript(`# Error\n\n**Failed to generate manuscript:** ${err.message || "Unknown error"}\n\nPlease complete Steps 1–5 and try again.`);
     } finally {
@@ -1311,7 +1290,7 @@ Mobile: [Number]
           <h2 className="text-xl font-bold text-white">Evidence Synthesis & Meta-analysis</h2>
         </div>
         <p className="text-sm text-blue-300 mb-6">
-          Guided workflow derived from <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a> and enhanced with <a href="https://github.com/FreedomIntelligence/OpenClaw-Medical-Skills" target="_blank" rel="noreferrer" className="text-yellow-300 underline">OpenClaw-Medical-Skills</a> (literature-review, literature-deep-research): systematic search, AI-assisted screening, structured data extraction, risk-of-bias assessment, meta-analysis, and PRISMA-compliant reporting.
+          Guided workflow derived from <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a> and enhanced with <a href="https://github.com/FreedomIntelligence/OpenClaw-Medical-Skills" target="_blank" rel="noreferrer" className="text-yellow-300 underline">OpenClaw-Medical-Skills</a> (literature-review, literature-deep-research, scientific-writing, research-paper-writing) and <a href="https://github.com/openags/paper-search-mcp" target="_blank" rel="noreferrer" className="text-yellow-300 underline">paper-search-mcp</a>: systematic search across 20+ academic databases, AI-assisted screening, structured data extraction, risk-of-bias assessment, meta-analysis, and PRISMA-compliant reporting.
         </p>
 
         <div className="flex items-center gap-2 mb-6 bg-blue-950/60 rounded-lg p-1.5 overflow-x-auto">
@@ -1519,7 +1498,7 @@ Mobile: [Number]
             <div className="bg-blue-950/40 border border-blue-900/40 rounded-lg p-4">
               <p className="text-xs text-blue-300 mb-2">Tools referenced from awesome-evidence-synthesis</p>
               <div className="flex flex-wrap gap-2">
-                {["OpenAlex", "PubMed E-utilities", "Europe PMC", "ASReview", "prismAId", "CitationChaser", "robvis", "forestplot", "PRISMA 2020"].map((t) => (
+                {["OpenAlex", "PubMed E-utilities", "Europe PMC", "paper-search-mcp (arXiv, bioRxiv, medRxiv, CORE, Semantic Scholar, OpenAlex, Zenodo, DOAJ, HAL, SSRN)", "ASReview", "prismAId", "CitationChaser", "robvis", "forestplot", "PRISMA 2020"].map((t) => (
                   <span key={t} className="text-[10px] bg-blue-900/40 text-blue-200 px-2 py-0.5 rounded-full border border-blue-800">{t}</span>
                 ))}
               </div>
@@ -2197,7 +2176,7 @@ Mobile: [Number]
                 <h3 className="text-lg font-bold text-white">Writing Review & Meta-analysis</h3>
               </div>
               <p className="text-xs text-blue-400 mb-4">
-                This step will generate the full manuscript, narrative review, or meta-analysis report based on your extracted data, risk-of-bias assessments, and synthesis outputs. AI generation requires an API key in Settings.
+                This step generates the full manuscript using <a href="https://github.com/Master-cai/Research-Paper-Writing-Skills" target="_blank" rel="noreferrer" className="text-yellow-300 underline">Research-Paper-Writing-Skills</a> (claim-evidence alignment, paragraph-flow checks, reverse outlining, adversarial self-review) combined with <a href="https://github.com/FreedomIntelligence/OpenClaw-Medical-Skills" target="_blank" rel="noreferrer" className="text-yellow-300 underline">OpenClaw-Medical-Skills scientific-writing</a> (IMRAD/PRISMA, two-stage outline-to-prose, Vancouver citations). AI generation requires an API key in Settings.
               </p>
 
               {!manuscript ? (

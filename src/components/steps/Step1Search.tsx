@@ -25,7 +25,8 @@ const STUDY_TYPES = [
 const DATABASES = [
   "PubMed", "OpenAlex", "Europe PMC", "Google Scholar",
   "WHO IRIS", "Semantic Scholar", "Shodhganga", "Prospero",
-  "ScienceDirect", "ClinicalTrials.gov", "DOAJ", "Clarivate"
+  "ScienceDirect", "ClinicalTrials.gov", "DOAJ", "Clarivate",
+  "paper-search-mcp (arXiv, bioRxiv, medRxiv, CORE, Zenodo, HAL, SSRN, Crossref, dblp, CiteSeerX, OpenAIRE, BASE)"
 ];
 
 export default function Step1Search() {

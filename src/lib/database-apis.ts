@@ -623,6 +623,11 @@ export function getOpenClawSkillDatabaseMapping(): Array<{ skill: string; suppor
       notes: "PubMed and Europe PMC provide direct API access; arXiv/bioRxiv require separate fetch layers",
     },
     {
+      skill: "paper-search-mcp",
+      supportedDatabases: ["arXiv", "PubMed", "bioRxiv", "medRxiv", "Google Scholar", "IACR", "Semantic Scholar", "Crossref", "OpenAlex", "PubMed Central (PMC)", "CORE", "Europe PMC", "dblp", "OpenAIRE", "CiteSeerX", "DOAJ", "BASE", "Zenodo", "HAL", "SSRN", "Unpaywall"],
+      notes: "Unified multi-source search via openags/paper-search-mcp (MCP server / CLI). Requires Python 3.10+; optional API keys for Semantic Scholar, CORE, DOAJ, Zenodo.",
+    },
+    {
       skill: "biomedical-search",
       supportedDatabases: ["PubMed", "bioRxiv", "medRxiv", "ClinicalTrials.gov", "FDA drug labels"],
       notes: "Requires Valyu API key for semantic search layer",

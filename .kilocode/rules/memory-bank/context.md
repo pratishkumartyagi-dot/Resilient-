@@ -1212,3 +1212,35 @@ Step 1 results now show:
 - `bun lint` ✅
 - `bun run build` ✅
 
+## paper-search-mcp & Research-Paper-Writing-Skills Integration (2026-07-08)
+
+**Feature**: Added `openags/paper-search-mcp` and `Master-cai/Research-Paper-Writing-Skills` to the skills registry and integrated them into the Evidence Synthesis & Meta-analysis pipeline.
+
+### Skills Added to Registry
+- `paper-search-mcp` — MCP server/CLI for searching 20+ academic databases (arXiv, PubMed, bioRxiv, medRxiv, Europe PMC, CORE, Semantic Scholar, OpenAlex, Zenodo, DOAJ, HAL, SSRN, etc.) with unified deduplication and open-access fallback.
+- `research-paper-writing` — Skill package for drafting/revising academic papers with claim-evidence alignment, paragraph-flow checks, reverse outlining, and adversarial self-review.
+
+### Files Modified
+- `src/lib/medical-skills/skills-registry.ts` — added `paper-search-mcp` and `research-paper-writing` entries
+- `src/lib/database-apis.ts` — added `paper-search-mcp` to `getOpenClawSkillDatabaseMapping()` with supported databases and notes
+- `src/components/tabs/EvidenceSynthesisTab.tsx` — updated Step 1 description and tool badges to reference `paper-search-mcp`; updated Step 6 manuscript generation prompt to use `Research-Paper-Writing-Skills` methodology (paragraph clarity, reverse outlining, adversarial self-review, claim-evidence map) combined with `OpenClaw-Medical-Skills scientific-writing` (IMRAD/PRISMA, Vancouver citations)
+
+### Step 1 (Search & Screening) Updates
+- Updated tab description to mention `paper-search-mcp` and its 20+ database coverage
+- Added `paper-search-mcp` to the tool reference badges alongside `OpenAlex`, `PubMed E-utilities`, `Europe PMC`
+
+### Step 6 (Writing Review & Meta-analysis) Updates
+- Replaced generic AIPOCH academic-writing prompt with `Research-Paper-Writing-Skills` methodology prompt
+- New prompt structure embeds:
+  - Core workflow: clarify story, paragraph-by-paragraph writing, reverse outlining, claim-evidence checking, adversarial review
+  - Global principles: one paragraph = one message, self-contained nouns, sentence-to-sentence flow
+  - Paper review core points: five-dimension self-review (contribution, clarity, experimental strength, evaluation completeness, method design soundness)
+  - Execution rules: mini-outline before drafting, stable terminology, weaken unsupported claims
+- Manuscript output now includes Self-Review Checklist and Claim-Evidence Map section
+- Attribution footer updated to cite both `Research-Paper-Writing-Skills` and `OpenClaw-Medical-Skills scientific-writing`
+- Manuscript generation continues to use existing Gemini/Groq providers (no new AI backend required)
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes (1 pre-existing warning in `not-found.tsx`, unrelated)
+
