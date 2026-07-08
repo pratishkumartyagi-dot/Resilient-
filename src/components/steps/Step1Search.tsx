@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { Search, Database, Filter, X } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { fetchRealPapers, generateMockLegacy, verifyCitations, enrichPapersWithDois, type Paper } from "@/lib/database-apis";
+import { fetchRealPapers, generateMockLegacy, webSearchPapers, verifyCitations, enrichPapersWithDois, type Paper } from "@/lib/database-apis";
 
 const STUDY_TYPES = [
   "All Study Types",
@@ -80,11 +80,23 @@ export default function Step1Search() {
         try {
           papers = await fetchRealPapers(localQuery, realDbs, yearFrom, yearTo, studyType);
         } catch (err: any) {
-          console.warn("Primary API fetch failed, falling back to mock/stub data:", err.message);
-          if (fallbackDbs.length === 0) {
-            dispatch({ type: "SET_ERROR", payload: `Live search failed: ${err.message}. Using simulated results.` });
+          console.warn("Primary API fetch failed, trying web fallback:", err.message);
+          try {
+            const webPapers = await webSearchPapers(localQuery, 20);
+            if (webPapers.length > 0) {
+              papers = webPapers;
+              dispatch({ type: "SET_ERROR", payload: `Database search failed: ${err.message}. Showing ${webPapers.length} results from web search fallback.` });
+            } else {
+              throw new Error("Web search returned 0 results");
+            }
+          } catch (webErr: any) {
+            const webMsg = webErr?.message || String(webErr);
+            console.warn("Web search fallback failed:", webMsg);
+            if (fallbackDbs.length === 0) {
+              dispatch({ type: "SET_ERROR", payload: `Live search failed: ${err.message}. Web fallback failed: ${webMsg}. Using simulated results.` });
+            }
+            papers = generateMockLegacy(localQuery, selectedDbs);
           }
-          papers = generateMockLegacy(localQuery, selectedDbs);
         }
       }
 

@@ -434,6 +434,13 @@ async function fetchDoaj(query: string, yearFrom?: string, yearTo?: string, stud
   return filtered;
 }
 
+const API_BASE = (() => {
+  if (typeof window !== "undefined") {
+    return `${window.location.protocol}//${window.location.hostname}:3001`;
+  }
+  return "http://localhost:3001";
+})();
+
 async function fetchPaperSearchMcp(query: string, source: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const body: Record<string, any> = {
     query,
@@ -445,7 +452,7 @@ async function fetchPaperSearchMcp(query: string, source: string, yearFrom?: str
     body.year = yearTo ? `${yearFrom}-${yearTo}` : yearFrom;
   }
 
-  const res = await fetch("/api/paper-search", {
+  const res = await fetch(`${API_BASE}/api/paper-search`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -801,6 +808,36 @@ export function generateMockLegacy(query: string, dbs: string[]): Paper[] {
     });
   }
   return papers;
+}
+
+export async function webSearchPapers(query: string, maxResults: number = 10): Promise<Paper[]> {
+  const res = await fetch("/api/web-search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, maxResults }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Web search failed: ${res.status}`);
+  }
+
+  const data = await res.json();
+  return (data.papers || []).map((p: any) => ({
+    id: p.id || `web-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    title: p.title || "Untitled",
+    authors: p.authors || "Unknown authors",
+    journal: p.journal || "Web Search",
+    year: p.year || new Date().getFullYear(),
+    doi: p.doi || "",
+    abstract: (p.abstract || "No abstract available.").substring(0, 3000),
+    database: "Web Search",
+    studyType: p.studyType || "Observational Study",
+    selected: false,
+    url: p.url,
+    sourceBackend: "Tavily Web Search",
+    sources: ["web-search"],
+  }));
 }
 
 export async function quickSearch(query: string, maxResults: number = 8): Promise<Paper[]> {

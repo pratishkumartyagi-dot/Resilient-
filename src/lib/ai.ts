@@ -10,8 +10,15 @@ export interface AICallOptions {
   searchEnabled?: boolean;
 }
 
+const API_BASE = (() => {
+  if (typeof window !== "undefined") {
+    return `${window.location.protocol}//${window.location.hostname}:3001`;
+  }
+  return "http://localhost:3001";
+})();
+
 async function postChat(provider: "gemini" | "groq", apiKey: string, prompt: string, options?: AICallOptions): Promise<{ content: string; searchPerformed: boolean }> {
-  const res = await withTimeout(fetch("/api/chat", {
+  const res = await withTimeout(fetch(`${API_BASE}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ provider, prompt, apiKey, searchQuery: options?.searchQuery, searchEnabled: options?.searchEnabled }),

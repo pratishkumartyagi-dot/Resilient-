@@ -1273,3 +1273,26 @@ Step 1 results now show:
 1. **Search**: New databases were in `DATABASES` arrays but `Step1Search.tsx` classified them as `fallbackDbs`, so `generateMockLegacy()` was called instead of `fetchRealPapers()`. Fixed by adding all new databases to the `realDbs` allowlist.
 2. **Writing**: Prompt text was updated but manuscript generation requires a Gemini/Groq API key. Without a key, the UI shows a static "No API key configured" template. With a key, the new Research-Paper-Writing-Skills prompt is used.
 
+## Web Search Fallback for Failed Database APIs (2026-07-08)
+
+**Feature**: Added web search fallback so when `paper-search-mcp` or other database APIs fail, the search falls back to Tavily web search instead of immediately returning mock data.
+
+### New API Route
+- `src/app/api/web-search/route.ts` — Tavily-backed web search that queries academic domains (PubMed, Google Scholar, DOI, arXiv, bioRxiv, medRxiv, CORE, Semantic Scholar, etc.) and normalizes results into the app's `Paper[]` format
+
+### Search Fallback Chain
+1. **Primary**: `fetchRealPapers()` via `paper-search-mcp` CLI (20+ databases)
+2. **Fallback 1**: `/api/web-search` via Tavily (academic domain filter)
+3. **Fallback 2**: `generateMockLegacy()` mock data (only if both above fail)
+
+### Files Modified
+- `src/lib/database-apis.ts` — added `webSearchPapers()` export
+- `src/components/tabs/EvidenceSynthesisTab.tsx` — updated `handleSearch()` to try web search before mock fallback
+- `src/components/steps/Step1Search.tsx` — updated `handleSearch()` to try web search before mock fallback
+- `src/lib/ai.ts` — added `API_BASE` pointing to Next.js standalone server on port 3001 for client-side API calls
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes (0 errors)
+- `bun run build` ✅ passes — `/api/web-search` registered as dynamic route
+

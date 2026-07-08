@@ -88,7 +88,7 @@ export async function POST(request: Request) {
     const year: string = body.year || "";
 
     if (!query || query.trim().length === 0) {
-      return NextResponse.json({ error: "Missing query parameter" }, { status: 400 });
+      return NextResponse.json({ error: "Missing query parameter" }, { status: 400, headers: corsHeaders() });
     }
 
     const args = [
@@ -117,7 +117,7 @@ export async function POST(request: Request) {
     } catch {
       return NextResponse.json(
         { error: "Invalid JSON from paper-search CLI", raw: stdout.slice(0, 500) },
-        { status: 500 }
+        { status: 500, headers: corsHeaders() }
       );
     }
 
@@ -134,11 +134,26 @@ export async function POST(request: Request) {
       sourceBreakdown,
       sourcesUsed: parsed.sources_used,
       errors: parsed.errors,
-    });
+    }, { headers: corsHeaders() });
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message || "Internal server error" },
-      { status: 500 }
+      { status: 500, headers: corsHeaders() }
     );
   }
+}
+
+function corsHeaders() {
+  return new Headers({
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+  });
+}
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: corsHeaders(),
+  });
 }

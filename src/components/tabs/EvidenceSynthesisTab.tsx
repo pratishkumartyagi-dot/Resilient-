@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
-import { fetchRealPapers, generateMockLegacy, type Paper } from "@/lib/database-apis";
+import { fetchRealPapers, generateMockLegacy, webSearchPapers, type Paper } from "@/lib/database-apis";
 import { downloadLiteratureReviewPDF, downloadLiteratureReviewWord } from "@/lib/exporters";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
 import {
@@ -262,15 +262,24 @@ export default function EvidenceSynthesisTab() {
       setPapers(results);
     } catch (err: any) {
       const msg = err?.message || String(err);
-      const isTotalFailure = msg.toLowerCase().includes("all databases failed") || msg.toLowerCase().includes("no papers found");
-      const mock = generateMockLegacy(query, selectedDbs);
-      setPapers(mock);
-      setSearchError(
-        isTotalFailure
-          ? `Live search failed: ${msg}. Showing ${mock.length} simulated results. Check browser DevTools Console for per-database failure details.`
-          : `Live search failed for selected sources: ${msg}. Showing ${mock.length} simulated results.`
-      );
-      console.warn("[EvidenceSynthesis] handleSearch fallback reason:", msg);
+      console.warn("[EvidenceSynthesis] Primary search failed, trying web fallback:", msg);
+      try {
+        const webPapers = await webSearchPapers(query, 20);
+        if (webPapers.length > 0) {
+          setPapers(webPapers);
+          setSearchError(`Live database search failed: ${msg}. Showing ${webPapers.length} results from web search fallback.`);
+        } else {
+          throw new Error("Web search returned 0 results");
+        }
+      } catch (webErr: any) {
+        const webMsg = webErr?.message || String(webErr);
+        const mock = generateMockLegacy(query, selectedDbs);
+        setPapers(mock);
+        setSearchError(
+          `Live search failed: ${msg}. Web search fallback also failed: ${webMsg}. Showing ${mock.length} simulated results.`
+        );
+        console.warn("[EvidenceSynthesis] Web search fallback failed:", webMsg);
+      }
     } finally {
       setLoading(false);
     }
