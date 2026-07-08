@@ -1212,35 +1212,64 @@ Step 1 results now show:
 - `bun lint` ✅
 - `bun run build` ✅
 
-## paper-search-mcp & Research-Paper-Writing-Skills Integration (2026-07-08)
+## paper-search-mcp & Research-Paper-Writing-Skills Functional Integration (2026-07-08)
 
-**Feature**: Added `openags/paper-search-mcp` and `Master-cai/Research-Paper-Writing-Skills` to the skills registry and integrated them into the Evidence Synthesis & Meta-analysis pipeline.
+**Feature**: Functional integration of `openags/paper-search-mcp` and `Master-cai/Research-Paper-Writing-Skills` into both the Research Pipeline and Evidence Synthesis & Meta-analysis pipeline. Previous attempt only added UI references and prompt text without changing runtime behavior; this update makes both tools actually functional.
 
-### Skills Added to Registry
-- `paper-search-mcp` — MCP server/CLI for searching 20+ academic databases (arXiv, PubMed, bioRxiv, medRxiv, Europe PMC, CORE, Semantic Scholar, OpenAlex, Zenodo, DOAJ, HAL, SSRN, etc.) with unified deduplication and open-access fallback.
-- `research-paper-writing` — Skill package for drafting/revising academic papers with claim-evidence alignment, paragraph-flow checks, reverse outlining, and adversarial self-review.
+### paper-search-mcp Backend Integration
 
-### Files Modified
-- `src/lib/medical-skills/skills-registry.ts` — added `paper-search-mcp` and `research-paper-writing` entries
-- `src/lib/database-apis.ts` — added `paper-search-mcp` to `getOpenClawSkillDatabaseMapping()` with supported databases and notes
-- `src/components/tabs/EvidenceSynthesisTab.tsx` — updated Step 1 description and tool badges to reference `paper-search-mcp`; updated Step 6 manuscript generation prompt to use `Research-Paper-Writing-Skills` methodology (paragraph clarity, reverse outlining, adversarial self-review, claim-evidence map) combined with `OpenClaw-Medical-Skills scientific-writing` (IMRAD/PRISMA, Vancouver citations)
+**Python package installed**: `paper-search-mcp==0.1.4` via pip. CLI command `paper-search` is available system-wide at `/usr/bin/paper-search` (via entry point).
 
-### Step 1 (Search & Screening) Updates
-- Updated tab description to mention `paper-search-mcp` and its 20+ database coverage
-- Added `paper-search-mcp` to the tool reference badges alongside `OpenAlex`, `PubMed E-utilities`, `Europe PMC`
+**New Next.js API route**: `src/app/api/paper-search/route.ts`
+- Accepts `POST` with `{ query, maxResults, sources, year }`
+- Calls `paper-search search` CLI via Node.js `child_process.exec`
+- Parses JSON output and normalizes papers into the app's `Paper[]` format
+- Returns `{ query, total, papers, sourceBreakdown, sourcesUsed, errors }`
+- Error handling surfaces CLI failures with descriptive messages
 
-### Step 6 (Writing Review & Meta-analysis) Updates
-- Replaced generic AIPOCH academic-writing prompt with `Research-Paper-Writing-Skills` methodology prompt
-- New prompt structure embeds:
-  - Core workflow: clarify story, paragraph-by-paragraph writing, reverse outlining, claim-evidence checking, adversarial review
+### Database API Expansion
+
+**File**: `src/lib/database-apis.ts`
+
+- Added `fetchPaperSearchMcp()` — calls `/api/paper-search` and normalizes results
+- Added 20+ new database entries to `fetchRealPapers` and `fetchRealPapersWithCounts` `apiDatabases` maps:
+  `arXiv`, `bioRxiv`, `medRxiv`, `CORE`, `Zenodo`, `HAL`, `SSRN`, `BASE`, `Crossref`, `OpenAIRE`, `CiteSeerX`, `dblp`, `IACR`, `Unpaywall`, `Semantic Scholar (raw)`
+- All new entries route through `fetchPaperSearchMcp()` → `/api/paper-search` → Python CLI
+- Updated `getDatabaseBackend()` to map new databases to `openags/paper-search-mcp`
+- `Step1Search.tsx` `realDbs` filter updated to include all new databases (previously they were classified as `fallbackDbs` and returned mock data — this was the root cause of "same output as before")
+
+### UI Updates
+
+**Step1Search.tsx** (Research Pipeline):
+- `DATABASES` array expanded with `paper-search-mcp` and all new source names
+- `realDbs` filter now includes all paper-search-mcp sources (no longer falls back to mock)
+- Per-database URL display updated for all new sources
+
+**EvidenceSynthesisTab.tsx**:
+- `SR_DATABASES` expanded from 12 to 27 databases
+- Step 1 description and tool badges reference `paper-search-mcp`
+- `handleSearch` passes all selected databases directly to `fetchRealPapers`
+
+### Research-Paper-Writing-Skills Manuscript Generation
+
+**EvidenceSynthesisTab.tsx `generateManuscript()`**:
+- Prompt fully rewritten with `Research-Paper-Writing-Skills` methodology from Master-cai/Research-Paper-Writing-Skills
+- Embedded methodology sections:
+  - Core workflow: clarify story → paragraph-by-paragraph writing → reverse outlining → claim-evidence check → adversarial review
   - Global principles: one paragraph = one message, self-contained nouns, sentence-to-sentence flow
   - Paper review core points: five-dimension self-review (contribution, clarity, experimental strength, evaluation completeness, method design soundness)
-  - Execution rules: mini-outline before drafting, stable terminology, weaken unsupported claims
-- Manuscript output now includes Self-Review Checklist and Claim-Evidence Map section
-- Attribution footer updated to cite both `Research-Paper-Writing-Skills` and `OpenClaw-Medical-Skills scientific-writing`
-- Manuscript generation continues to use existing Gemini/Groq providers (no new AI backend required)
+  - Execution rules: mini-outline, stable terminology, weaken unsupported claims
+- Output includes `## Self-Review Checklist` and `## Claim-Evidence Map` sections
+- Attribution footer cites both `Research-Paper-Writing-Skills` and `OpenClaw-Medical-Skills scientific-writing`
+- Uses existing Gemini/Groq providers (no new AI backend)
 
 ### Validation
 - `bun typecheck` ✅ passes
-- `bun lint` ✅ passes (1 pre-existing warning in `not-found.tsx`, unrelated)
+- `bun lint` ✅ passes (1 pre-existing unrelated warning)
+- `bun run build` ✅ passes — `/api/paper-search` registered as dynamic route
+- `paper-search search` CLI tested with `arxiv, pubmed, biorxiv` sources returning structured JSON
+
+### Root Cause of Previous "Same Output" Issue
+1. **Search**: New databases were in `DATABASES` arrays but `Step1Search.tsx` classified them as `fallbackDbs`, so `generateMockLegacy()` was called instead of `fetchRealPapers()`. Fixed by adding all new databases to the `realDbs` allowlist.
+2. **Writing**: Prompt text was updated but manuscript generation requires a Gemini/Groq API key. Without a key, the UI shows a static "No API key configured" template. With a key, the new Research-Paper-Writing-Skills prompt is used.
 

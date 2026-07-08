@@ -70,7 +70,7 @@ export default function Step1Search() {
     });
     dispatch({ type: "SET_SELECTED_DATABASES", payload: selectedDbs });
 
-    const realDbs = selectedDbs.filter((db) => ["OpenAlex", "PubMed", "Europe PMC", "ERIC", "Google Scholar", "Shodhganga", "CTRI – India", "scite.ai"].includes(db));
+    const realDbs = selectedDbs.filter((db) => ["OpenAlex", "PubMed", "Europe PMC", "ERIC", "Google Scholar", "Shodhganga", "CTRI – India", "scite.ai", "WHO IRIS", "Semantic Scholar", "ClinicalTrials.gov", "DOAJ", "Prospero", "ScienceDirect", "Clarivate", "paper-search-mcp", "arXiv", "bioRxiv", "medRxiv", "CORE", "Zenodo", "HAL", "SSRN", "BASE", "Crossref", "OpenAIRE", "CiteSeerX", "dblp", "IACR", "Unpaywall", "Semantic Scholar (raw)"].includes(db));
     const fallbackDbs = selectedDbs.filter((db) => !realDbs.includes(db));
 
     try {
@@ -276,6 +276,44 @@ export default function Step1Search() {
                     ? "https://clinicaltrials.gov/expert-search"
                     : activeDbTab === "WHO IRIS"
                     ? "apps.who.int/iris/rest/"
+                    : activeDbTab === "DOAJ"
+                    ? "https://doaj.org/"
+                    : activeDbTab === "OpenAlex"
+                    ? "https://openalex.org/"
+                    : activeDbTab === "Semantic Scholar"
+                    ? "https://www.semanticscholar.org/"
+                    : activeDbTab === "Google Scholar"
+                    ? "https://scholar.google.com/"
+                    : activeDbTab === "paper-search-mcp"
+                    ? "https://github.com/openags/paper-search-mcp"
+                    : activeDbTab === "arXiv"
+                    ? "https://arxiv.org/"
+                    : activeDbTab === "bioRxiv"
+                    ? "https://www.biorxiv.org/"
+                    : activeDbTab === "medRxiv"
+                    ? "https://www.medrxiv.org/"
+                    : activeDbTab === "CORE"
+                    ? "https://core.ac.uk/"
+                    : activeDbTab === "Zenodo"
+                    ? "https://zenodo.org/"
+                    : activeDbTab === "HAL"
+                    ? "https://hal.science/"
+                    : activeDbTab === "SSRN"
+                    ? "https://www.ssrn.com/"
+                    : activeDbTab === "BASE"
+                    ? "https://www.base-search.net/"
+                    : activeDbTab === "Crossref"
+                    ? "https://www.crossref.org/"
+                    : activeDbTab === "OpenAIRE"
+                    ? "https://www.openaire.eu/"
+                    : activeDbTab === "CiteSeerX"
+                    ? "https://citeseerx.ist.psu.edu/"
+                    : activeDbTab === "dblp"
+                    ? "https://dblp.org/"
+                    : activeDbTab === "IACR"
+                    ? "https://www.iacr.org/"
+                    : activeDbTab === "Unpaywall"
+                    ? "https://unpaywall.org/"
                     : `https://${activeDbTab.toLowerCase().replace(/\s/g, "")}.org/`}
                 </p>
               </div>

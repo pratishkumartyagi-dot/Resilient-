@@ -22,7 +22,10 @@ const INTEGRATED_EVIDENCE_SKILLS = getIntegratedSkills().filter(s => ["literatur
 const SR_DATABASES = [
   "PubMed", "OpenAlex", "Europe PMC", "Google Scholar",
   "WHO IRIS", "Semantic Scholar", "Shodhganga", "Prospero",
-  "ScienceDirect", "ClinicalTrials.gov", "DOAJ", "Clarivate"
+  "ScienceDirect", "ClinicalTrials.gov", "DOAJ", "Clarivate",
+  "paper-search-mcp", "arXiv", "bioRxiv", "medRxiv",
+  "CORE", "Zenodo", "HAL", "SSRN", "BASE", "Crossref",
+  "OpenAIRE", "CiteSeerX", "dblp", "IACR", "Unpaywall"
 ];
 
 const PIPELINE_STEPS = [
