@@ -104,7 +104,7 @@ export async function POST(request: Request) {
       args.push("-y", year);
     }
 
-    const command = `paper-search ${args.map(a => `"${a.replace(/"/g, '\\"')}"`).join(" ")}`;
+    const command = `/usr/local/bin/paper-search ${args.map(a => `"${a.replace(/"/g, '\\"')}"`).join(" ")}`;
     const { stdout, stderr } = await execAsync(command, { maxBuffer: 10 * 1024 * 1024 });
 
     if (stderr && !stderr.includes("No CORE API key") && !stderr.includes("No DOAJ API key") && !stderr.includes("UNPAYWALL_EMAIL")) {

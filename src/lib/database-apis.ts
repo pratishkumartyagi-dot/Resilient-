@@ -434,23 +434,21 @@ async function fetchDoaj(query: string, yearFrom?: string, yearTo?: string, stud
   return filtered;
 }
 
-async function fetchPaperSearchMcp(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const params = new URLSearchParams({
+async function fetchPaperSearchMcp(query: string, source: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+  const body: Record<string, any> = {
     query,
-    maxResults: "20",
-    sources: "all",
-  });
-  if (yearFrom) params.set("year", yearTo ? `${yearFrom}-${yearTo}` : yearFrom);
+    maxResults: 20,
+    sources: source === "paper-search-mcp" ? "all" : source.toLowerCase(),
+  };
+
+  if (yearFrom || yearTo) {
+    body.year = yearTo ? `${yearFrom}-${yearTo}` : yearFrom;
+  }
 
   const res = await fetch("/api/paper-search", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      query,
-      maxResults: 20,
-      sources: "all",
-      ...(yearFrom || yearTo ? { year: yearTo ? `${yearFrom}-${yearTo}` : yearFrom } : {}),
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
@@ -506,22 +504,22 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
     "Prospero": () => fetchEuropePMC(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
     "ScienceDirect": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc", filter: "host_venue:publisher:Elsevier" }),
     "Clarivate": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc", filter: "has_doi:true" }),
-    "paper-search-mcp": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "arXiv": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "bioRxiv": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "medRxiv": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "CORE": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "Zenodo": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "HAL": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "SSRN": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "BASE": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "Crossref": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "OpenAIRE": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "CiteSeerX": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "dblp": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "IACR": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "Unpaywall": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "Semantic Scholar (raw)": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
+    "paper-search-mcp": () => fetchPaperSearchMcp(query, "paper-search-mcp", yearFrom, yearTo, studyType),
+    "arXiv": () => fetchPaperSearchMcp(query, "arXiv", yearFrom, yearTo, studyType),
+    "bioRxiv": () => fetchPaperSearchMcp(query, "bioRxiv", yearFrom, yearTo, studyType),
+    "medRxiv": () => fetchPaperSearchMcp(query, "medRxiv", yearFrom, yearTo, studyType),
+    "CORE": () => fetchPaperSearchMcp(query, "CORE", yearFrom, yearTo, studyType),
+    "Zenodo": () => fetchPaperSearchMcp(query, "Zenodo", yearFrom, yearTo, studyType),
+    "HAL": () => fetchPaperSearchMcp(query, "HAL", yearFrom, yearTo, studyType),
+    "SSRN": () => fetchPaperSearchMcp(query, "SSRN", yearFrom, yearTo, studyType),
+    "BASE": () => fetchPaperSearchMcp(query, "BASE", yearFrom, yearTo, studyType),
+    "Crossref": () => fetchPaperSearchMcp(query, "Crossref", yearFrom, yearTo, studyType),
+    "OpenAIRE": () => fetchPaperSearchMcp(query, "OpenAIRE", yearFrom, yearTo, studyType),
+    "CiteSeerX": () => fetchPaperSearchMcp(query, "CiteSeerX", yearFrom, yearTo, studyType),
+    "dblp": () => fetchPaperSearchMcp(query, "dblp", yearFrom, yearTo, studyType),
+    "IACR": () => fetchPaperSearchMcp(query, "IACR", yearFrom, yearTo, studyType),
+    "Unpaywall": () => fetchPaperSearchMcp(query, "Unpaywall", yearFrom, yearTo, studyType),
+    "Semantic Scholar (raw)": () => fetchPaperSearchMcp(query, "Semantic Scholar", yearFrom, yearTo, studyType),
   };
 
   const selectedApis = databases.filter((db) => apiDatabases[db]);
@@ -598,22 +596,22 @@ export async function fetchRealPapersWithCounts(query: string, databases: string
     "Prospero": () => fetchEuropePMC(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
     "ScienceDirect": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc", filter: "host_venue:publisher:Elsevier" }),
     "Clarivate": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc", filter: "has_doi:true" }),
-    "paper-search-mcp": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "arXiv": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "bioRxiv": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "medRxiv": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "CORE": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "Zenodo": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "HAL": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "SSRN": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "BASE": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "Crossref": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "OpenAIRE": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "CiteSeerX": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "dblp": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "IACR": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "Unpaywall": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
-    "Semantic Scholar (raw)": () => fetchPaperSearchMcp(query, yearFrom, yearTo, studyType),
+    "paper-search-mcp": () => fetchPaperSearchMcp(query, "paper-search-mcp", yearFrom, yearTo, studyType),
+    "arXiv": () => fetchPaperSearchMcp(query, "arXiv", yearFrom, yearTo, studyType),
+    "bioRxiv": () => fetchPaperSearchMcp(query, "bioRxiv", yearFrom, yearTo, studyType),
+    "medRxiv": () => fetchPaperSearchMcp(query, "medRxiv", yearFrom, yearTo, studyType),
+    "CORE": () => fetchPaperSearchMcp(query, "CORE", yearFrom, yearTo, studyType),
+    "Zenodo": () => fetchPaperSearchMcp(query, "Zenodo", yearFrom, yearTo, studyType),
+    "HAL": () => fetchPaperSearchMcp(query, "HAL", yearFrom, yearTo, studyType),
+    "SSRN": () => fetchPaperSearchMcp(query, "SSRN", yearFrom, yearTo, studyType),
+    "BASE": () => fetchPaperSearchMcp(query, "BASE", yearFrom, yearTo, studyType),
+    "Crossref": () => fetchPaperSearchMcp(query, "Crossref", yearFrom, yearTo, studyType),
+    "OpenAIRE": () => fetchPaperSearchMcp(query, "OpenAIRE", yearFrom, yearTo, studyType),
+    "CiteSeerX": () => fetchPaperSearchMcp(query, "CiteSeerX", yearFrom, yearTo, studyType),
+    "dblp": () => fetchPaperSearchMcp(query, "dblp", yearFrom, yearTo, studyType),
+    "IACR": () => fetchPaperSearchMcp(query, "IACR", yearFrom, yearTo, studyType),
+    "Unpaywall": () => fetchPaperSearchMcp(query, "Unpaywall", yearFrom, yearTo, studyType),
+    "Semantic Scholar (raw)": () => fetchPaperSearchMcp(query, "Semantic Scholar", yearFrom, yearTo, studyType),
   };
 
   const selectedApis = databases.filter((db) => apiDatabases[db]);
