@@ -220,6 +220,8 @@ export default function EvidenceSynthesisTab() {
   const [robSelectedPaperIds, setRobSelectedPaperIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [dbSearchStatus, setDbSearchStatus] = useState<Record<string, number>>({});
+  const [failedDatabases, setFailedDatabases] = useState<string[]>([]);
   const [extractedData, setExtractedData] = useState<any[]>([]);
   const [robAssessments, setRobAssessments] = useState<Record<string, RobAssessment>>({});
   const [robTool, setRobTool] = useState<string>("ROB2");
@@ -259,8 +261,29 @@ export default function EvidenceSynthesisTab() {
     setSelectedPaperIds(new Set());
     setSearchError(null);
     try {
-      const results = await fetchRealPapers(query, selectedDbs, yearFrom, yearTo, studyTypeFilter === "All Study Types" ? undefined : studyTypeFilter);
-      setPapers(results);
+      const res = await fetch("/api/literature-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query,
+          databases: selectedDbs,
+          yearFrom: yearFrom || undefined,
+          yearTo: yearTo || undefined,
+          studyType: studyTypeFilter === "All Study Types" ? undefined : studyTypeFilter,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || `Search failed with status ${res.status}`);
+      }
+      const data = await res.json();
+      setPapers(data.papers || []);
+      setDbSearchStatus(data.sourceBreakdown || {});
+      setFailedDatabases(data.failedDatabases || []);
+      if (data.errors && Object.keys(data.errors).length > 0) {
+        const errorEntries = Object.entries(data.errors).map(([db, msg]) => `${db}: ${msg}`).join("; ");
+        setSearchError(`Partial search failure: ${errorEntries}`);
+      }
     } catch (err: any) {
       const msg = err?.message || String(err);
       console.warn("[EvidenceSynthesis] Primary search failed, trying web fallback:", msg);
@@ -559,7 +582,12 @@ export default function EvidenceSynthesisTab() {
   };
 
   const saveRobAssessments = () => {
-    alert("Risk of Bias assessments saved locally.");
+    try {
+      localStorage.setItem("resilient_rob_assessments", JSON.stringify(robAssessments));
+      alert("Risk of Bias assessments saved locally.");
+    } catch {
+      alert("Risk of Bias assessments saved in session.");
+    }
   };
 
   const runExtraction = () => {
@@ -834,14 +862,6 @@ At the end, include a References section with all papers in Vancouver style:
     }));
 
   const prompt = `You are an expert evidence synthesis researcher using methods from the awesome-evidence-synthesis toolkit (metafor, meta, metaumbrella, robvis, PRISMA 2020).
-
-REVIEW TYPE: ${reviewType}
-
-USER REQUIREMENTS:
-${reviewRequirements || "No specific requirements provided."}
-
-SYNTHESIS INSTRUCTIONS:
-${synthesisInstructions || "Use standard systematic review methodology appropriate for the review type."}
 
 REVIEW TYPE: ${reviewType}
 
@@ -1468,7 +1488,7 @@ Before finalizing, answer these five questions:
                     <p className="text-sm text-blue-300">{papers.length} records • {displayPapers.length} after filters • {selectedPaperIds.size} selected</p>
                     <span className="text-blue-700">|</span>
                     <div className="flex flex-wrap gap-1">
-                      {Object.entries(dbBreakdown).map(([db, count]) => (
+                      {Object.entries(dbSearchStatus).map(([db, count]) => (
                         <span key={db} className="text-[10px] bg-blue-900/60 text-blue-200 border border-blue-800 rounded px-1.5 py-0.5">
                           {db}: {count}
                         </span>
@@ -1479,6 +1499,11 @@ Before finalizing, answer these five questions:
                     {selectedPaperIds.size === papers.length ? "Deselect All" : "Select All"}
                   </button>
                 </div>
+                {failedDatabases.length > 0 && (
+                  <div className="bg-red-900/20 border border-red-800/40 rounded-lg p-2 text-[10px] text-red-300">
+                    <span className="font-semibold">Failed databases:</span> {failedDatabases.join(", ")} — results from these sources could not be retrieved.
+                  </div>
+                )}
                 <div className="space-y-2 max-h-[400px] overflow-y-auto">
                   {displayPapers.map((p) => (
                     <div

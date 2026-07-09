@@ -118,7 +118,12 @@ function normalizeOpenAlexWork(work: any): Paper {
   const title = work.title || `Untitled (${work.id?.split("/").pop() || "unknown"})`;
   const authors =
     work.authorships
-      ?.map((a: any) => [a.author?.display_name, (a.institutions?.map((i: any) => i.display_name) || []).join(", ")].filter(Boolean).join(" (" + ")").trim())
+      ?.map((a: any) => {
+        const name = a.author?.display_name;
+        const institutions = (a.institutions?.map((i: any) => i.display_name) || []).filter(Boolean).join(", ");
+        if (!name) return null;
+        return institutions ? `${name} (${institutions})` : name;
+      })
       .filter(Boolean)
       .join(", ") || "Unknown authors";
 
@@ -155,7 +160,7 @@ interface OpenAlexOptions {
   filter?: string;
 }
 
-async function fetchOpenAlex(
+export async function fetchOpenAlex(
   query: string,
   yearFrom?: string,
   yearTo?: string,
@@ -215,7 +220,7 @@ async function fetchOpenAlex(
 // Re-export STUDY_TYPES for backward compatibility
 export const STUDY_TYPES = Object.keys(STUDY_TYPE_KEYWORDS);
 
-async function fetchPubMed(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+export async function fetchPubMed(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const dateParts: string[] = [];
   if (yearFrom) dateParts.push(`(${yearFrom}[Date - Publication] : ${yearTo || new Date().getFullYear()}[Date - Publication])`);
   const pubDateFilter = dateParts.join(" AND ");
@@ -314,7 +319,7 @@ async function fetchWithTimeout(url: string, ms = 20000): Promise<Response> {
   }
 }
 
-async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+export async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const yearFilter = yearFrom || yearTo ? `(FIRST_DATE:[${yearFrom || "1000"} TO ${yearTo || "9999"}]) AND ` : "";
   const papers: Paper[] = [];
   let cursorMark: string | undefined;
@@ -384,7 +389,7 @@ async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string,
   return deduped;
 }
 
-async function fetchDoaj(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+export async function fetchDoaj(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const qs = new URLSearchParams({
     search: query,
     pageSize: "100",
@@ -415,6 +420,8 @@ async function fetchDoaj(query: string, yearFrom?: string, yearTo?: string, stud
       studyType: classifyStudyType(title, abstract),
       selected: false,
       url: doi ? `https://doi.org/${doi}` : r.id,
+      sourceBackend: "DOAJ API",
+      sources: ["DOAJ"],
     };
   });
 
@@ -439,7 +446,7 @@ const API_BASE =
     ? window.location.origin
     : "http://localhost:3000";
 
-async function fetchPaperSearchMcp(query: string, source: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+export async function fetchPaperSearchMcp(query: string, source: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const body: Record<string, any> = {
     query,
     maxResults: 20,
@@ -665,7 +672,7 @@ function getDatabaseBackend(uiDatabase: string): string {
     "WHO IRIS": "Europe PMC REST API",
     "Semantic Scholar": "OpenAlex API",
     "ClinicalTrials.gov": "Europe PMC REST API",
-    "DOAJ": "OpenAlex API",
+    "DOAJ": "DOAJ API",
     "Prospero": "Europe PMC REST API",
     "ScienceDirect": "OpenAlex API",
     "Clarivate": "OpenAlex API",
@@ -689,7 +696,7 @@ function getDatabaseBackend(uiDatabase: string): string {
   return mapping[uiDatabase] || uiDatabase;
 }
 
-function deduplicatePapers(papers: Paper[]): Paper[] {
+export function deduplicatePapers(papers: Paper[]): Paper[] {
   const seen = new Map<string, Paper>();
 
   papers.forEach((paper) => {

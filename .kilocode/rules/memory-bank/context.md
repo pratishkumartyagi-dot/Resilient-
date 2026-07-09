@@ -1296,3 +1296,40 @@ Step 1 results now show:
 - `bun lint` ✅ passes (0 errors)
 - `bun run build` ✅ passes — `/api/web-search` registered as dynamic route
 
+## Evidence Synthesis Step 1 — Server-side Proxy + Pipeline Audit Fixes (2026-07-09)
+
+**Feature**: Added server-side proxy route `/api/literature-search` to eliminate CORS failures when searching external literature databases from the Evidence Synthesis & Meta-analysis tab. Previously, browser-side `fetchRealPapers()` called OpenAlex, PubMed, Europe PMC, DOAJ, etc. directly from the client; DOAJ and some other sources lack CORS headers, causing silent failures where only PubMed returned results.
+
+### New API Route
+- `src/app/api/literature-search/route.ts` — server-side proxy that accepts `{ query, databases, yearFrom, yearTo, studyType }`, fans out to all selected databases using the existing fetchers, deduplicates, enriches DOIs, and returns `{ papers, sourceBreakdown, sourcesUsed, errors, failedDatabases, dedupedCount, totalBeforeDedup }`
+
+### Client Changes
+- `src/components/tabs/EvidenceSynthesisTab.tsx`:
+  - `handleSearch` now calls `/api/literature-search` instead of `fetchRealPapers` directly
+  - Added state: `dbSearchStatus` (per-db result counts) and `failedDatabases`
+  - UI shows per-database counts after search, plus a red banner listing failed databases
+  - Web/mock fallback chain preserved for complete search failure
+
+### Database API Fixes
+- `src/lib/database-apis.ts`:
+  - Exported individual fetchers: `fetchOpenAlex`, `fetchPubMed`, `fetchEuropePMC`, `fetchDoaj`, `fetchPaperSearchMcp` — so the API route can call them server-side
+  - Exported `deduplicatePapers`
+  - Fixed `normalizeOpenAlexWork` author formatting bug: `.join(" (" + ")")` → proper `Author (Institution)` formatting
+  - Fixed `getDatabaseBackend("DOAJ")` mapping: was incorrectly mapped to `"OpenAlex API"`; now returns `"DOAJ API"`
+  - DOAJ normalization now includes `sourceBackend` and `sources` fields matching `Paper` interface
+
+### Step 4 LitLLM Integration
+- `src/lib/local-synthesis.ts`:
+  - Added `generateLitLLMSynthesis()` implementing LitLLM-style plan-based generation: keyword extraction → multi-strategy scoring → attribution-based re-ranking → review-type-specific structured output
+  - Supports all 8 review types (Systematic Review, Systematic Review & Meta-analysis, Narrative Review, Umbrella Review, Scoping Review, Rapid Review, Mixed Methods Review, Diagnostic Test Accuracy Review)
+  - `EvidenceSynthesisTab.tsx` Step 4 local synthesis fallback now calls `generateLitLLMSynthesis` instead of `generateLocalSynthesis`
+
+### Pipeline Audit Fixes (Steps 2–6)
+- Step 3: `saveRobAssessments` now persists assessments to `localStorage` instead of only showing `alert()`
+- Step 4: Deduplicated prompt blocks in `generateSynthesis` — `REVIEW TYPE`, `USER REQUIREMENTS`, and `SYNTHESIS INSTRUCTIONS` were each appearing twice
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes
+- `bun run build` ✅ passes — `/api/literature-search` registered as dynamic route
+
