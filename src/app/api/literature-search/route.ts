@@ -58,46 +58,55 @@ export async function POST(request: Request) {
     }
 
     const apiMap: Record<string, (() => Promise<any[]>) | undefined> = {
-      OpenAlex: () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
-      PubMed: () => fetchPubMed(query, yearFrom, yearTo, studyType),
+      "PubMed": () => fetchPubMed(query, yearFrom, yearTo, studyType),
+      "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
       "Europe PMC": () => fetchEuropePMC(query, yearFrom, yearTo, studyType),
-      ERIC: () => fetchEuropePMC(`education research ${query}`, yearFrom, yearTo, studyType),
       "Google Scholar": () => fetchOpenAlex(`scholarly articles ${query}`, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
-      Shodhganga: () => fetchOpenAlex(`theses dissertations ${query}`, yearFrom, yearTo, studyType, { filter: "type:dissertation,authorships.institutions.country_code:IN" }),
-      "CTRI – India": () => fetchEuropePMC(`clinical trials India ${query}`, yearFrom, yearTo, studyType),
-      "scite.ai": () => fetchOpenAlex(`${query} citation analysis`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
       "WHO IRIS": () => fetchEuropePMC(`WHO health guidelines ${query}`, yearFrom, yearTo, studyType),
       "Semantic Scholar": () => fetchOpenAlex(`AI machine learning ${query}`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
       "ClinicalTrials.gov": () => fetchEuropePMC(`clinical trials registry ${query}`, yearFrom, yearTo, studyType),
-      DOAJ: () => fetchDoaj(query, yearFrom, yearTo, studyType),
-      Prospero: () => fetchEuropePMC(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
-      ScienceDirect: () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc", filter: "host_venue:publisher:Elsevier" }),
-      Clarivate: () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc", filter: "has_doi:true" }),
+      "Shodhganga": () => fetchOpenAlex(`theses dissertations ${query}`, yearFrom, yearTo, studyType, { filter: "type:dissertation,authorships.institutions.country_code:IN" }),
+      "Prospero": () => fetchEuropePMC(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
+      "ScienceDirect": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc", filter: "host_venue:publisher:Elsevier" }),
+      "Clarivate": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc", filter: "has_doi:true" }),
+      "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
+      "arXiv": () => fetchPaperSearchMcp(query, "arXiv", yearFrom, yearTo, studyType),
+      "bioRxiv": () => fetchPaperSearchMcp(query, "bioRxiv", yearFrom, yearTo, studyType),
+      "medRxiv": () => fetchPaperSearchMcp(query, "medRxiv", yearFrom, yearTo, studyType),
+      "CORE": () => fetchPaperSearchMcp(query, "CORE", yearFrom, yearTo, studyType),
+      "Zenodo": () => fetchPaperSearchMcp(query, "Zenodo", yearFrom, yearTo, studyType),
+      "HAL": () => fetchPaperSearchMcp(query, "HAL", yearFrom, yearTo, studyType),
+      "SSRN": () => fetchPaperSearchMcp(query, "SSRN", yearFrom, yearTo, studyType),
+      "BASE": () => fetchPaperSearchMcp(query, "BASE", yearFrom, yearTo, studyType),
+      "Crossref": () => fetchPaperSearchMcp(query, "Crossref", yearFrom, yearTo, studyType),
+      "OpenAIRE": () => fetchPaperSearchMcp(query, "OpenAIRE", yearFrom, yearTo, studyType),
+      "CiteSeerX": () => fetchPaperSearchMcp(query, "CiteSeerX", yearFrom, yearTo, studyType),
+      "dblp": () => fetchPaperSearchMcp(query, "dblp", yearFrom, yearTo, studyType),
+      "IACR": () => fetchPaperSearchMcp(query, "IACR", yearFrom, yearTo, studyType),
+      "Unpaywall": () => fetchPaperSearchMcp(query, "Unpaywall", yearFrom, yearTo, studyType),
+      "ERIC": () => fetchEuropePMC(`education research ${query}`, yearFrom, yearTo, studyType),
+      "CTRI – India": () => fetchEuropePMC(`clinical trials India ${query}`, yearFrom, yearTo, studyType),
+      "scite.ai": () => fetchOpenAlex(`${query} citation analysis`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
       "paper-search-mcp": () => fetchPaperSearchMcp(query, "paper-search-mcp", yearFrom, yearTo, studyType),
-      arXiv: () => fetchPaperSearchMcp(query, "arXiv", yearFrom, yearTo, studyType),
-      bioRxiv: () => fetchPaperSearchMcp(query, "bioRxiv", yearFrom, yearTo, studyType),
-      medRxiv: () => fetchPaperSearchMcp(query, "medRxiv", yearFrom, yearTo, studyType),
-      CORE: () => fetchPaperSearchMcp(query, "CORE", yearFrom, yearTo, studyType),
-      Zenodo: () => fetchPaperSearchMcp(query, "Zenodo", yearFrom, yearTo, studyType),
-      HAL: () => fetchPaperSearchMcp(query, "HAL", yearFrom, yearTo, studyType),
-      SSRN: () => fetchPaperSearchMcp(query, "SSRN", yearFrom, yearTo, studyType),
-      BASE: () => fetchPaperSearchMcp(query, "BASE", yearFrom, yearTo, studyType),
-      Crossref: () => fetchPaperSearchMcp(query, "Crossref", yearFrom, yearTo, studyType),
-      OpenAIRE: () => fetchPaperSearchMcp(query, "OpenAIRE", yearFrom, yearTo, studyType),
-      CiteSeerX: () => fetchPaperSearchMcp(query, "CiteSeerX", yearFrom, yearTo, studyType),
-      dblp: () => fetchPaperSearchMcp(query, "dblp", yearFrom, yearTo, studyType),
-      IACR: () => fetchPaperSearchMcp(query, "IACR", yearFrom, yearTo, studyType),
-      Unpaywall: () => fetchPaperSearchMcp(query, "Unpaywall", yearFrom, yearTo, studyType),
       "Semantic Scholar (raw)": () => fetchPaperSearchMcp(query, "Semantic Scholar", yearFrom, yearTo, studyType),
     };
 
     const selectedApis = databases.filter((db) => apiMap[db]);
+    const skippedDatabases = databases.filter((db) => !apiMap[db]);
 
     const allPapers: any[] = [];
     const perDatabaseResults: PerDatabaseResult[] = [];
     const perDatabaseErrors: Record<string, string> = {};
     const succeeded: string[] = [];
     const failed: string[] = [];
+
+    if (skippedDatabases.length > 0) {
+      skippedDatabases.forEach((db) => {
+        perDatabaseResults.push({ database: db, status: "failed", count: 0, error: "No fetcher mapped" });
+        perDatabaseErrors[db] = "No fetcher mapped for this database";
+        failed.push(db);
+      });
+    }
 
     const results = await Promise.allSettled(
       selectedApis.map(async (db): Promise<PerDatabaseResult & { papers?: any[] }> => {
@@ -143,14 +152,19 @@ export async function POST(request: Request) {
           failed.push(database);
           perDatabaseErrors[database] = error || "Unknown error";
         }
+      } else if (result.status === "rejected") {
+        const reason = result.reason;
+        const dbName = reason?.database || "unknown";
+        const errorMsg = reason?.message || String(reason);
+        perDatabaseResults.push({ database: dbName, status: "failed", count: 0, error: errorMsg });
+        perDatabaseErrors[dbName] = errorMsg;
+        failed.push(dbName);
       }
     }
 
     const selectedWithResults = perDatabaseResults.filter((r) => r.status === "success");
     const selectedWithoutResults = perDatabaseResults.filter((r) => r.status === "empty");
     const selectedFailed = perDatabaseResults.filter((r) => r.status === "failed");
-
-    const skippedDatabases = databases.filter((db) => !selectedApis.includes(db));
 
     const totalBeforeDedup = allPapers.length;
     const deduped = deduplicatePapers(allPapers);
@@ -170,7 +184,7 @@ export async function POST(request: Request) {
         skippedReason: skippedDatabases.length > 0 ? "No fetcher mapped for selected database(s)" : undefined,
         perDatabaseResults: perDatabaseResults.map((r) => ({ database: r.database, status: r.status, count: r.count, error: r.error })),
         databasesRequested: databases.length,
-        databasesProcessed: selectedApis.length,
+        databasesProcessed: selectedApis.length + skippedDatabases.length,
         databasesSucceeded: selectedWithResults.length,
         databasesEmpty: selectedWithoutResults.length,
         databasesFailed: selectedFailed.length,
