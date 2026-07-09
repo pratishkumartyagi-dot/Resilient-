@@ -247,11 +247,20 @@ export default function EvidenceSynthesisTab() {
   const [yearTo, setYearTo] = useState("");
   const [searchLogic, setSearchLogic] = useState("AND");
   const [studyTypeFilter, setStudyTypeFilter] = useState("All Study Types");
+  const [perDatabaseResults, setPerDatabaseResults] = useState<Array<{ database: string; status: string; count: number; error?: string }>>([]);
 
   const toggleDb = (db: string) => {
     setSelectedDbs((prev) =>
       prev.includes(db) ? prev.filter((d) => d !== db) : [...prev, db]
     );
+  };
+
+  const selectAllDbs = () => {
+    setSelectedDbs([...SR_DATABASES]);
+  };
+
+  const deselectAllDbs = () => {
+    setSelectedDbs([]);
   };
 
   const handleSearch = async () => {
@@ -260,6 +269,7 @@ export default function EvidenceSynthesisTab() {
     setPapers([]);
     setSelectedPaperIds(new Set());
     setSearchError(null);
+    setPerDatabaseResults([]);
     try {
       const res = await fetch("/api/literature-search", {
         method: "POST",
@@ -280,9 +290,13 @@ export default function EvidenceSynthesisTab() {
       setPapers(data.papers || []);
       setDbSearchStatus(data.sourceBreakdown || {});
       setFailedDatabases(data.failedDatabases || []);
-      if (data.errors && Object.keys(data.errors).length > 0) {
-        const errorEntries = Object.entries(data.errors).map(([db, msg]) => `${db}: ${msg}`).join("; ");
-        setSearchError(`Partial search failure: ${errorEntries}`);
+      setPerDatabaseResults(data.perDatabaseResults || []);
+      const errorEntries = Object.entries(data.errors || {}).map(([db, msg]) => `${db}: ${msg}`).join("; ");
+      const skipped = data.skippedDatabases || [];
+      const skippedMsg = skipped.length > 0 ? `Skipped: ${skipped.join(", ")} (${data.skippedReason || "not mapped"})` : "";
+      const parts = [errorEntries, skippedMsg].filter(Boolean);
+      if (parts.length > 0) {
+        setSearchError(parts.join(". ") + ".");
       }
     } catch (err: any) {
       const msg = err?.message || String(err);
@@ -1452,6 +1466,15 @@ Before finalizing, answer these five questions:
                   </button>
                 )}
               </div>
+              <div className="flex items-center gap-2 mb-2">
+                <button onClick={selectAllDbs} className="text-xs bg-blue-900/50 text-blue-200 px-3 py-1 rounded hover:bg-blue-900/70">
+                  Select All Databases
+                </button>
+                <button onClick={deselectAllDbs} className="text-xs bg-blue-900/50 text-blue-200 px-3 py-1 rounded hover:bg-blue-900/70">
+                  Deselect All
+                </button>
+                <span className="text-xs text-blue-300">{selectedDbs.length} of {SR_DATABASES.length} selected</span>
+              </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {SR_DATABASES.map((db) => (
                   <button
@@ -1488,20 +1511,53 @@ Before finalizing, answer these five questions:
                     <p className="text-sm text-blue-300">{papers.length} records • {displayPapers.length} after filters • {selectedPaperIds.size} selected</p>
                     <span className="text-blue-700">|</span>
                     <div className="flex flex-wrap gap-1">
-                      {Object.entries(dbSearchStatus).map(([db, count]) => (
-                        <span key={db} className="text-[10px] bg-blue-900/60 text-blue-200 border border-blue-800 rounded px-1.5 py-0.5">
-                          {db}: {count}
-                        </span>
-                      ))}
+                      {selectedDbs.map((db) => {
+                        const result = perDatabaseResults.find((r) => r.database === db);
+                        if (!result) {
+                          return (
+                            <span key={db} className="text-[10px] bg-blue-900/60 text-blue-200 border border-blue-800 rounded px-1.5 py-0.5">
+                              {db}: pending
+                            </span>
+                          );
+                        }
+                        if (result.status === "success") {
+                          return (
+                            <span key={db} className="text-[10px] bg-green-900/60 text-green-200 border border-green-800 rounded px-1.5 py-0.5">
+                              {db}: {result.count}
+                            </span>
+                          );
+                        }
+                        if (result.status === "empty") {
+                          return (
+                            <span key={db} className="text-[10px] bg-yellow-900/60 text-yellow-200 border border-yellow-800 rounded px-1.5 py-0.5">
+                              {db}: 0
+                            </span>
+                          );
+                        }
+                        return (
+                          <span key={db} className="text-[10px] bg-red-900/60 text-red-200 border border-red-800 rounded px-1.5 py-0.5" title={result.error || "Failed"}>
+                            {db}: failed
+                          </span>
+                        );
+                      })}
                     </div>
                   </div>
                   <button onClick={selectAll} className="text-xs bg-blue-900/50 text-blue-200 px-3 py-1 rounded hover:bg-blue-900/70">
                     {selectedPaperIds.size === papers.length ? "Deselect All" : "Select All"}
                   </button>
                 </div>
-                {failedDatabases.length > 0 && (
-                  <div className="bg-red-900/20 border border-red-800/40 rounded-lg p-2 text-[10px] text-red-300">
-                    <span className="font-semibold">Failed databases:</span> {failedDatabases.join(", ")} — results from these sources could not be retrieved.
+                {perDatabaseResults.length > 0 && (
+                  <div className="bg-blue-950/40 border border-blue-900/40 rounded-lg p-2 text-[10px] text-blue-300">
+                    <span className="font-semibold">Database summary:</span>{" "}
+                    {perDatabaseResults.filter((r) => r.status === "success").length} succeeded,{" "}
+                    {perDatabaseResults.filter((r) => r.status === "empty").length} returned 0 results,{" "}
+                    {perDatabaseResults.filter((r) => r.status === "failed").length} failed out of {selectedDbs.length} selected
+                    {perDatabaseResults.filter((r) => r.error).length > 0 && (
+                      <span className="text-red-300">
+                        {" "}
+                        — failed: {perDatabaseResults.filter((r) => r.error).map((r) => `${r.database} (${r.error})`).join(", ")}
+                      </span>
+                    )}
                   </div>
                 )}
                 <div className="space-y-2 max-h-[400px] overflow-y-auto">

@@ -34,6 +34,13 @@ export async function OPTIONS() {
   });
 }
 
+interface PerDatabaseResult {
+  database: string;
+  status: "success" | "empty" | "failed";
+  count: number;
+  error?: string;
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => ({}))) as LiteratureSearchRequestBody;
@@ -50,7 +57,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No databases selected" }, { status: 400, headers: corsHeaders() });
     }
 
-    const apiMap: Record<string, () => Promise<any[]>> = {
+    const apiMap: Record<string, (() => Promise<any[]>) | undefined> = {
       OpenAlex: () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
       PubMed: () => fetchPubMed(query, yearFrom, yearTo, studyType),
       "Europe PMC": () => fetchEuropePMC(query, yearFrom, yearTo, studyType),
@@ -61,7 +68,7 @@ export async function POST(request: Request) {
       "scite.ai": () => fetchOpenAlex(`${query} citation analysis`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
       "WHO IRIS": () => fetchEuropePMC(`WHO health guidelines ${query}`, yearFrom, yearTo, studyType),
       "Semantic Scholar": () => fetchOpenAlex(`AI machine learning ${query}`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
-      ClinicalTrials: () => fetchEuropePMC(`clinical trials registry ${query}`, yearFrom, yearTo, studyType),
+      "ClinicalTrials.gov": () => fetchEuropePMC(`clinical trials registry ${query}`, yearFrom, yearTo, studyType),
       DOAJ: () => fetchDoaj(query, yearFrom, yearTo, studyType),
       Prospero: () => fetchEuropePMC(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
       ScienceDirect: () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc", filter: "host_venue:publisher:Elsevier" }),
@@ -85,40 +92,65 @@ export async function POST(request: Request) {
     };
 
     const selectedApis = databases.filter((db) => apiMap[db]);
-    if (selectedApis.length === 0) {
-      return NextResponse.json({ error: "No supported databases selected" }, { status: 400, headers: corsHeaders() });
-    }
 
     const allPapers: any[] = [];
-    const sourceBreakdown: Record<string, number> = {};
-    const errors: Record<string, string> = {};
+    const perDatabaseResults: PerDatabaseResult[] = [];
+    const perDatabaseErrors: Record<string, string> = {};
     const succeeded: string[] = [];
     const failed: string[] = [];
 
     const results = await Promise.allSettled(
-      selectedApis.map(async (db) => {
+      selectedApis.map(async (db): Promise<PerDatabaseResult & { papers?: any[] }> => {
         const fetchFn = apiMap[db];
-        const papers = await fetchFn();
-        return { database: db, papers };
+        if (!fetchFn) {
+          return { database: db, status: "failed", count: 0, error: "No fetcher mapped" };
+        }
+        try {
+          const papers = await fetchFn();
+          return {
+            database: db,
+            status: papers.length > 0 ? "success" : "empty",
+            count: papers.length,
+            papers,
+          };
+        } catch (err: any) {
+          const message = err?.message || String(err);
+          return {
+            database: db,
+            status: "failed",
+            count: 0,
+            error: message,
+          };
+        }
       })
     );
 
     for (const result of results) {
       if (result.status === "fulfilled") {
-        const { database, papers } = result.value;
-        if (papers.length > 0) {
+        const { database, status, count, papers, error } = result.value;
+        perDatabaseResults.push({ database, status, count, error });
+        if (status === "success") {
           succeeded.push(database);
-          sourceBreakdown[database] = papers.length;
-          allPapers.push(...papers);
+          (papers || []).forEach((p: any) => {
+            if (!p.database) p.database = database;
+            p.sourceBackend = p.sourceBackend || database;
+            p.sources = Array.from(new Set([...(p.sources || []), database]));
+          });
+          allPapers.push(...(papers || []));
+        } else if (status === "empty") {
+          succeeded.push(database);
         } else {
-          succeeded.push(database);
-          sourceBreakdown[database] = 0;
+          failed.push(database);
+          perDatabaseErrors[database] = error || "Unknown error";
         }
-      } else {
-        failed.push(result.reason?.database || "unknown");
-        errors[result.reason?.database || "unknown"] = result.reason?.message || String(result.reason);
       }
     }
+
+    const selectedWithResults = perDatabaseResults.filter((r) => r.status === "success");
+    const selectedWithoutResults = perDatabaseResults.filter((r) => r.status === "empty");
+    const selectedFailed = perDatabaseResults.filter((r) => r.status === "failed");
+
+    const skippedDatabases = databases.filter((db) => !selectedApis.includes(db));
 
     const totalBeforeDedup = allPapers.length;
     const deduped = deduplicatePapers(allPapers);
@@ -130,10 +162,19 @@ export async function POST(request: Request) {
         query,
         total: enriched.length,
         papers: enriched,
-        sourceBreakdown,
+        sourceBreakdown: Object.fromEntries(selectedWithResults.map((r) => [r.database, r.count])),
         sourcesUsed: succeeded,
-        errors,
+        errors: perDatabaseErrors,
         failedDatabases: failed,
+        skippedDatabases,
+        skippedReason: skippedDatabases.length > 0 ? "No fetcher mapped for selected database(s)" : undefined,
+        perDatabaseResults: perDatabaseResults.map((r) => ({ database: r.database, status: r.status, count: r.count, error: r.error })),
+        databasesRequested: databases.length,
+        databasesProcessed: selectedApis.length,
+        databasesSucceeded: selectedWithResults.length,
+        databasesEmpty: selectedWithoutResults.length,
+        databasesFailed: selectedFailed.length,
+        databasesSkipped: skippedDatabases.length,
         dedupedCount,
         totalBeforeDedup,
       },
