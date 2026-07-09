@@ -10,6 +10,7 @@ import {
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
 import { fetchRealPapers, generateMockLegacy, webSearchPapers, type Paper } from "@/lib/database-apis";
+import { generateLocalLiteratureReview, generateLitLLMSynthesis } from "@/lib/local-synthesis";
 import { downloadLiteratureReviewPDF, downloadLiteratureReviewWord } from "@/lib/exporters";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
 import {
@@ -819,19 +820,28 @@ At the end, include a References section with all papers in Vancouver style:
     setSynthesisLoading(true);
     setSynthesisOutput("");
     try {
-      const papersForSynthesis = extractedData
-        .filter((p) => selectedPaperIds.has(p.id))
-        .map((p) => ({
-          title: p.title,
-          authors: p.authors,
-          year: p.year,
-          studyType: p.studyType,
-          outcome: p.outcome,
-          ROB: p.ROB,
-          notes: robAssessments[p.id]?.notes || "",
-        }));
+  const papersForSynthesis = extractedData
+    .filter((p) => selectedPaperIds.has(p.id))
+    .map((p) => ({
+      id: p.id,
+      title: p.title,
+      authors: p.authors,
+      year: p.year,
+      studyType: p.studyType,
+      outcome: p.outcome,
+      ROB: p.ROB,
+      notes: robAssessments[p.id]?.notes || "",
+    }));
 
-      const prompt = `You are an expert evidence synthesis researcher using methods from the awesome-evidence-synthesis toolkit (metafor, meta, metaumbrella, robvis, PRISMA 2020).
+  const prompt = `You are an expert evidence synthesis researcher using methods from the awesome-evidence-synthesis toolkit (metafor, meta, metaumbrella, robvis, PRISMA 2020).
+
+REVIEW TYPE: ${reviewType}
+
+USER REQUIREMENTS:
+${reviewRequirements || "No specific requirements provided."}
+
+SYNTHESIS INSTRUCTIONS:
+${synthesisInstructions || "Use standard systematic review methodology appropriate for the review type."}
 
 REVIEW TYPE: ${reviewType}
 
@@ -875,7 +885,13 @@ OUTPUT FORMAT:
 
       const apiKey = state.geminiApiKey || state.groqApiKey;
       if (!apiKey) {
-        const localOutput = generateLocalSynthesis();
+        const localOutput = generateLitLLMSynthesis(
+          papers.filter((p) => selectedPaperIds.has(p.id)),
+          reviewType,
+          query,
+          reviewRequirements,
+          synthesisInstructions
+        );
         setSynthesisOutput(localOutput);
         const tableLines = localOutput.split("\n").filter((l) => l.includes("|") && !l.includes("---"));
         const resultRows = tableLines.slice(1).map((l) => {
