@@ -1,86 +1,61 @@
 import { NextResponse } from "next/server";
-import { spawn } from "child_process";
 import { promisify } from "util";
+import { exec as _exec } from "child_process";
+import * as fs from "fs";
+import * as path from "path";
 
-const execAsync = promisify(require("child_process").exec);
+const execAsync = promisify(_exec);
 
 export const runtime = "nodejs";
 
-interface PaperSearchResult {
-  paper_id: string;
-  title: string;
-  authors: string;
-  abstract: string;
-  doi: string;
-  published_date: string;
-  pdf_url: string;
-  url: string;
-  source: string;
-  updated_date: string;
-  categories: string;
-  keywords: string;
-  citations: number;
-  references: string;
-  extra: string;
+const PAPER_SEARCH_CANDIDATES = [
+  process.env.PAPER_SEARCH_BIN,
+  "/usr/local/bin/paper-search",
+  "/usr/bin/paper-search",
+  "/opt/homebrew/bin/paper-search",
+  path.join(process.env.HOME || "", ".local/bin/paper-search"),
+];
+
+function findPaperSearchBinary(): string | null {
+  if (process.env.PAPER_SEARCH_BIN && process.env.PAPER_SEARCH_BIN.trim()) {
+    return process.env.PAPER_SEARCH_BIN.trim();
+  }
+  for (const candidate of PAPER_SEARCH_CANDIDATES) {
+    if (!candidate) continue;
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch {
+      // try next candidate
+    }
+  }
+  return null;
 }
 
-interface PaperSearchResponse {
-  query: string;
-  sources_used: string[];
-  source_results: Record<string, number>;
-  errors: Record<string, string>;
-  total: number;
-  papers: PaperSearchResult[];
+function corsHeaders() {
+  return new Headers({
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+  });
 }
 
-function extractYear(dateStr: string): number {
-  if (!dateStr) return 0;
-  const match = dateStr.match(/\d{4}/);
-  return match ? parseInt(match[0], 10) : 0;
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: corsHeaders(),
+  });
 }
 
-function normalizePaper(p: PaperSearchResult, database: string): {
-  id: string;
-  title: string;
-  authors: string;
-  year: number;
-  journal: string;
-  doi: string;
-  abstract: string;
-  url: string;
-  pmid?: string;
-  pmcid?: string;
-  database: string;
-  studyType: string;
-  citationCount: number;
-  source: string;
-  categories: string;
-  keywords: string;
-  pdfUrl: string;
-} {
-  const year = extractYear(p.published_date);
-  const source = p.source || database;
-  return {
-    id: `${source}-${p.paper_id}`,
-    title: p.title,
-    authors: p.authors,
-    year,
-    journal: p.categories || source,
-    doi: p.doi,
-    abstract: p.abstract,
-    url: p.url || `https://doi.org/${p.doi}`,
-    database,
-    studyType: source === "pubmed" ? "Journal Article" : source === "openalex" ? "Journal Article" : "Preprint/Article",
-    citationCount: p.citations || 0,
-    source,
-    categories: p.categories,
-    keywords: p.keywords,
-    pdfUrl: p.pdf_url,
-  };
-}
+const BINARY = findPaperSearchBinary();
 
 export async function POST(request: Request) {
   try {
+    const binary = BINARY || "paper-search";
+    if (!BINARY) {
+      console.warn("[paper-search API] binary not found in candidates:", PAPER_SEARCH_CANDIDATES.filter(Boolean).join(", "));
+    }
+
     const body = await request.json().catch(() => ({}));
     const query: string = body.query || "";
     const maxResults: number = Math.min(body.maxResults || 10, 50);
@@ -104,56 +79,56 @@ export async function POST(request: Request) {
       args.push("-y", year);
     }
 
-    const command = `/usr/local/bin/paper-search ${args.map(a => `"${a.replace(/"/g, '\\"')}"`).join(" ")}`;
+    const command = `${binary} ${args.map(a => `"${a.replace(/"/g, '\\"')}"`).join(" ")}`;
     const { stdout, stderr } = await execAsync(command, { maxBuffer: 10 * 1024 * 1024 });
 
     if (stderr && !stderr.includes("No CORE API key") && !stderr.includes("No DOAJ API key") && !stderr.includes("UNPAYWALL_EMAIL")) {
       console.warn("[paper-search API route stderr]:", stderr);
     }
 
-    let parsed: PaperSearchResponse;
+    let parsed: any;
     try {
       parsed = JSON.parse(stdout);
     } catch {
       return NextResponse.json(
-        { error: "Invalid JSON from paper-search CLI", raw: stdout.slice(0, 500) },
+        { error: "Invalid JSON from paper-search CLI", raw: stdout.slice(0, 500), binary },
         { status: 500, headers: corsHeaders() }
       );
     }
 
-    const papers = parsed.papers.map((p) => normalizePaper(p, p.source));
-    const sourceBreakdown: Record<string, number> = {};
-    for (const p of papers) {
-      sourceBreakdown[p.source] = (sourceBreakdown[p.source] || 0) + 1;
-    }
+    const papers: any[] = (parsed.papers || []).map((p: any) => {
+      const source = p.source || "unknown";
+      return {
+        id: `${source}-${p.paper_id}`,
+        title: p.title,
+        authors: p.authors,
+        year: Number.parseInt(String(p.published_date || "").slice(0, 4)) || new Date().getFullYear(),
+        journal: p.categories || source,
+        doi: p.doi,
+        abstract: p.abstract,
+        url: p.url || `https://doi.org/${p.doi}`,
+        database: source,
+        studyType: source === "pubmed" || source === "openalex" ? "Journal Article" : "Preprint/Article",
+        citationCount: Number(p.citations) || 0,
+        source,
+        categories: p.categories,
+        keywords: p.keywords,
+        pdfUrl: p.pdf_url,
+      };
+    });
 
     return NextResponse.json({
       query: parsed.query,
       total: parsed.total,
       papers,
-      sourceBreakdown,
-      sourcesUsed: parsed.sources_used,
-      errors: parsed.errors,
+      sourceBreakdown: parsed.source_results || {},
+      sourcesUsed: parsed.sources_used || [],
+      errors: parsed.errors || {},
     }, { headers: corsHeaders() });
   } catch (err: any) {
     return NextResponse.json(
-      { error: err.message || "Internal server error" },
+      { error: err.message || "Internal server error", binary: BINARY || "paper-search" },
       { status: 500, headers: corsHeaders() }
     );
   }
-}
-
-function corsHeaders() {
-  return new Headers({
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-  });
-}
-
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: corsHeaders(),
-  });
 }
