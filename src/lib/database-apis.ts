@@ -434,12 +434,10 @@ async function fetchDoaj(query: string, yearFrom?: string, yearTo?: string, stud
   return filtered;
 }
 
-const API_BASE = (() => {
-  if (typeof window !== "undefined") {
-    return `${window.location.protocol}//${window.location.hostname}:3001`;
-  }
-  return "http://localhost:3001";
-})();
+const API_BASE =
+  typeof window !== "undefined"
+    ? window.location.origin
+    : "http://localhost:3000";
 
 async function fetchPaperSearchMcp(query: string, source: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const body: Record<string, any> = {

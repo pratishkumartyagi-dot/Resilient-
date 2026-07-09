@@ -10,12 +10,10 @@ export interface AICallOptions {
   searchEnabled?: boolean;
 }
 
-const API_BASE = (() => {
-  if (typeof window !== "undefined") {
-    return `${window.location.protocol}//${window.location.hostname}:3001`;
-  }
-  return "http://localhost:3001";
-})();
+const API_BASE =
+  typeof window !== "undefined"
+    ? window.location.origin
+    : "http://localhost:3000";
 
 async function postChat(provider: "gemini" | "groq", apiKey: string, prompt: string, options?: AICallOptions): Promise<{ content: string; searchPerformed: boolean }> {
   const res = await withTimeout(fetch(`${API_BASE}/api/chat`, {
