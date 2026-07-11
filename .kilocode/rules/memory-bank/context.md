@@ -1375,8 +1375,7 @@ Step 1 results now show:
 
 **`src/lib/local-synthesis.ts`**:
 - Added `generateNarrativeReviewOutput()` helper that produces the structured narrative review format locally (no API key required)
-- Added `generateSystematicReviewOutput()` helper that produces a complete systematic review manuscript format with Abstract, Introduction (5 subsections), Methods (PICOS, search strategy, data extraction, quality assessment, data synthesis), Results (study selection table, risk of bias, primary/secondary outcomes, subgroup analyses), Discussion, Conclusion, and References
-- Updated `generateLitLLMSynthesis()` to route Narrative reviews to `generateNarrativeReviewOutput()` and Systematic/Meta-analysis reviews to `generateSystematicReviewOutput()`
+- Removed `generateSystematicReviewOutput()` helper as it was not giving desired results; Systematic/Meta-analysis reviews now fall through to the plan-based `standardOutput` in `generateLitLLMSynthesis()`
 
 ### Validation
 - `bun typecheck` ✅ passes
