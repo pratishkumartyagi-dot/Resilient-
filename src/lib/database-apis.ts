@@ -505,7 +505,8 @@ export async function fetchBioRxiv(query: string, yearFrom?: string, yearTo?: st
   const res = await fetchWithTimeout(url);
   if (!res.ok) throw new Error(`bioRxiv error: ${res.status}`);
   const data = await res.json();
-  const results = data.message || [];
+  const results = data.collection || [];
+  const queryTerms = query.toLowerCase().split(/\s+/).filter(Boolean);
   const papers: Paper[] = results.map((r: any) => {
     const authors = (r.authors || "").split(";").map((a: string) => a.trim()).filter(Boolean).join(", ");
     const title = r.title || "Untitled";
@@ -514,6 +515,10 @@ export async function fetchBioRxiv(query: string, yearFrom?: string, yearTo?: st
     const abstract = r.abstract || "No abstract available.";
     if (yearFrom && year < parseInt(yearFrom)) return null;
     if (yearTo && year > parseInt(yearTo)) return null;
+    if (queryTerms.length > 0) {
+      const text = `${title} ${abstract}`.toLowerCase();
+      if (!queryTerms.some((t) => text.includes(t))) return null;
+    }
     return {
       id: `biorxiv-${r.journal || r.doi || Math.random().toString(36).slice(2, 8)}`,
       title,
@@ -543,7 +548,8 @@ export async function fetchMedRxiv(query: string, yearFrom?: string, yearTo?: st
   const res = await fetchWithTimeout(url);
   if (!res.ok) throw new Error(`medRxiv error: ${res.status}`);
   const data = await res.json();
-  const results = data.message || [];
+  const results = data.collection || [];
+  const queryTerms = query.toLowerCase().split(/\s+/).filter(Boolean);
   const papers: Paper[] = results.map((r: any) => {
     const authors = (r.authors || "").split(";").map((a: string) => a.trim()).filter(Boolean).join(", ");
     const title = r.title || "Untitled";
@@ -552,6 +558,10 @@ export async function fetchMedRxiv(query: string, yearFrom?: string, yearTo?: st
     const abstract = r.abstract || "No abstract available.";
     if (yearFrom && year < parseInt(yearFrom)) return null;
     if (yearTo && year > parseInt(yearTo)) return null;
+    if (queryTerms.length > 0) {
+      const text = `${title} ${abstract}`.toLowerCase();
+      if (!queryTerms.some((t) => text.includes(t))) return null;
+    }
     return {
       id: `medrxiv-${r.journal || r.doi || Math.random().toString(36).slice(2, 8)}`,
       title,
