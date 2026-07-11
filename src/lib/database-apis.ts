@@ -501,40 +501,58 @@ export async function fetcharXiv(query: string, yearFrom?: string, yearTo?: stri
 }
 
 export async function fetchBioRxiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const url = `https://api.biorxiv.org/details/biorxiv/1900-01-01/2099-12-31/1/${encodeURIComponent(query)}`;
-  const res = await fetchWithTimeout(url);
-  if (!res.ok) throw new Error(`bioRxiv error: ${res.status}`);
-  const data = await res.json();
-  const results = data.collection || [];
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const defaultFrom = `${currentYear - 3}-01-01`;
+  const defaultTo = `${currentYear}-12-31`;
+  const from = yearFrom ? `${yearFrom}-01-01` : defaultFrom;
+  const to = yearTo ? `${yearTo}-12-31` : defaultTo;
+  const baseUrl = `https://api.biorxiv.org/details/biorxiv/${from}/${to}`;
   const queryTerms = query.toLowerCase().split(/\s+/).filter(Boolean);
-  const papers: Paper[] = results.map((r: any) => {
-    const authors = (r.authors || "").split(";").map((a: string) => a.trim()).filter(Boolean).join(", ");
-    const title = r.title || "Untitled";
-    const year = parseInt(r.date?.slice(0, 4) || r.year) || new Date().getFullYear();
-    const doi = r.doi || "";
-    const abstract = r.abstract || "No abstract available.";
-    if (yearFrom && year < parseInt(yearFrom)) return null;
-    if (yearTo && year > parseInt(yearTo)) return null;
-    if (queryTerms.length > 0) {
-      const text = `${title} ${abstract}`.toLowerCase();
-      if (!queryTerms.some((t) => text.includes(t))) return null;
+  const papers: Paper[] = [];
+  for (let page = 1; page <= 5; page++) {
+    const url = `${baseUrl}/${page}`;
+    const res = await fetchWithTimeout(url);
+    if (!res.ok) {
+      if (page === 1) throw new Error(`bioRxiv error: ${res.status}`);
+      break;
     }
-    return {
-      id: `biorxiv-${r.journal || r.doi || Math.random().toString(36).slice(2, 8)}`,
-      title,
-      authors: authors || "Unknown authors",
-      journal: "bioRxiv",
-      year,
-      doi,
-      abstract: abstract.substring(0, 3000),
-      database: "bioRxiv",
-      studyType: classifyStudyType(title, abstract),
-      selected: false,
-      url: doi ? `https://doi.org/${doi}` : `https://www.biorxiv.org/content/${r.doi || r.journal}`,
-      sourceBackend: "bioRxiv API",
-      sources: ["bioRxiv"],
-    };
-  }).filter(Boolean) as Paper[];
+    const data = await res.json();
+    const results = data.collection || [];
+    if (results.length === 0) break;
+    let pageMatches = 0;
+    for (const r of results) {
+      const authors = (r.authors || "").split(";").map((a: string) => a.trim()).filter(Boolean).join(", ");
+      const title = r.title || "Untitled";
+      const year = parseInt(r.date?.slice(0, 4) || r.year) || new Date().getFullYear();
+      const doi = r.doi || "";
+      const abstract = r.abstract || "No abstract available.";
+      if (queryTerms.length > 0) {
+        const text = `${title} ${abstract}`.toLowerCase();
+        if (!queryTerms.some((t) => text.includes(t))) continue;
+      }
+      pageMatches++;
+      papers.push({
+        id: `biorxiv-${r.doi || r.journal || Math.random().toString(36).slice(2, 8)}`,
+        title,
+        authors: authors || "Unknown authors",
+        journal: "bioRxiv",
+        year,
+        doi,
+        abstract: abstract.substring(0, 3000),
+        database: "bioRxiv",
+        studyType: classifyStudyType(title, abstract),
+        selected: false,
+        url: doi ? `https://doi.org/${doi}` : `https://www.biorxiv.org/content/${r.doi || r.journal}`,
+        sourceBackend: "bioRxiv API",
+        sources: ["bioRxiv"],
+      });
+    }
+    if (pageMatches === 0 && page > 1) break;
+    const meta = data.messages?.[0] || {};
+    const totalPages = Math.ceil((parseInt(meta.total || "0") || 0) / (parseInt(meta.count || "30") || 30));
+    if (page >= totalPages) break;
+  }
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
     const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
@@ -544,40 +562,58 @@ export async function fetchBioRxiv(query: string, yearFrom?: string, yearTo?: st
 }
 
 export async function fetchMedRxiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const url = `https://api.medrxiv.org/details/medrxiv/1900-01-01/2099-12-31/1/${encodeURIComponent(query)}`;
-  const res = await fetchWithTimeout(url);
-  if (!res.ok) throw new Error(`medRxiv error: ${res.status}`);
-  const data = await res.json();
-  const results = data.collection || [];
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const defaultFrom = `${currentYear - 3}-01-01`;
+  const defaultTo = `${currentYear}-12-31`;
+  const from = yearFrom ? `${yearFrom}-01-01` : defaultFrom;
+  const to = yearTo ? `${yearTo}-12-31` : defaultTo;
+  const baseUrl = `https://api.medrxiv.org/details/medrxiv/${from}/${to}`;
   const queryTerms = query.toLowerCase().split(/\s+/).filter(Boolean);
-  const papers: Paper[] = results.map((r: any) => {
-    const authors = (r.authors || "").split(";").map((a: string) => a.trim()).filter(Boolean).join(", ");
-    const title = r.title || "Untitled";
-    const year = parseInt(r.date?.slice(0, 4) || r.year) || new Date().getFullYear();
-    const doi = r.doi || "";
-    const abstract = r.abstract || "No abstract available.";
-    if (yearFrom && year < parseInt(yearFrom)) return null;
-    if (yearTo && year > parseInt(yearTo)) return null;
-    if (queryTerms.length > 0) {
-      const text = `${title} ${abstract}`.toLowerCase();
-      if (!queryTerms.some((t) => text.includes(t))) return null;
+  const papers: Paper[] = [];
+  for (let page = 1; page <= 5; page++) {
+    const url = `${baseUrl}/${page}`;
+    const res = await fetchWithTimeout(url);
+    if (!res.ok) {
+      if (page === 1) throw new Error(`medRxiv error: ${res.status}`);
+      break;
     }
-    return {
-      id: `medrxiv-${r.journal || r.doi || Math.random().toString(36).slice(2, 8)}`,
-      title,
-      authors: authors || "Unknown authors",
-      journal: "medRxiv",
-      year,
-      doi,
-      abstract: abstract.substring(0, 3000),
-      database: "medRxiv",
-      studyType: classifyStudyType(title, abstract),
-      selected: false,
-      url: doi ? `https://doi.org/${doi}` : `https://www.medrxiv.org/content/${r.doi || r.journal}`,
-      sourceBackend: "medRxiv API",
-      sources: ["medRxiv"],
-    };
-  }).filter(Boolean) as Paper[];
+    const data = await res.json();
+    const results = data.collection || [];
+    if (results.length === 0) break;
+    let pageMatches = 0;
+    for (const r of results) {
+      const authors = (r.authors || "").split(";").map((a: string) => a.trim()).filter(Boolean).join(", ");
+      const title = r.title || "Untitled";
+      const year = parseInt(r.date?.slice(0, 4) || r.year) || new Date().getFullYear();
+      const doi = r.doi || "";
+      const abstract = r.abstract || "No abstract available.";
+      if (queryTerms.length > 0) {
+        const text = `${title} ${abstract}`.toLowerCase();
+        if (!queryTerms.some((t) => text.includes(t))) continue;
+      }
+      pageMatches++;
+      papers.push({
+        id: `medrxiv-${r.doi || r.journal || Math.random().toString(36).slice(2, 8)}`,
+        title,
+        authors: authors || "Unknown authors",
+        journal: "medRxiv",
+        year,
+        doi,
+        abstract: abstract.substring(0, 3000),
+        database: "medRxiv",
+        studyType: classifyStudyType(title, abstract),
+        selected: false,
+        url: doi ? `https://doi.org/${doi}` : `https://www.medrxiv.org/content/${r.doi || r.journal}`,
+        sourceBackend: "medRxiv API",
+        sources: ["medRxiv"],
+      });
+    }
+    if (pageMatches === 0 && page > 1) break;
+    const meta = data.messages?.[0] || {};
+    const totalPages = Math.ceil((parseInt(meta.total || "0") || 0) / (parseInt(meta.count || "100") || 100));
+    if (page >= totalPages) break;
+  }
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
     const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
@@ -743,7 +779,7 @@ export async function fetchDblp(query: string, yearFrom?: string, yearTo?: strin
       sources: ["dblp"],
     };
   }).filter(Boolean) as Paper[];
-  if (studyType && studyType !== "All Study Type") {
+  if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
     const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
     return filtered.length > 0 ? filtered : papers.slice(0, 20);
