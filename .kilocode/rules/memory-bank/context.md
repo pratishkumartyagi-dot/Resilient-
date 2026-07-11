@@ -658,6 +658,35 @@ Added as an add-on layer to the existing app — does not modify existing step n
 - `bun lint` ✅ passes
 - `bun run build` ✅ passes cleanly
 
+## Direct API Fetchers for paper-search-mcp Databases (2026-07-11)
+
+**Bug Fix**: Replaced broken `paper-search-mcp` CLI dependency with direct API fetchers for 15+ databases.
+
+### Root Cause
+- `src/app/api/paper-search/route.ts` shells out to a `paper-search` CLI binary that was not installed in the environment
+- 15 databases were routed through `fetchPaperSearchMcp()` which POSTed to `/api/paper-search`, causing 404 errors for all of them
+- Affected databases: arXiv, bioRxiv, medRxiv, CORE, Zenodo, HAL, SSRN, BASE, Crossref, OpenAIRE, CiteSeerX, dblp, IACR, Unpaywall, Semantic Scholar (raw)
+
+### Fix Applied
+- Added direct API fetchers in `src/lib/database-apis.ts`:
+  - `fetcharXiv` — arXiv API (`export.arxiv.org/api/query`)
+  - `fetchBioRxiv` — bioRxiv API (`api.biorxiv.org/details/biorxiv`)
+  - `fetchMedRxiv` — medRxiv API (`api.medrxiv.org/details/medrxiv`)
+  - `fetchZenodo` — Zenodo API (`zenodo.org/api/records`)
+  - `fetchCrossref` — Crossref Works API (`api.crossref.org/works`)
+  - `fetchOpenAIRE` — OpenAIRE Publications API (`api.openaire.eu/search/publications`)
+  - `fetchDblp` — DBLP API (`dblp.org/search/publ/api`)
+  - `fetchSemanticScholarRaw` — Semantic Scholar Graph API (`api.semanticscholar.org/graph/v1/paper/search`)
+- Updated `apiDatabases` maps in both `fetchRealPapers` and `fetchRealPapersWithCounts`
+- Updated `getDatabaseBackend` to reflect actual API backends
+- Updated `src/app/api/literature-search/route.ts` imports and `apiMap` to use direct fetchers
+- Databases without good public APIs (CORE, HAL, SSRN, BASE, CiteSeerX, IACR, Unpaywall) now fall back to OpenAlex with appropriate filters
+- `fetchPaperSearchMcp` now throws a clear error instead of silently failing
+
+### Validation
+- `bun typecheck` ✅
+- `bun lint` ✅
+
 ## OpenClaw Scientific Research & Writing Integration — EvidenceSynthesisTab Step 6 (2026-07-04)
 
 **Feature**: Integrated the OpenClaw `scientific-writing` skill from FreedomIntelligence/OpenClaw-Medical-Skills into Step 6 ("Writing Review & Meta-analysis") so the manuscript generation reads the full pipeline and produces IMRAD/PRISMA, two-stage outline-to-prose output with Vancouver-style inline citations.

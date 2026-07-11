@@ -447,52 +447,338 @@ const API_BASE =
     : "http://localhost:3000";
 
 export async function fetchPaperSearchMcp(query: string, source: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const body: Record<string, any> = {
-    query,
-    maxResults: 20,
-    sources: source === "paper-search-mcp" ? "all" : source.toLowerCase(),
-  };
+  throw new Error("paper-search-mcp CLI binary is not installed. Databases should use direct API fetchers.");
+}
 
-  if (yearFrom || yearTo) {
-    body.year = yearTo ? `${yearFrom}-${yearTo}` : yearFrom;
+export async function fetcharXiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+  const searchQuery = encodeURIComponent(`all:${query}`);
+  const url = `https://export.arxiv.org/api/query?search_query=${searchQuery}&start=0&max_results=20&sortBy=relevance`;
+  const text = await fetchWithTimeout(url).then((r) => r.text()).catch(() => "");
+  if (!text) return [];
+  const papers: Paper[] = [];
+  const entryRegex = /<entry>([\s\S]*?)<\/entry>/g;
+  let match: RegExpExecArray | null;
+  while ((match = entryRegex.exec(text)) !== null) {
+    const entry = match[1];
+    const id = (entry.match(/<id>([\s\S]*?)<\/id>/) || [])[1]?.trim() || "";
+    const title = (entry.match(/<title>([\s\S]*?)<\/title>/) || [])[1]?.trim() || "Untitled";
+    const summary = (entry.match(/<summary>([\s\S]*?)<\/summary>/) || [])[1]?.trim() || "";
+    const published = (entry.match(/<published>([\s\S]*?)<\/published>/) || [])[1]?.trim() || "";
+    const year = parseInt(published.slice(0, 4)) || new Date().getFullYear();
+    const authors: string[] = [];
+    const authorRegex = /<name>([^<]+)<\/name>/g;
+    let authorMatch: RegExpExecArray | null;
+    while ((authorMatch = authorRegex.exec(entry)) !== null && authors.length < 8) {
+      authors.push(authorMatch[1].trim());
+    }
+    const doiMatch = entry.match(/<arxiv:doi>([^<]+)<\/arxiv:doi>/);
+    const doi = doiMatch ? doiMatch[1].trim() : "";
+    const arxivId = id.split("/abs/").pop() || id;
+    if (yearFrom && year < parseInt(yearFrom)) continue;
+    if (yearTo && year > parseInt(yearTo)) continue;
+    papers.push({
+      id: `arxiv-${arxivId}`,
+      title,
+      authors: authors.length > 0 ? authors.join(", ") + (authors.length >= 8 ? " et al." : "") : "Unknown authors",
+      journal: "arXiv",
+      year,
+      doi,
+      abstract: summary.substring(0, 3000) || "No abstract available.",
+      database: "arXiv",
+      studyType: classifyStudyType(title, summary),
+      selected: false,
+      url: id,
+      sourceBackend: "arXiv API",
+      sources: ["arXiv"],
+    });
   }
-
-  const res = await fetch(`${API_BASE}/api/paper-search`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `paper-search-mcp API error: ${res.status}`);
-  }
-
-  const data = await res.json();
-  const papers: Paper[] = (data.papers || []).map((p: any) => ({
-    id: p.id || `psm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    title: p.title || "Untitled",
-    authors: p.authors || "Unknown authors",
-    journal: p.journal || p.categories || "Unknown Journal",
-    year: p.year || new Date().getFullYear(),
-    doi: p.doi || "",
-    abstract: (p.abstract || "No abstract available.").substring(0, 3000),
-    database: "paper-search-mcp",
-    studyType: classifyStudyType(p.title || "", p.abstract || ""),
-    selected: false,
-    url: p.url,
-    pmid: p.pmid,
-    sourceBackend: "openags/paper-search-mcp",
-    sources: [p.source || "paper-search-mcp"],
-  }));
-
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
     const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
     return filtered.length > 0 ? filtered : papers.slice(0, 20);
   }
+  return papers.slice(0, 20);
+}
 
-  return papers;
+export async function fetchBioRxiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+  const url = `https://api.biorxiv.org/details/biorxiv/1900-01-01/2099-12-31/1/${encodeURIComponent(query)}`;
+  const res = await fetchWithTimeout(url);
+  if (!res.ok) throw new Error(`bioRxiv error: ${res.status}`);
+  const data = await res.json();
+  const results = data.message || [];
+  const papers: Paper[] = results.map((r: any) => {
+    const authors = (r.authors || "").split(";").map((a: string) => a.trim()).filter(Boolean).join(", ");
+    const title = r.title || "Untitled";
+    const year = parseInt(r.date?.slice(0, 4) || r.year) || new Date().getFullYear();
+    const doi = r.doi || "";
+    const abstract = r.abstract || "No abstract available.";
+    if (yearFrom && year < parseInt(yearFrom)) return null;
+    if (yearTo && year > parseInt(yearTo)) return null;
+    return {
+      id: `biorxiv-${r.journal || r.doi || Math.random().toString(36).slice(2, 8)}`,
+      title,
+      authors: authors || "Unknown authors",
+      journal: "bioRxiv",
+      year,
+      doi,
+      abstract: abstract.substring(0, 3000),
+      database: "bioRxiv",
+      studyType: classifyStudyType(title, abstract),
+      selected: false,
+      url: doi ? `https://doi.org/${doi}` : `https://www.biorxiv.org/content/${r.doi || r.journal}`,
+      sourceBackend: "bioRxiv API",
+      sources: ["bioRxiv"],
+    };
+  }).filter(Boolean) as Paper[];
+  if (studyType && studyType !== "All Study Types") {
+    const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
+    const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+    return filtered.length > 0 ? filtered : papers.slice(0, 20);
+  }
+  return papers.slice(0, 20);
+}
+
+export async function fetchMedRxiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+  const url = `https://api.medrxiv.org/details/medrxiv/1900-01-01/2099-12-31/1/${encodeURIComponent(query)}`;
+  const res = await fetchWithTimeout(url);
+  if (!res.ok) throw new Error(`medRxiv error: ${res.status}`);
+  const data = await res.json();
+  const results = data.message || [];
+  const papers: Paper[] = results.map((r: any) => {
+    const authors = (r.authors || "").split(";").map((a: string) => a.trim()).filter(Boolean).join(", ");
+    const title = r.title || "Untitled";
+    const year = parseInt(r.date?.slice(0, 4) || r.year) || new Date().getFullYear();
+    const doi = r.doi || "";
+    const abstract = r.abstract || "No abstract available.";
+    if (yearFrom && year < parseInt(yearFrom)) return null;
+    if (yearTo && year > parseInt(yearTo)) return null;
+    return {
+      id: `medrxiv-${r.journal || r.doi || Math.random().toString(36).slice(2, 8)}`,
+      title,
+      authors: authors || "Unknown authors",
+      journal: "medRxiv",
+      year,
+      doi,
+      abstract: abstract.substring(0, 3000),
+      database: "medRxiv",
+      studyType: classifyStudyType(title, abstract),
+      selected: false,
+      url: doi ? `https://doi.org/${doi}` : `https://www.medrxiv.org/content/${r.doi || r.journal}`,
+      sourceBackend: "medRxiv API",
+      sources: ["medRxiv"],
+    };
+  }).filter(Boolean) as Paper[];
+  if (studyType && studyType !== "All Study Types") {
+    const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
+    const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+    return filtered.length > 0 ? filtered : papers.slice(0, 20);
+  }
+  return papers.slice(0, 20);
+}
+
+export async function fetchZenodo(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+  const qs = new URLSearchParams({ q: query, size: "20", sort: "mostrecent" });
+  const url = `https://zenodo.org/api/records?${qs.toString()}`;
+  const res = await fetchWithTimeout(url);
+  if (!res.ok) throw new Error(`Zenodo error: ${res.status}`);
+  const data = await res.json();
+  const results = data.hits?.hits || [];
+  const papers: Paper[] = results.map((r: any) => {
+    const meta = r.metadata || {};
+    const title = meta.title || "Untitled";
+    const creators = meta.creators || [];
+    const authors = creators.map((c: any) => c.name || "").filter(Boolean).join(", ") || "Unknown authors";
+    const year = parseInt(meta.publication_date?.slice(0, 4) || meta.date?.slice(0, 4)) || new Date().getFullYear();
+    const doi = (meta.doi || "").replace("https://doi.org/", "");
+    const abstract = meta.description || "No abstract available.";
+    if (yearFrom && year < parseInt(yearFrom)) return null;
+    if (yearTo && year > parseInt(yearTo)) return null;
+    return {
+      id: `zenodo-${r.id || Math.random().toString(36).slice(2, 8)}`,
+      title,
+      authors: authors.substring(0, 300),
+      journal: "Zenodo",
+      year,
+      doi,
+      abstract: abstract.substring(0, 3000),
+      database: "Zenodo",
+      studyType: classifyStudyType(title, abstract),
+      selected: false,
+      url: doi ? `https://doi.org/${doi}` : `https://zenodo.org/record/${r.id}`,
+      sourceBackend: "Zenodo API",
+      sources: ["Zenodo"],
+    };
+  }).filter(Boolean) as Paper[];
+  if (studyType && studyType !== "All Study Types") {
+    const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
+    const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+    return filtered.length > 0 ? filtered : papers.slice(0, 20);
+  }
+  return papers.slice(0, 20);
+}
+
+export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+  const qs = new URLSearchParams({ query: query, rows: "20", sort: "relevance" });
+  if (yearFrom) qs.set("filter", `from-pub-date:${yearFrom}`);
+  if (yearTo) qs.set("filter", `until-pub-date:${yearTo}`);
+  const url = `https://api.crossref.org/works?${qs.toString()}`;
+  const res = await fetchWithTimeout(url);
+  if (!res.ok) throw new Error(`Crossref error: ${res.status}`);
+  const data = await res.json();
+  const results = data.message?.items || [];
+  const papers: Paper[] = results.map((w: any) => {
+    const title = w.title?.[0] || "Untitled";
+    const authors = (w.author || []).slice(0, 8).map((a: any) => `${a.given || ""} ${a.family || ""}`.trim()).filter(Boolean).join(", ") || "Unknown authors";
+    const year = w.published?.["date-parts"]?.[0]?.[0] || w.created?.["date-parts"]?.[0]?.[0] || new Date().getFullYear();
+    const doi = (w.DOI || "").replace("https://doi.org/", "");
+    const abstract = w.abstract || "No abstract available.";
+    return {
+      id: `crossref-${doi || Math.random().toString(36).slice(2, 8)}`,
+      title,
+      authors: authors.substring(0, 300),
+      journal: w["container-title"]?.[0] || "Unknown Journal",
+      year: parseInt(String(year)) || new Date().getFullYear(),
+      doi,
+      abstract: abstract.substring(0, 3000),
+      database: "Crossref",
+      studyType: classifyStudyType(title, abstract),
+      selected: false,
+      url: doi ? `https://doi.org/${doi}` : w.url || "",
+      sourceBackend: "Crossref API",
+      sources: ["Crossref"],
+    };
+  });
+  if (studyType && studyType !== "All Study Types") {
+    const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
+    const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+    return filtered.length > 0 ? filtered : papers.slice(0, 20);
+  }
+  return papers.slice(0, 20);
+}
+
+export async function fetchOpenAIRE(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+  const qs = new URLSearchParams({ title: query, format: "json", size: "20" });
+  const url = `https://api.openaire.eu/search/publications?${qs.toString()}`;
+  const res = await fetchWithTimeout(url);
+  if (!res.ok) throw new Error(`OpenAIRE error: ${res.status}`);
+  const data = await res.json();
+  const results = data.response?.results?.result || [];
+  const papers: Paper[] = results.map((r: any) => {
+    const meta = r.metadata || {};
+    const entity = meta["oaf:entity"] || {};
+    const result = entity["oaf:result"] || {};
+    const title = result.resulttitle || "Untitled";
+    const authors = (result.publisher || "").substring(0, 300);
+    const year = parseInt(result.dateofcollection?.slice(0, 4) || result.dateofacceptance?.slice(0, 4)) || new Date().getFullYear();
+    const doi = (result.doi || "").replace("https://doi.org/", "");
+    const abstract = result.description || result.abstract || "No abstract available.";
+    const pid = result.pid || [];
+    const doiPid = pid.find((p: any) => p["@classname"] === "Digital Object Identifier");
+    const resolvedDoi = doiPid?.["$"]?.replace("doi_dedup___::", "") || doi;
+    if (yearFrom && year < parseInt(yearFrom)) return null;
+    if (yearTo && year > parseInt(yearTo)) return null;
+    return {
+      id: `openaire-${resolvedDoi || Math.random().toString(36).slice(2, 8)}`,
+      title,
+      authors: authors || "Unknown authors",
+      journal: result.journal || "Unknown Journal",
+      year,
+      doi: resolvedDoi,
+      abstract: abstract.substring(0, 3000),
+      database: "OpenAIRE",
+      studyType: classifyStudyType(title, abstract),
+      selected: false,
+      url: resolvedDoi ? `https://doi.org/${resolvedDoi}` : "",
+      sourceBackend: "OpenAIRE API",
+      sources: ["OpenAIRE"],
+    };
+  }).filter(Boolean) as Paper[];
+  if (studyType && studyType !== "All Study Types") {
+    const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
+    const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+    return filtered.length > 0 ? filtered : papers.slice(0, 20);
+  }
+  return papers.slice(0, 20);
+}
+
+export async function fetchDblp(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+  const qs = new URLSearchParams({ q: query, format: "json", h: "20", f: "0" });
+  const url = `https://dblp.org/search/publ/api?${qs.toString()}`;
+  const res = await fetchWithTimeout(url);
+  if (!res.ok) throw new Error(`DBLP error: ${res.status}`);
+  const data = await res.json();
+  const hits = data.result?.hits?.hit || [];
+  const papers: Paper[] = hits.map((h: any) => {
+    const info = h.info || {};
+    const title = info.title || "Untitled";
+    const year = parseInt(info.year) || new Date().getFullYear();
+    const ee = info.ee || info.url || "";
+    const authors = info.authors?.author || [];
+    const authorNames = Array.isArray(authors) ? authors.map((a: any) => a.text || a).join(", ") : (authors?.text || "Unknown authors");
+    if (yearFrom && year < parseInt(yearFrom)) return null;
+    if (yearTo && year > parseInt(yearTo)) return null;
+    return {
+      id: `dblp-${h["@id"] || Math.random().toString(36).slice(2, 8)}`,
+      title,
+      authors: (authorNames || "Unknown authors").substring(0, 300),
+      journal: info.journal || info.type || "Unknown Journal",
+      year,
+      doi: "",
+      abstract: "No abstract available.",
+      database: "dblp",
+      studyType: classifyStudyType(title, ""),
+      selected: false,
+      url: ee,
+      sourceBackend: "DBLP API",
+      sources: ["dblp"],
+    };
+  }).filter(Boolean) as Paper[];
+  if (studyType && studyType !== "All Study Type") {
+    const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
+    const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+    return filtered.length > 0 ? filtered : papers.slice(0, 20);
+  }
+  return papers.slice(0, 20);
+}
+
+export async function fetchSemanticScholarRaw(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+  const qs = new URLSearchParams({ query: query, limit: "20", fields: "title,authors,year,externalIds,abstract,url,publicationDate,venue" });
+  const url = `https://api.semanticscholar.org/graph/v1/paper/search?${qs.toString()}`;
+  const res = await fetchWithTimeout(url);
+  if (!res.ok) throw new Error(`Semantic Scholar error: ${res.status}`);
+  const data = await res.json();
+  const results = data.data || [];
+  const papers: Paper[] = results.map((p: any) => {
+    const title = p.title || "Untitled";
+    const authors = (p.authors || []).map((a: any) => a.name || "").filter(Boolean).join(", ") || "Unknown authors";
+    const year = p.year || parseInt(p.publicationDate?.slice(0, 4)) || new Date().getFullYear();
+    const doi = p.externalIds?.DOI || "";
+    const abstract = p.abstract || "No abstract available.";
+    const venue = p.venue || "Unknown Journal";
+    if (yearFrom && year < parseInt(yearFrom)) return null;
+    if (yearTo && year > parseInt(yearTo)) return null;
+    return {
+      id: `ss-${p.paperId || Math.random().toString(36).slice(2, 8)}`,
+      title,
+      authors: authors.substring(0, 300),
+      journal: venue,
+      year,
+      doi,
+      abstract: abstract.substring(0, 3000),
+      database: "Semantic Scholar (raw)",
+      studyType: classifyStudyType(title, abstract),
+      selected: false,
+      url: p.url || (doi ? `https://doi.org/${doi}` : ""),
+      sourceBackend: "Semantic Scholar API",
+      sources: ["Semantic Scholar (raw)"],
+    };
+  }).filter(Boolean) as Paper[];
+  if (studyType && studyType !== "All Study Types") {
+    const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
+    const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+    return filtered.length > 0 ? filtered : papers.slice(0, 20);
+  }
+  return papers.slice(0, 20);
 }
 
 export async function fetchRealPapers(query: string, databases: string[], yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
@@ -516,22 +802,22 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
     "Prospero": () => fetchEuropePMC(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
     "ScienceDirect": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc", filter: "host_venue:publisher:Elsevier" }),
     "Clarivate": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc", filter: "has_doi:true" }),
-    "paper-search-mcp": () => fetchPaperSearchMcp(query, "paper-search-mcp", yearFrom, yearTo, studyType),
-    "arXiv": () => fetchPaperSearchMcp(query, "arXiv", yearFrom, yearTo, studyType),
-    "bioRxiv": () => fetchPaperSearchMcp(query, "bioRxiv", yearFrom, yearTo, studyType),
-    "medRxiv": () => fetchPaperSearchMcp(query, "medRxiv", yearFrom, yearTo, studyType),
-    "CORE": () => fetchPaperSearchMcp(query, "CORE", yearFrom, yearTo, studyType),
-    "Zenodo": () => fetchPaperSearchMcp(query, "Zenodo", yearFrom, yearTo, studyType),
-    "HAL": () => fetchPaperSearchMcp(query, "HAL", yearFrom, yearTo, studyType),
-    "SSRN": () => fetchPaperSearchMcp(query, "SSRN", yearFrom, yearTo, studyType),
-    "BASE": () => fetchPaperSearchMcp(query, "BASE", yearFrom, yearTo, studyType),
-    "Crossref": () => fetchPaperSearchMcp(query, "Crossref", yearFrom, yearTo, studyType),
-    "OpenAIRE": () => fetchPaperSearchMcp(query, "OpenAIRE", yearFrom, yearTo, studyType),
-    "CiteSeerX": () => fetchPaperSearchMcp(query, "CiteSeerX", yearFrom, yearTo, studyType),
-    "dblp": () => fetchPaperSearchMcp(query, "dblp", yearFrom, yearTo, studyType),
-    "IACR": () => fetchPaperSearchMcp(query, "IACR", yearFrom, yearTo, studyType),
-    "Unpaywall": () => fetchPaperSearchMcp(query, "Unpaywall", yearFrom, yearTo, studyType),
-    "Semantic Scholar (raw)": () => fetchPaperSearchMcp(query, "Semantic Scholar", yearFrom, yearTo, studyType),
+    "arXiv": () => fetcharXiv(query, yearFrom, yearTo, studyType),
+    "bioRxiv": () => fetchBioRxiv(query, yearFrom, yearTo, studyType),
+    "medRxiv": () => fetchMedRxiv(query, yearFrom, yearTo, studyType),
+    "CORE": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
+    "Zenodo": () => fetchZenodo(query, yearFrom, yearTo, studyType),
+    "HAL": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc", filter: "host_venue.name_search:HAL" }),
+    "SSRN": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
+    "BASE": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
+    "Crossref": () => fetchCrossref(query, yearFrom, yearTo, studyType),
+    "OpenAIRE": () => fetchOpenAIRE(query, yearFrom, yearTo, studyType),
+    "CiteSeerX": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
+    "dblp": () => fetchDblp(query, yearFrom, yearTo, studyType),
+    "IACR": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
+    "Unpaywall": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
+    "paper-search-mcp": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
+    "Semantic Scholar (raw)": () => fetchSemanticScholarRaw(query, yearFrom, yearTo, studyType),
   };
 
   const selectedApis = databases.filter((db) => apiDatabases[db]);
@@ -608,22 +894,22 @@ export async function fetchRealPapersWithCounts(query: string, databases: string
     "Prospero": () => fetchEuropePMC(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
     "ScienceDirect": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc", filter: "host_venue:publisher:Elsevier" }),
     "Clarivate": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc", filter: "has_doi:true" }),
-    "paper-search-mcp": () => fetchPaperSearchMcp(query, "paper-search-mcp", yearFrom, yearTo, studyType),
-    "arXiv": () => fetchPaperSearchMcp(query, "arXiv", yearFrom, yearTo, studyType),
-    "bioRxiv": () => fetchPaperSearchMcp(query, "bioRxiv", yearFrom, yearTo, studyType),
-    "medRxiv": () => fetchPaperSearchMcp(query, "medRxiv", yearFrom, yearTo, studyType),
-    "CORE": () => fetchPaperSearchMcp(query, "CORE", yearFrom, yearTo, studyType),
-    "Zenodo": () => fetchPaperSearchMcp(query, "Zenodo", yearFrom, yearTo, studyType),
-    "HAL": () => fetchPaperSearchMcp(query, "HAL", yearFrom, yearTo, studyType),
-    "SSRN": () => fetchPaperSearchMcp(query, "SSRN", yearFrom, yearTo, studyType),
-    "BASE": () => fetchPaperSearchMcp(query, "BASE", yearFrom, yearTo, studyType),
-    "Crossref": () => fetchPaperSearchMcp(query, "Crossref", yearFrom, yearTo, studyType),
-    "OpenAIRE": () => fetchPaperSearchMcp(query, "OpenAIRE", yearFrom, yearTo, studyType),
-    "CiteSeerX": () => fetchPaperSearchMcp(query, "CiteSeerX", yearFrom, yearTo, studyType),
-    "dblp": () => fetchPaperSearchMcp(query, "dblp", yearFrom, yearTo, studyType),
-    "IACR": () => fetchPaperSearchMcp(query, "IACR", yearFrom, yearTo, studyType),
-    "Unpaywall": () => fetchPaperSearchMcp(query, "Unpaywall", yearFrom, yearTo, studyType),
-    "Semantic Scholar (raw)": () => fetchPaperSearchMcp(query, "Semantic Scholar", yearFrom, yearTo, studyType),
+    "arXiv": () => fetcharXiv(query, yearFrom, yearTo, studyType),
+    "bioRxiv": () => fetchBioRxiv(query, yearFrom, yearTo, studyType),
+    "medRxiv": () => fetchMedRxiv(query, yearFrom, yearTo, studyType),
+    "CORE": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
+    "Zenodo": () => fetchZenodo(query, yearFrom, yearTo, studyType),
+    "HAL": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc", filter: "host_venue.name_search:HAL" }),
+    "SSRN": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
+    "BASE": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
+    "Crossref": () => fetchCrossref(query, yearFrom, yearTo, studyType),
+    "OpenAIRE": () => fetchOpenAIRE(query, yearFrom, yearTo, studyType),
+    "CiteSeerX": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
+    "dblp": () => fetchDblp(query, yearFrom, yearTo, studyType),
+    "IACR": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
+    "Unpaywall": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
+    "paper-search-mcp": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
+    "Semantic Scholar (raw)": () => fetchSemanticScholarRaw(query, yearFrom, yearTo, studyType),
   };
 
   const selectedApis = databases.filter((db) => apiDatabases[db]);
@@ -676,22 +962,22 @@ function getDatabaseBackend(uiDatabase: string): string {
     "Prospero": "Europe PMC REST API",
     "ScienceDirect": "OpenAlex API",
     "Clarivate": "OpenAlex API",
-    "arXiv": "openags/paper-search-mcp",
-    "bioRxiv": "openags/paper-search-mcp",
-    "medRxiv": "openags/paper-search-mcp",
-    "CORE": "openags/paper-search-mcp",
-    "Zenodo": "openags/paper-search-mcp",
-    "HAL": "openags/paper-search-mcp",
-    "SSRN": "openags/paper-search-mcp",
-    "BASE": "openags/paper-search-mcp",
-    "Crossref": "openags/paper-search-mcp",
-    "OpenAIRE": "openags/paper-search-mcp",
-    "CiteSeerX": "openags/paper-search-mcp",
-    "dblp": "openags/paper-search-mcp",
-    "IACR": "openags/paper-search-mcp",
-    "Unpaywall": "openags/paper-search-mcp",
-    "Semantic Scholar (raw)": "openags/paper-search-mcp",
-    "paper-search-mcp": "openags/paper-search-mcp",
+    "arXiv": "arXiv API",
+    "bioRxiv": "bioRxiv API",
+    "medRxiv": "medRxiv API",
+    "CORE": "OpenAlex API",
+    "Zenodo": "Zenodo API",
+    "HAL": "OpenAlex API",
+    "SSRN": "OpenAlex API",
+    "BASE": "OpenAlex API",
+    "Crossref": "Crossref API",
+    "OpenAIRE": "OpenAIRE API",
+    "CiteSeerX": "OpenAlex API",
+    "dblp": "DBLP API",
+    "IACR": "OpenAlex API",
+    "Unpaywall": "OpenAlex API",
+    "Semantic Scholar (raw)": "Semantic Scholar API",
+    "paper-search-mcp": "OpenAlex API",
   };
   return mapping[uiDatabase] || uiDatabase;
 }
