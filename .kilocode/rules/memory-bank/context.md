@@ -1362,3 +1362,22 @@ Step 1 results now show:
 - `bun lint` ✅ passes
 - `bun run build` ✅ passes — `/api/literature-search` registered as dynamic route
 
+
+## Step 4 Narrative Review Format Update (2026-07-11)
+
+**Feature**: Updated Step 4 Evidence Synthesis output to match the user-provided narrative systematic review example format.
+
+### Changes Made
+
+**`src/components/tabs/EvidenceSynthesisTab.tsx`**:
+- Updated AI prompt to emit structured narrative review template when `Review Type` includes "Narrative", with sections: Background and Rationale, Objective, Methods and a Note on Scope, Findings by Predictor Category, Population-Specific Evidence, Comparative Summary (table), Relevance to Protocol, Limitations of This Review, and References
+- Added explicit Systematic Review / Meta-analysis format instructions matching the user's example (Abstract with Background/Objective/Methods/Results/Conclusion, numbered Introduction subsections, Methods with PICOS, Results with study selection table, risk of bias, primary/secondary outcomes, Discussion, Conclusion)
+
+**`src/lib/local-synthesis.ts`**:
+- Added `generateNarrativeReviewOutput()` helper that produces the structured narrative review format locally (no API key required)
+- Added `generateSystematicReviewOutput()` helper that produces a complete systematic review manuscript format with Abstract, Introduction (5 subsections), Methods (PICOS, search strategy, data extraction, quality assessment, data synthesis), Results (study selection table, risk of bias, primary/secondary outcomes, subgroup analyses), Discussion, Conclusion, and References
+- Updated `generateLitLLMSynthesis()` to route Narrative reviews to `generateNarrativeReviewOutput()` and Systematic/Meta-analysis reviews to `generateSystematicReviewOutput()`
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes

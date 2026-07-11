@@ -951,20 +951,90 @@ ${isNarrative ? `## Evidence Synthesis
 [Explicit limitations of the narrative synthesis approach]
 
 ### References
-[Complete Vancouver-style reference list with DOIs]` : isSystematic && !isMeta ? `## Evidence Synthesis
+[Complete Vancouver-style reference list with DOIs]` : (isSystematic || isMeta) ? `## Evidence Synthesis
 
 ### Narrative Summary
-[Thematic synthesis of findings]
 
-### Effect Size Summary
-| Study | Effect Estimate | 95% CI | Weight |
-|-------|----------------|--------|--------|
+[Complete systematic review manuscript in the following format:]
 
-### Risk of Bias Commentary
-[How RoB patterns affect confidence in evidence]
+# [Research Topic]: A Systematic Review
 
-### Gaps and Future Directions
-[Remaining uncertainties]` : isScoping ? `## Evidence Synthesis
+## Abstract
+
+**Background:** [Context and significance]
+
+**Objective:** [Stated objectives using PICO framework]
+
+**Methods:** [Search strategy, databases, date range, inclusion/exclusion criteria, quality assessment approach, and data synthesis method]
+
+**Results:** [Number of studies included, key findings summary]
+
+**Conclusion:** [Summary statement and implications]
+
+## 1. Introduction
+
+### 1.1 Background and Significance
+[Context and rationale for the review]
+
+### 1.2 Epidemiology and Global Burden
+[Epidemiological data and burden of disease]
+
+### 1.3 Pathophysiological Mechanisms
+[Underlying mechanisms if applicable]
+
+### 1.4 Risk Factors and Clinical Outcomes
+[Risk factors and associated outcomes]
+
+### 1.5 Current Guidelines and Knowledge Gaps
+[Current guidelines and identified gaps]
+
+## 2. Methods
+
+### 2.1 Eligibility Criteria (PICOS)
+[Population, Intervention/Exposure, Comparator, Outcomes, Study Design]
+
+### 2.2 Search Strategy
+[Databases searched, search terms, date range, any limitations]
+
+### 2.3 Data Extraction and Quality Assessment
+[Extraction process, quality assessment tools used]
+
+### 2.4 Data Synthesis and Statistical Analysis
+[Synthesis approach, meta-analysis methods if applicable, heterogeneity assessment]
+
+## 3. Results
+
+### 3.1 Study Selection and Characteristics
+[PRISMA flow, Table 1 with study characteristics]
+
+### 3.2 Risk of Bias Assessment
+[Summary of risk of bias across studies]
+
+### 3.3 Primary Outcomes
+[Main findings organized thematically]
+
+### 3.4 Secondary Outcomes
+[Secondary findings]
+
+### 3.5 Subgroup and Sensitivity Analyses
+[Subgroup and sensitivity analyses if applicable]
+
+## 4. Discussion
+
+### 4.1 Principal Findings
+[Summary of main findings]
+
+### 4.2 Strengths and Limitations
+[Review strengths and limitations]
+
+### 4.3 Implications for Practice and Future Research
+[Clinical implications and research priorities]
+
+## 5. Conclusion
+[Concluding statement]
+
+## References
+[Complete Vancouver-style reference list with DOIs]` : isScoping ? `## Evidence Synthesis
 
 ### Narrative Summary
 [Thematic mapping of evidence]
