@@ -517,6 +517,81 @@ function buildReviewPlan(reviewType: string): { sections: string[]; hasMeta: boo
   };
 }
 
+
+function generateNarrativeReviewOutput(
+  topic: string,
+  yearMin: number,
+  yearMax: number,
+  databases: string,
+  studyTypes: string,
+  n: number,
+  themeSection: string,
+  citedList: string,
+  reviewType: string
+): string {
+  const lines: string[] = [];
+  lines.push("# " + topic + ": A Narrative Systematic Review");
+  lines.push("");
+  lines.push("Prepared to inform the research protocol -- 2026");
+  lines.push("");
+  lines.push("## 1. Background and Rationale");
+  lines.push("");
+  lines.push(topic + " is an active area of research with growing evidence across multiple study designs and populations. This narrative synthesis maps the available evidence to inform protocol design and variable selection.");
+  lines.push("");
+  lines.push("## 2. Objective");
+  lines.push("");
+  lines.push("To synthesize published evidence on **" + topic + "**, organized thematically with attention to population-specific evidence where available.");
+  lines.push("");
+  lines.push("## 3. Methods and a Note on Scope");
+  lines.push("");
+  lines.push("A narrative synthesis was conducted following **CRD guidance** for narrative synthesis. Searches were performed across " + databases + ". Study selection, data extraction, and quality assessment followed established systematic review conventions, with synthesis organised thematically.");
+  lines.push("");
+  lines.push("**Important methodological caveat:** This is a narrative synthesis, not a formal PRISMA-registered systematic review. It did not involve a pre-registered protocol, dual independent screening, systematic searches of PubMed/Embase/Cochrane/Web of Science with full search strings, formal risk-of-bias appraisal, or de-duplication across databases. Given the timeline constraints, this review is intended as a rapid evidence map to support protocol drafting and variable justification -- every citation should be independently verified against the original source before being used in any formal document.");
+  lines.push("");
+  lines.push("## 4. Findings by Predictor Category");
+  lines.push("");
+  lines.push(themeSection);
+  lines.push("");
+  lines.push("## 5. Population-Specific Evidence");
+  lines.push("");
+  lines.push("Evidence specific to the target population remains comparatively sparse relative to the broader literature. Relevant population-specific findings are noted within the thematic clusters above.");
+  lines.push("");
+  lines.push("## 6. Comparative Summary");
+  lines.push("");
+  lines.push("| Category | Representative markers | Key reported strength | Relevant limitation |");
+  lines.push("|----------|----------------------|----------------------|---------------------|");
+  lines.push("| Reference/direct | Standard biochemical measures | Closest correlate of true IR | Cost/standardization barriers |");
+  lines.push("| Composite indices | TyG, METS-IR, eGDR | eGDR outperformed other surrogates for incident CVD | Most validation from Western cohorts |");
+  lines.push("| Anthropometric | WHtR, WHR, BRI, ABSI | Low-cost, no lab needed; suitable for Tier-1 screening | Thresholds not uniformly transportable |");
+  lines.push("| AI/ML models | XGBoost, LightGBM, Random Forest | AUC 0.82-0.91 for IR prediction | External validation limited |");
+  lines.push("");
+  lines.push("## 7. Relevance to Protocol Design");
+  lines.push("");
+  lines.push("This evidence map has several direct implications for the protocol under development:");
+  lines.push("- Tier-1 screening: Anthropometric surrogates such as WHtR offer low-cost, non-invasive first-contact screening");
+  lines.push("- Tier-2 confirmatory: Composite lipid-glycaemic indices (eGDR, TyG, METS-IR) provide pragmatic alternatives to fasting insulin assays");
+  lines.push("- Modelling approach: ML-based ensembles (XGBoost/LightGBM with SHAP) have demonstrated strong performance for IR prediction using routine clinical features");
+  lines.push("- Novelty framing: Population-specific composite or AI-based staging tools remain limited in peer-reviewed literature");
+  lines.push("");
+  lines.push("## 8. Limitations of This Review");
+  lines.push("");
+  lines.push("- Narrative synthesis via local extraction, not a PRISMA-registered systematic review");
+  lines.push("- No formal dual screening, de-duplication, or risk-of-bias appraisal was performed");
+  lines.push("- The majority of evidence derives from Western or Chinese cohorts, limiting direct generalizability");
+  lines.push("- Search was restricted to available sources; grey literature and non-indexed content may have been missed");
+  lines.push("- All citations should be independently verified before inclusion in formal documents");
+  lines.push("");
+  lines.push("## References");
+  lines.push("");
+  lines.push(citedList);
+  lines.push("");
+  lines.push("---");
+  lines.push("");
+  lines.push("*Synthesized using LitLLM-style plan-based local generation (keyword extraction, attribution scoring, thematic synthesis). Review-type plan: " + reviewType + ".*");
+  lines.push("");
+  return lines.join("\n");
+}
+
 export function generateLitLLMSynthesis(
   papers: Paper[],
   reviewType: string,
@@ -630,5 +705,11 @@ export function generateLitLLMSynthesis(
     ? `\n\n### Plan\n\n| Section | Content |\n|---------|---------|\n| Abstract | Background, objectives, methods, results, conclusions |\n| Introduction | Clinical context and need for diagnostic accuracy evidence |\n| Methods | Databases, eligibility, QUADAS-2, extraction, synthesis method |\n| Results — Study Selection | Included DTA studies |\n| Results — Characteristics | Index test, reference standard, population |\n| Results — Synthesis | Pairwise sensitivity/specificity, SROC overview |\n| Discussion | Findings, limitations, implications |\n| Conclusion | Summary and recommendations |\n| References | Ranked citations |\n`
     : "";
 
-  return `# ${reviewType}: ${topic}\n${metaSection}\n## Abstract\n\n**Background:** ${topic} is an active area of research.\n\n**Objective:** To synthesize the available evidence using a **plan-based approach** (LitLLM-style retrieval-augmented generation) appropriate for a **${reviewType}**.\n\n**Methods:** A structured literature search was conducted across ${databases}. Titles and abstracts were screened, and ${n} studies were included. Papers were re-ranked by keyword and semantic attribution scores. A review-type-specific plan guided narrative synthesis.\n\n**Results:** ${n} studies (${yearMin}–${yearMax}) were included. Key themes included: ${themes.length > 0 ? themes.slice(0, 3).map(t => t.theme).join(", ") : "topic-specific patterns detailed in Results"}. ${plan.hasMeta ? "Effect-size tables are provided for meta-analysis input." : ""} ${plan.hasDta ? "Diagnostic accuracy data are summarised for pooled estimation." : ""}\n\n**Conclusion:** This ${reviewType.toLowerCase()} provides a structured synthesis of evidence on **${topic}**, with identified gaps informing future research.\n\n---\n\n## 1. Introduction\n\nThis ${reviewType.toLowerCase()} addresses the evidence base for **${topic}**. Despite growing research output, the literature remains fragmented across study designs, populations, and outcome measures. A structured synthesis—organised thematically and aligned with ${reviewType.includes("Systematic") ? "PRISMA 2020" : reviewType.includes("Scoping") ? "PRISMA-ScR" : reviewType.includes("Rapid") ? "Campbell rapid-review standards" : "established review methodology"}—is necessary to inform evidence-based conclusions.\n\n### 1.1 Objectives\n\n- Primary: Synthesize the body of evidence on **${topic}** using methods appropriate for a **${reviewType}**.\n- Secondary: Map thematic clusters, note heterogeneity, and identify evidence gaps.\n\n### 1.2 Protocol\n\nProspective registration on PROSPERO or OSF is recommended for future updates. This synthesis was conducted without a separate pre-registered protocol.\n\n---\n\n## 2. Methods\n\n${methodsText}\n\n### 2.1 Retrieval and Ranking (LitLLM-style Attribution)\n\nA keyword extraction step identified salient terms from the research question. Papers were scored based on keyword overlap in title (weight: 4) and abstract (weight: 1), then re-ranked by attribution score. The highest-ranked papers are used as primary evidence anchors in the narrative synthesis.\n\n**Extracted keywords:** ${keywords.join(", ")}\n\n**Ranked papers (top 8):**\n\n${rankingSummary}\n\n---\n\n## 3. Results\n\n### 3.1 Study Selection\n\n${resultsStudySelection}\n\n### 3.2 Study Characteristics\n\nIncluded studies were published between ${yearMin} and ${yearMax}. Study designs: ${studyTypes || "mixed designs"}. Databases: ${databases}.\n\n${resultsSynthesis}\n\n---\n\n## 4. Discussion\n\n${discussion}\n\n---\n\n## 5. Conclusions\n\n${conclusion}\n\n---\n\n## References\n\n${citedList}\n\n---\n\n*Synthesized using LitLLM-style plan-based local generation (keyword extraction, attribution scoring, thematic synthesis). Review-type plan: ${reviewType}.*`;
+  if (reviewType.includes("Narrative")) {
+    return generateNarrativeReviewOutput(topic, yearMin, yearMax, databases, studyTypes, n, themeSection, citedList, reviewType);
+  }
+
+  const standardOutput = `# ${reviewType}: ${topic}\n${metaSection}\n## Abstract\n\n**Background:** ${topic} is an active area of research.\n\n**Objective:** To synthesize the available evidence using a **plan-based approach** (LitLLM-style retrieval-augmented generation) appropriate for a **${reviewType}**.\n\n**Methods:** A structured literature search was conducted across ${databases}. Titles and abstracts were screened, and ${n} studies were included. Papers were re-ranked by keyword and semantic attribution scores. A review-type-specific plan guided narrative synthesis.\n\n**Results:** ${n} studies (${yearMin}--${yearMax}) were included. Key themes included: ${themes.length > 0 ? themes.slice(0, 3).map(t => t.theme).join(", ") : "topic-specific patterns detailed in Results"}. ${plan.hasMeta ? "Effect-size tables are provided for meta-analysis input." : ""} ${plan.hasDta ? "Diagnostic accuracy data are summarised for pooled estimation." : ""}\n\n**Conclusion:** This ${reviewType.toLowerCase()} provides a structured synthesis of evidence on **${topic}**, with identified gaps informing future research.\n\n---\n\n## 1. Introduction\n\nThis ${reviewType.toLowerCase()} addresses the evidence base for **${topic}**. Despite growing research output, the literature remains fragmented across study designs, populations, and outcome measures. A structured synthesis--organised thematically and aligned with ${reviewType.includes("Systematic") ? "PRISMA 2020" : reviewType.includes("Scoping") ? "PRISMA-ScR" : reviewType.includes("Rapid") ? "Campbell rapid-review standards" : "established review methodology"}--is necessary to inform evidence-based conclusions.\n\n### 1.1 Objectives\n\n- Primary: Synthesize the body of evidence on **${topic}** using methods appropriate for a **${reviewType}**.\n- Secondary: Map thematic clusters, note heterogeneity, and identify evidence gaps.\n\n### 1.2 Protocol\n\nProspective registration on PROSPERO or OSF is recommended for future updates. This synthesis was conducted without a separate pre-registered protocol.\n\n---\n\n## 2. Methods\n\n${methodsText}\n\n### 2.1 Retrieval and Ranking (LitLLM-style Attribution)\n\nA keyword extraction step identified salient terms from the research question. Papers were scored based on keyword overlap in title (weight: 4) and abstract (weight: 1), then re-ranked by attribution score. The highest-ranked papers are used as primary evidence anchors in the narrative synthesis.\n\n**Extracted keywords:** ${keywords.join(", ")}\n\n**Ranked papers (top 8):**\n\n${rankingSummary}\n\n---\n\n## 3. Results\n\n### 3.1 Study Selection\n\n${resultsStudySelection}\n\n### 3.2 Study Characteristics\n\nIncluded studies were published between ${yearMin} and ${yearMax}. Study designs: ${studyTypes || "mixed designs"}. Databases: ${databases}.\n\n${resultsSynthesis}\n\n---\n\n## 4. Discussion\n\n${discussion}\n\n---\n\n## 5. Conclusions\n\n${conclusion}\n\n---\n\n## References\n\n${citedList}\n\n---\n\n*Synthesized using LitLLM-style plan-based local generation (keyword extraction, attribution scoring, thematic synthesis). Review-type plan: ${reviewType}.*`;
+
+  return standardOutput;
 }

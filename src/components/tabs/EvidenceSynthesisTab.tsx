@@ -875,6 +875,15 @@ At the end, include a References section with all papers in Vancouver style:
       notes: robAssessments[p.id]?.notes || "",
     }));
 
+  const isNarrative = reviewType.includes("Narrative");
+  const isSystematic = reviewType.includes("Systematic");
+  const isMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
+  const isScoping = reviewType.includes("Scoping");
+  const isUmbrella = reviewType.includes("Umbrella");
+  const isRapid = reviewType.includes("Rapid");
+  const isMixed = reviewType.includes("Mixed Methods");
+  const isDTA = reviewType.includes("Diagnostic Test Accuracy");
+
   const prompt = `You are an expert evidence synthesis researcher using methods from the awesome-evidence-synthesis toolkit (metafor, meta, metaumbrella, robvis, PRISMA 2020).
 
 REVIEW TYPE: ${reviewType}
@@ -896,10 +905,132 @@ REQUIREMENTS:
 5. Provide a forest-plot-ready effect-size table with columns: Study, Effect Estimate, 95% CI, Weight
 6. Include PRISMA-compliant narrative structure (for reviews where PRISMA applies)
 7. Reference tools: metafor, meta, metaumbrella, robvis, forestplot, PRISMA 2020
-${reviewType.includes("Meta-analysis") ? "8. Provide meta-analysis interpretation: fixed vs random effects, heterogeneity statistics (I², τ²), certainty of evidence" : ""}
+${isMeta ? "8. Provide meta-analysis interpretation: fixed vs random effects, heterogeneity statistics (I², τ²), certainty of evidence" : ""}
 
 OUTPUT FORMAT:
-## Evidence Synthesis
+${isNarrative ? `## Evidence Synthesis
+
+### Narrative Summary
+
+[Title]: [Research Topic] — A Narrative Systematic Review
+[Subtitle line]: Prepared to inform [protocol or study name]
+
+#### 1. Background and Rationale
+[Context, pathophysiology, and rationale for the review]
+
+#### 2. Objective
+[Stated objectives of the narrative review]
+
+#### 3. Methods and a Note on Scope
+[Search strategy, databases, date range, inclusion/exclusion criteria, quality assessment approach, and explicit caveat about narrative synthesis vs formal PRISMA-registered systematic review]
+
+#### 4. Findings by Predictor Category
+[Organize findings into numbered subsections relevant to the research question, e.g.:]
+
+##### 4.1 [Category 1]
+[Synthesis of evidence for this category]
+
+##### 4.2 [Category 2]
+[Synthesis of evidence for this category]
+
+##### 4.3 [Category 3]
+[Synthesis of evidence for this category]
+
+#### 5. Population-Specific Evidence
+[Evidence specific to the target population or subgroup]
+
+#### 6. Comparative Summary
+| Category | Representative markers | Key reported strength | Relevant limitation |
+|----------|----------------------|----------------------|---------------------|
+| ... | ... | ... | ... |
+
+#### 7. Relevance to [Protocol/Study Name]
+[Direct implications for the protocol or study under development]
+
+#### 8. Limitations of This Review
+[Explicit limitations of the narrative synthesis approach]
+
+### References
+[Complete Vancouver-style reference list with DOIs]` : isSystematic && !isMeta ? `## Evidence Synthesis
+
+### Narrative Summary
+[Thematic synthesis of findings]
+
+### Effect Size Summary
+| Study | Effect Estimate | 95% CI | Weight |
+|-------|----------------|--------|--------|
+
+### Risk of Bias Commentary
+[How RoB patterns affect confidence in evidence]
+
+### Gaps and Future Directions
+[Remaining uncertainties]` : isScoping ? `## Evidence Synthesis
+
+### Narrative Summary
+[Thematic mapping of evidence]
+
+### Effect Size Summary
+| Study | Effect Estimate | 95% CI | Weight |
+|-------|----------------|--------|--------|
+
+### Risk of Bias Commentary
+[How RoB patterns affect confidence in evidence]
+
+### Gaps and Future Directions
+[Remaining uncertainties]` : isUmbrella ? `## Evidence Synthesis
+
+### Narrative Summary
+[Overview of systematic reviews and meta-analyses]
+
+### Effect Size Summary
+| Study | Effect Estimate | 95% CI | Weight |
+|-------|----------------|--------|--------|
+
+### Risk of Bias Commentary
+[How RoB patterns affect confidence in evidence]
+
+### Gaps and Future Directions
+[Remaining uncertainties]` : isRapid ? `## Evidence Synthesis
+
+### Narrative Summary
+[Streamlined synthesis of findings]
+
+### Effect Size Summary
+| Study | Effect Estimate | 95% CI | Weight |
+|-------|----------------|--------|--------|
+
+### Risk of Bias Commentary
+[How RoB patterns affect confidence in evidence]
+
+### Gaps and Future Directions
+[Remaining uncertainties]` : isMixed ? `## Evidence Synthesis
+
+### Narrative Summary
+[Integrated quantitative and qualitative synthesis]
+
+### Effect Size Summary
+| Study | Effect Estimate | 95% CI | Weight |
+|-------|----------------|--------|--------|
+
+### Risk of Bias Commentary
+[How RoB patterns affect confidence in evidence]
+
+### Gaps and Future Directions
+[Remaining uncertainties]` : isDTA ? `## Evidence Synthesis
+
+### Narrative Summary
+[Diagnostic test accuracy synthesis]
+
+### Effect Size Summary
+| Study | Sensitivity | Specificity | AUC |
+|-------|-------------|-------------|-----|
+| ... | ... | ... | ... |
+
+### Risk of Bias Commentary
+[How RoB patterns affect confidence in evidence]
+
+### Gaps and Future Directions
+[Remaining uncertainties]` : `## Evidence Synthesis
 
 ### Narrative Summary
 [Thematic synthesis of findings]
@@ -915,7 +1046,7 @@ OUTPUT FORMAT:
 [Fixed vs random effects, heterogeneity, certainty]
 
 ### Gaps and Future Directions
-[Remaining uncertainties]`;
+[Remaining uncertainties]`}`;
 
       const apiKey = state.geminiApiKey || state.groqApiKey;
       if (!apiKey) {
