@@ -1323,176 +1323,29 @@ Step 1 results now show:
 ### Validation
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes (0 errors)
-- `bun run build` ✅ passes — `/api/web-search` registered as dynamic route
+- `bun run build` ✅ passes cleanly
 
-## Evidence Synthesis Step 1 — Server-side Proxy + Pipeline Audit Fixes (2026-07-09)
+## Step 6 Final Manuscript Flow — Review Incorporation & Export-Only (2026-07-12)
 
-**Feature**: Added server-side proxy route `/api/literature-search` to eliminate CORS failures when searching external literature databases from the Evidence Synthesis & Meta-analysis tab. Previously, browser-side `fetchRealPapers()` called OpenAlex, PubMed, Europe PMC, DOAJ, etc. directly from the client; DOAJ and some other sources lack CORS headers, causing silent failures where only PubMed returned results.
+**Feature**: Updated EvidenceSynthesisTab Step 6 so that after the Academic Writing Agents Review Report is generated, the review findings are incorporated into the manuscript to produce a final manuscript. The final manuscript is displayed below the review report and exported only as PDF, Word, or LaTeX. Raw markdown download is removed.
 
-### New API Route
-- `src/app/api/literature-search/route.ts` — server-side proxy that accepts `{ query, databases, yearFrom, yearTo, studyType }`, fans out to all selected databases using the existing fetchers, deduplicates, enriches DOIs, and returns `{ papers, sourceBreakdown, sourcesUsed, errors, failedDatabases, dedupedCount, totalBeforeDedup }`
+### New Function in `src/lib/academic-writing-agents.ts`
+- `buildIncorporateReviewPrompt()` — Builds a prompt that instructs the AI to rewrite the manuscript by incorporating all actionable feedback from the review report, preserving structure and evidence base, and applying the 30 academic writing principles.
 
-### Client Changes
-- `src/components/tabs/EvidenceSynthesisTab.tsx`:
-  - `handleSearch` now calls `/api/literature-search` instead of `fetchRealPapers` directly
-  - Added state: `dbSearchStatus` (per-db result counts) and `failedDatabases`
-  - UI shows per-database counts after search, plus a red banner listing failed databases
-  - Web/mock fallback chain preserved for complete search failure
-
-### Database API Fixes
-- `src/lib/database-apis.ts`:
-  - Exported individual fetchers: `fetchOpenAlex`, `fetchPubMed`, `fetchEuropePMC`, `fetchDoaj`, `fetchPaperSearchMcp` — so the API route can call them server-side
-  - Exported `deduplicatePapers`
-  - Fixed `normalizeOpenAlexWork` author formatting bug: `.join(" (" + ")")` → proper `Author (Institution)` formatting
-  - Fixed `getDatabaseBackend("DOAJ")` mapping: was incorrectly mapped to `"OpenAlex API"`; now returns `"DOAJ API"`
-  - DOAJ normalization now includes `sourceBackend` and `sources` fields matching `Paper` interface
-
-### Step 4 LitLLM Integration
-- `src/lib/local-synthesis.ts`:
-  - Added `generateLitLLMSynthesis()` implementing LitLLM-style plan-based generation: keyword extraction → multi-strategy scoring → attribution-based re-ranking → review-type-specific structured output
-  - Supports all 8 review types (Systematic Review, Systematic Review & Meta-analysis, Narrative Review, Umbrella Review, Scoping Review, Rapid Review, Mixed Methods Review, Diagnostic Test Accuracy Review)
-  - `EvidenceSynthesisTab.tsx` Step 4 local synthesis fallback now calls `generateLitLLMSynthesis` instead of `generateLocalSynthesis`
-
-### Pipeline Audit Fixes (Steps 2–6)
-- Step 3: `saveRobAssessments` now persists assessments to `localStorage` instead of only showing `alert()`
-- Step 4: Deduplicated prompt blocks in `generateSynthesis` — `REVIEW TYPE`, `USER REQUIREMENTS`, and `SYNTHESIS INSTRUCTIONS` were each appearing twice
-
-### Validation
-- `bun typecheck` ✅ passes
-- `bun lint` ✅ passes
-- `bun run build` ✅ passes — `/api/literature-search` registered as dynamic route
-
-
-## Step 4 Narrative Review Format Update (2026-07-11)
-
-**Feature**: Updated Step 4 Evidence Synthesis output to match the user-provided narrative systematic review example format.
-
-### Changes Made
-
-**`src/components/tabs/EvidenceSynthesisTab.tsx`**:
-- Updated AI prompt to emit structured narrative review template when `Review Type` includes "Narrative", with sections: Background and Rationale, Objective, Methods and a Note on Scope, Findings by Predictor Category, Population-Specific Evidence, Comparative Summary (table), Relevance to Protocol, Limitations of This Review, and References
-- Added explicit Systematic Review / Meta-analysis format instructions matching the user's example (Abstract with Background/Objective/Methods/Results/Conclusion, numbered Introduction subsections, Methods with PICOS, Results with study selection table, risk of bias, primary/secondary outcomes, Discussion, Conclusion)
-
-**`src/lib/local-synthesis.ts`**:
-- Added `generateNarrativeReviewOutput()` helper that produces the structured narrative review format locally (no API key required)
-- Removed `generateSystematicReviewOutput()` helper as it was not giving desired results; Systematic/Meta-analysis reviews now fall through to the plan-based `standardOutput` in `generateLitLLMSynthesis()`
-
-### Validation
-- `bun typecheck` ✅ passes
-- `bun lint` ✅ passes
-
-## Robust-Lit-Review Integration — Step 4 & Step 6 Pipeline (2026-07-12)
-
-**Feature**: Integrated `htlin222/robust-lit-review` methodology into the evidence synthesis & meta-analysis pipeline, focused on Step 4 (Literature Review) and Step 6 (Research Questions). This maps the Python pipeline's core capabilities (PRISMA 2020 audit, GRADE judgment, claim decomposition, semantic selection, DOI validation, journal-quality filtering) into the Next.js frontend.
-
-### Files Modified
-- **`src/lib/evidence-synthesis-tools.ts`** — Added `robust-lit-review` entry with category `workflow`, description referencing Scopus/PubMed/Embase, PRISMA 2020 compliance, GRADE, DOI validation; `useInSynthesis: true`, `useInMetaAnalysis: true`, `useInReporting: true`.
-- **`src/lib/medical-skills/robust-lit-review.ts`** — New skill module porting key robust-lit-review algorithms to TypeScript:
-  - `buildPRISMAChecklist()` / `scorePRISMA()` / `formatPRISMAReport()` — 27-item PRISMA 2020 checklist
-  - `decomposeClaim()` — PICO-based claim decomposition (Population, Intervention, Comparator, Outcome, Timeframe, Setting, question type classification)
-  - `buildGRADEJudgment()` / `formatGRADEJudgment()` — GRADE certainty with downgrade logic (risk of bias, inconsistency, indirectness, imprecision, publication bias)
-  - `selectPapersBySemanticRelevance()` — subtopic-aware ranked selection
-  - `assessJournalQuality()` — quartile assessment from journal metadata
-  - `buildStudySelectionSummary()` — database-level selection counts
-- **`src/lib/local-synthesis.ts`** — Enhanced `generateLocalLiteratureReview()` with optional `{ enableRobustReview?: boolean }` option. When enabled, output includes:
-  - PRISMA 2020 checklist pass/fail breakdown
-  - Journal-quality block (Q1/Q2 counts, high-quality indicator)
-  - Claim decomposition table (PICO elements, question type)
-  - GRADE certainty summary for primary outcome
-  - Semantic selection attribution for theme synthesis
-- **`src/lib/research-skills.ts`** — Extended Step 4 and Step 6 prompts with robust-lit-review methodology:
-  - Step 4 (`buildStep4Prompt`): adds PRISMA 2020 compliance, DOI verification, crosscheck, GRADE certainty subsection, semantic selection requirements
-  - Step 6 (`buildStep6Prompt`): adds claim decomposition, evidence-gap mapping table, semantic relevance prioritization, GRADE certainty framing per question
-- **`src/components/steps/Step4LiteratureReview.tsx`** — Modified `handleGenerateReview` to pass `{ enableRobustReview: true }` whenever local synthesis is used (both primary path and catch error fallback). AI-generated reviews (Gemini/Groq) receive the enhanced prompt automatically.
-- **`src/components/steps/Step6ResearchQuestions.tsx`** — Enhanced `generateMockQuestions()`:
-  - Accepts optional `researchTopic` parameter
-  - When `researchTopic` is provided, uses `decomposeClaim()` to generate PICO-informed contextual questions instead of hardcoded LTBI examples
-  - Fallback catch blocks now pass `state.searchQuery` to enable context-aware mock questions
-  - Updated imports: `import { decomposeClaim } from "@/lib/medical-skills/robust-lit-review"`
-
-### EvidenceSynthesisTab Step 6 Removed — OpenDraft Manuscript Generation & Export (2026-07-12)
-
-**Feature**: Removed the old Step 6 ("Writing Review & Meta-analysis") implementation. Replaced it with an OpenDraft-inspired research paper draft generation step (github.com/federicodeponte/opendraft) that generates a complete manuscript from source papers collected in Risk of Bias, Synthesis & Meta-analysis, and Reporting & PRISMA steps, with user editing and export to PDF/Word/LaTeX.
-
-### Files Modified
-- **`src/components/tabs/EvidenceSynthesisTab.tsx`** — Step 6 completely rewritten:
-  - Old Step 6 JSX block removed
-  - New Step 6 uses OpenDraft methodology (19-agent pipeline condensed into single prompt)
-  - `generateManuscript` prompt updated to use OpenDraft methodology with 5 phases: Research, Structure, Writing, Citation, Polish
-  - Manuscript is generated markdown and displayed in an editable textarea
-  - User can edit the draft before export
-  - Export buttons: PDF (`downloadMarkdownAsPDF`), Word (`downloadMarkdownAsWord`), LaTeX (`downloadMarkdownAsLaTeX`)
-  - Added `FileCode` icon from lucide-react for LaTeX export button
-  - Step description UI updated with OpenDraft methodology references
-  - No-API-key fallback message updated to reference OpenDraft
-- **`src/lib/exporters.ts`** — Added `downloadMarkdownAsLaTeX()` function:
-  - Converts markdown to basic LaTeX article format
-  - Supports headings, lists (itemize/enumerate), tables
-  - Downloads as `.tex` file
-- **`src/lib/medical-skills/skills-registry.ts`** — Added `opendraft` entry:
-  - Category: `evidence-synthesis`
-  - Description: "Free & open-source AI research-paper writer: 19 agents draft 20k-word academic papers with citations verified against CrossRef/OpenAlex/arXiv. Export PDF/Word/LaTeX."
-  - Source: `federicodeponte/opendraft`
-
-### Design Decisions
-- OpenDraft's 19-agent Python pipeline is condensed into a single comprehensive AI prompt for the browser environment
-- The editable textarea serves as the "Human Review Required" checkpoint from OpenDraft
-- All export formats are generated client-side without requiring a Python backend
-- Manuscript state remains editable after generation, supporting iterative editing before final export
-
-### EvidenceSynthesisTab Step 6 Rewrite — Robust-Lit-Review Manuscript Generation (2026-07-12)
-
-**Feature**: Deleted the old Step 6 implementation that used Research-Paper-Writing-Skills + OpenClaw-Medical-Skills scientific-writing. Replaced it with a robust-lit-review-powered manuscript generation step that writes a complete, publication-ready report using all data gathered in previous pipeline stages.
-
-### Files Modified
-- **`src/components/tabs/EvidenceSynthesisTab.tsx`** — Step 6 ("Writing Review & Meta-analysis") completely rewritten:
-  - `generateManuscript` prompt now uses robust-lit-review methodology (github.com/htlin222/robust-lit-review)
-  - Prompt instructs AI to follow PRISMA 2020 compliance, GRADE evidence grading, claim decomposition, semantic selection, and doi verification
-  - Introduces GRADE Certainty of Evidence table in the manuscript structure
-  - Adds robust-lit-review self-review checklist before finalizing
-  - Title page now credits "robust-lit-review (htlin222/robust-lit-review)" instead of Research-Paper-Writing-Skills + OpenClaw
-  - No-API-key fallback message updated to reference robust-lit-review
-  - Step 6 description UI updated with robust-lit-review methodology references
-
-### Design Decisions
-- No Python backend was added; robust-lit-review algorithms are ported to TypeScript so they run in the browser/Next.js environment without additional infrastructure
-- AI-generated reviews benefit from robust-lit-review prompt enhancements (PRISMA, GRADE, DOI validation instructions) without requiring Python execution
-- Local fallback (no API key) now produces a more rigorous review aligned with robust-lit-review methodology rather than naive keyword-based generation
-
-### Validation
-- `bun typecheck` ✅ passes
-- `bun lint` ✅ passes (1 pre-existing unrelated warning in `not-found.tsx`)
-
-## Academic Writing Agents Integration — EvidenceSynthesisTab Step 6 (2026-07-12)
-
-**Feature**: Integrated `andrehuang/academic-writing-agents` methodology into Step 6 ("Research Paper Draft") of the Evidence Synthesis & Meta-analysis tab. The step now uses Academic Writing Agents' 30 principles and 12 specialist agents to generate and review manuscripts based on data from Steps 3–5.
-
-### New File
-- `src/lib/academic-writing-agents.ts` — Academic Writing Agents methodology ported to TypeScript:
-  - `ACADEMIC_PRINCIPLES` — 30 principles organized into 6 categories (Structure & Narrative, Prose & Style, Math & Equations, Figures & Tables, Citations & Bibliography, Process & Meta)
-  - `REVIEW_AGENTS` — 12 specialist agents (consistency-checker, logic-reviewer, technical-reviewer, writing-reviewer, latex-layout-auditor, bibliography-auditor, research-analyst, brainstormer, paper-crawler, prose-polisher, section-drafter, latex-figure-specialist)
-  - `buildAcademicWritingManuscriptPrompt()` — Generates manuscript using Academic Writing Agents methodology with GPS Rhythm, Claim-First, Nugget-first organization, and 30 principles
-  - `buildAcademicWritingReviewPrompt()` — Generates structured review report against the 30 principles with Critical/Important/Minor severity categorization
-  - `formatPrinciplesForPrompt()` / `formatAgentsForPrompt()` — Helpers to format methodology for AI prompts
-
-### EvidenceSynthesisTab Updates
-- Step 6 JSX rewritten to reference `andrehuang/academic-writing-agents` instead of OpenDraft
-- Added "Academic Writing Agents Pipeline" info card describing the 7-phase workflow
-- Added "30 Writing Principles Applied" and "12 Specialist Review Agents" info cards
-- Added "Run Academic Writing Agents Review" button that generates a structured review report
-- Added review report display with editable textarea and download button
-- Updated proceed button from Step 5: "Proceed to Academic Writing Agents Review"
-- Updated top-level tab description to include academic-writing-agents reference
-- `generateManuscript` now uses `buildAcademicWritingManuscriptPrompt()` from the new module
-- Added `generateReview()` function using `buildAcademicWritingReviewPrompt()`
-- Added `reviewReport` and `reviewLoading` state variables
-
-### Design Decisions
-- Academic Writing Agents' 19-agent Python pipeline is condensed into a single comprehensive AI prompt for the browser environment
-- The 30 principles are embedded directly into the manuscript generation prompt as quality constraints
-- The review phase runs after manuscript generation and produces a structured Critical/Important/Minor report
-- All export formats (PDF, Word, LaTeX) remain unchanged
-- Manuscript state remains editable after generation, supporting iterative editing before final export
+### Changes in `src/components/tabs/EvidenceSynthesisTab.tsx`
+- Added `finalManuscript` and `finalManuscriptLoading` state
+- Added `incorporateReviewAndRegenerate()` function that calls `buildIncorporateReviewPrompt` and updates `finalManuscript`
+- `generateManuscript()` and `generateReview()` now reset `finalManuscript`
+- UI flow:
+  1. Editable manuscript textarea
+  2. Export buttons for manuscript (PDF/Word/LaTeX)
+  3. "Run Academic Writing Agents Review" button
+  4. Editable review report textarea
+  5. "Incorporate Review & Regenerate Final Manuscript" button
+  6. Final manuscript rendered as HTML (`marked.parse`) in a read-only div below the review report
+  7. Final manuscript export buttons (PDF/Word/LaTeX only)
+- Removed "Download Review Report" raw markdown download button
+- "Start New Review" button now also resets `finalManuscript`
 
 ### Validation
 - `bun typecheck` ✅ passes
