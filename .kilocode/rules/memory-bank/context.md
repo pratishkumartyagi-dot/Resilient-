@@ -1380,3 +1380,41 @@ Step 1 results now show:
 ### Validation
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes
+
+## Robust-Lit-Review Integration — Step 4 & Step 6 Pipeline (2026-07-12)
+
+**Feature**: Integrated `htlin222/robust-lit-review` methodology into the evidence synthesis & meta-analysis pipeline, focused on Step 4 (Literature Review) and Step 6 (Research Questions). This maps the Python pipeline's core capabilities (PRISMA 2020 audit, GRADE judgment, claim decomposition, semantic selection, DOI validation, journal-quality filtering) into the Next.js frontend.
+
+### Files Modified
+- **`src/lib/evidence-synthesis-tools.ts`** — Added `robust-lit-review` entry with category `workflow`, description referencing Scopus/PubMed/Embase, PRISMA 2020 compliance, GRADE, DOI validation; `useInSynthesis: true`, `useInMetaAnalysis: true`, `useInReporting: true`.
+- **`src/lib/medical-skills/robust-lit-review.ts`** — New skill module porting key robust-lit-review algorithms to TypeScript:
+  - `buildPRISMAChecklist()` / `scorePRISMA()` / `formatPRISMAReport()` — 27-item PRISMA 2020 checklist
+  - `decomposeClaim()` — PICO-based claim decomposition (Population, Intervention, Comparator, Outcome, Timeframe, Setting, question type classification)
+  - `buildGRADEJudgment()` / `formatGRADEJudgment()` — GRADE certainty with downgrade logic (risk of bias, inconsistency, indirectness, imprecision, publication bias)
+  - `selectPapersBySemanticRelevance()` — subtopic-aware ranked selection
+  - `assessJournalQuality()` — quartile assessment from journal metadata
+  - `buildStudySelectionSummary()` — database-level selection counts
+- **`src/lib/local-synthesis.ts`** — Enhanced `generateLocalLiteratureReview()` with optional `{ enableRobustReview?: boolean }` option. When enabled, output includes:
+  - PRISMA 2020 checklist pass/fail breakdown
+  - Journal-quality block (Q1/Q2 counts, high-quality indicator)
+  - Claim decomposition table (PICO elements, question type)
+  - GRADE certainty summary for primary outcome
+  - Semantic selection attribution for theme synthesis
+- **`src/lib/research-skills.ts`** — Extended Step 4 and Step 6 prompts with robust-lit-review methodology:
+  - Step 4 (`buildStep4Prompt`): adds PRISMA 2020 compliance, DOI verification, crosscheck, GRADE certainty subsection, semantic selection requirements
+  - Step 6 (`buildStep6Prompt`): adds claim decomposition, evidence-gap mapping table, semantic relevance prioritization, GRADE certainty framing per question
+- **`src/components/steps/Step4LiteratureReview.tsx`** — Modified `handleGenerateReview` to pass `{ enableRobustReview: true }` whenever local synthesis is used (both primary path and catch error fallback). AI-generated reviews (Gemini/Groq) receive the enhanced prompt automatically.
+- **`src/components/steps/Step6ResearchQuestions.tsx`** — Enhanced `generateMockQuestions()`:
+  - Accepts optional `researchTopic` parameter
+  - When `researchTopic` is provided, uses `decomposeClaim()` to generate PICO-informed contextual questions instead of hardcoded LTBI examples
+  - Fallback catch blocks now pass `state.searchQuery` to enable context-aware mock questions
+  - Updated imports: `import { decomposeClaim } from "@/lib/medical-skills/robust-lit-review"`
+
+### Design Decisions
+- No Python backend was added; robust-lit-review algorithms are ported to TypeScript so they run in the browser/Next.js environment without additional infrastructure
+- AI-generated reviews benefit from robust-lit-review prompt enhancements (PRISMA, GRADE, DOI validation instructions) without requiring Python execution
+- Local fallback (no API key) now produces a more rigorous review aligned with robust-lit-review methodology rather than naive keyword-based generation
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes (1 pre-existing unrelated warning in `not-found.tsx`)

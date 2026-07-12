@@ -5,8 +5,35 @@ import { Sparkles, Plus, Trash2, FlaskConical, Beaker } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
 import { buildStep6Prompt } from "@/lib/research-skills";
+import { decomposeClaim } from "@/lib/medical-skills/robust-lit-review";
 
-const generateMockQuestions = (type: "qualitative" | "quantitative") => {
+const generateMockQuestions = (type: "qualitative" | "quantitative", researchTopic?: string) => {
+  if (researchTopic) {
+    const dec = decomposeClaim({ researchTopic });
+    const q = (text: string, t: "qualitative" | "quantitative") => ({ id: `rq-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, question: text, type: t as "qualitative" | "quantitative", selected: false });
+    const p = dec.population || "the target population";
+    const i = dec.intervention || "the intervention/exposure";
+    const c = dec.comparator || "standard care or comparator";
+    const o = dec.outcome || "the relevant outcome";
+    const s = dec.setting || "the target setting";
+    const py = dec.timeframe || "the defined timeframe";
+    return type === "qualitative"
+      ? [
+          q(`How do stakeholders in ${s} perceive the acceptability and feasibility of ${i} for ${p}?`, "qualitative"),
+          q(`What barriers and enablers shape the implementation of ${i} across diverse ${s} settings?`, "qualitative"),
+          q(`How do ${p} experience and navigate ${o} following ${i} in ${s}?`, "qualitative"),
+          q(`In what ways do existing ${o} measures influence ${i} uptake among ${p}?`, "qualitative"),
+          q(`How do frontline staff describe the trade-offs between ${i} and ${c} in ${s}?`, "qualitative"),
+        ].slice(0, 5)
+      : [
+          q(`What is the comparative prevalence or incidence of ${o} among ${p} in ${s}?`, "quantitative"),
+          q(`Does ${i} improve ${o} compared with ${c} among ${p} over ${py}?`, "quantitative"),
+          q(`What is the association between ${i} and ${o} after adjusting for confounders in ${p}?`, "quantitative"),
+          q(`Is there a statistically significant difference in ${o} between ${i} and ${c} across ${s}?`, "quantitative"),
+          q(`What is the effect size and 95% CI for ${i} on ${o} in ${p}?`, "quantitative"),
+        ].slice(0, 5);
+  }
+
   const qualQuestions = [
     { id: `rq-${Date.now()}-1`, question: "How do healthcare workers perceive the acceptability and feasibility of annual IGRA-based LTBI screening in their workplace?", type: "qualitative" as const, selected: false },
     { id: `rq-${Date.now()}-2`, question: "What institutional barriers and enablers shape the implementation of LTBI screening programs across diverse healthcare settings?", type: "qualitative" as const, selected: false },
@@ -35,6 +62,7 @@ const generateMockQuestions = (type: "qualitative" | "quantitative") => {
 
   return type === "qualitative" ? qualQuestions : quantQuestions;
 };
+
 
 export default function Step6ResearchQuestions() {
   const { state, dispatch } = useApp();
@@ -97,7 +125,7 @@ export default function Step6ResearchQuestions() {
       }
 
       if (questions.length === 0) {
-        const fallback = generateMockQuestions(questionType);
+        const fallback = generateMockQuestions(questionType, state.searchQuery);
         setQuestions(fallback);
         dispatch({ type: "SET_RESEARCH_QUESTIONS", payload: fallback });
       } else {
@@ -106,7 +134,7 @@ export default function Step6ResearchQuestions() {
       }
     } catch (err: any) {
       console.error("Question generation failed:", err);
-      const fallback = generateMockQuestions(questionType);
+      const fallback = generateMockQuestions(questionType, state.searchQuery);
       setQuestions(fallback);
       dispatch({ type: "SET_RESEARCH_QUESTIONS", payload: fallback });
     } finally {

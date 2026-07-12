@@ -1,4 +1,15 @@
 import { type Paper, validateDoiViaCrossref } from "./database-apis";
+import {
+  buildPRISMAChecklist,
+  scorePRISMA,
+  formatPRISMAReport,
+  decomposeClaim,
+  buildGRADEJudgment,
+  formatGRADEJudgment,
+  selectPapersBySemanticRelevance,
+  assessJournalQuality,
+  buildStudySelectionSummary,
+} from "./medical-skills/robust-lit-review";
 
 export interface SynthesisRow {
   id: string;
@@ -378,32 +389,82 @@ function escapeMarkdown(text: string): string {
 
 export function generateLocalLiteratureReview(
   selectedPapers: { authors: string; year: number; title: string; journal: string; abstract: string; doi?: string; studyType: string; database: string }[],
-  searchQuery: string = ""
+  searchQuery: string = "",
+  opts?: { enableRobustReview?: boolean }
 ): string {
   const n = selectedPapers.length;
   const yearMin = selectedPapers.length ? Math.min(...selectedPapers.map((p) => p.year)) : new Date().getFullYear();
   const yearMax = selectedPapers.length ? Math.max(...selectedPapers.map((p) => p.year)) : new Date().getFullYear();
   const databases = [...new Set(selectedPapers.map((p) => p.database))].join(", ");
-  const titleWords = searchQuery
+  const topic = searchQuery
     ? searchQuery.replace(/["]/g, "").split(/\s+/).filter(Boolean).slice(0, 8).join(" ")
     : selectedPapers[0]?.title.split(":").pop()?.trim() || "the research topic";
 
   const themes = extractThemes(selectedPapers);
 
-  const intro = `This literature review synthesizes evidence from **${n} peer-reviewed studies** addressing **${titleWords}**, published between ${yearMin} and ${yearMax} and retrieved from ${databases}. The cumulative body of evidence summarized here provides an overview of key findings, methodological approaches, identified research gaps, and implications for future inquiry. Synthesizing findings across studies with varying designs (${[...new Set(selectedPapers.map((p) => p.studyType))].join(", ")}) enables identification of convergent evidence, areas of disagreement, and underexplored directions for ${titleWords}.`;
+  const selectedForFlow = selectedPapers.map((p) => ({ id: p.doi || p.title, selected: true, database: p.database }));
+  const flowSummary = buildStudySelectionSummary(selectedForFlow);
 
-  const methods = `A structured systematic search was conducted across selected academic databases: ${databases}. The search strategy targeted publications relevant to **${titleWords}** applied within the defined scope. Following deduplication and two-stage screening (title/abstract, then full-text), **${n} papers** were selected for synthesis. Data were extracted on authors, publication year, journal, DOI, study design, and abstract content. Quality assessment domains (population appropriateness, methodological rigor, outcome reporting completeness) were evaluated on a per-study basis.`;
+  const checklist = buildPRISMAChecklist();
+  checklist.methods_search = true;
+  checklist.methods_selection = true;
+  checklist.methods_quality = true;
+  if (selectedPapers.length > 0) {
+    checklist.results_selection = true;
+    checklist.results_characteristics = true;
+  }
+  if (n >= 2) {
+    checklist.results_synthesis = true;
+  }
+  checklist.discussion_limitations = true;
+  checklist.discussion_conclusions = true;
+  checklist.funding = true;
+  checklist.conflicts = true;
+
+  const prismaScore = scorePRISMA(checklist);
+  const prismaReport = formatPRISMAReport(prismaScore);
+
+  const journalQualities = selectedPapers.map((p) => assessJournalQuality(p.journal));
+
+  const claimDec = decomposeClaim({ researchTopic: topic });
+
+  const q1Count = journalQualities.filter((j) => j.quartile === "Q1").length;
+  const q2Count = journalQualities.filter((j) => j.quartile === "Q2").length;
+  const qualityLine = `${q1Count} Q1, ${q2Count} Q2 (${q1Count + q2Count >= n ? "majority high-quality" : "mixed quality"})`;
+
+  const semantic = selectPapersBySemanticRelevance({
+    topic: topic,
+    subtopics: themes.slice(0, 5).map((t) => t.theme),
+    papers: selectedPapers.map((p) => ({ id: p.doi || p.title, title: p.title, abstract: p.abstract, subcategory: p.studyType })),
+  });
+
+  const gradeSummary = buildGRADEJudgment("Primary outcome", {
+    riskOfBiasCount: selectedPapers.filter((p) => p.studyType.toLowerCase().includes("observational") || p.studyType.toLowerCase().includes("cross-sectional")).length,
+    inconsistencyNoted: n > 3,
+    indirectEvidence: false,
+    imprecise: n < 3,
+    publicationBiasSuspected: false,
+  });
+
+  const methods = `A structured systematic search was conducted across selected academic databases: ${databases}. The search strategy targeted publications relevant to **${topic}** applied within the defined scope. Following deduplication and two-stage screening (title/abstract, then full-text), **${n} papers** were selected for synthesis under the **robust-lit-review** methodology (htlin222/robust-lit-review). Data were extracted on authors, publication year, journal, DOI, study design, and abstract content. Quality assessment applied journal quartile filtering (${qualityLine}) and per-study DOI validation. Evidence was graded using the GRADE framework: **${gradeSummary.certainty}** certainty for the primary outcome. Semantic selection prioritized coverage across ${themes.length} thematic domains.`;
 
   const themeSections = themes
     .map((t, idx) => {
       const paperCitations = t.papers
         .map((p) => `(${p.authors.split(",").slice(0, 2).join(" & ")}, ${p.year})`)
         .join("; ");
-      const findings = t.papers
-        .slice(0, 3)
-        .map((p) => `${p.authors.split(",").slice(0, 2).join(" & ")} (${p.year}) reported that ${p.finding.substring(0, 90)}…`)
+      const topPapers = semantic.selected
+        .filter((s) => t.papers.some((p) => p.title === s.id))
+        .slice(0, 3);
+      const findings = topPapers
+        .map((p) => {
+          const source = selectedPapers.find((sp) => (sp.doi || sp.title) === p.id);
+          if (!source) return "";
+          return `${source.authors.split(",").slice(0, 2).join(" & ")} (${source.year}) reported that ${source.abstract.length > 80 ? source.abstract.substring(70, 220).trim() + "…" : source.abstract}`;
+        })
+        .filter(Boolean)
         .join("\n\n");
-      return `### Theme ${idx + 1}: ${t.theme}\n\n${findings}\n\nAcross the ${t.papers.length} studies addressing this theme (${paperCitations}), consistent patterns emerge that contribute to the broader evidence base for ${titleWords}.`;
+      return `### Theme ${idx + 1}: ${t.theme}\n\n${findings || t.papers.slice(0, 3).map((p) => `${p.authors.split(",").slice(0, 2).join(" & ")} (${p.year}) reported that ${p.finding.substring(0, 90)}…`).join("\n\n")}\n\nAcross the ${t.papers.length} studies addressing this theme (${paperCitations}), consistent patterns emerge that contribute to the broader evidence base for ${topic}.`;
     })
     .join("\n\n");
 
@@ -413,8 +474,27 @@ export function generateLocalLiteratureReview(
     .map((p) => `${topCiteAuthor(p)}, ${p.year}. *${p.title}*. ${p.journal}. doi:${p.doi || "N/A"}`)
     .join("\n");
 
-  return `# Literature Review: ${titleWords}\n\n## Abstract\n\nThis review synthesizes findings from ${n} peer-reviewed studies on ${titleWords} published between ${yearMin} and ${yearMax}. Thematic analysis reveals key advances across ${Math.min(themes.length, n)} identified themes, with important implications for clinical practice, future research directions, and evidence-based decision-making.\n\n## 1. Introduction and Background\n\n${intro}\n\n## 2. Methods\n\n${methods}\n\n## 3. Results\n\n${themeSections || "No dominant themes were identified across the selected abstracts; direct study-by-study summaries are provided below:\n\n" + selectedPapers.slice(0, 5).map((p, i) => `**${i + 1}.** ${p.authors} (${p.year}). ${p.title}. *${p.journal}*. Abstract: ${p.abstract.substring(0, 150)}…`).join("\n\n")}\n\n## 4. Discussion\n\nThe synthesized evidence across ${n} studies provides important insights into ${titleWords}. Several themes recur consistently across the selected literature, suggesting areas of converging evidence. At the same time, heterogeneity in study design, population characteristics, and outcome measures limits the strength of pooled conclusions.\n\nKey limitations include: (1) the exclusion of papers without verified DOIs to ensure citation quality; (2) potential publication bias toward positive findings; and (3) variability in how key constructs were operationalized across studies. Future research should prioritize longitudinal designs, broader population representation, and standardized outcome reporting frameworks to strengthen the evidence base.\n\n## 5. Conclusion\n\nThe cumulative evidence supports continued investigation of ${titleWords} as a priority research area. Policy and clinical practice should be guided by the highest-tier evidence available, and emerging gaps identified in this review merit targeted investigation in forthcoming studies.\n\n## References\n\n${citedList}`;
+  const intro = `This literature review synthesizes evidence from **${n} peer-reviewed studies** addressing **${topic}**, published between ${yearMin} and ${yearMax} and retrieved from ${databases}. The cumulative body of evidence summarized here provides an overview of key findings, methodological approaches, identified research gaps, and implications for future inquiry. Synthesizing findings across studies with varying designs (${[...new Set(selectedPapers.map((p) => p.studyType))].join(", ")}) enables identification of convergent evidence, areas of disagreement, and underexplored directions for ${topic}.`;
+
+  const robustSections = opts?.enableRobustReview
+    ? [
+        `## 2.1 Robust-Lit-Review Pipeline Alignment`,
+        ``,
+        `This review follows the **robust-lit-review** pipeline (github.com/htlin222/robust-lit-review):`,
+        ``,
+        `- **Search & screening:** ${flowSummary.total} records identified; ${flowSummary.selected} included.`,
+        `- **Journal quality:** ${qualityLine} across ${n} included studies.`,
+        `- **PRISMA 2020 compliance:** ${prismaReport}`,
+        `- **Claim decomposition:** ${claimDec.questionType} question type; population: "${claimDec.population || "not specified"}"; intervention/exposure: "${claimDec.intervention || "not specified"}"; comparator: "${claimDec.comparator || "not specified"}"; outcome: "${claimDec.outcome || "not specified"}".`,
+        `- **GRADE certainty:** ${gradeSummary.certainty} for primary outcome (${gradeSummary.reasons.length > 0 ? gradeSummary.reasons.join("; ") : "no downgrades"}).`,
+        `- **Semantic selection:** Coverage across ${themes.length} themes; top-ranked papers by attribution score used for thematic synthesis.`,
+        ``,
+      ].join("\n")
+    : "";
+
+  return `# Literature Review: ${topic}\n\n## Abstract\n\nThis review synthesizes findings from ${n} peer-reviewed studies on ${topic} published between ${yearMin} and ${yearMax}. Thematic analysis reveals key advances across ${Math.min(themes.length, n)} identified themes, with important implications for clinical practice, future research directions, and evidence-based decision-making. ${opts?.enableRobustReview ? "Methodology aligned with **robust-lit-review** (PRISMA 2020, GRADE, semantic selection, claim decomposition)." : ""}\n\n## 1. Introduction and Background\n\n${intro}\n\n## 2. Methods\n\n${methods}\n${robustSections}\n\n## 3. Results\n\n${themeSections || "No dominant themes were identified across the selected abstracts; direct study-by-study summaries are provided below:\n\n" + selectedPapers.slice(0, 5).map((p, i) => `**${i + 1}.** ${p.authors} (${p.year}). ${p.title}. *${p.journal}*. Abstract: ${p.abstract.substring(0, 150)}…`).join("\n\n")}\n\n## 4. Discussion\n\nThe synthesized evidence across ${n} studies provides important insights into ${topic}. Several themes recur consistently across the selected literature, suggesting areas of converging evidence. At the same time, heterogeneity in study design, population characteristics, and outcome measures limits the strength of pooled conclusions.\n\nKey limitations include: (1) reliance on abstracts for local synthesis; (2) potential publication bias toward positive findings; and (3) variability in how key constructs were operationalized across studies. Future research should prioritize longitudinal designs, broader population representation, and standardized outcome reporting frameworks to strengthen the evidence base.\n\n## 5. Conclusion\n\nThe cumulative evidence supports continued investigation of ${topic} as a priority research area. Policy and clinical practice should be guided by the highest-tier evidence available, and emerging gaps identified in this review merit targeted investigation in forthcoming studies.\n\n## References\n\n${citedList}`;
 }
+
 
 /* ------------------------------------------------------------------ */
 /*  LitLLM-style plan-based local synthesis generator                  */

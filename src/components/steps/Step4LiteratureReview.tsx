@@ -51,7 +51,8 @@ export default function Step4LiteratureReview() {
             studyType: p.studyType,
             database: p.database,
           })),
-          state.searchQuery
+          state.searchQuery,
+          { enableRobustReview: true }
         );
       }
 
@@ -73,7 +74,8 @@ export default function Step4LiteratureReview() {
             studyType: p.studyType,
             database: p.database,
           })),
-          state.searchQuery
+          state.searchQuery,
+          { enableRobustReview: true }
         );
         setReviewText(fallback);
         dispatch({ type: "SET_LITERATURE_REVIEW", payload: fallback });

@@ -140,10 +140,18 @@ export function buildStep4Prompt(papers: Paper[], uploadedContext: string): stri
   const selectedPapers = papers.filter((p) => p.selected);
   const prismaFlow = `PRISMA-style flow:
 Initial search → n=${selectedPapers.length} (plus broader search results) → Deduplication → Title screening → Abstract screening → Full-text screening → Included in review: ${selectedPapers.length} papers`;
-  return `You are an expert biomedical researcher writing a systematic literature review, using Long Chain-of-Thought (Long CoT) reasoning methodology for deep structured analysis, integrated with OpenClaw Medical Skills systematic review methodology.
+  return `You are an expert biomedical researcher writing a systematic literature review, using Long Chain-of-Thought (Long CoT) reasoning methodology for deep structured analysis, integrated with OpenClaw Medical Skills and **robust-lit-review** (github.com/htlin222/robust-lit-review) systematic review methodology.
 
 ## Research Program Context
 Supplementary evidence and web/academic search results may be provided below. Synthesize from both the selected papers and supplementary evidence. Grade all findings by strength: T1 Mechanistic, T2 Functional, T3 Associational, T4 Mention. If evidence is insufficient, explicitly state what is missing rather than speculate.
+
+## Robust-Lit-Review Extensions
+- **PRISMA 2020 compliance:** Follow the 27-item checklist; include PRISMA flow and reporting standards.
+- **DOI validation:** Verify every citation via doi.org handle API; note verification status.
+- **GRADE certainty:** For each major claim/output, provide a GRADE rating (High/Moderate/Low/Very Low) with short rationale for downgrades (risk of bias, inconsistency, indirectness, imprecision, publication bias).
+- **Semantic selection:** If subthemes are identified, note attribution-based relevance scoring.
+- **Claim crosscheck:** Crosscheck key claims across the included studies; flag unsupported or contradictory assertions.
+- **Robust-lit-review pipeline alignment:** search → filter → crosscheck → enrichment → PRISMA audit → manuscript generation.
 
 ## Long CoT Reasoning Protocol
 
@@ -187,6 +195,7 @@ REQUIREMENTS:
 - Synthesize findings across studies within each theme — compare and contrast approaches and results
 - Highlight the strongest evidence and identify knowledge gaps
 - Grade every claim by evidence strength (T1/T2/T3/T4)
+- Add a **GRADE Certainty** subsection in Discussion summarizing certainty ratings per outcome
 
 FORMAT — markdown only (no JSON):
 # Literature Review: [Topic]
@@ -220,6 +229,11 @@ FORMAT — markdown only (no JSON):
 
 ## Discussion
 [Interpret findings, acknowledge limitations, identify future directions]
+
+### GRADE Certainty of Evidence
+| Outcome | Certainty | Rationale |
+|---------|-----------|-----------|
+| Primary | Moderate | e.g., downgraded for risk of bias and inconsistency |
 
 ## References
 [Complete Vancouver-style reference list with DOIs]
@@ -303,9 +317,9 @@ ${synthesisTable.length > 0 ? synthesisTable.map((r, i) => `${i + 1}. [${r.refer
 
 export function buildStep6Prompt(papers: Paper[], themes: Theme[] | null, researchTopic: string): string {
   const selectedPapers = papers.filter((p) => p.selected);
-  return `You are an expert clinical and biomedical research question-framing planner following the AIPOCH Clinical Question Clarifier methodology.
+  return `You are an expert clinical and biomedical research question-framing planner following the AIPOCH Clinical Question Clarifier methodology, extended with **robust-lit-review** claim-decomposition and evidence-gap detection (github.com/htlin222/robust-lit-review).
 
-TASK: Clarify the research idea into a structured, bounded, searchable, researchable, and testable question definition based on the selected papers and themes.
+TASK: Clarify the research idea into a structured, bounded, searchable, researchable, and testable question definition based on the selected papers and themes. Use claim decomposition to extract PICO(P) elements and align questions with evidence gaps.
 
 WORKFLOW:
 1. Interpret the user's actual intent from the research topic and selected papers
@@ -316,6 +330,12 @@ WORKFLOW:
 6. Assess whether the question is searchable, researchable, and testable
 7. Recommend the best downstream next step
 
+## Robust-Lit-Review Guidance
+- **Claim decomposition:** Decompose the core research idea into PICO(P) elements explicitly in the output (Population, Intervention/Exposure, Comparator, Outcome, Timeframe).
+- **Evidence-gap alignment:** Use identified themes and synthesis gaps to frame questions where evidence is thin or contradictory.
+- **Semantic relevance:** If subthemes are defined, prioritize questions that target unsaturated or high-value subdomains.
+- **Certainty framing:** Note the likely GRADE certainty for the evidence that would answer each question (based on study designs present).
+
 OUTPUT STRUCTURE:
 
 ### A. Original Idea Interpretation
@@ -324,21 +344,26 @@ How the input is being interpreted and what the central intent is.
 ### B. Question Type Classification
 Dominant question type and secondary types.
 
-### C. Ambiguity and Missing Elements
-Major ambiguities, underspecified variables, scope problems.
+### EVIDENCE-GAP MAPPING (TABLE)
+| Gap / Underserved Area | Supporting Evidence | Certainty | Recommended Question Focus |
+|-----------------------|---------------------|-----------|----------------------------|
+| ... | ... | High/Moderate/Low/Very Low | ... |
 
-### D. Best-Fit Framing Structure
-Selected framework and why it fits.
-
-### E. Structured Question Breakdown (TABLE)
-| Element | Current Interpretation | Needs Narrowing? | Proposed Definition |
-|---------|----------------------|-------------------|---------------------|
+### C. Claim Decomposition
+| PICO Element | Current Interpretation | Needs Narrowing? | Proposed Definition |
+|--------------|----------------------|------------------|---------------------|
 | Population | ... | Yes/No | ... |
 | Intervention/Exposure | ... | Yes/No | ... |
 | Comparator | ... | Yes/No | ... |
 | Outcome | ... | Yes/No | ... |
 | Timeframe | ... | Yes/No | ... |
 | Setting | ... | Yes/No | ... |
+
+### D. Ambiguity and Missing Elements
+Major ambiguities, underspecified variables, scope problems.
+
+### E. Best-Fit Framing Structure
+Selected framework and why it fits.
 
 ### F. Clarified Question Versions
 1. Plain-language version: ...

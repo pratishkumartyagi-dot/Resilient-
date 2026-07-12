@@ -181,6 +181,16 @@ export const EVIDENCE_SYNTHESIS_TOOLS: EvidenceSynthesisTool[] = [
     useInReporting: false,
   },
   {
+    id: "robust-lit-review",
+    name: "Robust Literature Review",
+    category: "workflow",
+    description: "Automated systematic literature review pipeline with PRISMA 2020 compliance, DOI validation, grade judge, claim decomposer, semantic selector, crosscheck, and manuscript generation for PubMed/Scopus/Embase.",
+    url: "https://github.com/htlin222/robust-lit-review",
+    useInSynthesis: true,
+    useInMetaAnalysis: true,
+    useInReporting: true,
+  },
+  {
     id: "prisma2020",
     name: "PRISMA 2020 Flow Diagram",
     category: "workflow",
