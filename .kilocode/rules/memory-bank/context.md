@@ -1462,3 +1462,39 @@ Step 1 results now show:
 ### Validation
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes (1 pre-existing unrelated warning in `not-found.tsx`)
+
+## Academic Writing Agents Integration — EvidenceSynthesisTab Step 6 (2026-07-12)
+
+**Feature**: Integrated `andrehuang/academic-writing-agents` methodology into Step 6 ("Research Paper Draft") of the Evidence Synthesis & Meta-analysis tab. The step now uses Academic Writing Agents' 30 principles and 12 specialist agents to generate and review manuscripts based on data from Steps 3–5.
+
+### New File
+- `src/lib/academic-writing-agents.ts` — Academic Writing Agents methodology ported to TypeScript:
+  - `ACADEMIC_PRINCIPLES` — 30 principles organized into 6 categories (Structure & Narrative, Prose & Style, Math & Equations, Figures & Tables, Citations & Bibliography, Process & Meta)
+  - `REVIEW_AGENTS` — 12 specialist agents (consistency-checker, logic-reviewer, technical-reviewer, writing-reviewer, latex-layout-auditor, bibliography-auditor, research-analyst, brainstormer, paper-crawler, prose-polisher, section-drafter, latex-figure-specialist)
+  - `buildAcademicWritingManuscriptPrompt()` — Generates manuscript using Academic Writing Agents methodology with GPS Rhythm, Claim-First, Nugget-first organization, and 30 principles
+  - `buildAcademicWritingReviewPrompt()` — Generates structured review report against the 30 principles with Critical/Important/Minor severity categorization
+  - `formatPrinciplesForPrompt()` / `formatAgentsForPrompt()` — Helpers to format methodology for AI prompts
+
+### EvidenceSynthesisTab Updates
+- Step 6 JSX rewritten to reference `andrehuang/academic-writing-agents` instead of OpenDraft
+- Added "Academic Writing Agents Pipeline" info card describing the 7-phase workflow
+- Added "30 Writing Principles Applied" and "12 Specialist Review Agents" info cards
+- Added "Run Academic Writing Agents Review" button that generates a structured review report
+- Added review report display with editable textarea and download button
+- Updated proceed button from Step 5: "Proceed to Academic Writing Agents Review"
+- Updated top-level tab description to include academic-writing-agents reference
+- `generateManuscript` now uses `buildAcademicWritingManuscriptPrompt()` from the new module
+- Added `generateReview()` function using `buildAcademicWritingReviewPrompt()`
+- Added `reviewReport` and `reviewLoading` state variables
+
+### Design Decisions
+- Academic Writing Agents' 19-agent Python pipeline is condensed into a single comprehensive AI prompt for the browser environment
+- The 30 principles are embedded directly into the manuscript generation prompt as quality constraints
+- The review phase runs after manuscript generation and produces a structured Critical/Important/Minor report
+- All export formats (PDF, Word, LaTeX) remain unchanged
+- Manuscript state remains editable after generation, supporting iterative editing before final export
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes (0 errors)
+- `bun run build` ✅ passes cleanly

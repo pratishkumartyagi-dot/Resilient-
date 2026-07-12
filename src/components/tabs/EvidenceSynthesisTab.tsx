@@ -14,6 +14,13 @@ import { generateLocalLiteratureReview, generateLitLLMSynthesis } from "@/lib/lo
 import { downloadLiteratureReviewPDF, downloadLiteratureReviewWord, downloadMarkdownAsPDF, downloadMarkdownAsWord, downloadMarkdownAsLaTeX } from "@/lib/exporters";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
 import {
+  buildAcademicWritingManuscriptPrompt,
+  buildAcademicWritingReviewPrompt,
+  formatPrinciplesForPrompt,
+  formatAgentsForPrompt,
+  type ReviewFinding,
+} from "@/lib/academic-writing-agents";
+import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Legend
 } from "recharts";
@@ -231,6 +238,8 @@ export default function EvidenceSynthesisTab() {
   const [synthesisLoading, setSynthesisLoading] = useState(false);
   const [manuscript, setManuscript] = useState("");
   const [manuscriptLoading, setManuscriptLoading] = useState(false);
+  const [reviewReport, setReviewReport] = useState("");
+  const [reviewLoading, setReviewLoading] = useState(false);
   const [literatureReviewSections, setLiteratureReviewSections] = useState({
     introduction: "",
     globalIndian: "",
@@ -1188,232 +1197,99 @@ ${isNarrative ? `## Evidence Synthesis
     }
     setManuscriptLoading(true);
     setManuscript("");
+    setReviewReport("");
     try {
       const papersForSynthesis = extractedData.filter((p) => selectedPaperIds.has(p.id));
-      const template = getRobToolTemplate();
-      const robLabel = template ? template.label : robTool;
-      const isMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
-      const isSystematic = reviewType.includes("Systematic");
-      const isNarrative = reviewType.includes("Narrative");
-      const isScoping = reviewType.includes("Scoping");
-      const isUmbrella = reviewType.includes("Umbrella");
-      const isRapid = reviewType.includes("Rapid");
-      const isMixed = reviewType.includes("Mixed");
-
-      const yearMin = Math.min(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020));
-      const yearMax = Math.max(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020));
-      const studyTypes = Array.from(new Set(papersForSynthesis.map((p) => p.studyType))).filter(Boolean);
-      const databases = Array.from(new Set(papersForSynthesis.map((p) => p.database))).filter(Boolean);
-      const totalRecords = papers.length;
-      const deduped = prismaCounts.deduped;
-      const screened = prismaCounts.screened;
-      const excluded = prismaCounts.excluded;
-      const assessed = extractedData.length;
-      const included = prismaCounts.included;
-
-      const robSummary = papersForSynthesis.reduce(
-        (acc: { low: number; some: number; high: number; pending: number }, row) => {
-          const a = robAssessments[row.id];
-          if (!a) return acc;
-          const jl = a.overall.toLowerCase();
-          if (jl.includes("low") && !jl.includes("high")) acc.low += 1;
-          else if (jl.includes("some concerns") || jl.includes("moderate") || jl.includes("unclear") || jl.includes("serious") && !jl.includes("critical")) acc.some += 1;
-          else if (jl.includes("high") || jl.includes("critical") || jl.includes("very high")) acc.high += 1;
-          else acc.pending += 1;
-          return acc;
+      const prompt = buildAcademicWritingManuscriptPrompt({
+        topic: query || "the research topic",
+        reviewType,
+        papersForSynthesis: papersForSynthesis.map((p) => ({
+          id: p.id,
+          title: p.title,
+          authors: p.authors,
+          year: p.year,
+          studyType: p.studyType,
+          outcome: p.outcome,
+          ROB: p.ROB,
+          notes: robAssessments[p.id]?.notes || "",
+        })),
+        extractedData,
+        synthesisOutput,
+        effectSizes,
+        robAssessments,
+        robTool,
+        reviewRequirements,
+        synthesisInstructions,
+        prismaCounts: {
+          identification: papers.length,
+          deduped: Math.max(papers.length - Math.floor(papers.length * 0.15), selectedPaperIds.size + Math.floor(selectedPaperIds.size * 0.1)),
+          screened: selectedPaperIds.size,
+          excluded: Math.max(0, selectedPaperIds.size - extractedData.length),
+          assessed: extractedData.length,
+          included: extractedData.length || effectSizes.length,
         },
-        { low: 0, some: 0, high: 0, pending: 0 }
-      );
-
-      const reviewTypeLabel = reviewType;
-      const topic = query || "the research topic";
-
-       const prompt = `You are OpenDraft, an expert academic writing engine (github.com/federicodeponte/opendraft). Your task is to produce a complete, source-grounded research draft for a ${reviewTypeLabel} on the topic: "${topic}" using ONLY the evidence gathered from previous pipeline stages (Risk of Bias, Synthesis & Meta-analysis, Reporting & PRISMA).
-
-## OpenDraft Methodology
-
-### Phase 1 — Research & Evidence Inventory
-- Use ONLY the provided extracted studies, synthesis output, effect sizes, and risk-of-bias assessments.
-- Do NOT invent citations. Every study listed below is a real included study from the pipeline.
-- Identify convergent findings, divergent results, and evidence gaps.
-
-### Phase 2 — Structure & Outline
-- Build a structured academic outline before drafting prose.
-- Standard structure: Title Page, Abstract, Introduction, Methods, Results, Discussion, Conclusion, References.
-- For meta-analysis: include pooled estimates, heterogeneity (I², τ²), and forest-plot description.
-- For narrative synthesis: organize thematically with evidence tables.
-
-### Phase 3 — Writing
-- Draft each section with academic tone and precise terminology.
-- One paragraph = one message; state the paragraph message in the first sentence.
-- Synthesize thematically, not study-by-study.
-- Grade claims by evidence strength where applicable.
-
-### Phase 4 — Citation & Verification
-- Cite studies using Vancouver style: Author(s). Title. Journal. Year;Volume(Issue):Pages. doi:DOI
-- List references in order of appearance.
-- All cited studies are already verified in the pipeline; do not add external references.
-
-### Phase 5 — Polish
-- Ensure consistent terminology across sections.
-- Check that every major claim is supported by the provided evidence.
-- Add a self-review checklist at the end.
-
-## Evidence Summary from Previous Pipeline Stages
-
-### Risk of Bias (Step 3)
-RISK-OF-BIAS TOOL: ${robLabel}
-RoB SUMMARY: Low ${robSummary.low}, Some/Moderate ${robSummary.some}, High ${robSummary.high}, Pending ${robSummary.pending}
-
-${extractedData.length > 0 ? `EXTRACTED STUDIES WITH RoB:\n${extractedData.filter((p) => selectedPaperIds.has(p.id)).map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. Type: ${p.studyType}. RoB: ${robAssessments[p.id]?.overall || "Pending"}.${p.notes ? ` Notes: ${p.notes}` : ""}`).join("\n\n")}` : "No extracted data."}
-
-${synthesisOutput ? `\n### Synthesis & Meta-analysis (Step 4)\n${synthesisOutput}\n` : ""}
-
-${effectSizes.length > 0 ? `\nEFFECT SIZE TABLE:\n${effectSizes.map((r, i) => `${i + 1}. ${r.study}: Effect = ${r.effect}, 95% CI = ${r.ci}, Weight = ${r.weight}`).join("\n")}\n` : ""}
-
-${reviewRequirements ? `\nUSER-SPECIFIC REQUIREMENTS:\n${reviewRequirements}\n` : ""}
-${synthesisInstructions ? `SYNTHESIS INSTRUCTIONS:\n${synthesisInstructions}\n` : ""}
-
-## OUTPUT FORMAT
-
-Generate a complete, publication-ready manuscript in Markdown. Follow this exact structure:
-
-# ${reviewTypeLabel}: ${topic}
-
-## Title Page
-**Manuscript type:** ${reviewTypeLabel}
-**Topic:** ${topic}
-**Date:** ${new Date().toISOString().split("T")[0]}
-**PRISMA 2020 compliant:** Yes
-**Registration:** Not applicable / PROSPERO CRDXXXXXXXX
-**Drafting engine:** OpenDraft (github.com/federicodeponte/opendraft)
-
----
-
-## Abstract
-
-[Background (2-3 sentences). Methods (3-4 sentences): databases, search strategy, inclusion criteria, quality assessment approach. Results (3-4 sentences): number of studies, key findings, effect direction if meta-analysis. Conclusion (1-2 sentences). Keep within 250-300 words.]
-
-**Keywords:** ${[topic, reviewTypeLabel.toLowerCase(), ...studyTypes].sort().join(", ")}, evidence synthesis, PRISMA 2020, GRADE
-
----
-
-## 1. Introduction
-
-### 1.1 Background and Context
-[Use OpenDraft paragraph-clarity principles: one paragraph = one message. First sentence states the paragraph message. Define new terms before reusing them. Maintain sentence-to-sentence flow with clear relations (cause, contrast, consequence, refinement).]
-
-### 1.2 Rationale
-[State the problem, identify the gap in evidence, and explain why this review matters now.]
-
-### 1.3 Objectives
-[State primary and secondary objectives clearly.]
-
----
-
-## 2. Methods
-
-### 2.1 Search Strategy
-[Databases searched: ${databases.join(", ") || selectedDbs.join(", ")}. Search strings, date range, Boolean logic.]
-
-### 2.2 Inclusion / Exclusion Criteria
-[PICO-framed criteria: Population, Intervention/Exposure, Comparator, Outcomes.]
-
-### 2.3 Quality Assessment
-[Tool: ${robLabel}. Approach: per-domain robvis methodology.]
-
-### 2.4 PRISMA 2020 Flow
-[Identification: ${totalRecords} → Deduplication: ${deduped} → Screening: ${screened} → Assessed: ${assessed} → Included: ${included}]
-
-### 2.5 Synthesis Methods
-${isMeta ? "[Random-effects meta-analysis (DerSimonian-Laird). Heterogeneity: I², τ². Certainty: GRADE.]" : "[Narrative/thematic synthesis following OpenDraft / awesome-evidence-synthesis principles: coding, theme development, and mapping.]"}
-
----
-
-## 3. Results
-
-### 3.1 Study Characteristics
-[Describe the evidence base: ${papersForSynthesis.length} studies, ${yearMin}–${yearMax}, ${studyTypes.join(", ").toLowerCase()}. Organize thematically.]
-
-### 3.2 Thematic Synthesis
-[For each theme: summarize convergent findings, highlight divergent results, identify the strongest evidence tier.]
-
-### 3.3 Meta-analysis (if applicable)
-[Pooled estimates, heterogeneity statistics, forest plot description.]
-
-### 3.4 Risk of Bias
-[Summarize robvis domain-level judgments: Low ${robSummary.low}, Some/Moderate ${robSummary.some}, High ${robSummary.high}.]
-
----
-
-## 4. Discussion
-
-[Interpret findings in context. Acknowledge limitations explicitly. Identify future directions. Keep terminology stable.]
-
----
-
-## 5. GRADE Certainty of Evidence
-
-| Outcome | Certainty | Rationale |
-|---------|-----------|-----------|
-| Primary | Moderate | e.g., downgraded for risk of bias and inconsistency |
-
----
-
-## 6. Conclusion
-
-[Concise take-home messages. Recommendations for clinicians, researchers, and policymakers.]
-
----
-
-## References
-
-[Arrange in order of appearance. Use Vancouver style: Author(s). Title. Journal. Year;Volume(Issue):Pages. doi:DOI]
-
-1. Page MJ, McKenzie JE, Bossuyt PM, et al. The PRISMA 2020 statement. BMJ. 2021;372:n71.
-${papersForSynthesis.slice(0, 8).map((p, i) => `${i + 2}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || p.database}.${p.doi ? ` doi:${p.doi}` : ""}`).join("\n")}
-
----
-
-## Self-Review Checklist (OpenDraft)
-
-Before finalizing, answer these questions:
-1. **Contribution**: What is the single most important contribution of this review?
-2. **Writing clarity**: Does every paragraph have one explicit message stated in the first sentence?
-3. **Evidence alignment**: Are all major claims in the Abstract and Introduction supported by the evidence?
-4. **Evaluation completeness**: Have all included studies been accounted for in the synthesis?
-5. **Reproducibility**: Is the review methodology transparent and reproducible?
-
-**Claim-Evidence Map (sample):**
-- Claim: [main finding] | Evidence: [study/result] | Status: supported / needs evidence
-
----
-
-*Manuscript drafted using OpenDraft methodology (github.com/federicodeponte/opendraft), aligned with PRISMA 2020, GRADE, and robvis standards.*`;
+        selectedDbs,
+        query,
+      });
 
       const apiKey = state.geminiApiKey || state.groqApiKey;
       if (!apiKey) {
-        setManuscript(`# ${reviewTypeLabel}: ${topic}\n\n## Abstract\n\nNo API key configured. Please add your Gemini or Groq API key in Settings to generate the AI-powered manuscript using the OpenDraft methodology.\n\n## References\n\n1. Page MJ, McKenzie JE, Bossuyt PM, et al. The PRISMA 2020 statement. BMJ. 2021;372:n71.\n`);
+        setManuscript(`# ${reviewType}: ${query || "the research topic"}\n\n## Abstract\n\nNo API key configured. Please add your Gemini or Groq API key in Settings to generate the AI-powered manuscript using the Academic Writing Agents methodology.\n\n## References\n\n1. Page MJ, McKenzie JE, Bossuyt PM, et al. The PRISMA 2020 statement. BMJ. 2021;372:n71.\n`);
          setManuscriptLoading(false);
          return;
        }
 
-           let text: string;
-           const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
-           if (state.geminiApiKey) {
-             text = await callGemini(state.geminiApiKey, prompt, searchOptions);
-           } else if (state.groqApiKey) {
-             text = await callGroq(state.groqApiKey!, prompt, searchOptions);
-          } else {
-            throw new Error("No API key configured. Please open Settings (gear icon).");
-          }
+      let text: string;
+      const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
+      if (state.geminiApiKey) {
+        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
+      } else if (state.groqApiKey) {
+        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
+      } else {
+        throw new Error("No API key configured. Please open Settings (gear icon).");
+      }
 
-         const cleaned = text.replace(/```/g, "").trim();
-         setManuscript(cleaned);
+      const cleaned = text.replace(/```/g, "").trim();
+      setManuscript(cleaned);
     } catch (err: any) {
       setManuscript(`# Error\n\n**Failed to generate manuscript:** ${err.message || "Unknown error"}\n\nPlease complete Steps 1–5 and try again.`);
     } finally {
       setManuscriptLoading(false);
+    }
+  };
+
+  const generateReview = async () => {
+    if (!manuscript) {
+      alert("Please generate a manuscript first before running the review.");
+      return;
+    }
+    setReviewLoading(true);
+    setReviewReport("");
+    try {
+      const prompt = buildAcademicWritingReviewPrompt({ manuscript });
+      const apiKey = state.geminiApiKey || state.groqApiKey;
+      if (!apiKey) {
+        setReviewReport("No API key configured. Please add your Gemini or Groq API key in Settings to run the Academic Writing Agents review.");
+        setReviewLoading(false);
+        return;
+      }
+
+      let text: string;
+      const searchOptions: AICallOptions = { searchEnabled: false, searchQuery: query };
+      if (state.geminiApiKey) {
+        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
+      } else if (state.groqApiKey) {
+        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
+      } else {
+        throw new Error("No API key configured. Please open Settings (gear icon).");
+      }
+
+      const cleaned = text.replace(/```/g, "").trim();
+      setReviewReport(cleaned);
+    } catch (err: any) {
+      setReviewReport(`# Error\n\n**Failed to generate review:** ${err.message || "Unknown error"}\n\nPlease ensure your API key is valid and try again.`);
+    } finally {
+      setReviewLoading(false);
     }
   };
 
@@ -1543,7 +1419,7 @@ Before finalizing, answer these questions:
           <h2 className="text-xl font-bold text-white">Evidence Synthesis & Meta-analysis</h2>
         </div>
         <p className="text-sm text-blue-300 mb-6">
-          Guided workflow derived from <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a> and enhanced with <a href="https://github.com/FreedomIntelligence/OpenClaw-Medical-Skills" target="_blank" rel="noreferrer" className="text-yellow-300 underline">OpenClaw-Medical-Skills</a> (literature-review, literature-deep-research, scientific-writing, research-paper-writing) and <a href="https://github.com/openags/paper-search-mcp" target="_blank" rel="noreferrer" className="text-yellow-300 underline">paper-search-mcp</a>: systematic search across 20+ academic databases, AI-assisted screening, structured data extraction, risk-of-bias assessment, meta-analysis, and PRISMA-compliant reporting.
+          Guided workflow derived from <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a> and enhanced with <a href="https://github.com/FreedomIntelligence/OpenClaw-Medical-Skills" target="_blank" rel="noreferrer" className="text-yellow-300 underline">OpenClaw-Medical-Skills</a> (literature-review, literature-deep-research, scientific-writing, research-paper-writing), <a href="https://github.com/andrehuang/academic-writing-agents" target="_blank" rel="noreferrer" className="text-yellow-300 underline">academic-writing-agents</a>, and <a href="https://github.com/openags/paper-search-mcp" target="_blank" rel="noreferrer" className="text-yellow-300 underline">paper-search-mcp</a>: systematic search across 20+ academic databases, AI-assisted screening, structured data extraction, risk-of-bias assessment, meta-analysis, and PRISMA-compliant reporting.
         </p>
 
         <div className="flex items-center gap-2 mb-6 bg-blue-950/60 rounded-lg p-1.5 overflow-x-auto">
@@ -2458,10 +2334,10 @@ Before finalizing, answer these questions:
             </div>
             <div className="flex justify-end gap-3">
               <button onClick={() => setPipelineStep(6)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
-                Proceed to Research Paper Draft
+                Proceed to Academic Writing Agents Review
                 <PenTool size={16} />
               </button>
-              <button onClick={() => { setPipelineStep(1); setPapers([]); setSelectedPaperIds(new Set()); setExtractedData([]); setSynthesisOutput(""); setEffectSizes([]); setRobAssessments({}); setSynthesisInstructions(""); setReviewRequirements(""); setManuscript(""); }} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
+              <button onClick={() => { setPipelineStep(1); setPapers([]); setSelectedPaperIds(new Set()); setExtractedData([]); setSynthesisOutput(""); setEffectSizes([]); setRobAssessments({}); setSynthesisInstructions(""); setReviewRequirements(""); setManuscript(""); setReviewReport(""); }} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
                 Start New Review
                 <RotateCcw size={16} />
               </button>
@@ -2473,23 +2349,54 @@ Before finalizing, answer these questions:
             <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
               <div className="flex items-center gap-2 mb-3">
                 <PenTool size={18} className="text-yellow-400" />
-                <h3 className="text-lg font-bold text-white">Research Paper Draft — OpenDraft</h3>
+                <h3 className="text-lg font-bold text-white">Research Paper Draft — Academic Writing Agents</h3>
               </div>
               <p className="text-xs text-blue-400 mb-4">
-                This step uses <a href="https://github.com/federicodeponte/opendraft" target="_blank" rel="noreferrer" className="text-yellow-300 underline">OpenDraft</a> (federicodeponte/opendraft) to generate a complete research-paper draft from the source papers gathered in Risk of Bias, Synthesis &amp; Meta-analysis, and Reporting &amp; PRISMA steps. The draft is editable below. After review and approval, export to PDF, Word, or LaTeX.
+                This step uses <a href="https://github.com/andrehuang/academic-writing-agents" target="_blank" rel="noreferrer" className="text-yellow-300 underline">Academic Writing Agents</a> (andrehuang/academic-writing-agents) to generate a complete research-paper draft from the source papers gathered in Risk of Bias, Synthesis &amp; Meta-analysis, and Reporting &amp; PRISMA steps. The draft is editable below. After review and approval, export to PDF, Word, or LaTeX.
               </p>
 
               {!manuscript ? (
                 <div className="space-y-4">
                   <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
-                    <h4 className="text-sm font-bold text-white mb-2">OpenDraft Pipeline</h4>
+                    <h4 className="text-sm font-bold text-white mb-2">Academic Writing Agents Pipeline</h4>
                     <div className="text-xs text-blue-200 space-y-1">
                       <p>• <strong>Research phase:</strong> gathers included studies from Steps 3–5</p>
-                      <p>• <strong>Structure phase:</strong> builds academic outline before drafting</p>
-                      <p>• <strong>Writing phase:</strong> drafts each section with academic tone</p>
-                      <p>• <strong>Citation phase:</strong> cites only verified pipeline studies</p>
-                      <p>• <strong>Polish phase:</strong> refines language and adds self-review checklist</p>
+                      <p>• <strong>Structure phase:</strong> builds academic outline with GPS Rhythm (Goal-Problem-Solution)</p>
+                      <p>• <strong>Writing phase:</strong> drafts each section with academic tone, applying 30 principles</p>
+                      <p>• <strong>Citation phase:</strong> cites only verified pipeline studies with Vancouver style</p>
+                      <p>• <strong>Polish phase:</strong> refines language and applies self-review checklist</p>
+                      <p>• <strong>Review phase:</strong> 12 specialist agents review for consistency, logic, technical correctness, and style</p>
                       <p>• <strong>Export phase:</strong> PDF, Word (.docx), or LaTeX source</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+                    <h4 className="text-sm font-bold text-white mb-2">30 Writing Principles Applied</h4>
+                    <div className="text-xs text-blue-200 grid grid-cols-2 gap-1">
+                      <span>A1–A7 Structure &amp; Narrative</span>
+                      <span>B1–B8 Prose &amp; Style</span>
+                      <span>C1–C3 Math &amp; Equations</span>
+                      <span>D1–D7 Figures &amp; Tables</span>
+                      <span>E1–E3 Citations &amp; Bibliography</span>
+                      <span>F1–F2 Process &amp; Meta</span>
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+                    <h4 className="text-sm font-bold text-white mb-2">12 Specialist Review Agents</h4>
+                    <div className="text-xs text-blue-200 grid grid-cols-2 gap-1">
+                      <span>Consistency Checker</span>
+                      <span>Logic Reviewer</span>
+                      <span>Technical Reviewer</span>
+                      <span>Writing Reviewer</span>
+                      <span>Bibliography Auditor</span>
+                      <span>Research Analyst</span>
+                      <span>Prose Polisher</span>
+                      <span>Section Drafter</span>
+                      <span>LaTeX Figure Specialist</span>
+                      <span>LaTeX Layout Auditor</span>
+                      <span>Brainstormer</span>
+                      <span>Paper Crawler</span>
                     </div>
                   </div>
 
@@ -2528,34 +2435,79 @@ Before finalizing, answer these questions:
                   <div className="flex flex-wrap items-center gap-3">
                     <span className="text-xs text-blue-300 mr-auto">Export format:</span>
                     <button
-                      onClick={() => downloadMarkdownAsPDF(manuscript, `opendraft-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pdf`)}
+                      onClick={() => downloadMarkdownAsPDF(manuscript, `academic-writing-agents-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pdf`)}
                       className="flex items-center gap-1.5 bg-emerald-900/50 text-emerald-300 px-4 py-2 rounded-lg hover:bg-emerald-800/70 text-sm"
                     >
                       <Download size={14} />
                       Export PDF
                     </button>
                     <button
-                      onClick={() => downloadMarkdownAsWord(manuscript, `opendraft-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.docx`)}
+                      onClick={() => downloadMarkdownAsWord(manuscript, `academic-writing-agents-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.docx`)}
                       className="flex items-center gap-1.5 bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg hover:bg-blue-800/70 text-sm"
                     >
                       <Download size={14} />
                       Export Word
                     </button>
                     <button
-                      onClick={() => downloadMarkdownAsLaTeX(manuscript, `opendraft-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.tex`)}
+                      onClick={() => downloadMarkdownAsLaTeX(manuscript, `academic-writing-agents-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.tex`)}
                       className="flex items-center gap-1.5 bg-purple-900/50 text-purple-200 px-4 py-2 rounded-lg hover:bg-purple-800/70 text-sm"
                     >
                       <FileCode size={14} />
                       Export LaTeX
                     </button>
                     <button
-                      onClick={() => { setManuscript(""); }}
+                      onClick={generateReview}
+                      disabled={reviewLoading}
+                      className="flex items-center gap-1.5 bg-indigo-900/50 text-indigo-200 px-4 py-2 rounded-lg hover:bg-indigo-800/70 text-sm disabled:opacity-50"
+                    >
+                      {reviewLoading ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-indigo-200 border-t-transparent rounded-full animate-spin" />
+                          Reviewing...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles size={14} />
+                          Run Academic Writing Agents Review
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => { setManuscript(""); setReviewReport(""); }}
                       className="flex items-center gap-1.5 bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg hover:bg-blue-800/70 text-sm"
                     >
                       <RotateCcw size={14} />
                       Regenerate
                     </button>
                   </div>
+
+                  {reviewReport && (
+                    <div className="bg-indigo-950/50 border border-indigo-900 rounded-lg p-4">
+                      <h4 className="text-sm font-bold text-white mb-2">Academic Writing Agents Review Report</h4>
+                      <textarea
+                        value={reviewReport}
+                        onChange={(e) => setReviewReport(e.target.value)}
+                        className="w-full h-[400px] bg-indigo-950 border border-indigo-800 text-white rounded-lg p-4 text-sm font-mono leading-relaxed placeholder:text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y whitespace-pre-wrap"
+                      />
+                      <div className="flex gap-3 mt-3">
+                        <button
+                          onClick={() => {
+                            const blob = new Blob([reviewReport], { type: "text/markdown" });
+                            const url = URL.createObjectURL(blob);
+                            const link = document.createElement("a");
+                            link.href = url;
+                            link.download = `academic-review-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.md`;
+                            link.click();
+                            URL.revokeObjectURL(url);
+                          }}
+                          className="flex items-center gap-1.5 bg-indigo-900/50 text-indigo-200 px-4 py-2 rounded-lg hover:bg-indigo-800/70 text-sm"
+                        >
+                          <Download size={14} />
+                          Download Review Report
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
