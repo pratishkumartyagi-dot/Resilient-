@@ -12,10 +12,12 @@ import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
 import { fetchRealPapers, generateMockLegacy, webSearchPapers, type Paper } from "@/lib/database-apis";
 import { generateLocalLiteratureReview, generateLitLLMSynthesis } from "@/lib/local-synthesis";
 import { downloadLiteratureReviewPDF, downloadLiteratureReviewWord, downloadMarkdownAsPDF, downloadMarkdownAsWord, downloadMarkdownAsLaTeX } from "@/lib/exporters";
+import { marked } from "marked";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
 import {
   buildAcademicWritingManuscriptPrompt,
   buildAcademicWritingReviewPrompt,
+  buildIncorporateReviewPrompt,
   formatPrinciplesForPrompt,
   formatAgentsForPrompt,
   type ReviewFinding,
@@ -241,6 +243,8 @@ export default function EvidenceSynthesisTab() {
   const [manuscriptLoading, setManuscriptLoading] = useState(false);
   const [reviewReport, setReviewReport] = useState("");
   const [reviewLoading, setReviewLoading] = useState(false);
+  const [finalManuscript, setFinalManuscript] = useState("");
+  const [finalManuscriptLoading, setFinalManuscriptLoading] = useState(false);
   const [literatureReviewSections, setLiteratureReviewSections] = useState({
     introduction: "",
     globalIndian: "",
@@ -1199,6 +1203,7 @@ ${isNarrative ? `## Evidence Synthesis
     setManuscriptLoading(true);
     setManuscript("");
     setReviewReport("");
+    setFinalManuscript("");
     try {
       const papersForSynthesis = extractedData.filter((p) => selectedPaperIds.has(p.id));
       const prompt = buildAcademicWritingManuscriptPrompt({
@@ -1266,6 +1271,7 @@ ${isNarrative ? `## Evidence Synthesis
     }
     setReviewLoading(true);
     setReviewReport("");
+    setFinalManuscript("");
     try {
       const prompt = buildAcademicWritingReviewPrompt({ manuscript });
       const apiKey = state.geminiApiKey || state.groqApiKey;
@@ -1291,6 +1297,47 @@ ${isNarrative ? `## Evidence Synthesis
       setReviewReport(`# Error\n\n**Failed to generate review:** ${err.message || "Unknown error"}\n\nPlease ensure your API key is valid and try again.`);
     } finally {
       setReviewLoading(false);
+    }
+  };
+
+  const incorporateReviewAndRegenerate = async () => {
+    if (!manuscript || !reviewReport) {
+      alert("Please generate both a manuscript and a review report first.");
+      return;
+    }
+    setFinalManuscriptLoading(true);
+    setFinalManuscript("");
+    try {
+      const prompt = buildIncorporateReviewPrompt({
+        manuscript,
+        reviewReport,
+        reviewType,
+        topic: query || "the research topic",
+      });
+
+      const apiKey = state.geminiApiKey || state.groqApiKey;
+      if (!apiKey) {
+        setFinalManuscript("No API key configured. Please add your Gemini or Groq API key in Settings to regenerate the final manuscript.");
+        setFinalManuscriptLoading(false);
+        return;
+      }
+
+      let text: string;
+      const searchOptions: AICallOptions = { searchEnabled: false, searchQuery: query };
+      if (state.geminiApiKey) {
+        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
+      } else if (state.groqApiKey) {
+        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
+      } else {
+        throw new Error("No API key configured. Please open Settings (gear icon).");
+      }
+
+      const cleaned = text.replace(/```/g, "").trim();
+      setFinalManuscript(cleaned);
+    } catch (err: any) {
+      setFinalManuscript(`# Error\n\n**Failed to regenerate final manuscript:** ${err.message || "Unknown error"}\n\nPlease ensure your API key is valid and try again.`);
+    } finally {
+      setFinalManuscriptLoading(false);
     }
   };
 
@@ -2338,7 +2385,7 @@ ${isNarrative ? `## Evidence Synthesis
                 Proceed to Academic Writing Agents Review
                 <PenTool size={16} />
               </button>
-              <button onClick={() => { setPipelineStep(1); setPapers([]); setSelectedPaperIds(new Set()); setExtractedData([]); setSynthesisOutput(""); setEffectSizes([]); setRobAssessments({}); setSynthesisInstructions(""); setReviewRequirements(""); setManuscript(""); setReviewReport(""); }} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
+              <button onClick={() => { setPipelineStep(1); setPapers([]); setSelectedPaperIds(new Set()); setExtractedData([]); setSynthesisOutput(""); setEffectSizes([]); setRobAssessments({}); setSynthesisInstructions(""); setReviewRequirements(""); setManuscript(""); setReviewReport(""); setFinalManuscript(""); }} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
                 Start New Review
                 <RotateCcw size={16} />
               </button>
@@ -2436,21 +2483,21 @@ ${isNarrative ? `## Evidence Synthesis
                   <div className="flex flex-wrap items-center gap-3">
                     <span className="text-xs text-blue-300 mr-auto">Export format:</span>
                     <button
-                      onClick={() => downloadMarkdownAsPDF(manuscript, `academic-writing-agents-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pdf`)}
+                      onClick={() => downloadMarkdownAsPDF(finalManuscript || manuscript, `academic-writing-agents-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pdf`)}
                       className="flex items-center gap-1.5 bg-emerald-900/50 text-emerald-300 px-4 py-2 rounded-lg hover:bg-emerald-800/70 text-sm"
                     >
                       <Download size={14} />
                       Export PDF
                     </button>
                     <button
-                      onClick={() => downloadMarkdownAsWord(manuscript, `academic-writing-agents-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.docx`)}
+                      onClick={() => downloadMarkdownAsWord(finalManuscript || manuscript, `academic-writing-agents-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.docx`)}
                       className="flex items-center gap-1.5 bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg hover:bg-blue-800/70 text-sm"
                     >
                       <Download size={14} />
                       Export Word
                     </button>
                     <button
-                      onClick={() => downloadMarkdownAsLaTeX(manuscript, `academic-writing-agents-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.tex`)}
+                      onClick={() => downloadMarkdownAsLaTeX(finalManuscript || manuscript, `academic-writing-agents-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.tex`)}
                       className="flex items-center gap-1.5 bg-purple-900/50 text-purple-200 px-4 py-2 rounded-lg hover:bg-purple-800/70 text-sm"
                     >
                       <FileCode size={14} />
@@ -2474,7 +2521,7 @@ ${isNarrative ? `## Evidence Synthesis
                       )}
                     </button>
                     <button
-                      onClick={() => { setManuscript(""); setReviewReport(""); }}
+                      onClick={() => { setManuscript(""); setReviewReport(""); setFinalManuscript(""); }}
                       className="flex items-center gap-1.5 bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg hover:bg-blue-800/70 text-sm"
                     >
                       <RotateCcw size={14} />
@@ -2490,21 +2537,60 @@ ${isNarrative ? `## Evidence Synthesis
                         onChange={(e) => setReviewReport(e.target.value)}
                         className="w-full h-[400px] bg-indigo-950 border border-indigo-800 text-white rounded-lg p-4 text-sm font-mono leading-relaxed placeholder:text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y whitespace-pre-wrap"
                       />
-                      <div className="flex gap-3 mt-3">
+                      <div className="flex flex-wrap items-center gap-3 mt-3">
                         <button
-                          onClick={() => {
-                            const blob = new Blob([reviewReport], { type: "text/markdown" });
-                            const url = URL.createObjectURL(blob);
-                            const link = document.createElement("a");
-                            link.href = url;
-                            link.download = `academic-review-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.md`;
-                            link.click();
-                            URL.revokeObjectURL(url);
-                          }}
-                          className="flex items-center gap-1.5 bg-indigo-900/50 text-indigo-200 px-4 py-2 rounded-lg hover:bg-indigo-800/70 text-sm"
+                          onClick={incorporateReviewAndRegenerate}
+                          disabled={finalManuscriptLoading}
+                          className="flex items-center gap-1.5 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
+                        >
+                          {finalManuscriptLoading ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-[#0a1a3a] border-t-transparent rounded-full animate-spin" />
+                              Regenerating Final Manuscript...
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles size={14} />
+                              Incorporate Review &amp; Regenerate Final Manuscript
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {finalManuscript && (
+                    <div className="bg-green-950/50 border border-green-900 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-sm font-bold text-white">Final Manuscript (review-incorporated)</h4>
+                        <span className="text-[10px] text-green-400">Read-only final output — export as PDF, Word, or LaTeX</span>
+                      </div>
+                      <div
+                        className="w-full h-[600px] bg-green-950 border border-green-800 text-white rounded-lg p-4 text-sm leading-relaxed overflow-y-auto whitespace-pre-wrap"
+                        dangerouslySetInnerHTML={{ __html: marked.parse(finalManuscript) as string }}
+                      />
+                      <div className="flex flex-wrap items-center gap-3 mt-3">
+                        <span className="text-xs text-green-300 mr-auto">Export final manuscript:</span>
+                        <button
+                          onClick={() => downloadMarkdownAsPDF(finalManuscript, `academic-writing-agents-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pdf`)}
+                          className="flex items-center gap-1.5 bg-emerald-900/50 text-emerald-300 px-4 py-2 rounded-lg hover:bg-emerald-800/70 text-sm"
                         >
                           <Download size={14} />
-                          Download Review Report
+                          Export PDF
+                        </button>
+                        <button
+                          onClick={() => downloadMarkdownAsWord(finalManuscript, `academic-writing-agents-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.docx`)}
+                          className="flex items-center gap-1.5 bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg hover:bg-blue-800/70 text-sm"
+                        >
+                          <Download size={14} />
+                          Export Word
+                        </button>
+                        <button
+                          onClick={() => downloadMarkdownAsLaTeX(finalManuscript, `academic-writing-agents-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.tex`)}
+                          className="flex items-center gap-1.5 bg-purple-900/50 text-purple-200 px-4 py-2 rounded-lg hover:bg-purple-800/70 text-sm"
+                        >
+                          <FileCode size={14} />
+                          Export LaTeX
                         </button>
                       </div>
                     </div>

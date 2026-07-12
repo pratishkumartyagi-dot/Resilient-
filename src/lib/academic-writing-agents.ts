@@ -753,3 +753,40 @@ export function getRobToolTemplate(robTool: string) {
 
   return templates[robTool] || templates["ROB2"];
 }
+
+export function buildIncorporateReviewPrompt(opts: { manuscript: string; reviewReport: string; reviewType: string; topic: string }): string {
+  const { manuscript, reviewReport, reviewType, topic } = opts;
+
+  return `You are an expert academic writing reviser using the Academic Writing Agents methodology (github.com/andrehuang/academic-writing-agents).
+
+Your task is to rewrite the following manuscript draft by incorporating ALL actionable feedback from the review report. The final output must be a complete, polished, publication-ready manuscript in Markdown.
+
+## Original Manuscript
+
+${manuscript}
+
+## Academic Writing Agents Review Report
+
+${reviewReport}
+
+## Instructions
+
+1. Incorporate every actionable suggestion from the review report into the manuscript.
+2. Fix all Critical and Important issues. Address Minor issues where they affect clarity.
+3. Preserve the original structure and evidence base. Do not add new studies or remove existing ones.
+4. Apply the 30 academic writing principles throughout: Recursive Consistency, Logical Chaining, Definition Order, Paragraph Closers, Claim-First, GPS Rhythm, The Nugget, Ruthless Conciseness, Calibrated Confidence, AI-Tell Detection, Bibliography Hygiene, Strategic Limitations, etc.
+5. Ensure all Vancouver-style citations remain correct and complete.
+6. The final manuscript should read as a single, cohesive document — not a revision log.
+
+## OUTPUT FORMAT
+
+Output ONLY the complete revised manuscript in Markdown. Do NOT include a revision summary or changelog.
+
+# ${reviewType}: ${topic}
+
+[Complete revised manuscript following the same structure as the original: Title Page, Abstract, Introduction, Methods, Results, Discussion, Conclusion, References, Self-Review Checklist]
+
+---
+
+*Manuscript revised using Academic Writing Agents methodology (github.com/andrehuang/academic-writing-agents)*`;
+}
