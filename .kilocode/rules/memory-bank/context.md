@@ -1498,3 +1498,22 @@ Step 1 results now show:
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes (0 errors)
 - `bun run build` ✅ passes cleanly
+
+## Cochrane Library & ClinicalTrials.gov Expert Search Integration (2026-07-12)
+
+**Feature**: Added Cochrane Library to Step 1 Systematic Search and fixed ClinicalTrials.gov to use the actual ClinicalTrials.gov API v2 (expert search) instead of returning no results via Europe PMC.
+
+### New Functions in `src/lib/database-apis.ts`
+- `fetchClinicalTrialsGov()` — Uses `clinicaltrials.gov/api/v2/studies` with `query`, `format=json`, `pageSize=50`. Maps `protocolSection` fields (briefTitle, officialTitle, leadSponsor, phases, studyType, briefSummary) into the app's `Paper` format. URL points to `https://clinicaltrials.gov/study/{nctId}`.
+- `fetchCochraneLibrary()` — Uses web search (`/api/web-search`) with `site:cochranelibrary.com` filter, then filters results to cochranelibrary.com URLs only. Maps into `Paper` format with journal="Cochrane Library".
+
+### Files Modified
+- `src/lib/database-apis.ts` — Added `fetchClinicalTrialsGov` and `fetchCochraneLibrary`; updated `fetchRealPapers` and `fetchRealPapersWithCounts` `apiDatabases` maps; updated `getDatabaseBackend` mapping
+- `src/app/api/literature-search/route.ts` — Added `fetchClinicalTrialsGov` and `fetchCochraneLibrary` imports; updated `apiMap`
+- `src/components/tabs/EvidenceSynthesisTab.tsx` — Added "Cochrane Library" to `SR_DATABASES`
+- `src/components/steps/Step1Search.tsx` — Added "Cochrane Library" to `DATABASES` and `realDbs` filter
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes (0 errors)
+- `bun run build` ✅ passes cleanly
