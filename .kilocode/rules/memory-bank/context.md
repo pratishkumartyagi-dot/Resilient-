@@ -1410,6 +1410,36 @@ Step 1 results now show:
   - Fallback catch blocks now pass `state.searchQuery` to enable context-aware mock questions
   - Updated imports: `import { decomposeClaim } from "@/lib/medical-skills/robust-lit-review"`
 
+### EvidenceSynthesisTab Step 6 Removed — OpenDraft Manuscript Generation & Export (2026-07-12)
+
+**Feature**: Removed the old Step 6 ("Writing Review & Meta-analysis") implementation. Replaced it with an OpenDraft-inspired research paper draft generation step (github.com/federicodeponte/opendraft) that generates a complete manuscript from source papers collected in Risk of Bias, Synthesis & Meta-analysis, and Reporting & PRISMA steps, with user editing and export to PDF/Word/LaTeX.
+
+### Files Modified
+- **`src/components/tabs/EvidenceSynthesisTab.tsx`** — Step 6 completely rewritten:
+  - Old Step 6 JSX block removed
+  - New Step 6 uses OpenDraft methodology (19-agent pipeline condensed into single prompt)
+  - `generateManuscript` prompt updated to use OpenDraft methodology with 5 phases: Research, Structure, Writing, Citation, Polish
+  - Manuscript is generated markdown and displayed in an editable textarea
+  - User can edit the draft before export
+  - Export buttons: PDF (`downloadMarkdownAsPDF`), Word (`downloadMarkdownAsWord`), LaTeX (`downloadMarkdownAsLaTeX`)
+  - Added `FileCode` icon from lucide-react for LaTeX export button
+  - Step description UI updated with OpenDraft methodology references
+  - No-API-key fallback message updated to reference OpenDraft
+- **`src/lib/exporters.ts`** — Added `downloadMarkdownAsLaTeX()` function:
+  - Converts markdown to basic LaTeX article format
+  - Supports headings, lists (itemize/enumerate), tables
+  - Downloads as `.tex` file
+- **`src/lib/medical-skills/skills-registry.ts`** — Added `opendraft` entry:
+  - Category: `evidence-synthesis`
+  - Description: "Free & open-source AI research-paper writer: 19 agents draft 20k-word academic papers with citations verified against CrossRef/OpenAlex/arXiv. Export PDF/Word/LaTeX."
+  - Source: `federicodeponte/opendraft`
+
+### Design Decisions
+- OpenDraft's 19-agent Python pipeline is condensed into a single comprehensive AI prompt for the browser environment
+- The editable textarea serves as the "Human Review Required" checkpoint from OpenDraft
+- All export formats are generated client-side without requiring a Python backend
+- Manuscript state remains editable after generation, supporting iterative editing before final export
+
 ### EvidenceSynthesisTab Step 6 Rewrite — Robust-Lit-Review Manuscript Generation (2026-07-12)
 
 **Feature**: Deleted the old Step 6 implementation that used Research-Paper-Writing-Skills + OpenClaw-Medical-Skills scientific-writing. Replaced it with a robust-lit-review-powered manuscript generation step that writes a complete, publication-ready report using all data gathered in previous pipeline stages.

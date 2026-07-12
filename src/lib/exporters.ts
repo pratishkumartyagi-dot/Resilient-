@@ -815,3 +815,119 @@ export async function downloadPPTX(markdown: string, filename = "presentation.pp
   flushBullets();
   pptx.writeFile();
 }
+
+export function downloadMarkdownAsLaTeX(markdown: string, filename = "document.tex") {
+  const lines = markdown.split("\n");
+  const latex: string[] = [];
+  let inList = false;
+  let listType: "itemize" | "enumerate" | null = null;
+
+  latex.push("\\documentclass[11pt,a4paper]{article}");
+  latex.push("\\usepackage[utf8]{inputenc}");
+  latex.push("\\usepackage[T1]{fontenc}");
+  latex.push("\\usepackage{geometry}");
+  latex.push("\\geometry{margin=2.5cm}");
+  latex.push("\\usepackage{booktabs}");
+  latex.push("\\usepackage{hyperref}");
+  latex.push("\\hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue}");
+  latex.push("");
+  latex.push("\\begin{document}");
+  latex.push("");
+
+  const closeList = () => {
+    if (inList && listType) {
+      latex.push(`\\end{${listType}}`);
+      latex.push("");
+      inList = false;
+      listType = null;
+    }
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+
+    if (line.startsWith("# ")) {
+      closeList();
+      latex.push(`\\title{${escapeLatex(line.slice(2))}}`);
+      latex.push("\\maketitle");
+      continue;
+    }
+
+    if (line.startsWith("## ")) {
+      closeList();
+      latex.push(`\\section*{${escapeLatex(line.slice(3))}}`);
+      continue;
+    }
+
+    if (line.startsWith("### ")) {
+      closeList();
+      latex.push(`\\subsection*{${escapeLatex(line.slice(4))}}`);
+      continue;
+    }
+
+    if (line.startsWith("- ") || line.startsWith("* ")) {
+      if (!inList || listType !== "itemize") {
+        closeList();
+        inList = true;
+        listType = "itemize";
+      }
+      latex.push(`\\item ${escapeLatex(line.slice(2).trim())}`);
+      continue;
+    }
+
+    if (/^\d+\.\s/.test(line)) {
+      if (!inList || listType !== "enumerate") {
+        closeList();
+        inList = true;
+        listType = "enumerate";
+      }
+      latex.push(`\\item ${escapeLatex(line.replace(/^\d+\.\s/, ""))}`);
+      continue;
+    }
+
+    if (line.startsWith("|")) {
+      closeList();
+      const cells = line.split("|").filter((c, i, arr) => i !== 0 && i !== arr.length - 1).map((c) => c.trim());
+      if (cells.length > 0 && cells.every((c) => /^[-:]+$/.test(c))) continue;
+      latex.push("\\begin{table}[h]");
+      latex.push("\\centering");
+      latex.push("\\begin{tabular}{" + cells.map(() => "l").join("") + "}");
+      latex.push("\\toprule");
+      latex.push(cells.map((c) => escapeLatex(c)).join(" & ") + " \\\\");
+      latex.push("\\midrule");
+      continue;
+    }
+
+    if (line === "") {
+      closeList();
+      latex.push("");
+      continue;
+    }
+
+    closeList();
+    latex.push(escapeLatex(line));
+  }
+
+  closeList();
+  latex.push("");
+  latex.push("\\end{document}");
+
+  const blob = new Blob([latex.join("\n")], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function escapeLatex(text: string): string {
+  return text
+    .replace(/\\/g, "\\textbackslash{}")
+    .replace(/[&%$#_{}~^]/g, (m) => "\\" + m)
+    .replace(/~/g, "\\textasciitilde{}")
+    .replace(/\^/g, "\\textasciicircum{}")
+    .replace(/\n/g, " ");
+}

@@ -5,13 +5,13 @@ import {
   Search, Database, ChevronRight, FileText,
   RotateCcw, CheckCircle2, ExternalLink, FlaskConical,
   Save, Sparkles, ClipboardList, Table, Download,
-  FileJson, BarChart3, PenTool, BookOpen
+  FileJson, BarChart3, PenTool, BookOpen, FileCode
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
 import { fetchRealPapers, generateMockLegacy, webSearchPapers, type Paper } from "@/lib/database-apis";
 import { generateLocalLiteratureReview, generateLitLLMSynthesis } from "@/lib/local-synthesis";
-import { downloadLiteratureReviewPDF, downloadLiteratureReviewWord } from "@/lib/exporters";
+import { downloadLiteratureReviewPDF, downloadLiteratureReviewWord, downloadMarkdownAsPDF, downloadMarkdownAsWord, downloadMarkdownAsLaTeX } from "@/lib/exporters";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -35,7 +35,7 @@ const PIPELINE_STEPS = [
   { num: 3, label: "Risk of Bias", icon: CheckCircle2 },
   { num: 4, label: "Synthesis & Meta-analysis", icon: FlaskConical },
   { num: 5, label: "Reporting & PRISMA", icon: FileText },
-  { num: 6, label: "Writing Review & Meta-analysis", icon: PenTool },
+  { num: 6, label: "Research Paper Draft", icon: PenTool },
 ];
 
 const REVIEW_TYPES = [
@@ -1228,53 +1228,51 @@ ${isNarrative ? `## Evidence Synthesis
       const reviewTypeLabel = reviewType;
       const topic = query || "the research topic";
 
-       const prompt = `You are an expert academic writer using the robust-lit-review methodology (github.com/htlin222/robust-lit-review) aligned with OpenClaw-Medical-Skills writing principles. Your task is to produce a complete, submission-ready manuscript for a ${reviewTypeLabel} on the topic: "${topic}" using all evidence gathered in previous pipeline steps.
+       const prompt = `You are OpenDraft, an expert academic writing engine (github.com/federicodeponte/opendraft). Your task is to produce a complete, source-grounded research draft for a ${reviewTypeLabel} on the topic: "${topic}" using ONLY the evidence gathered from previous pipeline stages (Risk of Bias, Synthesis & Meta-analysis, Reporting & PRISMA).
 
-## Robust-Lit-Review Methodology
+## OpenDraft Methodology
 
-### Pipeline Alignment
-Follow the robust-lit-review end-to-end workflow:
-1. Search → filter → crosscheck → enrichment → PRISMA audit → manuscript generation
-2. Every cited study is verified via doi.org handle API
-3. Evidence is graded using GRADE (High/Moderate/Low/Very Low) per outcome
-4. PRISMA 2020 27-item checklist is addressed throughout
+### Phase 1 — Research & Evidence Inventory
+- Use ONLY the provided extracted studies, synthesis output, effect sizes, and risk-of-bias assessments.
+- Do NOT invent citations. Every study listed below is a real included study from the pipeline.
+- Identify convergent findings, divergent results, and evidence gaps.
 
-### Manuscript Structure
-Generate a complete publication-ready manuscript in Markdown with the following sections:
-- Title Page (manuscript type, topic, date, PRISMA 2020 compliant, robust-lit-review pipeline)
-- Abstract (Background, Objectives, Methods, Results, Conclusion)
-- 1. Introduction (Context, Rationale, Objectives)
-- 2. Methods (Search Strategy, Inclusion/Exclusion, Quality Assessment, PRISMA Flow, Synthesis Methods)
-- 3. Results (Study Characteristics, Thematic Synthesis, Meta-analysis if applicable, Risk of Bias)
-- 4. Discussion (Principal Findings, Interpretation, Limitations)
-- 5. GRADE Certainty of Evidence (table per outcome)
-- 6. Conclusion
-- References (Vancouver style, in order of appearance)
+### Phase 2 — Structure & Outline
+- Build a structured academic outline before drafting prose.
+- Standard structure: Title Page, Abstract, Introduction, Methods, Results, Discussion, Conclusion, References.
+- For meta-analysis: include pooled estimates, heterogeneity (I², τ²), and forest-plot description.
+- For narrative synthesis: organize thematically with evidence tables.
 
-### Writing Principles
-- One paragraph = one message; state the paragraph message in the first sentence
-- Synthesize thematically, not study-by-study
-- Grade every claim by evidence strength (T1 Mechanistic, T2 Functional, T3 Associational, T4 Mention)
-- Crosscheck key claims across included studies; flag contradictions
-- Maintain sentence-to-sentence flow (cause, contrast, consequence, refinement)
-- Use consistent terminology throughout
+### Phase 3 — Writing
+- Draft each section with academic tone and precise terminology.
+- One paragraph = one message; state the paragraph message in the first sentence.
+- Synthesize thematically, not study-by-study.
+- Grade claims by evidence strength where applicable.
 
-### Evidence Summary to Incorporate
+### Phase 4 — Citation & Verification
+- Cite studies using Vancouver style: Author(s). Title. Journal. Year;Volume(Issue):Pages. doi:DOI
+- List references in order of appearance.
+- All cited studies are already verified in the pipeline; do not add external references.
 
-STUDIES INCLUDED: ${papersForSynthesis.length}
-YEAR RANGE: ${yearMin}–${yearMax}
-STUDY TYPES: ${studyTypes.join(", ") || "mixed"}
-DATABASES: ${databases.join(", ") || selectedDbs.join(", ")}
+### Phase 5 — Polish
+- Ensure consistent terminology across sections.
+- Check that every major claim is supported by the provided evidence.
+- Add a self-review checklist at the end.
+
+## Evidence Summary from Previous Pipeline Stages
+
+### Risk of Bias (Step 3)
 RISK-OF-BIAS TOOL: ${robLabel}
 RoB SUMMARY: Low ${robSummary.low}, Some/Moderate ${robSummary.some}, High ${robSummary.high}, Pending ${robSummary.pending}
 
-${isMeta ? "META-ANALYSIS: Use random-effects model (DerSimonian-Laird). Report I², τ², and GRADE certainty." : "NARRATIVE SYNTHESIS: Thematic organization following robust-lit-review / awesome-evidence-synthesis principles."}
+${extractedData.length > 0 ? `EXTRACTED STUDIES WITH RoB:\n${extractedData.filter((p) => selectedPaperIds.has(p.id)).map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. Type: ${p.studyType}. RoB: ${robAssessments[p.id]?.overall || "Pending"}.${p.notes ? ` Notes: ${p.notes}` : ""}`).join("\n\n")}` : "No extracted data."}
 
-EXTRACTED STUDIES:
-${papersForSynthesis.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. Type: ${p.studyType}. Database: ${p.database}. Outcome: ${p.outcome || "As reported"}. RoB: ${robAssessments[p.id]?.overall || "Pending"}.${p.notes ? ` Notes: ${p.notes}` : ""}`).join("\n\n")}
+${synthesisOutput ? `\n### Synthesis & Meta-analysis (Step 4)\n${synthesisOutput}\n` : ""}
 
-${synthesisOutput ? `SYNTHESIS OUTPUT:\n${synthesisOutput}\n` : ""}
-${effectSizes.length > 0 ? `EFFECT SIZE TABLE:\n${effectSizes.map((r, i) => `${i + 1}. ${r.study}: Effect = ${r.effect}, 95% CI = ${r.ci}, Weight = ${r.weight}`).join("\n")}\n` : ""}
+${effectSizes.length > 0 ? `\nEFFECT SIZE TABLE:\n${effectSizes.map((r, i) => `${i + 1}. ${r.study}: Effect = ${r.effect}, 95% CI = ${r.ci}, Weight = ${r.weight}`).join("\n")}\n` : ""}
+
+${reviewRequirements ? `\nUSER-SPECIFIC REQUIREMENTS:\n${reviewRequirements}\n` : ""}
+${synthesisInstructions ? `SYNTHESIS INSTRUCTIONS:\n${synthesisInstructions}\n` : ""}
 
 ## OUTPUT FORMAT
 
@@ -1288,7 +1286,7 @@ Generate a complete, publication-ready manuscript in Markdown. Follow this exact
 **Date:** ${new Date().toISOString().split("T")[0]}
 **PRISMA 2020 compliant:** Yes
 **Registration:** Not applicable / PROSPERO CRDXXXXXXXX
-**Writing methodology:** robust-lit-review (htlin222/robust-lit-review)
+**Drafting engine:** OpenDraft (github.com/federicodeponte/opendraft)
 
 ---
 
@@ -1303,7 +1301,7 @@ Generate a complete, publication-ready manuscript in Markdown. Follow this exact
 ## 1. Introduction
 
 ### 1.1 Background and Context
-[Use robust-lit-review paragraph-clarity principles: one paragraph = one message. First sentence states the paragraph message. Define new terms before reusing them. Maintain sentence-to-sentence flow with clear relations (cause, contrast, consequence, refinement).]
+[Use OpenDraft paragraph-clarity principles: one paragraph = one message. First sentence states the paragraph message. Define new terms before reusing them. Maintain sentence-to-sentence flow with clear relations (cause, contrast, consequence, refinement).]
 
 ### 1.2 Rationale
 [State the problem, identify the gap in evidence, and explain why this review matters now.]
@@ -1328,7 +1326,7 @@ Generate a complete, publication-ready manuscript in Markdown. Follow this exact
 [Identification: ${totalRecords} → Deduplication: ${deduped} → Screening: ${screened} → Assessed: ${assessed} → Included: ${included}]
 
 ### 2.5 Synthesis Methods
-${isMeta ? "[Random-effects meta-analysis (DerSimonian-Laird). Heterogeneity: I², τ². Certainty: GRADE.]" : "[Narrative/thematic synthesis following robust-lit-review principles: coding, theme development, and mapping.]"}
+${isMeta ? "[Random-effects meta-analysis (DerSimonian-Laird). Heterogeneity: I², τ². Certainty: GRADE.]" : "[Narrative/thematic synthesis following OpenDraft / awesome-evidence-synthesis principles: coding, theme development, and mapping.]"}
 
 ---
 
@@ -1377,7 +1375,7 @@ ${papersForSynthesis.slice(0, 8).map((p, i) => `${i + 2}. ${p.authors} (${p.year
 
 ---
 
-## Self-Review Checklist (robust-lit-review)
+## Self-Review Checklist (OpenDraft)
 
 Before finalizing, answer these questions:
 1. **Contribution**: What is the single most important contribution of this review?
@@ -1386,11 +1384,16 @@ Before finalizing, answer these questions:
 4. **Evaluation completeness**: Have all included studies been accounted for in the synthesis?
 5. **Reproducibility**: Is the review methodology transparent and reproducible?
 
-*Manuscript drafted using the robust-lit-review methodology (github.com/htlin222/robust-lit-review), aligned with PRISMA 2020, GRADE, and robvis standards.*`;
+**Claim-Evidence Map (sample):**
+- Claim: [main finding] | Evidence: [study/result] | Status: supported / needs evidence
+
+---
+
+*Manuscript drafted using OpenDraft methodology (github.com/federicodeponte/opendraft), aligned with PRISMA 2020, GRADE, and robvis standards.*`;
 
       const apiKey = state.geminiApiKey || state.groqApiKey;
       if (!apiKey) {
-        setManuscript(`# ${reviewTypeLabel}: ${topic}\n\n## Abstract\n\nNo API key configured. Please add your Gemini or Groq API key in Settings to generate the AI-powered manuscript using the robust-lit-review methodology.\n\n## References\n\n1. Page MJ, McKenzie JE, Bossuyt PM, et al. The PRISMA 2020 statement. BMJ. 2021;372:n71.\n`);
+        setManuscript(`# ${reviewTypeLabel}: ${topic}\n\n## Abstract\n\nNo API key configured. Please add your Gemini or Groq API key in Settings to generate the AI-powered manuscript using the OpenDraft methodology.\n\n## References\n\n1. Page MJ, McKenzie JE, Bossuyt PM, et al. The PRISMA 2020 statement. BMJ. 2021;372:n71.\n`);
          setManuscriptLoading(false);
          return;
        }
@@ -2455,7 +2458,7 @@ Before finalizing, answer these questions:
             </div>
             <div className="flex justify-end gap-3">
               <button onClick={() => setPipelineStep(6)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
-                Proceed to Writing & Meta-analysis
+                Proceed to Research Paper Draft
                 <PenTool size={16} />
               </button>
               <button onClick={() => { setPipelineStep(1); setPapers([]); setSelectedPaperIds(new Set()); setExtractedData([]); setSynthesisOutput(""); setEffectSizes([]); setRobAssessments({}); setSynthesisInstructions(""); setReviewRequirements(""); setManuscript(""); }} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
@@ -2470,70 +2473,23 @@ Before finalizing, answer these questions:
             <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
               <div className="flex items-center gap-2 mb-3">
                 <PenTool size={18} className="text-yellow-400" />
-                <h3 className="text-lg font-bold text-white">Writing Review & Meta-analysis</h3>
+                <h3 className="text-lg font-bold text-white">Research Paper Draft — OpenDraft</h3>
               </div>
               <p className="text-xs text-blue-400 mb-4">
-                This step generates the full manuscript using the <a href="https://github.com/htlin222/robust-lit-review" target="_blank" rel="noreferrer" className="text-yellow-300 underline">robust-lit-review</a> methodology (htlin222/robust-lit-review): PRISMA 2020 compliance, GRADE evidence grading, claim decomposition, semantic selection, and publication-ready manuscript generation from all previous pipeline stages. AI generation requires an API key in Settings.
+                This step uses <a href="https://github.com/federicodeponte/opendraft" target="_blank" rel="noreferrer" className="text-yellow-300 underline">OpenDraft</a> (federicodeponte/opendraft) to generate a complete research-paper draft from the source papers gathered in Risk of Bias, Synthesis &amp; Meta-analysis, and Reporting &amp; PRISMA steps. The draft is editable below. After review and approval, export to PDF, Word, or LaTeX.
               </p>
 
               {!manuscript ? (
                 <div className="space-y-4">
                   <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
-                    <h4 className="text-sm font-bold text-white mb-2">Example: Narrative Review (to be generated in future)</h4>
-                    <div className="text-xs text-blue-200 whitespace-pre-wrap max-h-[500px] overflow-y-auto leading-relaxed bg-blue-900/20 p-3 rounded border border-blue-800">
-{`# Narrative Review: The Impact of Digital Health Interventions on Chronic Disease Management — A State-of-the-Art Review
-
-## Abstract
-
-Background: Digital health interventions (DHIs) — including mobile applications, wearable sensors, telemedicine platforms, and AI-driven decision-support tools — have proliferated over the past decade as scalable solutions for chronic disease management. This narrative review synthesizes the available evidence on the effectiveness, adoption barriers, and equity implications of DHIs across major chronic conditions including diabetes mellitus, hypertension, chronic obstructive pulmonary disease (COPD), and mental health disorders.
-
-Methods: We conducted a narrative synthesis of peer-reviewed literature published between 2015 and 2025 across PubMed, Scopus, and Web of Science. Inclusion criteria encompassed original research, systematic reviews, and meta-analyses evaluating DHIs for chronic disease outcomes. Studies were grouped thematically by intervention modality, disease category, and outcome domain.
-
-Results: Across 48 included studies, DHIs demonstrated moderate efficacy in improving clinical outcomes (glycated hemoglobin reduction of 0.4–0.8% in diabetes, systolic blood pressure reductions of 4–8 mmHg in hypertension) and process outcomes (medication adherence improvement of 15–25%). However, effect sizes were highly heterogeneous. Key thematic findings include: (1) mobile app-based self-management tools showed the strongest evidence for diabetes and asthma; (2) wearable sensor integration yielded promising but inconclusive results for COPD and heart failure; (3) AI chatbot interventions improved mental health outcomes in short-term RCTs but suffered from high attrition in real-world deployments; (4) equity concerns persist, with underrepresentation of low-income and older adult populations in digital intervention trials.
-
-Discussion: While DHIs hold promise for extending the reach and efficiency of chronic disease care, the evidence base remains characterized by methodological heterogeneity, small sample sizes, and inconsistent outcome reporting. Future research should prioritize pragmatic trial designs, standardized patient-reported outcome measures, and intentional inclusion of diverse populations to strengthen the generalizability of findings.
-
-Conclusion: Digital health interventions represent a valuable adjunct to traditional chronic disease management, but their real-world effectiveness depends on careful tailoring to patient populations, integration with clinical workflows, and equitable design. Policymakers and clinicians should view DHIs as complementary tools rather than standalone solutions.
-
-Keywords: digital health, chronic disease, narrative review, mobile health, telemedicine, AI in healthcare`}
-                    </div>
-                  </div>
-
-                  <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
-                    <h4 className="text-sm font-bold text-white mb-2">Narrative Review Structure Reference</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-blue-200">
-                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">1. Title</p>
-                         <p className="text-blue-300">Descriptive, reflects scope and angle (e.g., &quot;Narrative Review: …&quot;)</p>
-                      </div>
-                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">2. Abstract</p>
-                        <p className="text-blue-300">Background, methods, key themes, conclusion, keywords</p>
-                      </div>
-                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">3. Introduction</p>
-                        <p className="text-blue-300">Epidemiological context, rationale, review objectives, scope</p>
-                      </div>
-                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">4. Methods</p>
-                        <p className="text-blue-300">Search strategy, databases, selection criteria, thematic approach</p>
-                      </div>
-                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">5. Results / Themes</p>
-                        <p className="text-blue-300">Thematic organization with evidence summaries per theme</p>
-                      </div>
-                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">6. Discussion</p>
-                        <p className="text-blue-300">Interpretation, limitations, gaps, clinical/policy implications</p>
-                      </div>
-                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">7. Conclusion</p>
-                        <p className="text-blue-300">Concise take-home messages and recommendations</p>
-                      </div>
-                      <div className="bg-blue-900/20 p-2 rounded border border-blue-800">
-                        <p className="font-bold text-yellow-200 mb-1">8. References</p>
-                        <p className="text-blue-300">Vancouver or APA style, arranged in order of appearance</p>
-                      </div>
+                    <h4 className="text-sm font-bold text-white mb-2">OpenDraft Pipeline</h4>
+                    <div className="text-xs text-blue-200 space-y-1">
+                      <p>• <strong>Research phase:</strong> gathers included studies from Steps 3–5</p>
+                      <p>• <strong>Structure phase:</strong> builds academic outline before drafting</p>
+                      <p>• <strong>Writing phase:</strong> drafts each section with academic tone</p>
+                      <p>• <strong>Citation phase:</strong> cites only verified pipeline studies</p>
+                      <p>• <strong>Polish phase:</strong> refines language and adds self-review checklist</p>
+                      <p>• <strong>Export phase:</strong> PDF, Word (.docx), or LaTeX source</p>
                     </div>
                   </div>
 
@@ -2545,12 +2501,12 @@ Keywords: digital health, chronic disease, narrative review, mobile health, tele
                     {manuscriptLoading ? (
                       <>
                         <div className="w-4 h-4 border-2 border-[#0a1a3a] border-t-transparent rounded-full animate-spin" />
-                        Generating Manuscript...
+                        Generating Draft...
                       </>
                     ) : (
                       <>
                         <Sparkles size={16} />
-                        Generate Full Manuscript
+                        Generate Research Draft
                       </>
                     )}
                   </button>
@@ -2558,26 +2514,46 @@ Keywords: digital health, chronic disease, narrative review, mobile health, tele
               ) : (
                 <div className="space-y-4">
                   <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
-                    <h4 className="text-sm font-bold text-white mb-3">Generated Manuscript</h4>
-                    <div className="text-blue-100 whitespace-pre-wrap max-h-[600px] overflow-y-auto text-sm leading-relaxed">
-                      {manuscript.split("\n").map((line, i) => {
-                        if (line.startsWith("# ")) return <h1 key={i} className="text-lg font-bold text-white mt-4 mb-2">{line.slice(2)}</h1>;
-                        if (line.startsWith("## ")) return <h2 key={i} className="text-base font-bold text-yellow-200 mt-3 mb-2">{line.slice(3)}</h2>;
-                        if (line.startsWith("### ")) return <h3 key={i} className="text-sm font-bold text-blue-200 mt-2 mb-1">{line.slice(4)}</h3>;
-                        if (line.startsWith("| ")) return <pre key={i} className="text-xs overflow-x-auto my-2 bg-blue-900/20 p-2 rounded">{line}</pre>;
-                        if (line.trim() === "") return <br key={i} />;
-                        return <p key={i} className="text-sm text-blue-100 mb-1">{line}</p>;
-                      })}
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-sm font-bold text-white">Generated Manuscript (editable)</h4>
+                      <span className="text-[10px] text-blue-400">Edit the draft below, then export when ready</span>
                     </div>
+                    <textarea
+                      value={manuscript}
+                      onChange={(e) => setManuscript(e.target.value)}
+                      className="w-full h-[600px] bg-blue-950 border border-blue-800 text-white rounded-lg p-4 text-sm font-mono leading-relaxed placeholder:text-blue-600 focus:outline-none focus:ring-2 focus:ring-yellow-500 resize-y whitespace-pre-wrap"
+                    />
                   </div>
-                  <div className="flex justify-end gap-3">
-                    <button onClick={downloadManuscript} className="flex items-center gap-2 bg-emerald-900/50 text-emerald-300 px-4 py-2 rounded-lg hover:bg-emerald-800/70 text-sm">
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="text-xs text-blue-300 mr-auto">Export format:</span>
+                    <button
+                      onClick={() => downloadMarkdownAsPDF(manuscript, `opendraft-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pdf`)}
+                      className="flex items-center gap-1.5 bg-emerald-900/50 text-emerald-300 px-4 py-2 rounded-lg hover:bg-emerald-800/70 text-sm"
+                    >
                       <Download size={14} />
-                      Download Manuscript (.md)
+                      Export PDF
                     </button>
-                    <button onClick={() => setPipelineStep(1)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
-                      <RotateCcw size={16} />
-                      Start New Review
+                    <button
+                      onClick={() => downloadMarkdownAsWord(manuscript, `opendraft-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.docx`)}
+                      className="flex items-center gap-1.5 bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg hover:bg-blue-800/70 text-sm"
+                    >
+                      <Download size={14} />
+                      Export Word
+                    </button>
+                    <button
+                      onClick={() => downloadMarkdownAsLaTeX(manuscript, `opendraft-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.tex`)}
+                      className="flex items-center gap-1.5 bg-purple-900/50 text-purple-200 px-4 py-2 rounded-lg hover:bg-purple-800/70 text-sm"
+                    >
+                      <FileCode size={14} />
+                      Export LaTeX
+                    </button>
+                    <button
+                      onClick={() => { setManuscript(""); }}
+                      className="flex items-center gap-1.5 bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg hover:bg-blue-800/70 text-sm"
+                    >
+                      <RotateCcw size={14} />
+                      Regenerate
                     </button>
                   </div>
                 </div>
