@@ -42,6 +42,32 @@ function classifyStudyType(title: string, abstract: string): string {
   return "Observational Study";
 }
 
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function runWithConcurrency<T>(
+  items: T[],
+  fn: (item: T) => Promise<void>,
+  concurrency: number,
+  delayMs = 0
+): Promise<void> {
+  const results: Promise<void>[] = [];
+  let index = 0;
+  const total = items.length;
+  async function next() {
+    while (index < total) {
+      const current = index++;
+      await fn(items[current]!);
+      if (delayMs > 0) await sleep(delayMs);
+    }
+  }
+  for (let i = 0; i < Math.min(concurrency, total); i++) {
+    results.push(next());
+  }
+  await Promise.allSettled(results);
+}
+
 function fuzzyMatch(orig: string, sub: string): number {
   const cleanOrig = orig.replace(/[^a-zA-Z0-9 ]+/g, "").toLowerCase();
   const subWords = sub.replace(/[^a-zA-Z0-9 ]+/g, "").toLowerCase().split(" ").filter(Boolean);
@@ -91,22 +117,20 @@ async function findDoiByTitleAuthor(title: string, authorsStr?: string): Promise
 export async function enrichPapersWithDois(papers: Paper[]): Promise<Paper[]> {
   const withoutDoi = papers.filter((p) => !p.doi || p.doi.length < 5);
   if (withoutDoi.length === 0) return papers;
-  const CHUNK_SIZE = 20;
+  const MAX_ENRICH = 100;
+  const toEnrich = withoutDoi.slice(0, MAX_ENRICH);
   const updated = new Map<string, string>();
-  for (let i = 0; i < withoutDoi.length; i += CHUNK_SIZE) {
-    const chunk = withoutDoi.slice(i, i + CHUNK_SIZE);
-    const results = await Promise.allSettled(
-      chunk.map(async (p) => {
-        const found = await findDoiByTitleAuthor(p.title, p.authors);
-        return { id: p.id, doi: found.doi };
-      })
-    );
-    results.forEach((r) => {
-      if (r.status === "fulfilled" && r.value.doi) {
-        updated.set(r.value.id, r.value.doi);
+  await runWithConcurrency(
+    toEnrich,
+    async (p) => {
+      const found = await findDoiByTitleAuthor(p.title, p.authors);
+      if (found.doi) {
+        updated.set(p.id, found.doi);
       }
-    });
-  }
+    },
+    2,
+    400
+  );
   return papers.map((p) => {
     const newDoi = updated.get(p.id);
     if (newDoi) return { ...p, doi: newDoi, url: `https://doi.org/${newDoi}` };
@@ -179,7 +203,8 @@ export async function fetchOpenAlex(
   let cursor = "*";
   let cursorUrl = `${baseUrl}&cursor=${cursor}`;
 
-  for (let page = 0; page < 100; page++) {
+  const MAX_PAGES = 3;
+  for (let page = 0; page < MAX_PAGES; page++) {
     let res: Response;
     try {
       res = await fetchWithTimeout(cursorUrl);
@@ -226,7 +251,7 @@ export async function fetchPubMed(query: string, yearFrom?: string, yearTo?: str
   const pubDateFilter = dateParts.join(" AND ");
 
   const searchQuery = pubDateFilter ? `(${query}) AND ${pubDateFilter}` : query;
-  const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmode=json&retmax=10000&term=${encodeURIComponent(searchQuery)}`;
+  const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmode=json&retmax=1000&term=${encodeURIComponent(searchQuery)}`;
 
   const searchRes = await fetchWithTimeout(searchUrl);
   if (!searchRes.ok) throw new Error(`PubMed search error: ${searchRes.status}`);
@@ -324,7 +349,7 @@ export async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: 
   const papers: Paper[] = [];
   let cursorMark: string | undefined;
 
-  for (let page = 0; page < 200; page++) {
+  for (let page = 0; page < 3; page++) {
     const qs = new URLSearchParams({
       query: yearFilter + query,
       resultType: "core",
@@ -1115,12 +1140,17 @@ export async function validateDoiViaCrossref(doi: string): Promise<{ valid: bool
 export async function verifyCitations(papers: Paper[]): Promise<Map<string, { valid: boolean; title?: string; message: string }>> {
   const results = new Map<string, { valid: boolean; title?: string; message: string }>();
   const dois = papers.filter((p) => p.doi && p.doi.length > 3).map((p) => p.doi!);
+  const MAX_VERIFY = 100;
+  const toVerify = dois.slice(0, MAX_VERIFY);
 
-  await Promise.allSettled(
-    dois.map(async (doi) => {
+  await runWithConcurrency(
+    toVerify,
+    async (doi) => {
       const result = await validateDoiViaCrossref(doi);
       results.set(doi.toLowerCase(), result);
-    })
+    },
+    2,
+    400
   );
 
   return results;
