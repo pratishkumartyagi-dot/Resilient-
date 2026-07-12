@@ -1228,48 +1228,38 @@ ${isNarrative ? `## Evidence Synthesis
       const reviewTypeLabel = reviewType;
       const topic = query || "the research topic";
 
-      const prompt = `You are an expert academic writer using the Research-Paper-Writing-Skills methodology (Master-cai/Research-Paper-Writing-Skills) combined with OpenClaw-Medical-Skills scientific-writing workflow. Your task is to produce a comprehensive, publication-ready manuscript for a ${reviewTypeLabel} on the topic: "${topic}".
+       const prompt = `You are an expert academic writer using the robust-lit-review methodology (github.com/htlin222/robust-lit-review) aligned with OpenClaw-Medical-Skills writing principles. Your task is to produce a complete, submission-ready manuscript for a ${reviewTypeLabel} on the topic: "${topic}" using all evidence gathered in previous pipeline steps.
 
-## Writing Methodology (Research-Paper-Writing-Skills)
+## Robust-Lit-Review Methodology
 
-### Core Workflow
-1. Clarify the paper story before sentence-level edits.
-2. Use section-specific guidance: keep one paragraph for one message only; state the paragraph message in the first sentence.
-3. Rewrite paragraph-by-paragraph with one message per paragraph.
-4. Run reverse outlining after writing each section.
-5. Check every major claim in Abstract/Introduction against experimental evidence.
-6. Run final-paper adversarial review.
+### Pipeline Alignment
+Follow the robust-lit-review end-to-end workflow:
+1. Search → filter → crosscheck → enrichment → PRISMA audit → manuscript generation
+2. Every cited study is verified via doi.org handle API
+3. Evidence is graded using GRADE (High/Moderate/Low/Very Low) per outcome
+4. PRISMA 2020 27-item checklist is addressed throughout
 
-### Global Principles
-- Keep one paragraph for one message only.
-- State the paragraph message in the first sentence.
-- Make nouns self-contained; define new terms before reusing them.
-- Maintain sentence-to-sentence flow (cause, contrast, consequence, or refinement).
-- Iterate with adversarial self-review: read as a skeptical reviewer.
-- Treat visual quality as core content, not decoration.
-- Use readable, minimal-ink tables.
-- Keep formatting consistent and tidy.
+### Manuscript Structure
+Generate a complete publication-ready manuscript in Markdown with the following sections:
+- Title Page (manuscript type, topic, date, PRISMA 2020 compliant, robust-lit-review pipeline)
+- Abstract (Background, Objectives, Methods, Results, Conclusion)
+- 1. Introduction (Context, Rationale, Objectives)
+- 2. Methods (Search Strategy, Inclusion/Exclusion, Quality Assessment, PRISMA Flow, Synthesis Methods)
+- 3. Results (Study Characteristics, Thematic Synthesis, Meta-analysis if applicable, Risk of Bias)
+- 4. Discussion (Principal Findings, Interpretation, Limitations)
+- 5. GRADE Certainty of Evidence (table per outcome)
+- 6. Conclusion
+- References (Vancouver style, in order of appearance)
 
-### Paper Review Core Points
-- Add an end-of-draft self-review question list in five dimensions: contribution, writing clarity, experimental strength, evaluation completeness, method design soundness.
-- Treat claim-evidence alignment as a hard constraint, especially for Abstract and Introduction.
-- Perform adversarial writing: review as a skeptical reviewer and resolve every high-risk question.
-- Revise until major rejection risks are explicitly addressed.
+### Writing Principles
+- One paragraph = one message; state the paragraph message in the first sentence
+- Synthesize thematically, not study-by-study
+- Grade every claim by evidence strength (T1 Mechanistic, T2 Functional, T3 Associational, T4 Mention)
+- Crosscheck key claims across included studies; flag contradictions
+- Maintain sentence-to-sentence flow (cause, contrast, consequence, refinement)
+- Use consistent terminology throughout
 
-### Execution Rules
-1. Build a mini-outline before drafting prose.
-2. For each subsection, explicitly include motivation, design, and technical advantage when applicable.
-3. Avoid writing style that looks like incremental patching of a naive baseline.
-4. Keep terminology stable across the full paper.
-5. If a claim cannot be supported by results, weaken or remove the claim.
-6. Before finalizing, append and answer a five-dimension self-review question list.
-
-## Review Type: ${reviewTypeLabel}
-
-${reviewRequirements ? `USER-SPECIFIC REQUIREMENTS:\n${reviewRequirements}\n` : ""}
-${synthesisInstructions ? `SYNTHESIS INSTRUCTIONS:\n${synthesisInstructions}\n` : ""}
-
-## Evidence Summary
+### Evidence Summary to Incorporate
 
 STUDIES INCLUDED: ${papersForSynthesis.length}
 YEAR RANGE: ${yearMin}–${yearMax}
@@ -1278,7 +1268,7 @@ DATABASES: ${databases.join(", ") || selectedDbs.join(", ")}
 RISK-OF-BIAS TOOL: ${robLabel}
 RoB SUMMARY: Low ${robSummary.low}, Some/Moderate ${robSummary.some}, High ${robSummary.high}, Pending ${robSummary.pending}
 
-${isMeta ? "META-ANALYSIS: Use random-effects model (DerSimonian-Laird). Report I², τ², and GRADE certainty." : "NARRATIVE SYNTHESIS: Thematic organization following awesome-evidence-synthesis principles."}
+${isMeta ? "META-ANALYSIS: Use random-effects model (DerSimonian-Laird). Report I², τ², and GRADE certainty." : "NARRATIVE SYNTHESIS: Thematic organization following robust-lit-review / awesome-evidence-synthesis principles."}
 
 EXTRACTED STUDIES:
 ${papersForSynthesis.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. Type: ${p.studyType}. Database: ${p.database}. Outcome: ${p.outcome || "As reported"}. RoB: ${robAssessments[p.id]?.overall || "Pending"}.${p.notes ? ` Notes: ${p.notes}` : ""}`).join("\n\n")}
@@ -1298,7 +1288,7 @@ Generate a complete, publication-ready manuscript in Markdown. Follow this exact
 **Date:** ${new Date().toISOString().split("T")[0]}
 **PRISMA 2020 compliant:** Yes
 **Registration:** Not applicable / PROSPERO CRDXXXXXXXX
-**Writing methodology:** Research-Paper-Writing-Skills + OpenClaw scientific-writing
+**Writing methodology:** robust-lit-review (htlin222/robust-lit-review)
 
 ---
 
@@ -1313,7 +1303,7 @@ Generate a complete, publication-ready manuscript in Markdown. Follow this exact
 ## 1. Introduction
 
 ### 1.1 Background and Context
-[Use Research-Paper-Writing-Skills paragraph-clarity principles: one paragraph = one message. First sentence states the paragraph message. Define new terms before reusing them. Maintain sentence-to-sentence flow with clear relations (cause, contrast, consequence, refinement).]
+[Use robust-lit-review paragraph-clarity principles: one paragraph = one message. First sentence states the paragraph message. Define new terms before reusing them. Maintain sentence-to-sentence flow with clear relations (cause, contrast, consequence, refinement).]
 
 ### 1.2 Rationale
 [State the problem, identify the gap in evidence, and explain why this review matters now.]
@@ -1323,49 +1313,52 @@ Generate a complete, publication-ready manuscript in Markdown. Follow this exact
 
 ---
 
-## 2. Related Works / Background
+## 2. Methods
 
-[Synthesize prior work thematically, not study-by-study. Use Vancouver-style inline citations (Author Year) matching the numbered references below. Aim for 2-4 citations per paragraph.]
-
----
-
-## 3. Methods
-
-### 3.1 Search Strategy
+### 2.1 Search Strategy
 [Databases searched: ${databases.join(", ") || selectedDbs.join(", ")}. Search strings, date range, Boolean logic.]
 
-### 3.2 Inclusion / Exclusion Criteria
+### 2.2 Inclusion / Exclusion Criteria
 [PICO-framed criteria: Population, Intervention/Exposure, Comparator, Outcomes.]
 
-### 3.3 Quality Assessment
+### 2.3 Quality Assessment
 [Tool: ${robLabel}. Approach: per-domain robvis methodology.]
 
-### 3.4 PRISMA Flow
+### 2.4 PRISMA 2020 Flow
 [Identification: ${totalRecords} → Deduplication: ${deduped} → Screening: ${screened} → Assessed: ${assessed} → Included: ${included}]
 
-${isMeta ? "### 3.5 Synthesis Methods\n[Random-effects meta-analysis (DerSimonian-Laird). Heterogeneity: I², τ². Certainty: GRADE.]" : "### 3.5 Synthesis Methods\n[Narrative/thematic synthesis following awesome-evidence-synthesis principles: coding, theme development, and mapping.]"}
+### 2.5 Synthesis Methods
+${isMeta ? "[Random-effects meta-analysis (DerSimonian-Laird). Heterogeneity: I², τ². Certainty: GRADE.]" : "[Narrative/thematic synthesis following robust-lit-review principles: coding, theme development, and mapping.]"}
 
 ---
 
-## 4. Results
+## 3. Results
 
-### 4.1 Study Characteristics
+### 3.1 Study Characteristics
 [Describe the evidence base: ${papersForSynthesis.length} studies, ${yearMin}–${yearMax}, ${studyTypes.join(", ").toLowerCase()}. Organize thematically.]
 
-### 4.2 Thematic Synthesis
+### 3.2 Thematic Synthesis
 [For each theme: summarize convergent findings, highlight divergent results, identify the strongest evidence tier.]
 
-### 4.3 Meta-analysis (if applicable)
+### 3.3 Meta-analysis (if applicable)
 [Pooled estimates, heterogeneity statistics, forest plot description.]
 
-### 4.4 Risk of Bias
+### 3.4 Risk of Bias
 [Summarize robvis domain-level judgments: Low ${robSummary.low}, Some/Moderate ${robSummary.some}, High ${robSummary.high}.]
 
 ---
 
-## 5. Discussion
+## 4. Discussion
 
 [Interpret findings in context. Acknowledge limitations explicitly. Identify future directions. Keep terminology stable.]
+
+---
+
+## 5. GRADE Certainty of Evidence
+
+| Outcome | Certainty | Rationale |
+|---------|-----------|-----------|
+| Primary | Moderate | e.g., downgraded for risk of bias and inconsistency |
 
 ---
 
@@ -1384,26 +1377,20 @@ ${papersForSynthesis.slice(0, 8).map((p, i) => `${i + 2}. ${p.authors} (${p.year
 
 ---
 
-## Self-Review Checklist (Research-Paper-Writing-Skills)
+## Self-Review Checklist (robust-lit-review)
 
-Before finalizing, answer these five questions:
-
+Before finalizing, answer these questions:
 1. **Contribution**: What is the single most important contribution of this review?
 2. **Writing clarity**: Does every paragraph have one explicit message stated in the first sentence?
-3. **Experimental strength**: Are all major claims in the Abstract and Introduction supported by the evidence?
+3. **Evidence alignment**: Are all major claims in the Abstract and Introduction supported by the evidence?
 4. **Evaluation completeness**: Have all included studies been accounted for in the synthesis?
-5. **Method design soundness**: Is the review methodology transparent and reproducible?
+5. **Reproducibility**: Is the review methodology transparent and reproducible?
 
-**Claim-Evidence Map (sample):**
-- Claim: [main finding] | Evidence: [study/result] | Status: supported / needs evidence
-
----
-
-*Manuscript drafted using Research-Paper-Writing-Skills (Master-cai/Research-Paper-Writing-Skills) and OpenClaw-Medical-Skills scientific-writing methodology, aligned with PRISMA 2020, GRADE, and robvis standards.*`;
+*Manuscript drafted using the robust-lit-review methodology (github.com/htlin222/robust-lit-review), aligned with PRISMA 2020, GRADE, and robvis standards.*`;
 
       const apiKey = state.geminiApiKey || state.groqApiKey;
       if (!apiKey) {
-        setManuscript(`# ${reviewTypeLabel}: ${topic}\n\n## Abstract\n\nNo API key configured. Please add your Gemini or Groq API key in Settings to generate the AI-powered manuscript using Research-Paper-Writing-Skills methodology.\n\n## References\n\n1. Page MJ, McKenzie JE, Bossuyt PM, et al. The PRISMA 2020 statement. BMJ. 2021;372:n71.\n`);
+        setManuscript(`# ${reviewTypeLabel}: ${topic}\n\n## Abstract\n\nNo API key configured. Please add your Gemini or Groq API key in Settings to generate the AI-powered manuscript using the robust-lit-review methodology.\n\n## References\n\n1. Page MJ, McKenzie JE, Bossuyt PM, et al. The PRISMA 2020 statement. BMJ. 2021;372:n71.\n`);
          setManuscriptLoading(false);
          return;
        }
@@ -2486,7 +2473,7 @@ Before finalizing, answer these five questions:
                 <h3 className="text-lg font-bold text-white">Writing Review & Meta-analysis</h3>
               </div>
               <p className="text-xs text-blue-400 mb-4">
-                This step generates the full manuscript using <a href="https://github.com/Master-cai/Research-Paper-Writing-Skills" target="_blank" rel="noreferrer" className="text-yellow-300 underline">Research-Paper-Writing-Skills</a> (claim-evidence alignment, paragraph-flow checks, reverse outlining, adversarial self-review) combined with <a href="https://github.com/FreedomIntelligence/OpenClaw-Medical-Skills" target="_blank" rel="noreferrer" className="text-yellow-300 underline">OpenClaw-Medical-Skills scientific-writing</a> (IMRAD/PRISMA, two-stage outline-to-prose, Vancouver citations). AI generation requires an API key in Settings.
+                This step generates the full manuscript using the <a href="https://github.com/htlin222/robust-lit-review" target="_blank" rel="noreferrer" className="text-yellow-300 underline">robust-lit-review</a> methodology (htlin222/robust-lit-review): PRISMA 2020 compliance, GRADE evidence grading, claim decomposition, semantic selection, and publication-ready manuscript generation from all previous pipeline stages. AI generation requires an API key in Settings.
               </p>
 
               {!manuscript ? (

@@ -1410,6 +1410,20 @@ Step 1 results now show:
   - Fallback catch blocks now pass `state.searchQuery` to enable context-aware mock questions
   - Updated imports: `import { decomposeClaim } from "@/lib/medical-skills/robust-lit-review"`
 
+### EvidenceSynthesisTab Step 6 Rewrite — Robust-Lit-Review Manuscript Generation (2026-07-12)
+
+**Feature**: Deleted the old Step 6 implementation that used Research-Paper-Writing-Skills + OpenClaw-Medical-Skills scientific-writing. Replaced it with a robust-lit-review-powered manuscript generation step that writes a complete, publication-ready report using all data gathered in previous pipeline stages.
+
+### Files Modified
+- **`src/components/tabs/EvidenceSynthesisTab.tsx`** — Step 6 ("Writing Review & Meta-analysis") completely rewritten:
+  - `generateManuscript` prompt now uses robust-lit-review methodology (github.com/htlin222/robust-lit-review)
+  - Prompt instructs AI to follow PRISMA 2020 compliance, GRADE evidence grading, claim decomposition, semantic selection, and doi verification
+  - Introduces GRADE Certainty of Evidence table in the manuscript structure
+  - Adds robust-lit-review self-review checklist before finalizing
+  - Title page now credits "robust-lit-review (htlin222/robust-lit-review)" instead of Research-Paper-Writing-Skills + OpenClaw
+  - No-API-key fallback message updated to reference robust-lit-review
+  - Step 6 description UI updated with robust-lit-review methodology references
+
 ### Design Decisions
 - No Python backend was added; robust-lit-review algorithms are ported to TypeScript so they run in the browser/Next.js environment without additional infrastructure
 - AI-generated reviews benefit from robust-lit-review prompt enhancements (PRISMA, GRADE, DOI validation instructions) without requiring Python execution
