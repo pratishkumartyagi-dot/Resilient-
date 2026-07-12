@@ -26,6 +26,7 @@ const DATABASES = [
   "PubMed", "OpenAlex", "Europe PMC", "Google Scholar",
   "WHO IRIS", "Semantic Scholar", "Shodhganga", "Prospero",
   "ScienceDirect", "ClinicalTrials.gov", "DOAJ", "Clarivate",
+  "Cochrane Library",
   "paper-search-mcp (arXiv, bioRxiv, medRxiv, CORE, Zenodo, HAL, SSRN, Crossref, dblp, CiteSeerX, OpenAIRE, BASE)"
 ];
 
@@ -70,7 +71,7 @@ export default function Step1Search() {
     });
     dispatch({ type: "SET_SELECTED_DATABASES", payload: selectedDbs });
 
-    const realDbs = selectedDbs.filter((db) => ["OpenAlex", "PubMed", "Europe PMC", "ERIC", "Google Scholar", "Shodhganga", "CTRI – India", "scite.ai", "WHO IRIS", "Semantic Scholar", "ClinicalTrials.gov", "DOAJ", "Prospero", "ScienceDirect", "Clarivate", "paper-search-mcp", "arXiv", "bioRxiv", "medRxiv", "CORE", "Zenodo", "HAL", "SSRN", "BASE", "Crossref", "OpenAIRE", "CiteSeerX", "dblp", "IACR", "Unpaywall", "Semantic Scholar (raw)"].includes(db));
+    const realDbs = selectedDbs.filter((db) => ["OpenAlex", "PubMed", "Europe PMC", "ERIC", "Google Scholar", "Shodhganga", "CTRI – India", "scite.ai", "WHO IRIS", "Semantic Scholar", "ClinicalTrials.gov", "DOAJ", "Prospero", "ScienceDirect", "Clarivate", "Cochrane Library", "paper-search-mcp", "arXiv", "bioRxiv", "medRxiv", "CORE", "Zenodo", "HAL", "SSRN", "BASE", "Crossref", "OpenAIRE", "CiteSeerX", "dblp", "IACR", "Unpaywall", "Semantic Scholar (raw)"].includes(db));
     const fallbackDbs = selectedDbs.filter((db) => !realDbs.includes(db));
 
     try {

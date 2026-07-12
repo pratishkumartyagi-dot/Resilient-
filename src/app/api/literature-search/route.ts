@@ -12,6 +12,8 @@ import {
   fetchOpenAIRE,
   fetchDblp,
   fetchSemanticScholarRaw,
+  fetchClinicalTrialsGov,
+  fetchCochraneLibrary,
   deduplicatePapers,
   enrichPapersWithDois,
 } from "@/lib/database-apis";
@@ -71,7 +73,8 @@ export async function POST(request: Request) {
       "Google Scholar": () => fetchOpenAlex(`scholarly articles ${query}`, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
       "WHO IRIS": () => fetchEuropePMC(`WHO health guidelines ${query}`, yearFrom, yearTo, studyType),
       "Semantic Scholar": () => fetchOpenAlex(`AI machine learning ${query}`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
-      "ClinicalTrials.gov": () => fetchEuropePMC(`clinical trials registry ${query}`, yearFrom, yearTo, studyType),
+      "ClinicalTrials.gov": () => fetchClinicalTrialsGov(query, yearFrom, yearTo, studyType),
+      "Cochrane Library": () => fetchCochraneLibrary(query, yearFrom, yearTo, studyType),
       "Shodhganga": () => fetchOpenAlex(`theses dissertations ${query}`, yearFrom, yearTo, studyType, { filter: "type:dissertation,authorships.institutions.country_code:IN" }),
       "Prospero": () => fetchEuropePMC(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
       "ScienceDirect": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc", filter: "host_venue:publisher:Elsevier" }),

@@ -868,7 +868,8 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
     "scite.ai": () => fetchOpenAlex(`${query} citation analysis`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
     "WHO IRIS": () => fetchEuropePMC(`WHO health guidelines ${query}`, yearFrom, yearTo, studyType),
     "Semantic Scholar": () => fetchOpenAlex(`AI machine learning ${query}`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
-    "ClinicalTrials.gov": () => fetchEuropePMC(`clinical trials registry ${query}`, yearFrom, yearTo, studyType),
+    "ClinicalTrials.gov": () => fetchClinicalTrialsGov(query, yearFrom, yearTo, studyType),
+    "Cochrane Library": () => fetchCochraneLibrary(query, yearFrom, yearTo, studyType),
     "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
     "Prospero": () => fetchEuropePMC(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
     "ScienceDirect": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc", filter: "host_venue:publisher:Elsevier" }),
@@ -960,7 +961,8 @@ export async function fetchRealPapersWithCounts(query: string, databases: string
     "scite.ai": () => fetchOpenAlex(`${query} citation analysis`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
     "WHO IRIS": () => fetchEuropePMC(`WHO health guidelines ${query}`, yearFrom, yearTo, studyType),
     "Semantic Scholar": () => fetchOpenAlex(`AI machine learning ${query}`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
-    "ClinicalTrials.gov": () => fetchEuropePMC(`clinical trials registry ${query}`, yearFrom, yearTo, studyType),
+    "ClinicalTrials.gov": () => fetchClinicalTrialsGov(query, yearFrom, yearTo, studyType),
+    "Cochrane Library": () => fetchCochraneLibrary(query, yearFrom, yearTo, studyType),
     "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
     "Prospero": () => fetchEuropePMC(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
     "ScienceDirect": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc", filter: "host_venue:publisher:Elsevier" }),
@@ -1028,7 +1030,8 @@ function getDatabaseBackend(uiDatabase: string): string {
     "scite.ai": "OpenAlex API",
     "WHO IRIS": "Europe PMC REST API",
     "Semantic Scholar": "OpenAlex API",
-    "ClinicalTrials.gov": "Europe PMC REST API",
+    "ClinicalTrials.gov": "ClinicalTrials.gov API v2",
+    "Cochrane Library": "Web Search (cochranelibrary.com)",
     "DOAJ": "DOAJ API",
     "Prospero": "Europe PMC REST API",
     "ScienceDirect": "OpenAlex API",
@@ -1211,6 +1214,116 @@ export async function quickSearch(query: string, maxResults: number = 8): Promis
   try {
     const papers = await fetchOpenAlex(query, undefined, undefined, undefined);
     return papers.slice(0, maxResults);
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchClinicalTrialsGov(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+  const qs = new URLSearchParams({
+    query: query,
+    format: "json",
+    pageSize: "50",
+  });
+  if (yearFrom || yearTo) {
+    qs.set("filter.overallStatus", "RECRUITING,ACTIVE,COMPLETED");
+  }
+  const url = `https://clinicaltrials.gov/api/v2/studies?${qs.toString()}`;
+  const res = await fetchWithTimeout(url);
+  if (!res.ok) throw new Error(`ClinicalTrials.gov error: ${res.status}`);
+  const data = await res.json();
+  const studies = data.studies || [];
+  const papers: Paper[] = studies.map((s: any) => {
+    const ps = s.protocolSection || {};
+    const idModule = ps.identificationModule || {};
+    const descModule = ps.descriptionModule || {};
+    const sponsorModule = ps.sponsorCollaboratorsModule || {};
+    const designModule = ps.designModule || {};
+    const title = idModule.briefTitle || idModule.officialTitle || "Untitled";
+    const nctId = idModule.nctId || "";
+    const authors = sponsorModule.leadSponsor?.name || "Unknown sponsor";
+    const abstract = descModule.briefSummary || descModule.detailedDescription || "No abstract available.";
+    const year = parseInt(s.lastUpdatePostDateStruct?.date || s.lastKnownPhase?.date || new Date().getFullYear().toString()) || new Date().getFullYear();
+    const phase = (designModule.phases || []).join(", ") || "Not specified";
+    const studyType = designModule.studyType || "Clinical Trial";
+    return {
+      id: `ctg-${nctId || Math.random().toString(36).slice(2, 8)}`,
+      title,
+      authors,
+      journal: "ClinicalTrials.gov",
+      year,
+      doi: "",
+      abstract: abstract.substring(0, 3000),
+      database: "ClinicalTrials.gov",
+      studyType: studyType === "Clinical Trial" ? classifyStudyType(title, abstract) : studyType,
+      selected: false,
+      url: nctId ? `https://clinicaltrials.gov/study/${nctId}` : `https://clinicaltrials.gov/expert-search?query=${encodeURIComponent(query)}`,
+      sourceBackend: "ClinicalTrials.gov API v2",
+      sources: ["ClinicalTrials.gov"],
+      pmid: nctId,
+    };
+  });
+
+  if (studyType && studyType !== "All Study Types") {
+    const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
+    const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+    return filtered.length > 0 ? filtered : papers.slice(0, 20);
+  }
+
+  if (yearFrom || yearTo) {
+    const yFrom = yearFrom ? parseInt(yearFrom) : 0;
+    const yTo = yearTo ? parseInt(yearTo) : 9999;
+    return papers.filter((p) => p.year >= yFrom && p.year <= yTo);
+  }
+
+  return papers.slice(0, 50);
+}
+
+export async function fetchCochraneLibrary(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+  try {
+    const res = await fetch("/api/web-search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: `site:cochranelibrary.com ${query}`,
+        maxResults: 20,
+      }),
+    });
+
+    if (!res.ok) throw new Error(`Cochrane Library web search failed: ${res.status}`);
+    const data = await res.json();
+    const papers: Paper[] = (data.papers || [])
+      .filter((p: any) => p.url && p.url.includes("cochranelibrary.com"))
+      .map((p: any) => ({
+        id: `cochrane-${Math.random().toString(36).slice(2, 8)}`,
+        title: p.title || "Untitled",
+        authors: p.authors || "Unknown authors",
+        journal: "Cochrane Library",
+        year: p.year || new Date().getFullYear(),
+        doi: p.doi || "",
+        abstract: (p.abstract || "No abstract available.").substring(0, 3000),
+        database: "Cochrane Library",
+        studyType: p.studyType || classifyStudyType(p.title || "", p.abstract || ""),
+        selected: false,
+        url: p.url,
+        sourceBackend: "Web Search (cochranelibrary.com)",
+        sources: ["Cochrane Library"],
+      }));
+
+    let filtered = papers;
+    if (yearFrom || yearTo) {
+      const yFrom = yearFrom ? parseInt(yearFrom) : 0;
+      const yTo = yearTo ? parseInt(yearTo) : 9999;
+      filtered = papers.filter((p) => p.year >= yFrom && p.year <= yTo);
+    }
+
+    if (studyType && studyType !== "All Study Types") {
+      const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
+      const typeFiltered = filtered.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+      return typeFiltered.length > 0 ? typeFiltered : filtered.slice(0, 20);
+    }
+
+    return filtered.slice(0, 20);
   } catch {
     return [];
   }

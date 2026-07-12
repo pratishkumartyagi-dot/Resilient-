@@ -31,6 +31,7 @@ const SR_DATABASES = [
   "PubMed", "OpenAlex", "Europe PMC", "Google Scholar",
   "WHO IRIS", "Semantic Scholar", "Shodhganga", "Prospero",
   "ScienceDirect", "ClinicalTrials.gov", "DOAJ", "Clarivate",
+  "Cochrane Library",
   "paper-search-mcp", "arXiv", "bioRxiv", "medRxiv",
   "CORE", "Zenodo", "HAL", "SSRN", "BASE", "Crossref",
   "OpenAIRE", "CiteSeerX", "dblp", "IACR", "Unpaywall"
