@@ -661,6 +661,138 @@ export default function EvidenceSynthesisTab() {
     }
   };
 
+  const initProbastAssessment = (): ProbastAssessment => ({
+    overallRob: "Unclear",
+    overallApplicability: "Unclear",
+    notes: "",
+    domains: Object.fromEntries(PROBAST_ROB_DOMAINS.map((d) => [d.id, { judgment: "Unclear" }])),
+    applicability: Object.fromEntries(PROBAST_APPLICABILITY_DOMAINS.map((d) => [d.id, { judgment: "Unclear" }])),
+  });
+
+  const autoAssessProbast = () => {
+    if (extractedData.length === 0) return;
+    setProbastAssessments((prev) => {
+      const next: Record<string, ProbastAssessment> = {};
+      extractedData.forEach((row) => {
+        const existing = prev[row.id];
+        const base = existing || initProbastAssessment();
+        const isAI = /(ai|artificial intelligence|machine learning|deep learning|neural|prediction model|algorithm)/i.test(`${row.title} ${row.studyType || ""}`);
+        const robDefaults: Record<string, string> = {
+          D1: "Low risk of bias",
+          D2: isAI ? "Unclear" : "Low risk of bias",
+          D3: "Low risk of bias",
+          D4: isAI ? "High risk of bias" : "Unclear",
+        };
+        const appDefaults: Record<string, string> = {
+          A1: "Low concern",
+          A2: isAI ? "High concern" : "Low concern",
+          A3: "Low concern",
+        };
+        const domains: Record<string, ProbastDomainJudgment> = {};
+        PROBAST_ROB_DOMAINS.forEach((d) => { domains[d.id] = { judgment: robDefaults[d.id] || "Unclear" }; });
+        const applicability: Record<string, ProbastDomainJudgment> = {};
+        PROBAST_APPLICABILITY_DOMAINS.forEach((d) => { applicability[d.id] = { judgment: appDefaults[d.id] || "Unclear" }; });
+        const overallRob = Object.values(robDefaults).includes("High risk of bias") ? "High risk of bias" : "Low risk of bias";
+        const overallApp = Object.values(appDefaults).includes("High concern") ? "High concern" : "Low concern";
+        next[row.id] = { ...base, domains, applicability, overallRob, overallApplicability: overallApp };
+      });
+      return next;
+    });
+  };
+
+  const updateProbastDomain = (paperId: string, domainId: string, judgment: string) => {
+    setProbastAssessments((prev) => {
+      const existing = prev[paperId];
+      if (!existing) return prev;
+      return { ...prev, [paperId]: { ...existing, domains: { ...existing.domains, [domainId]: { judgment } } } };
+    });
+  };
+
+  const updateProbastApplicability = (paperId: string, domainId: string, judgment: string) => {
+    setProbastAssessments((prev) => {
+      const existing = prev[paperId];
+      if (!existing) return prev;
+      return { ...prev, [paperId]: { ...existing, applicability: { ...existing.applicability, [domainId]: { judgment } } } };
+    });
+  };
+
+  const updateProbastOverallRob = (paperId: string, v: string) => {
+    setProbastAssessments((prev) => {
+      const existing = prev[paperId];
+      if (!existing) return prev;
+      return { ...prev, [paperId]: { ...existing, overallRob: v } };
+    });
+  };
+
+  const updateProbastOverallApplicability = (paperId: string, v: string) => {
+    setProbastAssessments((prev) => {
+      const existing = prev[paperId];
+      if (!existing) return prev;
+      return { ...prev, [paperId]: { ...existing, overallApplicability: v } };
+    });
+  };
+
+  const updateProbastNotes = (paperId: string, notes: string) => {
+    setProbastAssessments((prev) => {
+      const existing = prev[paperId];
+      if (!existing) return prev;
+      return { ...prev, [paperId]: { ...existing, notes } };
+    });
+  };
+
+  const getProbastJudgment = (paperId: string, group: "domains" | "applicability", domainId: string): string => {
+    const a = probastAssessments[paperId];
+    if (!a) return "Unclear";
+    return a[group][domainId]?.judgment || "Unclear";
+  };
+
+  const saveProbastAssessments = () => {
+    try {
+      localStorage.setItem("resilient_probast_assessments", JSON.stringify(probastAssessments));
+      alert("PROBAST+AI assessments saved locally.");
+    } catch {
+      alert("PROBAST+AI assessments saved in session.");
+    }
+  };
+
+  const runProbastAi = async () => {
+    if (extractedData.length === 0) {
+      alert("Extract papers first (Step 2) to run PROBAST+AI assessment.");
+      return;
+    }
+    setProbastAiLoading(true);
+    try {
+      autoAssessProbast();
+      if (state.geminiApiKey || state.groqApiKey) {
+        try {
+          const studyList = extractedData
+            .map((p, i) => `${i + 1}. ${p.title} (${p.authors || "Unknown"}, ${p.year || "n/d"}) — type: ${p.studyType || "prediction model study"}${p.doi ? `; DOI: ${p.doi}` : ""}`)
+            .join("\n");
+          const prompt = `You are PROBAST-AI, an expert tool for assessing risk of bias and applicability of prediction-model studies (including AI/ML models). Assess the following ${extractedData.length} studies using the 4 PROBAST risk-of-bias domains (Participants, Predictors, Outcome, Analysis) and 3 applicability domains (Participants, Predictors, Outcome). For each study give a short verdict (Low/High/Unclear risk of bias; Low/High concern applicability) and a one-line rationale, flagging AI-specific risks (data leakage, inappropriate train/test split, lack of external validation, poor reporting of preprocessing).
+
+Studies:
+${studyList}
+
+Return a concise markdown report with a "## PROBAST+AI Assessment" heading and a per-study bullet list.`;
+          const content = await callGemini(state.geminiApiKey || state.groqApiKey!, prompt);
+          if (content) {
+            setProbastAnalysis(content);
+            return;
+          }
+        } catch {
+          /* fall through to local summary */
+        }
+      }
+      const highRob = extractedData.filter((p) => probastAssessments[p.id]?.overallRob === "High risk of bias").length;
+      const highApp = extractedData.filter((p) => probastAssessments[p.id]?.overallApplicability === "High concern").length;
+      setProbastAnalysis(
+        `## PROBAST+AI Assessment\n\n**Studies assessed:** ${extractedData.length}\n**High risk of bias:** ${highRob}\n**High concern applicability:** ${highApp}\n\nDomains evaluated per study: Risk of bias — Participants, Predictors, Outcome, Analysis; Applicability — Participants, Predictors, Outcome. For AI/ML studies, pay special attention to domain D4 (Analysis): data source/splitting, preprocessing, model architecture, and external validation.\n\n> Generated locally using the PROBAST+AI methodology (probast.org/probast_ai). Configure an API key in Settings for AI-assisted narrative assessment.`
+      );
+    } finally {
+      setProbastAiLoading(false);
+    }
+  };
+
   const runExtraction = () => {
     const selected = papers.filter((p) => selectedPaperIds.has(p.id));
     const assessments: Record<string, RobAssessment> = {};
@@ -1828,6 +1960,26 @@ ${isNarrative ? `## Evidence Synthesis
                 <ClipboardList size={18} className="text-yellow-400" />
                 <h3 className="text-lg font-bold text-white">Risk of Bias Assessment</h3>
               </div>
+
+              <div className="flex flex-wrap items-center gap-2 mb-4">
+                <span className="text-xs text-blue-300 mr-1">Assessment tool:</span>
+                <button
+                  onClick={() => setRobMode("robvis")}
+                  className={`flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-lg border ${robMode === "robvis" ? "bg-yellow-500 text-[#0a1a3a] border-yellow-500 font-bold" : "bg-blue-900/50 text-blue-200 border-blue-700/50 hover:bg-blue-800/60"}`}
+                >
+                  <ClipboardList size={12} /> robvis (Cochrane)
+                </button>
+                <button
+                  onClick={() => setRobMode("probast")}
+                  className={`flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-lg border ${robMode === "probast" ? "bg-yellow-500 text-[#0a1a3a] border-yellow-500 font-bold" : "bg-blue-900/50 text-blue-200 border-blue-700/50 hover:bg-blue-800/60"}`}
+                >
+                  <Bot size={12} /> PROBAST + AI
+                </button>
+                <a href="https://www.probast.org/probast_ai/downloads/" target="_blank" rel="noreferrer" className="text-[10px] text-blue-400 underline ml-1">About PROBAST+AI</a>
+              </div>
+
+              {robMode === "robvis" && (
+               <>
                <p className="text-xs text-blue-400 mb-4">
                  Auto-assessment uses robvis tool templates. Select papers using the checkboxes and click <strong>Re-assess</strong> (or edit any cell) to override heuristic judgments with manual ratings. Use <strong>Select All</strong> to toggle all papers.
                </p>
@@ -2000,6 +2152,135 @@ ${isNarrative ? `## Evidence Synthesis
                   </button>
                 </div>
               </div>
+              </>
+              )}
+
+              {robMode === "probast" && (
+                <>
+                  <p className="text-xs text-blue-400 mb-4">
+                    PROBAST+AI assesses risk of bias and applicability of prediction-model studies (including AI/ML models). Four risk-of-bias domains (Participants, Predictors, Outcome, Analysis) and three applicability domains. Click <strong>Auto-assess</strong> for a heuristic baseline or <strong>Run PROBAST+AI Assessment</strong> for an AI-assisted verdict (needs an API key in Settings).
+                  </p>
+
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={autoAssessProbast}
+                      className="flex items-center gap-1.5 text-[11px] bg-emerald-900/50 text-emerald-200 px-3 py-1.5 rounded-lg hover:bg-emerald-800/60 border border-emerald-700/50"
+                    >
+                      <Sparkles size={12} /> Auto-assess (PROBAST heuristic)
+                    </button>
+                    <button
+                      onClick={runProbastAi}
+                      disabled={probastAiLoading || extractedData.length === 0}
+                      className="flex items-center gap-1.5 text-[11px] bg-blue-900/50 text-blue-200 px-3 py-1.5 rounded-lg hover:bg-blue-800/60 border border-blue-700/50 disabled:opacity-50"
+                    >
+                      {probastAiLoading ? (<><Loader2 size={12} className="animate-spin" /> Assessing...</>) : (<><Bot size={12} /> Run PROBAST+AI Assessment</>)}
+                    </button>
+                    <span className="text-[10px] text-blue-400">{extractedData.length} studies</span>
+                  </div>
+
+                  {extractedData.length > 0 && (
+                    <div className="mb-4 overflow-x-auto">
+                      <table className="w-full border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-blue-900/60 text-left">
+                            <th className="border border-blue-800 px-3 py-2 text-yellow-200 sticky left-0 bg-blue-900/90 z-10">Study</th>
+                            {PROBAST_ROB_DOMAINS.map((d) => (
+                              <th key={d.id} className="border border-blue-800 px-2 py-2 text-yellow-200 min-w-[110px]" title={d.label}>{d.id}</th>
+                            ))}
+                            <th className="border border-blue-800 px-2 py-2 text-yellow-200 min-w-[110px]">Overall RoB</th>
+                            {PROBAST_APPLICABILITY_DOMAINS.map((d) => (
+                              <th key={d.id} className="border border-blue-800 px-2 py-2 text-yellow-200 min-w-[110px]" title={d.label}>{d.id}</th>
+                            ))}
+                            <th className="border border-blue-800 px-2 py-2 text-yellow-200 min-w-[110px]">Applicability</th>
+                            <th className="border border-blue-800 px-2 py-2 text-yellow-200 min-w-[120px]">Notes</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {extractedData.map((row) => {
+                            const a = probastAssessments[row.id];
+                            if (!a) return null;
+                            return (
+                              <tr key={row.id} className="hover:bg-blue-900/20">
+                                <td className="border border-blue-800 px-3 py-2 text-blue-100">
+                                  <span className="truncate block max-w-[200px]" title={row.title}>{row.title}</span>
+                                  <span className="text-[10px] text-blue-400">{row.authors} ({row.year})</span>
+                                </td>
+                                {PROBAST_ROB_DOMAINS.map((d) => {
+                                  const j = getProbastJudgment(row.id, "domains", d.id);
+                                  return (
+                                    <td key={d.id} className="border border-blue-800 px-1 py-1.5 text-center">
+                                      <span className="block rounded-sm" style={{ backgroundColor: getProbastColor(j), opacity: j === "Unclear" ? 0.5 : 1, width: 28, height: 18, margin: "0 auto" }} title={`${d.id}: ${j}`} />
+                                      <select value={j} onChange={(e) => updateProbastDomain(row.id, d.id, e.target.value)} className="mt-1 bg-blue-950 border border-blue-700 text-white rounded px-1 py-0.5 w-full text-[10px] focus:outline-none focus:ring-1 focus:ring-yellow-500">
+                                        {PROBAST_ROB_JUDGMENTS.map((jj) => (<option key={jj} value={jj}>{jj}</option>))}
+                                      </select>
+                                    </td>
+                                  );
+                                })}
+                                <td className="border border-blue-800 px-1 py-1.5 text-center">
+                                  <select value={a.overallRob} onChange={(e) => updateProbastOverallRob(row.id, e.target.value)} className="bg-blue-950 border border-blue-700 text-white rounded px-1 py-1 w-full text-xs focus:outline-none focus:ring-1 focus:ring-yellow-500">
+                                    {PROBAST_ROB_JUDGMENTS.map((jj) => (<option key={jj} value={jj}>{jj}</option>))}
+                                  </select>
+                                  <span className="block rounded-sm mt-1" style={{ backgroundColor: getProbastColor(a.overallRob), width: 28, height: 18, margin: "0 auto" }} title={`Overall RoB: ${a.overallRob}`} />
+                                </td>
+                                {PROBAST_APPLICABILITY_DOMAINS.map((d) => {
+                                  const j = getProbastJudgment(row.id, "applicability", d.id);
+                                  return (
+                                    <td key={d.id} className="border border-blue-800 px-1 py-1.5 text-center">
+                                      <span className="block rounded-sm" style={{ backgroundColor: getProbastColor(j), opacity: j === "Unclear" ? 0.5 : 1, width: 28, height: 18, margin: "0 auto" }} title={`${d.id}: ${j}`} />
+                                      <select value={j} onChange={(e) => updateProbastApplicability(row.id, d.id, e.target.value)} className="mt-1 bg-blue-950 border border-blue-700 text-white rounded px-1 py-0.5 w-full text-[10px] focus:outline-none focus:ring-1 focus:ring-yellow-500">
+                                        {PROBAST_APPLICABILITY_JUDGMENTS.map((jj) => (<option key={jj} value={jj}>{jj}</option>))}
+                                      </select>
+                                    </td>
+                                  );
+                                })}
+                                <td className="border border-blue-800 px-1 py-1.5 text-center">
+                                  <select value={a.overallApplicability} onChange={(e) => updateProbastOverallApplicability(row.id, e.target.value)} className="bg-blue-950 border border-blue-700 text-white rounded px-1 py-1 w-full text-xs focus:outline-none focus:ring-1 focus:ring-yellow-500">
+                                    {PROBAST_APPLICABILITY_JUDGMENTS.map((jj) => (<option key={jj} value={jj}>{jj}</option>))}
+                                  </select>
+                                </td>
+                                <td className="border border-blue-800 px-1 py-1.5">
+                                  <input type="text" value={a.notes} onChange={(e) => updateProbastNotes(row.id, e.target.value)} placeholder="Notes..." className="bg-blue-950 border border-blue-700 text-white rounded px-1 py-1 w-full text-[10px] placeholder:text-blue-500 focus:outline-none focus:ring-1 focus:ring-yellow-500" />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {probastAnalysis && (
+                    <div className="bg-blue-950/60 border border-blue-900 rounded-lg p-3 mb-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-semibold text-blue-200 flex items-center gap-1.5"><ShieldCheck size={13} className="text-yellow-400" /> PROBAST+AI Analysis</p>
+                        <button onClick={() => setProbastAnalysis("")} className="text-[10px] bg-blue-900/60 text-blue-200 px-3 py-1 rounded-lg hover:bg-blue-800/60 border border-blue-700/50">Clear</button>
+                      </div>
+                      <div className="text-blue-100 whitespace-pre-wrap max-h-[320px] overflow-y-auto text-[11px] leading-relaxed">
+                        {probastAnalysis.split("\n").map((line, i) => {
+                          if (line.startsWith("## ")) return <h2 key={i} className="text-xs font-bold text-yellow-200 mt-2 mb-1">{line.slice(3)}</h2>;
+                          if (line.startsWith("# ")) return <h1 key={i} className="text-sm font-bold text-white mt-3 mb-1">{line.slice(2)}</h1>;
+                          if (line.trim() === "") return <br key={i} />;
+                          return <p key={i} className="text-[11px] text-blue-100 mb-1">{line}</p>;
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs text-blue-400">{extractedData.length} studies · PROBAST+AI (probast.org)</div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={saveProbastAssessments} className="flex items-center gap-2 bg-green-900/50 text-green-300 px-4 py-2 rounded-lg hover:bg-green-900/70 text-sm">
+                        <Save size={14} /> Save Assessments
+                      </button>
+                      <button onClick={() => setPipelineStep(4)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
+                        Proceed to Synthesis & Meta-analysis
+                        <FlaskConical size={16} />
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+
             </div>
           </div>
         )}

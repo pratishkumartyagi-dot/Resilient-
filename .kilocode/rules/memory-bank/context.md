@@ -1371,21 +1371,27 @@ Step 1 results now show:
 - `bun lint` ✅ passes (0 errors)
 - `bun run build` ✅ passes cleanly
 
-## Step 3 Risk of Bias — Prism Aid Toggle + PyPaperBot/ReviewAid Tool (2026-07-13)
+## Step 3 Risk of Bias — Tool Selector: robvis OR PROBAST+AI (2026-07-13)
 
-**Feature**: Added an additional assessment tooling layer to Step 3 ("Risk of Bias Assessment") of the Evidence Synthesis & Meta-analysis pipeline, keeping the existing robvis per-domain assessment untouched.
+**Context**: Previous attempt added a Prism Aid toggle + PyPaperBot/ReviewAid tool to Step 3. User confirmed Prism Aid is not available and asked to remove those changes. As an alternative, verified https://www.probast.org/probast_ai/downloads/ (PROBAST+AI, BMJ 2025;388:e082505 — risk-of-bias + applicability tool for prediction-model/AI studies). Implemented a tool selector so Step 3 uses **either** robvis **or** PROBAST+AI.
+
+### Reverted
+- Removed the Prism Aid toggle and PyPaperBot + ReviewAid tool entirely (file reverted to commit `bd36977`, which already had robvis; then re-built below).
 
 ### What changed in `src/components/tabs/EvidenceSynthesisTab.tsx`
-- Added "Extended Assessment Tools" card inside Step 3 (after the robvis per-domain table, before Save/Proceed).
-- **Prism Aid toggle**: `prismAidEnabled` boolean state + toggle switch. When enabled, a prismAId screening panel appears with a "Run prismAId Screening" button (`runPrismAidScreening`) that predicts Include / Exclude / Uncertain decisions per study using an active-learning-style title/abstract heuristic (include/exclude keyword matching + confidence score + reason).
-- **PyPaperBot + ReviewAid analysis**: `pyPaperBotAnalysis` (string) + `pyPaperBotLoading` (boolean) state + "Run PyPaperBot + ReviewAid Analysis" button (`runPyPaperBotReviewAid`). Produces a structured per-study ReviewAid checklist (full-text retrievability via DOI, PICO completeness, bias flags) and a synthesis-readiness summary. Uses `callGemini` when an API key is present for AI refinement, otherwise returns a local report. Output rendered in a scrollable markdown panel.
-- Added new lucide icons: `ToggleLeft, Bot, FileSearch, Link2, ScanText, Loader2`.
-- Step 1 "Tools referenced" chips now include `PyPaperBot` and `ReviewAid` (alongside existing `prismAId`).
+- Added a **tool selector** at the top of Step 3 Risk of Bias Assessment: two buttons — `robvis (Cochrane)` and `PROBAST + AI` — plus an "About PROBAST+AI" link to probast.org. State: `robMode: "robvis" | "probast"` (default `robvis`).
+- Existing robvis per-domain assessment UI is wrapped in `{robMode === "robvis" && (...)}` — **untouched**, fully preserved (tool dropdown, per-domain judgments, traffic-light swatches, Save/Proceed).
+- New **PROBAST+AI branch** (`{robMode === "probast" && (...)}`) implemented:
+  - PROBAST template: 4 risk-of-bias domains (D1 Participants, D2 Predictors, D3 Outcome, D4 Analysis) + 3 applicability domains (A1–A3), each rated Low/High/Unclear (RoB) or Low/High concern (applicability).
+  - `autoAssessProbast()` heuristic with AI/ML-specific flags (data leakage / train-test split / external validation → flags D4 High RoB, A2 High concern).
+  - `runProbastAi()` — AI-assisted assessment: calls `callGemini` when an API key is present (narrative verdict per study), otherwise produces a local PROBAST+AI summary. Output in a scrollable markdown panel.
+  - Per-study editable grid (colored swatches + dropdowns for all domains, overall RoB, applicability, notes) and Save/Proceed footer. State persisted separately (`probastAssessments`, `resilient_probast_assessments`).
+- New lucide icons: `Bot, ShieldCheck, Loader2`. Added `ProbastAssessment` interface + PROBAST domain/judgment constants + `getProbastColor`.
 
 ### Design notes
-- robvis Risk of Bias assessment remains the primary Step 3 tool (no changes to templates or per-domain logic).
-- PyPaperBot + ReviewAid is positioned as the "Full-text Research article Screener & Data Extractor" feeding forward into Step 4 (Synthesis & Meta-analysis).
-- Prism Aid toggle gates the prismAId screening panel; default off.
+- robvis (Cochrane) remains the default and is completely unchanged in logic/UI.
+- PROBAST+AI is an alternative path chosen via the selector; both feed forward to Step 4.
+- Step 5 reporting still renders the robvis traffic-light/summary (PROBAST reporting not yet wired into Step 5).
 
 ### Validation
 - `bun typecheck` ✅ passes
