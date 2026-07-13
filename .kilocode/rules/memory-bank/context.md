@@ -1370,3 +1370,24 @@ Step 1 results now show:
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes (0 errors)
 - `bun run build` ✅ passes cleanly
+
+## Step 3 Risk of Bias — Prism Aid Toggle + PyPaperBot/ReviewAid Tool (2026-07-13)
+
+**Feature**: Added an additional assessment tooling layer to Step 3 ("Risk of Bias Assessment") of the Evidence Synthesis & Meta-analysis pipeline, keeping the existing robvis per-domain assessment untouched.
+
+### What changed in `src/components/tabs/EvidenceSynthesisTab.tsx`
+- Added "Extended Assessment Tools" card inside Step 3 (after the robvis per-domain table, before Save/Proceed).
+- **Prism Aid toggle**: `prismAidEnabled` boolean state + toggle switch. When enabled, a prismAId screening panel appears with a "Run prismAId Screening" button (`runPrismAidScreening`) that predicts Include / Exclude / Uncertain decisions per study using an active-learning-style title/abstract heuristic (include/exclude keyword matching + confidence score + reason).
+- **PyPaperBot + ReviewAid analysis**: `pyPaperBotAnalysis` (string) + `pyPaperBotLoading` (boolean) state + "Run PyPaperBot + ReviewAid Analysis" button (`runPyPaperBotReviewAid`). Produces a structured per-study ReviewAid checklist (full-text retrievability via DOI, PICO completeness, bias flags) and a synthesis-readiness summary. Uses `callGemini` when an API key is present for AI refinement, otherwise returns a local report. Output rendered in a scrollable markdown panel.
+- Added new lucide icons: `ToggleLeft, Bot, FileSearch, Link2, ScanText, Loader2`.
+- Step 1 "Tools referenced" chips now include `PyPaperBot` and `ReviewAid` (alongside existing `prismAId`).
+
+### Design notes
+- robvis Risk of Bias assessment remains the primary Step 3 tool (no changes to templates or per-domain logic).
+- PyPaperBot + ReviewAid is positioned as the "Full-text Research article Screener & Data Extractor" feeding forward into Step 4 (Synthesis & Meta-analysis).
+- Prism Aid toggle gates the prismAId screening panel; default off.
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes (0 errors; only pre-existing not-found.tsx warning)
+- `bun run build` ⚠ blocked by sandbox network (cannot fetch Geist/Geist Mono from Google Fonts) — unrelated to this change; typecheck + lint are the authoritative checks here.
