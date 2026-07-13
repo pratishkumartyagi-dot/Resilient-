@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { Search, Database, Filter, X } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { fetchRealPapers, generateMockLegacy, webSearchPapers, verifyCitations, enrichPapersWithDois, type Paper } from "@/lib/database-apis";
+import { generateMockLegacy, webSearchPapers, verifyCitations, enrichPapersWithDois, type Paper } from "@/lib/database-apis";
 
 const STUDY_TYPES = [
   "All Study Types",
@@ -71,38 +71,48 @@ export default function Step1Search() {
     });
     dispatch({ type: "SET_SELECTED_DATABASES", payload: selectedDbs });
 
-    const realDbs = selectedDbs.filter((db) => ["OpenAlex", "PubMed", "Europe PMC", "ERIC", "Google Scholar", "Shodhganga", "CTRI – India", "scite.ai", "WHO IRIS", "Semantic Scholar", "ClinicalTrials.gov", "DOAJ", "Prospero", "ScienceDirect", "Clarivate", "Cochrane Library", "paper-search-mcp", "arXiv", "bioRxiv", "medRxiv", "CORE", "Zenodo", "HAL", "SSRN", "BASE", "Crossref", "OpenAIRE", "CiteSeerX", "dblp", "IACR", "Unpaywall", "Semantic Scholar (raw)"].includes(db));
-    const fallbackDbs = selectedDbs.filter((db) => !realDbs.includes(db));
-
     try {
       let papers: Paper[] = [];
 
-      if (realDbs.length > 0) {
-        try {
-          papers = await fetchRealPapers(localQuery, realDbs, yearFrom, yearTo, studyType);
-        } catch (err: any) {
-          console.warn("Primary API fetch failed, trying web fallback:", err.message);
-          try {
-            const webPapers = await webSearchPapers(localQuery, 20);
-            if (webPapers.length > 0) {
-              papers = webPapers;
-              dispatch({ type: "SET_ERROR", payload: `Database search failed: ${err.message}. Showing ${webPapers.length} results from web search fallback.` });
-            } else {
-              throw new Error("Web search returned 0 results");
-            }
-          } catch (webErr: any) {
-            const webMsg = webErr?.message || String(webErr);
-            console.warn("Web search fallback failed:", webMsg);
-            if (fallbackDbs.length === 0) {
-              dispatch({ type: "SET_ERROR", payload: `Live search failed: ${err.message}. Web fallback failed: ${webMsg}. Using simulated results.` });
-            }
-            papers = generateMockLegacy(localQuery, selectedDbs);
-          }
+      try {
+        const res = await fetch("/api/literature-search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: localQuery,
+            databases: selectedDbs,
+            yearFrom: yearFrom || undefined,
+            yearTo: yearTo || undefined,
+            studyType: studyType === "All Study Types" ? undefined : studyType,
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.error || `Search failed with status ${res.status}`);
         }
-      }
-
-      if (papers.length === 0 && fallbackDbs.length > 0) {
-        papers = generateMockLegacy(localQuery, fallbackDbs);
+        const data = await res.json();
+        papers = data.papers || [];
+        if (papers.length === 0) {
+          throw new Error("No papers returned from literature search.");
+        }
+      } catch (err: any) {
+        const msg = err?.message || String(err);
+        console.warn("[Step1Search] Primary search failed, trying web fallback:", msg);
+        try {
+          const webPapers = await webSearchPapers(localQuery, 20);
+          if (webPapers.length > 0) {
+            papers = webPapers;
+            dispatch({ type: "SET_ERROR", payload: `Live database search failed: ${msg}. Showing ${webPapers.length} results from web search fallback.` });
+          } else {
+            throw new Error("Web search returned 0 results");
+          }
+        } catch (webErr: any) {
+          const webMsg = webErr?.message || String(webErr);
+          console.warn("[Step1Search] Web search fallback failed:", webMsg);
+          const mock = generateMockLegacy(localQuery, selectedDbs);
+          papers = mock;
+          dispatch({ type: "SET_ERROR", payload: `Live search failed: ${msg}. Web search fallback also failed: ${webMsg}. Showing ${mock.length} simulated results.` });
+        }
       }
 
       if (papers.length > 0) {

@@ -1221,13 +1221,10 @@ export async function quickSearch(query: string, maxResults: number = 8): Promis
 
 export async function fetchClinicalTrialsGov(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const qs = new URLSearchParams({
-    query: query,
+    "query.term": query,
     format: "json",
     pageSize: "50",
   });
-  if (yearFrom || yearTo) {
-    qs.set("filter.overallStatus", "RECRUITING,ACTIVE,COMPLETED");
-  }
   const url = `https://clinicaltrials.gov/api/v2/studies?${qs.toString()}`;
   const res = await fetchWithTimeout(url);
   if (!res.ok) throw new Error(`ClinicalTrials.gov error: ${res.status}`);
@@ -1239,11 +1236,12 @@ export async function fetchClinicalTrialsGov(query: string, yearFrom?: string, y
     const descModule = ps.descriptionModule || {};
     const sponsorModule = ps.sponsorCollaboratorsModule || {};
     const designModule = ps.designModule || {};
+    const statusModule = ps.statusModule || {};
     const title = idModule.briefTitle || idModule.officialTitle || "Untitled";
     const nctId = idModule.nctId || "";
     const authors = sponsorModule.leadSponsor?.name || "Unknown sponsor";
     const abstract = descModule.briefSummary || descModule.detailedDescription || "No abstract available.";
-    const year = parseInt(s.lastUpdatePostDateStruct?.date || s.lastKnownPhase?.date || new Date().getFullYear().toString()) || new Date().getFullYear();
+    const year = parseInt(statusModule.lastUpdatePostDateStruct?.date || statusModule.lastKnownPhase?.date || new Date().getFullYear().toString()) || new Date().getFullYear();
     const phase = (designModule.phases || []).join(", ") || "Not specified";
     const studyType = designModule.studyType || "Clinical Trial";
     return {

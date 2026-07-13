@@ -1398,3 +1398,22 @@ Step 1 results now show:
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes (0 errors; only pre-existing not-found.tsx warning)
 - `bun run build` ⚠ blocked by sandbox network (cannot fetch Geist/Geist Mono from Google Fonts) — unrelated to this change; typecheck + lint are the authoritative checks here.
+
+## Bug Fixes — ClinicalTrials.gov (no results) + Research Pipeline Step 1 parity (2026-07-13)
+
+### ClinicalTrials.gov returned zero results
+- **Root cause**: `fetchClinicalTrialsGov` (src/lib/database-apis.ts) used the bare `query` URL param, which the ClinicalTrials.gov API v2 rejects (`\`query\` is unknown parameter`) → threw → results dropped. Secondary bug: year was derived from `s.lastUpdatePostDateStruct?.date` (top-level, always undefined → fell back to current year), and an erroneous `filter.overallStatus=RECRUITING,ACTIVE,COMPLETED` was incorrectly tied to the year filter (would also zero out year-filtered searches).
+- **Fix** (src/lib/database-apis.ts):
+  - `query` → `query.term` (verified returns 50 studies for "diabetes").
+  - Year now read from `protocolSection.statusModule.lastUpdatePostDateStruct.date` (correct path).
+  - Removed the erroneous `filter.overallStatus` coupling; year filtering now handled client-side like every other database.
+- Verified live: `https://clinicaltrials.gov/api/v2/studies?query.term=diabetes&format=json&pageSize=50` returns 50 studies.
+
+### Research Pipeline Step 1 returned far fewer results than Evidence Synthesis Step 1
+- **Root cause**: Research Pipeline `Step1Search.tsx` called `fetchRealPapers` **client-side** (browser). Several database fetchers (Crossref, OpenAIRE, dblp, Semantic Scholar raw, arXiv/bioRxiv/medRxiv, Zenodo, DOAJ, etc.) are CORS-restricted in the browser, so they failed there — whereas Evidence Synthesis Step 1 routes the identical search through the **server-side** `/api/literature-search` route (no CORS), so it gets full results.
+- **Fix** (src/components/steps/Step1Search.tsx): `handleSearch` now POSTs to `/api/literature-search` (same endpoint/body as Evidence Synthesis Step 1), with the same web-search fallback + mock fallback. Removed the client-side `fetchRealPapers`/`realDbs`/`fallbackDbs` split. The two pipelines remain **separate** components with separate state (AppContext) — only the search backend is shared.
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes (0 errors; only pre-existing not-found.tsx warning)
+- `bun run build` ⚠ blocked by sandbox network (Google Fonts) — unrelated.
