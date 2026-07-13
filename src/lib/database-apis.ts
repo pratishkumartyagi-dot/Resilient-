@@ -208,10 +208,14 @@ export async function fetchOpenAlex(
     let res: Response;
     try {
       res = await fetchWithTimeout(cursorUrl);
-    } catch {
+    } catch (err: any) {
+      if (page === 0 && papers.length === 0) throw new Error(`OpenAlex fetch failed: ${err?.message || String(err)}`);
       break;
     }
-    if (!res.ok) break;
+    if (!res.ok) {
+      if (page === 0 && papers.length === 0) throw new Error(`OpenAlex error: ${res.status}`);
+      break;
+    }
     const data = await res.json();
     const results = data.results || [];
     if (results.length === 0) break;
@@ -361,10 +365,14 @@ export async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: 
     let res: Response;
     try {
       res = await fetchWithTimeout(url);
-    } catch {
+    } catch (err: any) {
+      if (page === 0 && papers.length === 0) throw new Error(`Europe PMC fetch failed: ${err?.message || String(err)}`);
       break;
     }
-    if (!res.ok) break;
+    if (!res.ok) {
+      if (page === 0 && papers.length === 0) throw new Error(`Europe PMC error: ${res.status}`);
+      break;
+    }
     const data = await res.json();
     const results = data.resultList?.result || [];
     if (results.length === 0) break;
@@ -478,7 +486,8 @@ export async function fetchPaperSearchMcp(query: string, source: string, yearFro
 export async function fetcharXiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const searchQuery = encodeURIComponent(`all:${query}`);
   const url = `https://export.arxiv.org/api/query?search_query=${searchQuery}&start=0&max_results=20&sortBy=relevance`;
-  const text = await fetchWithTimeout(url).then((r) => r.text()).catch(() => "");
+  const res = await fetchWithTimeout(url);
+  const text = await res.text();
   if (!text) return [];
   const papers: Paper[] = [];
   const entryRegex = /<entry>([\s\S]*?)<\/entry>/g;
@@ -1322,7 +1331,7 @@ export async function fetchCochraneLibrary(query: string, yearFrom?: string, yea
     }
 
     return filtered;
-  } catch {
-    return [];
+  } catch (err: any) {
+    throw new Error(`Cochrane Library search failed: ${err?.message || String(err)}`);
   }
 }
