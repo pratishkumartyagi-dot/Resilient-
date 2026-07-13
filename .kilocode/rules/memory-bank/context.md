@@ -1417,3 +1417,31 @@ Step 1 results now show:
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes (0 errors; only pre-existing not-found.tsx warning)
 - `bun run build` ⚠ blocked by sandbox network (Google Fonts) — unrelated.
+
+## Audit Fixes — Prioritized defects & cross-cutting themes (2026-07-13)
+
+### Evidence Synthesis tab (`src/components/tabs/EvidenceSynthesisTab.tsx`)
+- **runProbastAi branching**: `callGemini` was hardcoded even when only a Groq key was present. Fixed to branch: `callGemini` when `state.geminiApiKey`, `callGroq` when `state.groqApiKey`. Removed invalid `{ model: ... }` option that violated `AICallOptions`.
+- **autoAssessRob clobbering manual edits**: `useEffect` fired `autoAssessRob()` on every `robTool`/`pipelineStep` change, wiping user-entered judgments. Fixed to only auto-assess when `Object.keys(robAssessments).length === 0` (first entry into Step 3 with no prior assessments).
+- **Removed no-op `searchLogic`**: deleted unused `searchLogic` state, `setSearchLogic`, and the AND/OR/NOT toggle UI in Step 1. The toggle was wired to state but never sent to the server route.
+- **Extended manuscript prompt builder** (`src/lib/academic-writing-agents.ts:buildAcademicWritingManuscriptPrompt`): added optional `robMode` and `probastAssessments` parameters. When `robMode === "probast"`, the prompt now uses PROBAST+AI language (D1–D4, A1–A3) in Quality Assessment and Risk of Bias sections, and reports Low/High/Unclear counts instead of robvis Low/Some/High.
+- **Wired PROBAST data into Step 6**: `generateManuscript` now passes `robMode` and `probastAssessments` into `buildAcademicWritingManuscriptPrompt(...)`.
+- **Dead code removed**:
+  - Imports: `fetchRealPapers`, `generateLocalLiteratureReview`, `downloadLiteratureReviewPDF/Word`, `getIntegratedSkills`, `INTEGRATED_EVIDENCE_SKILLS`.
+  - State: `robInstructions`, `literatureReviewSections`, `literatureReviewLoading`, `robCounts`, `getRobSummaryData`, `generateLocalSynthesis`, `parseLiteratureReview`, `generateLiteratureReview`.
+  - Unused UI: `robInstructions` textarea in Step 3.
+- Kept `generateLitLLMSynthesis` (used at line ~1313) and `downloadMarkdownAsPDF/Word/LaTeX` (used in Step 5/6 export buttons) and `marked` (used for markdown rendering).
+
+### Research Pipeline steps
+- **Step 2 `toggleAll` dedupe fix** (`src/components/steps/Step2Results.tsx` + `src/context/AppContext.tsx`): `toggleAll` now dispatches `uniquePapers.map(p => p.id)` instead of a blanket boolean, so only the deduped visible set is selected/deselected. `SELECT_ALL_PAPERS` reducer accepts `boolean | string[]` and applies selection only to matching IDs.
+- **Step 1 database label fix** (`src/components/steps/Step1Search.tsx`): `DATABASES` array entry for paper-search-mcp shortened to `"paper-search-mcp"` to match the `apiMap` key in `/api/literature-search/route.ts`. The verbose parenthetical list was never matched by the server route, so that database silently returned 0 results.
+- **Step 5, 6, 7 topic-aware fallbacks** (`src/components/steps/Step5Themes.tsx`, `Step6ResearchQuestions.tsx`, `Step7ResearchTitles.tsx`): `generateMockThemes`, `generateMockQuestions`, and `generateMockTitles` now accept `researchTopic` and produce generic on-topic content instead of hardcoded LTBI-specific text. Call sites pass `state.searchQuery`.
+- **Step 8 local fallback** (`src/components/steps/Step8AimObjectives.tsx`): when no API key is configured, `handleGenerateWithAI` falls through to a structured local AIPOCH-style aim/objectives template instead of throwing.
+- **Step 9 local fallback** (`src/components/steps/Step9Methodology.tsx`): replaced hardcoded LTBI-specific default outcomes with generic placeholders; missing API key now produces a generic local methodology template.
+- **Step 10 local fallback** (`src/components/steps/Step10Protocol.tsx`): replaced hardcoded LTBI-specific `sections.defaultContent` with topic-aware placeholders derived from `state.searchQuery`; missing API key produces a generic protocol template.
+- **Step 11 AI + local fallback** (`src/components/steps/Step11Impact.tsx`): replaced static `generateMockImpactAssessment` with `handleGenerateImpact` that calls Gemini/Groq when a key exists, and falls back to a local structured impact template keyed on `state.searchQuery` when no key is present.
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes (0 errors; only pre-existing not-found.tsx `<a>` warning)
+- `bun run build` ✅ passes (Next.js 16.1.3 production build completes, all 8 static pages generated, dynamic routes intact)
