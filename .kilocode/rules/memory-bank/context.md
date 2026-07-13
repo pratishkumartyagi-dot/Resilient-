@@ -1463,3 +1463,26 @@ Step 1 results now show:
 **Note**: Transient `HTTP 429` from OpenAlex/PubMed during diagnosis was self-inflicted rate-limiting from repeated test calls, not a code defect — those endpoints return full results when not rate-limited (first PubMed test returned 999 papers).
 
 **Remaining**: Source-API DOIs are now the only DOI coverage in the Evidence Synthesis tab (server-side enrichment removed); this is acceptable since PubMed/Crossref/OpenAlex/Europe PMC already supply DOIs for most records. Step1Search still performs a bounded client-side DOI enrichment + verification after results render.
+
+## Feature Work — Evidence Synthesis PRISMA counts & RoB tool propagation (2026-07-13)
+
+**Requested**: (1) Step 1 search should retrieve ALL papers per database (no count restrictions), deduplicate, and reflect Identification (all records) → Deduplication (unique) in the PRISMA 2020 diagram. (2) The RoB tool chosen in Step 3 (PROBAST+AI vs robvis) must be used consistently in Steps 4, 5, 6.
+
+**Changes**
+- `src/components/tabs/EvidenceSynthesisTab.tsx`:
+  - Added `totalIdentified` / `dedupedCount` state; `handleSearch` now captures `data.totalBeforeDedup` and `data.dedupedCount` from the API route (web/mock fallbacks set both to paper count).
+  - `prismaCounts.identification` = total records identified across databases (pre-dedup); `prismaCounts.deduped` = unique count after deduplication (was previously a fake 15% estimate). Step 1 header now shows "N records identified across M databases • K unique after deduplication".
+  - PRISMA 2020 CSV + ROSES CSV + Risk-of-bias result lines now branch on `robMode` (PROBAST + AI vs robvis label/methodology).
+  - Step 4 `generateLocalSynthesis` (no-API-key path) and the AI synthesis prompt now use the chosen RoB tool's framework/terminology and read judgments from `probastAssessments` (PROBAST+AI) or `robAssessments` (robvis).
+  - Step 6 manuscript call site passes `robMode` and uses real `prismaCounts` (not the fake formula).
+- `src/lib/academic-writing-agents.ts`: `buildAcademicWritingManuscriptPrompt` accepts `robMode`; `robLabel`/`robMethodology` are mode-aware; Quality Assessment (2.3) and Risk of Bias (3.4) sections reflect the chosen tool.
+- `src/lib/database-apis.ts`: Removed per-database paper-count caps. Added `MAX_RECORDS_PER_DB = 1000` high safety ceiling; OpenAlex, PubMed, Europe PMC, bioRxiv, medRxiv now paginate fully; DOAJ, Zenodo, OpenAIRE, Crossref, dblp, arXiv, Semantic Scholar, ClinicalTrials.gov, Cochrane caps raised; study-type fallback `slice(0,20)` caps removed. (Step 5 already branched on `robMode`.)
+
+**Validation**
+- `bun typecheck` ✅, `bun lint` ✅ (0 errors; pre-existing not-found.tsx warning), `bun run build` ✅.
+- Live API check: `/api/literature-search` returns `totalBeforeDedup` (e.g., 36 for Crossref+dblp "diabetes") and deduped `papers` count; route responds in ~1–6 s.
+
+**Note on preview load time**: Dev server first compile of this large app (with `experimental.reactCompiler`) takes ~10–30 s after edits; this is expected, not a regression. Subsequent loads are fast.
+
+**Session History**
+- 2026-07-13: Fixed literature-search hang (removed blocking server-side DOI enrichment); reworked Evidence Synthesis PRISMA identification/dedup counts and propagated RoB tool (PROBAST+AI/robvis) to Steps 4–6; removed per-database paper-count caps.
