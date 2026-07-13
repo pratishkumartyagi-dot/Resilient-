@@ -2412,7 +2412,12 @@ ${isNarrative ? `## Evidence Synthesis
 
               {synthesisOutput && (
                 <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4 mb-4">
-                  <h4 className="text-sm font-bold text-white mb-3">Narrative Synthesis Output</h4>
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <h4 className="text-sm font-bold text-white">Narrative Synthesis Output</h4>
+                    <span className="text-[10px] bg-purple-900/50 text-purple-100 border border-purple-700 rounded px-2 py-0.5">
+                      RoB tool: {robMode === "probast" ? "PROBAST + AI" : (getRobToolTemplate()?.label || robTool)}
+                    </span>
+                  </div>
                   <div className="text-blue-100 whitespace-pre-wrap max-h-[500px] overflow-y-auto text-sm leading-relaxed">
                     {synthesisOutput.split("\n").map((line, i) => {
                       if (line.startsWith("# ")) return <h1 key={i} className="text-lg font-bold text-white mt-4 mb-2">{line.slice(2)}</h1>;
@@ -2845,7 +2850,12 @@ ${isNarrative ? `## Evidence Synthesis
 
               {synthesisOutput && (
                 <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4 mb-4">
-                  <h4 className="text-sm font-bold text-white mb-2">Synthesis Summary for Reporting</h4>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <h4 className="text-sm font-bold text-white">Synthesis Summary for Reporting</h4>
+                    <span className="text-[10px] bg-purple-900/50 text-purple-100 border border-purple-700 rounded px-2 py-0.5">
+                      RoB tool: {robMode === "probast" ? "PROBAST + AI" : (getRobToolTemplate()?.label || robTool)}
+                    </span>
+                  </div>
                   <div className="text-xs text-blue-200 whitespace-pre-wrap max-h-[300px] overflow-y-auto">{synthesisOutput}</div>
                 </div>
               )}
