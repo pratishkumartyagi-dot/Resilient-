@@ -460,7 +460,7 @@ export async function fetchDoaj(query: string, yearFrom?: string, yearTo?: strin
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
     const typeFiltered = filtered.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
-    return typeFiltered.length > 0 ? typeFiltered : filtered.slice(0, 20);
+    return typeFiltered.length > 0 ? typeFiltered : filtered;
   }
 
   return filtered;
@@ -1318,10 +1318,10 @@ export async function fetchCochraneLibrary(query: string, yearFrom?: string, yea
     if (studyType && studyType !== "All Study Types") {
       const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
       const typeFiltered = filtered.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
-      return typeFiltered.length > 0 ? typeFiltered : filtered.slice(0, 20);
+      return typeFiltered.length > 0 ? typeFiltered : filtered;
     }
 
-    return filtered.slice(0, 20);
+    return filtered;
   } catch {
     return [];
   }
