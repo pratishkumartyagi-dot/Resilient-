@@ -1391,7 +1391,8 @@ Step 1 results now show:
 ### Design notes
 - robvis (Cochrane) remains the default and is completely unchanged in logic/UI.
 - PROBAST+AI is an alternative path chosen via the selector; both feed forward to Step 4.
-- Step 5 reporting still renders the robvis traffic-light/summary (PROBAST reporting not yet wired into Step 5).
+- **Step 5 (Reporting & PRISMA) now reflects the chosen tool**: the "RoB ToOL" badge shows `PROBAST + AI` or the robvis label; the Risk of Bias Summary + Traffic Light Plot cards are conditionally rendered — robvis domains when `robMode === "robvis"`, PROBAST domains (D1–D4 risk-of-bias + A1–A3 applicability, with Overall RoB and Overall Applicability) when `robMode === "probast"`. Added `downloadProbastCsv` (mirrors `downloadRobCsv`).
+- Step 4 review-type selector already supports all 8 types from the reference screenshot (Systematic Review, Systematic Review & Meta-analysis, Narrative review, Umbrella Review, Scoping Review, Rapid Review, Mixed Method Review, Diagnostic test accuracy review) via the existing `REVIEW_TYPES` constant.
 
 ### Validation
 - `bun typecheck` ✅ passes

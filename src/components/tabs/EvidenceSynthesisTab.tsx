@@ -1634,6 +1634,36 @@ ${isNarrative ? `## Evidence Synthesis
     URL.revokeObjectURL(url);
   };
 
+  const downloadProbastCsv = () => {
+    const robCols = PROBAST_ROB_DOMAINS.map((d) => d.id);
+    const appCols = PROBAST_APPLICABILITY_DOMAINS.map((d) => d.id);
+    const header = ["Study", "Title", "Year", ...robCols, "Overall RoB", ...appCols, "Overall Applicability", "Notes"];
+    const rows = [
+      header,
+      ...extractedData.map((row) => {
+        const a = probastAssessments[row.id];
+        return [
+          row.id,
+          row.title,
+          row.year,
+          ...robCols.map((d) => a?.domains[d]?.judgment || "Unclear"),
+          a?.overallRob || "Unclear",
+          ...appCols.map((d) => a?.applicability[d]?.judgment || "Unclear"),
+          a?.overallApplicability || "Unclear",
+          a?.notes || "",
+        ];
+      }),
+    ];
+    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `probast-ai-${new Date().toISOString().split("T")[0]}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-6">
       <div className="bg-[#0d1b3e] border border-blue-900/50 rounded-lg p-6 shadow">
@@ -2441,16 +2471,18 @@ ${isNarrative ? `## Evidence Synthesis
             <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
               <h3 className="text-lg font-bold text-white mb-1">PRISMA 2020 Reporting & Visualization</h3>
               <p className="text-xs text-blue-400 mb-3">
-                Aligned with <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a>: produces outputs compliant with <em>PRISMA 2020</em> (flow diagram), <em>ROSES</em> (structured reporting), <em>robvis</em> (risk-of-bias plots), and <em>forestplot</em> / <em>metafor</em> ready tables for {reviewType.toLowerCase()}.
+                Aligned with <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a>: produces outputs compliant with <em>PRISMA 2020</em> (flow diagram), <em>ROSES</em> (structured reporting), <em>robvis</em> / <em>PROBAST+AI</em> (risk-of-bias plots), and <em>forestplot</em> / <em>metafor</em> ready tables for {reviewType.toLowerCase()}.
               </p>
 
               <div className="mb-3 flex flex-wrap gap-2 text-[10px] text-blue-300">
                 <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">REVIEW TYPE: {reviewType.toUpperCase()}</span>
-                <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">ToOL: {(() => { const t = getRobToolTemplate(); return t ? t.label : robTool; })()}</span>
+                <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">RoB ToOL: {robMode === "probast" ? "PROBAST + AI" : (() => { const t = getRobToolTemplate(); return t ? t.label : robTool; })()}</span>
                 <span className="bg-blue-900/40 border border-blue-800 rounded px-2 py-1">STUDIES: {extractedData.length}</span>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                {robMode === "robvis" && (
+                <>
                 <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
                   <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
                     <BarChart3 size={14} className="text-yellow-400" />
@@ -2602,6 +2634,128 @@ ${isNarrative ? `## Evidence Synthesis
                     })()}
                   </p>
                 </div>
+                </>
+                )}
+
+                {robMode === "probast" && (
+                <>
+                <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+                  <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+                    <ShieldCheck size={14} className="text-yellow-400" />
+                    PROBAST+AI — Risk of Bias Summary
+                  </h4>
+                  {extractedData.length === 0 ? (
+                    <p className="text-xs text-blue-400 py-8 text-center">Complete assessments in Step 3 (PROBAST+AI) to generate a summary.</p>
+                  ) : (() => {
+                    const robData = PROBAST_ROB_DOMAINS.map((d) => {
+                      const counts = { low: 0, high: 0, unclear: 0 };
+                      extractedData.forEach((row) => {
+                        const j = getProbastJudgment(row.id, "domains", d.id);
+                        if (j === "Low risk of bias") counts.low += 1;
+                        else if (j === "High risk of bias") counts.high += 1;
+                        else counts.unclear += 1;
+                      });
+                      return { name: `${d.id}: ${d.label}`, Low: counts.low, High: counts.high, Unclear: counts.unclear };
+                    }).concat([{
+                      name: "Overall RoB",
+                      Low: extractedData.filter((r) => probastAssessments[r.id]?.overallRob === "Low risk of bias").length,
+                      High: extractedData.filter((r) => probastAssessments[r.id]?.overallRob === "High risk of bias").length,
+                      Unclear: extractedData.filter((r) => !(probastAssessments[r.id]?.overallRob === "Low risk of bias" || probastAssessments[r.id]?.overallRob === "High risk of bias")).length,
+                    }]);
+                    const chartHeight = Math.max(150, robData.length * 38 + 40);
+                    return (
+                      <div>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3 text-[10px]">
+                          <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: "#02C100" }} /> Low risk of bias</span>
+                          <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: "#BF0000" }} /> High risk of bias</span>
+                          <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: "#E2DF07" }} /> Unclear</span>
+                        </div>
+                        <ResponsiveContainer width="100%" height={chartHeight}>
+                          <BarChart data={robData} layout="vertical" margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#1e3a5f" />
+                            <XAxis type="number" stroke="#4ea1f7" tick={{ fontSize: 10 }} allowDecimals={false} />
+                            <YAxis type="category" dataKey="name" stroke="#4ea1f7" tick={{ fontSize: 10, fill: "#93c5fd" }} width={80} />
+                            <Tooltip contentStyle={{ background: "#0a1530", border: "1px solid #1e3a5f", borderRadius: 8, fontSize: 12 }} labelStyle={{ color: "#e2e8f0" }} />
+                            <Legend wrapperStyle={{ fontSize: 10 }} />
+                            <Bar dataKey="Low" stackId="bias" fill="#02C100" radius={[0, 2, 2, 0]} />
+                            <Bar dataKey="High" stackId="bias" fill="#BF0000" radius={[0, 2, 2, 0]} />
+                            <Bar dataKey="Unclear" stackId="bias" fill="#E2DF07" radius={[0, 2, 2, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    );
+                  })()}
+                  <div className="mt-3 flex gap-2">
+                    <button onClick={downloadProbastCsv} className="flex items-center gap-1 text-[10px] bg-blue-900/50 text-blue-200 px-2 py-1 rounded hover:bg-blue-800/60">
+                      <Download size={10} /> CSV
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+                  <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+                    <Table size={14} className="text-yellow-400" />
+                    PROBAST+AI — Traffic Light Plot
+                  </h4>
+                  {extractedData.length === 0 ? (
+                    <p className="text-xs text-blue-400 py-8 text-center">Complete assessments in Step 3 (PROBAST+AI) to generate the traffic light plot.</p>
+                  ) : (
+                    <div className="overflow-x-auto max-h-[320px] overflow-y-auto">
+                      <table className="w-full border-collapse text-[10px]">
+                        <thead>
+                          <tr className="bg-blue-900/60 text-left sticky top-0">
+                            <th className="border border-blue-800 px-2 py-1.5 text-yellow-200 sticky left-0 bg-blue-900/90 z-10">Study</th>
+                            {PROBAST_ROB_DOMAINS.map((d) => (
+                              <th key={d.id} className="border border-blue-800 px-1 py-1.5 text-yellow-200" title={d.label}>{d.id}</th>
+                            ))}
+                            <th className="border border-blue-800 px-1 py-1.5 text-yellow-200">RoB</th>
+                            {PROBAST_APPLICABILITY_DOMAINS.map((d) => (
+                              <th key={d.id} className="border border-blue-800 px-1 py-1.5 text-yellow-200" title={d.label}>{d.id}</th>
+                            ))}
+                            <th className="border border-blue-800 px-1 py-1.5 text-yellow-200">App.</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {extractedData.map((row) => {
+                            const a = probastAssessments[row.id];
+                            if (!a) return null;
+                            return (
+                              <tr key={row.id} className="hover:bg-blue-900/20">
+                                <td className="border border-blue-800 px-2 py-1 text-blue-200 whitespace-nowrap" title={row.title}>{row.authors} ({row.year})</td>
+                                {PROBAST_ROB_DOMAINS.map((d) => {
+                                  const j = a.domains[d.id]?.judgment || "Unclear";
+                                  return (
+                                    <td key={d.id} className="border border-blue-800 px-1 py-1 text-center" title={`${d.id} (${d.label}): ${j}`}>
+                                      <span className="inline-block rounded-sm" style={{ backgroundColor: getProbastColor(j), opacity: j === "Unclear" ? 0.5 : 1, width: 20, height: 14 }} />
+                                    </td>
+                                  );
+                                })}
+                                <td className="border border-blue-800 px-1 py-1 text-center" title={`Overall RoB: ${a.overallRob}`}>
+                                  <span className="inline-block rounded-sm" style={{ backgroundColor: getProbastColor(a.overallRob), width: 20, height: 14 }} />
+                                </td>
+                                {PROBAST_APPLICABILITY_DOMAINS.map((d) => {
+                                  const j = a.applicability[d.id]?.judgment || "Unclear";
+                                  return (
+                                    <td key={d.id} className="border border-blue-800 px-1 py-1 text-center" title={`${d.id} (${d.label}): ${j}`}>
+                                      <span className="inline-block rounded-sm" style={{ backgroundColor: getProbastColor(j), opacity: j === "Unclear" ? 0.5 : 1, width: 20, height: 14 }} />
+                                    </td>
+                                  );
+                                })}
+                                <td className="border border-blue-800 px-1 py-1 text-center" title={`Applicability: ${a.overallApplicability}`}>
+                                  <span className="inline-block rounded-sm" style={{ backgroundColor: getProbastColor(a.overallApplicability), width: 20, height: 14 }} />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <p className="text-[9px] text-blue-400 mt-2">Reference: PROBAST+AI (probast.org/probast_ai) — risk of bias (D1–D4) + applicability (A1–A3).</p>
+                </div>
+                </>
+                )}
+
               </div>
 
               <div className="mb-4">
