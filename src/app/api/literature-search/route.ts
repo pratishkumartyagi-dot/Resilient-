@@ -15,7 +15,6 @@ import {
   fetchClinicalTrialsGov,
   fetchCochraneLibrary,
   deduplicatePapers,
-  enrichPapersWithDois,
 } from "@/lib/database-apis";
 
 export const runtime = "nodejs";
@@ -179,7 +178,7 @@ export async function POST(request: Request) {
     const totalBeforeDedup = allPapers.length;
     const deduped = deduplicatePapers(allPapers);
     const dedupedCount = totalBeforeDedup - deduped.length;
-    const enriched = await enrichPapersWithDois(deduped);
+    const enriched = deduped;
 
     return NextResponse.json(
       {

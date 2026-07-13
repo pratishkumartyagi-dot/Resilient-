@@ -1445,3 +1445,21 @@ Step 1 results now show:
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes (0 errors; only pre-existing not-found.tsx `<a>` warning)
 - `bun run build` ✅ passes (Next.js 16.1.3 production build completes, all 8 static pages generated, dynamic routes intact)
+
+## Bug Fix — Search hang / "not generating results" + slow startup (2026-07-13)
+
+**Symptoms reported**: After the audit-period changes, (1) the Research Pipeline and the Evidence Synthesis & Meta-analysis pipeline stopped generating results, and (2) the app "took so much time to start".
+
+**Root cause**: `src/app/api/literature-search/route.ts` called `await enrichPapersWithDois(deduped)` on the **critical response path** (added in commit `85c5118`). `enrichPapersWithDois` does per-paper Crossref DOI lookups for up to 100 papers with `concurrency: 2` and a **400 ms artificial delay** per item. This blocked the entire HTTP response — a single PubMed search (999 papers) took ~108 s and the multi-database request timed out at 90 s. Because BOTH pipelines (Research Pipeline Step 1 `Step1Search` and Evidence Synthesis Step 1 `EvidenceSynthesisTab.handleSearch`) POST to this same `/api/literature-search` route, both appeared to "not generate results", and the ~108 s wait was perceived as the app being slow to start/work.
+
+**Fix applied**
+- `src/app/api/literature-search/route.ts`: removed the server-side `enrichPapersWithDois(deduped)` call from the response path; the route now returns deduped papers immediately (source APIs already populate DOIs). Removed the now-unused `enrichPapersWithDois` import.
+- `src/lib/database-apis.ts`: bounded the (still-used, client-side) `enrichPapersWithDois` and `verifyCitations` so the client enrichment in `Step1Search` cannot hang either — `MAX_ENRICH`/`MAX_VERIFY` reduced 100 → 20, `concurrency` 2 → 5, artificial `delayMs` 400 → 0.
+
+**Verification** (dev server, live API):
+- Before: `POST /api/literature-search` with PubMed alone → HTTP 200 in **108 s**; multi-db request timed out at 90 s.
+- After: same PubMed-style request → HTTP 200 in **~1–2 s**; a Crossref query returned 20 real papers in **0.95 s**.
+
+**Note**: Transient `HTTP 429` from OpenAlex/PubMed during diagnosis was self-inflicted rate-limiting from repeated test calls, not a code defect — those endpoints return full results when not rate-limited (first PubMed test returned 999 papers).
+
+**Remaining**: Source-API DOIs are now the only DOI coverage in the Evidence Synthesis tab (server-side enrichment removed); this is acceptable since PubMed/Crossref/OpenAlex/Europe PMC already supply DOIs for most records. Step1Search still performs a bounded client-side DOI enrichment + verification after results render.

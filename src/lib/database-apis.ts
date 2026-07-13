@@ -117,7 +117,7 @@ async function findDoiByTitleAuthor(title: string, authorsStr?: string): Promise
 export async function enrichPapersWithDois(papers: Paper[]): Promise<Paper[]> {
   const withoutDoi = papers.filter((p) => !p.doi || p.doi.length < 5);
   if (withoutDoi.length === 0) return papers;
-  const MAX_ENRICH = 100;
+  const MAX_ENRICH = 20;
   const toEnrich = withoutDoi.slice(0, MAX_ENRICH);
   const updated = new Map<string, string>();
   await runWithConcurrency(
@@ -128,8 +128,8 @@ export async function enrichPapersWithDois(papers: Paper[]): Promise<Paper[]> {
         updated.set(p.id, found.doi);
       }
     },
-    2,
-    400
+    5,
+    0
   );
   return papers.map((p) => {
     const newDoi = updated.get(p.id);
@@ -1143,7 +1143,7 @@ export async function validateDoiViaCrossref(doi: string): Promise<{ valid: bool
 export async function verifyCitations(papers: Paper[]): Promise<Map<string, { valid: boolean; title?: string; message: string }>> {
   const results = new Map<string, { valid: boolean; title?: string; message: string }>();
   const dois = papers.filter((p) => p.doi && p.doi.length > 3).map((p) => p.doi!);
-  const MAX_VERIFY = 100;
+  const MAX_VERIFY = 20;
   const toVerify = dois.slice(0, MAX_VERIFY);
 
   await runWithConcurrency(
@@ -1152,8 +1152,8 @@ export async function verifyCitations(papers: Paper[]): Promise<Map<string, { va
       const result = await validateDoiViaCrossref(doi);
       results.set(doi.toLowerCase(), result);
     },
-    2,
-    400
+    5,
+    0
   );
 
   return results;
