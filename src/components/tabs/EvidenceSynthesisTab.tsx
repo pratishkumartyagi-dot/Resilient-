@@ -271,6 +271,8 @@ export default function EvidenceSynthesisTab() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [dbSearchStatus, setDbSearchStatus] = useState<Record<string, number>>({});
   const [failedDatabases, setFailedDatabases] = useState<string[]>([]);
+  const [totalIdentified, setTotalIdentified] = useState(0);
+  const [dedupedCount, setDedupedCount] = useState(0);
   const [extractedData, setExtractedData] = useState<any[]>([]);
   const [robAssessments, setRobAssessments] = useState<Record<string, RobAssessment>>({});
   const [robTool, setRobTool] = useState<string>("ROB2");
@@ -348,6 +350,8 @@ export default function EvidenceSynthesisTab() {
       setDbSearchStatus(data.sourceBreakdown || {});
       setFailedDatabases(data.failedDatabases || []);
       setPerDatabaseResults(data.perDatabaseResults || []);
+      setTotalIdentified(data.totalBeforeDedup ?? (data.papers?.length || 0));
+      setDedupedCount(data.dedupedCount ?? (data.papers?.length || 0));
       const errorEntries = Object.entries(data.errors || {}).map(([db, msg]) => `${db}: ${msg}`).join("; ");
       const skipped = data.skippedDatabases || [];
       const skippedMsg = skipped.length > 0 ? `Skipped: ${skipped.join(", ")} (${data.skippedReason || "not mapped"})` : "";
@@ -362,6 +366,8 @@ export default function EvidenceSynthesisTab() {
         const webPapers = await webSearchPapers(query, 20);
         if (webPapers.length > 0) {
           setPapers(webPapers);
+          setTotalIdentified(webPapers.length);
+          setDedupedCount(webPapers.length);
           setSearchError(`Live database search failed: ${msg}. Showing ${webPapers.length} results from web search fallback.`);
         } else {
           throw new Error("Web search returned 0 results");
@@ -370,6 +376,8 @@ export default function EvidenceSynthesisTab() {
         const webMsg = webErr?.message || String(webErr);
         const mock = generateMockLegacy(query, selectedDbs);
         setPapers(mock);
+        setTotalIdentified(mock.length);
+        setDedupedCount(mock.length);
         setSearchError(
           `Live search failed: ${msg}. Web search fallback also failed: ${webMsg}. Showing ${mock.length} simulated results.`
         );
@@ -831,18 +839,21 @@ Return a concise markdown report with a "## PROBAST+AI Assessment" heading and a
   const generateLocalSynthesis = () => {
     const papersForSynthesis = extractedData.filter((p) => selectedPaperIds.has(p.id));
     const template = getRobToolTemplate();
-    const robLabel = template ? template.label : robTool;
+    const robLabel = robMode === "probast" ? "PROBAST + AI" : (template ? template.label : robTool);
+    const isProbast = robMode === "probast";
     const isMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
     const yearMin = Math.min(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020));
     const yearMax = Math.max(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020));
     const studyTypes = Array.from(new Set(papersForSynthesis.map((p) => p.studyType))).filter(Boolean);
     const databases = Array.from(new Set(papersForSynthesis.map((p) => p.database))).filter(Boolean);
 
+    const robOverallFor = (row: any) =>
+      isProbast ? (probastAssessments[row.id]?.overallRob || "") : (robAssessments[row.id]?.overall || "");
+
     const robSummary = papersForSynthesis.reduce(
       (acc, row) => {
-        const a = robAssessments[row.id];
-        if (!a) return acc;
-        const jl = a.overall.toLowerCase();
+        const jl = robOverallFor(row).toLowerCase();
+        if (!jl) { acc.pending += 1; return acc; }
         if (jl.includes("low") && !jl.includes("high")) acc.low += 1;
         else if (jl.includes("some concerns") || jl.includes("moderate") || jl.includes("unclear") || jl.includes("serious") && !jl.includes("critical")) acc.some += 1;
         else if (jl.includes("high") || jl.includes("critical") || jl.includes("very high")) acc.high += 1;
@@ -860,9 +871,12 @@ Return a concise markdown report with a "## PROBAST+AI Assessment" heading and a
       ? effectSizes.map((r) => `| ${r.study} | ${r.effect} | ${r.ci} | ${r.weight} |`).join("\n")
       : papersForSynthesis.map((p) => `| ${p.authors} (${p.year}) | — | — | — |`).join("\n");
 
+    const robMethodology = isProbast
+      ? "PROBAST+AI (D1 Participants, D2 Predictors, D3 Outcome, D4 Analysis; applicability A1–A3) with PROBAST+AI colours"
+      : `robvis template (${robLabel}) with Cochrane colours`;
     const methodsBlock = isMeta
-      ? `**Synthesis method:** Random-effects meta-analysis (DerSimonian–Laird), implemented in **metafor** (R) or **meta** (R). Heterogeneity assessed via I² and τ². Certainty of evidence via GRADE/robvis integration.\n\n**Risk of bias:** Per-domain robvis template (${robLabel}) with Cochrane colours.`
-      : `**Synthesis method:** Narrative/thematic synthesis following **awesome-evidence-synthesis** principles: coding, theme development, and mapping.\n\n**Risk of bias:** Per-domain robvis template (${robLabel}).`;
+      ? `**Synthesis method:** Random-effects meta-analysis (DerSimonian–Laird), implemented in **metafor** (R) or **meta** (R). Heterogeneity assessed via I² and τ². Certainty of evidence via GRADE/${isProbast ? "PROBAST+AI" : "robvis"} integration.\n\n**Risk of bias:** Per-domain ${robMethodology}.`
+      : `**Synthesis method:** Narrative/thematic synthesis following **awesome-evidence-synthesis** principles: coding, theme development, and mapping.\n\n**Risk of bias:** Per-domain ${robMethodology}.`;
 
     const metaBlock = isMeta
       ? `\n### Meta-analysis Interpretation\n\nEffect estimates should be pooled using a random-effects model. Expected direction of effect: see effect table above. Heterogeneity: ${heterogeneityNotes} Use **forestplot**, **meta**, **metafor**, or **OpenMEE** for publication-ready figures.\n\n**Reporting:** Export effect table to **PRISMA 2020**-compliant format.\n`
@@ -872,11 +886,11 @@ Return a concise markdown report with a "## PROBAST+AI Assessment" heading and a
 
 ${methodsBlock}\n\n---
 
-### Narrative Summary\n\nThe body of evidence comprises ${papersForSynthesis.length} ${studyTypes.join(", ").toLowerCase() || "studies"} examining ${query || "the review topic"}. ${papersForSynthesis.length > 5 ? "Across the included studies, consistent themes emerge regarding the intervention/exposure and its association with the primary outcome." : "Findings should be interpreted with caution given the small number of included studies."}\n\n**Key findings by study:**\n${papersForSynthesis.map((p, i) => `${i + 1}. **${p.authors} (${p.year})** — ${p.title}\n   - Study type: ${p.studyType || "Not specified"}\n   - Outcome: ${p.outcome || "As reported"}\n   - Risk of bias: ${robAssessments[p.id]?.overall || "Pending (assess in Step 3)"}`).join("\n\n")}\n\n---
+### Narrative Summary\n\nThe body of evidence comprises ${papersForSynthesis.length} ${studyTypes.join(", ").toLowerCase() || "studies"} examining ${query || "the review topic"}. ${papersForSynthesis.length > 5 ? "Across the included studies, consistent themes emerge regarding the intervention/exposure and its association with the primary outcome." : "Findings should be interpreted with caution given the small number of included studies."}\n\n**Key findings by study:**\n${papersForSynthesis.map((p, i) => `${i + 1}. **${p.authors} (${p.year})** — ${p.title}\n   - Study type: ${p.studyType || "Not specified"}\n   - Outcome: ${p.outcome || "As reported"}\n   - Risk of bias: ${robMode === "probast" ? (probastAssessments[p.id]?.overallRob || "Pending (assess in Step 3)") : (robAssessments[p.id]?.overall || "Pending (assess in Step 3)")}`).join("\n\n")}\n\n---
 
 ### Effect Size Summary\n\n| Study | Effect Estimate | 95% CI | Weight |\n|-------|----------------|--------|--------|\n${effectTable}\n\n---
 
-### Risk of Bias Commentary\n\nUsing **${robLabel}** (robvis), the overall distribution of risk-of-bias judgments across ${papersForSynthesis.length} studies is: Low ${robSummary.low}, Some/Moderate concerns ${robSummary.some}, High/Critical ${robSummary.high}, Pending ${robSummary.pending}. ${robSummary.high > 0 ? "Studies at high risk of bias may overestimate effects; sensitivity analysis excluding these studies is recommended." : "No studies were rated at high risk of bias."} Domain-level traffic-light plots are available in the reporting step.\n\n---\n\n### Gaps and Future Directions\n\n- Unpublished or grey literature not searched in this run.\n- Subgroup analyses and meta-regression should be explored if heterogeneity is high.\n- Certainty of evidence (GRADE) should be formally assessed prior to guideline submission.\n- Sensitivity analysis excluding high-RoB studies recommended for robustness.\n\n> Generated locally using awesome-evidence-synthesis open-source workflow standards. For meta-analysis statistics, export the effect table to **R (metafor/meta)**, **JASP**, or **OpenMEE**.\n`;
+### Risk of Bias Commentary\n\nUsing **${robLabel}** (${isProbast ? "PROBAST+AI" : "robvis"}), the overall distribution of risk-of-bias judgments across ${papersForSynthesis.length} studies is: Low ${robSummary.low}, Some/Moderate concerns ${robSummary.some}, High/Critical ${robSummary.high}, Pending ${robSummary.pending}. ${robSummary.high > 0 ? "Studies at high risk of bias may overestimate effects; sensitivity analysis excluding these studies is recommended." : "No studies were rated at high risk of bias."} ${isProbast ? "Domain-level PROBAST+AI traffic-light plots (D1–D4 + applicability A1–A3) are available in the reporting step." : "Domain-level traffic-light plots are available in the reporting step."}\n\n---\n\n### Gaps and Future Directions\n\n- Unpublished or grey literature not searched in this run.\n- Subgroup analyses and meta-regression should be explored if heterogeneity is high.\n- Certainty of evidence (GRADE) should be formally assessed prior to guideline submission.\n- Sensitivity analysis excluding high-RoB studies recommended for robustness.\n\n> Generated locally using awesome-evidence-synthesis open-source workflow standards. For meta-analysis statistics, export the effect table to **R (metafor/meta)**, **JASP**, or **OpenMEE**.\n`;
   };
 
   const parseLiteratureReview = (text: string): Record<string, string> => {
@@ -1073,9 +1087,18 @@ At the end, include a References section with all papers in Vancouver style:
   const isMixed = reviewType.includes("Mixed Methods");
   const isDTA = reviewType.includes("Diagnostic Test Accuracy");
 
-  const prompt = `You are an expert evidence synthesis researcher using methods from the awesome-evidence-synthesis toolkit (metafor, meta, metaumbrella, robvis, PRISMA 2020).
+  const robToolNameForPrompt = robMode === "probast" ? "PROBAST + AI (D1 Participants, D2 Predictors, D3 Outcome, D4 Analysis; applicability A1–A3)" : `robvis (${getRobToolTemplate()?.label || robTool})`;
+  const robForPrompt = (p: any) =>
+    robMode === "probast"
+      ? (probastAssessments[p.id]?.overallRob || p.ROB || "Pending")
+      : (robAssessments[p.id]?.overall || p.ROB || "Pending");
+
+  const prompt = `You are an expert evidence synthesis researcher using methods from the awesome-evidence-synthesis toolkit (metafor, meta, metaumbrella, ${robMode === "probast" ? "PROBAST+AI" : "robvis"}, PRISMA 2020).
 
 REVIEW TYPE: ${reviewType}
+
+RISK OF BIAS TOOL IN USE (from Step 3): ${robToolNameForPrompt}
+- Use this tool's framework and terminology consistently when discussing risk of bias across the synthesis, narrative, and reporting.
 
 USER REQUIREMENTS:
 ${reviewRequirements || "No specific requirements provided."}
@@ -1084,7 +1107,7 @@ SYNTHESIS INSTRUCTIONS:
 ${synthesisInstructions || "Use standard systematic review methodology appropriate for the review type."}
 
 EXTRACTED STUDIES:
-${papersForSynthesis.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. Type: ${p.studyType}. Outcome: ${p.outcome}. RoB: ${p.ROB}.${p.notes ? ` Notes: ${p.notes}` : ""}`).join("\n\n")}
+${papersForSynthesis.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. Type: ${p.studyType}. Outcome: ${p.outcome}. RoB (${robMode === "probast" ? "PROBAST+AI" : "robvis"}): ${robForPrompt(p)}.${p.notes ? ` Notes: ${p.notes}` : ""}`).join("\n\n")}
 
 REQUIREMENTS:
 1. Summarize the body of evidence thematically or narratively as appropriate for the review type
@@ -1399,11 +1422,12 @@ ${isNarrative ? `## Evidence Synthesis
         effectSizes,
         robAssessments,
         robTool,
+        robMode,
         reviewRequirements,
         synthesisInstructions,
         prismaCounts: {
-          identification: papers.length,
-          deduped: Math.max(papers.length - Math.floor(papers.length * 0.15), selectedPaperIds.size + Math.floor(selectedPaperIds.size * 0.1)),
+          identification: totalIdentified || papers.length,
+          deduped: dedupedCount || papers.length,
           screened: selectedPaperIds.size,
           excluded: Math.max(0, selectedPaperIds.size - extractedData.length),
           assessed: extractedData.length,
@@ -1528,8 +1552,8 @@ ${isNarrative ? `## Evidence Synthesis
   };
 
   const prismaCounts = {
-    identification: papers.length,
-    deduped: Math.max(papers.length - Math.floor(papers.length * 0.15), selectedPaperIds.size + Math.floor(selectedPaperIds.size * 0.1)),
+    identification: totalIdentified || papers.length,
+    deduped: dedupedCount || papers.length,
     screened: selectedPaperIds.size,
     excluded: Math.max(0, selectedPaperIds.size - extractedData.length),
     assessed: extractedData.length,
@@ -1551,7 +1575,7 @@ ${isNarrative ? `## Evidence Synthesis
       ...(reviewType.includes("Meta-analysis") || reviewType.includes("Meta")
         ? [["Studies included in quantitative synthesis (meta-analysis)", effectSizes.length || extractedData.length, "—", `Tool: metafor / meta / forestplot`]]
         : [["Studies included in narrative synthesis", prismaCounts.included, "—", `${extractedData.length} studies`]]),
-      ["Risk of Bias Assessment", extractedData.length, `Tool: ${template?.label || robTool}`, "robvis methodology (mcguinlu/robvis)"],
+      ["Risk of Bias Assessment", extractedData.length, `Tool: ${robMode === "probast" ? "PROBAST + AI" : (template?.label || robTool)}`, robMode === "probast" ? "PROBAST+AI methodology (probast.org/probast_ai)" : "robvis methodology (mcguinlu/robvis)"],
     ];
     const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -1579,18 +1603,18 @@ ${isNarrative ? `## Evidence Synthesis
       ["METHODS", "7. Search strategy", `Boolean AND/OR logic; year range: ${yearFrom || "any"}–${yearTo || "any"}`],
       ["METHODS", "8. Screening", "Title/abstract → full-text (AI-assisted + manual curation)"],
       ["METHODS", "9. Data extraction", `Extracted fields: title, authors, year, studyType, population, intervention, outcome, ROB`],
-      ["METHODS", "10. Risk of bias assessment", `Tool: ${template?.label || robTool} | robvis methodology`],
+      ["METHODS", "10. Risk of bias assessment", `Tool: ${robMode === "probast" ? "PROBAST + AI" : (template?.label || robTool)} | ${robMode === "probast" ? "PROBAST+AI methodology (probast.org/probast_ai)" : "robvis methodology"}`],
       ...(reviewType.includes("Meta-analysis") || reviewType.includes("Meta")
         ? [["METHODS", "11. Effect measures", "See extracted effect sizes (metafor / forestplot ready)"],
            ["METHODS", "12. Synthesis methods", "Random-effects meta-analysis (DerSimonian-Laird)"],
-           ["METHODS", "13. Risk of bias across studies", "Per-domain robvis traffic-light + Cochrane summary"],
+           ["METHODS", "13. Risk of bias across studies", `Per-domain ${robMode === "probast" ? "PROBAST+AI" : "robvis"} traffic-light + ${robMode === "probast" ? "applicability" : "Cochrane"} summary`],
            ["METHODS", "14. Additional analyses", "None specified"]]
         : [["METHODS", "11. Synthesis methods", "Narrative synthesis (thematic)"],
-           ["METHODS", "12. Risk of bias across studies", `Per-domain robvis: ${template?.label || robTool}`],
+           ["METHODS", "12. Risk of bias across studies", `Per-domain ${robMode === "probast" ? "PROBAST+AI" : `robvis: ${template?.label || robTool}`}`],
            ["METHODS", "13. Additional analyses", "None specified"]]),
       ["RESULTS", "15. Study selection", `Identification: ${prismaCounts.identification} → Included: ${prismaCounts.included}`],
       ["RESULTS", "16. Study characteristics", `${extractedData.length} studies — see data extraction table`],
-      ["RESULTS", "17. Risk of bias results", `Domain-level judgments — see robvis area plot + traffic light table`],
+      ["RESULTS", "17. Risk of bias results", `Domain-level judgments — see ${robMode === "probast" ? "PROBAST+AI" : "robvis"} area plot + traffic light table`],
       ["RESULTS", "18. Synthesis of results", synthesisOutput ? "AI-generated — see synthesis section" : "Not yet generated"],
       ...(reviewType.includes("Meta-analysis") || reviewType.includes("Meta")
         ? [["RESULTS", "19. Risk of bias across studies", "See prisma section (bias by domain, count by judgment)"]]
@@ -1828,7 +1852,13 @@ ${isNarrative ? `## Evidence Synthesis
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm text-blue-300">{papers.length} records • {displayPapers.length} after filters • {selectedPaperIds.size} selected</p>
+                    <p className="text-sm text-blue-300">
+                      <span className="text-white font-semibold">{totalIdentified || papers.length}</span> records identified across {selectedDbs.length} databases
+                      {totalIdentified > papers.length && (<>
+                        {" • "}<span className="text-white font-semibold">{papers.length}</span> unique after deduplication
+                      </>)}
+                      {" • "}{displayPapers.length} after filters • {selectedPaperIds.size} selected
+                    </p>
                     <span className="text-blue-700">|</span>
                     <div className="flex flex-wrap gap-1">
                       {selectedDbs.map((db) => {

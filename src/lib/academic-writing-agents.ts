@@ -337,6 +337,7 @@ export function buildAcademicWritingManuscriptPrompt(opts: {
   effectSizes: any[];
   robAssessments: Record<string, any>;
   robTool: string;
+  robMode?: "robvis" | "probast";
   reviewRequirements?: string;
   synthesisInstructions?: string;
   prismaCounts: {
@@ -359,6 +360,7 @@ export function buildAcademicWritingManuscriptPrompt(opts: {
     effectSizes,
     robAssessments,
     robTool,
+    robMode,
     reviewRequirements,
     synthesisInstructions,
     prismaCounts,
@@ -381,7 +383,9 @@ export function buildAcademicWritingManuscriptPrompt(opts: {
   );
 
   const template = getRobToolTemplate(robTool);
-  const robLabel = template ? template.label : robTool;
+  const isProbast = robMode === "probast";
+  const robLabel = isProbast ? "PROBAST + AI" : (template ? template.label : robTool);
+  const robMethodology = isProbast ? "PROBAST+AI methodology (probast.org/probast_ai)" : "robvis methodology (mcguinlu/robvis)";
   const isMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
   const studyTypes = Array.from(new Set(papersForSynthesis.map((p) => p.studyType))).filter(Boolean);
   const yearMin = Math.min(...papersForSynthesis.map((p) => typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || 2020));
@@ -505,7 +509,7 @@ Generate a complete, publication-ready manuscript in Markdown. Follow this exact
 [PICO-framed criteria: Population, Intervention/Exposure, Comparator, Outcomes. Apply Definition Order.]
 
 ### 2.3 Quality Assessment
-[Tool: ${robLabel}. Approach: per-domain robvis methodology. Apply Equation-Code Correspondence if any statistical models are described.]
+[Tool: ${robLabel}. Approach: per-domain ${robMethodology}. Apply Equation-Code Correspondence if any statistical models are described.]
 
 ### 2.4 PRISMA 2020 Flow
 [Identification: ${prismaCounts.identification} → Deduplication: ${prismaCounts.deduped} → Screening: ${prismaCounts.screened} → Assessed: ${prismaCounts.assessed} → Included: ${prismaCounts.included}]
@@ -527,7 +531,7 @@ ${isMeta ? "[Random-effects meta-analysis (DerSimonian-Laird). Heterogeneity: I�
 [Pooled estimates, heterogeneity statistics, forest plot description. Apply Triple Explanation: intuitive description, formal notation, concrete example.]
 
 ### 3.4 Risk of Bias
-[Summarize robvis domain-level judgments: Low ${robSummary.low}, Some/Moderate ${robSummary.some}, High ${robSummary.high}. Apply Caption Self-Sufficiency: figure captions must stand alone.]
+[Summarize ${isProbast ? "PROBAST+AI (D1–D4 + applicability A1–A3)" : "robvis"} domain-level judgments: Low ${robSummary.low}, Some/Moderate ${robSummary.some}, High ${robSummary.high}. Apply Caption Self-Sufficiency: figure captions must stand alone.]
 
 ---
 
