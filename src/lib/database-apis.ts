@@ -15,6 +15,8 @@ export interface Paper {
   pmid?: string;
   sourceBackend?: string;
   sources?: string[];
+  citationStatus?: "verified" | "unverified" | "no-doi";
+  citationMessage?: string;
 }
 
 const STUDY_TYPE_KEYWORDS: Record<string, string[]> = {
@@ -203,7 +205,7 @@ export async function fetchOpenAlex(
   let cursor = "*";
   let cursorUrl = `${baseUrl}&cursor=${cursor}`;
 
-  const MAX_PAGES = 3;
+  const MAX_PAGES = 20;
   for (let page = 0; page < MAX_PAGES; page++) {
     let res: Response;
     try {
@@ -353,7 +355,7 @@ export async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: 
   const papers: Paper[] = [];
   let cursorMark: string | undefined;
 
-  for (let page = 0; page < 3; page++) {
+  for (let page = 0; page < 20; page++) {
     const qs = new URLSearchParams({
       query: yearFilter + query,
       resultType: "core",
@@ -423,40 +425,49 @@ export async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: 
 }
 
 export async function fetchDoaj(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const qs = new URLSearchParams({
-    search: query,
-    pageSize: "100",
-    page: "1",
-  });
-  const url = `https://doaj.org/api/v2/search/articles/${qs.toString()}`;
-  const res = await fetchWithTimeout(url);
-  if (!res.ok) throw new Error(`DOAJ error: ${res.status}`);
-  const data = await res.json();
-  const results = data.results || [];
-  const papers: Paper[] = results.map((r: any) => {
-    const bibJson = r.bibjson || {};
-    const title = bibJson.title || "Untitled";
-    const authors = (bibJson.author || []).map((a: any) => `${a.name || ""}`.trim()).filter(Boolean).join(", ") || "Unknown authors";
-    const year = bibJson.year || parseInt(bibJson.month?.slice(0, 4) || "0") || new Date().getFullYear();
-    const doi = bibJson.doi || "";
-    const abstract = bibJson.abstract || "No abstract available.";
-    const journal = bibJson.journal?.title || "Unknown Journal";
-    return {
-      id: `doaj-${r.id || Math.random().toString(36).slice(2, 8)}`,
-      title,
-      authors: authors.substring(0, 300),
-      journal,
-      year,
-      doi,
-      abstract: abstract.substring(0, 3000),
-      database: "DOAJ",
-      studyType: classifyStudyType(title, abstract),
-      selected: false,
-      url: doi ? `https://doi.org/${doi}` : r.id,
-      sourceBackend: "DOAJ API",
-      sources: ["DOAJ"],
-    };
-  });
+  const papers: Paper[] = [];
+  for (let page = 1; page <= 10; page++) {
+    const qs = new URLSearchParams({
+      search: query,
+      pageSize: "100",
+      page: String(page),
+    });
+    const url = `https://doaj.org/api/v2/search/articles/${qs.toString()}`;
+    const res = await fetchWithTimeout(url);
+    if (!res.ok) {
+      if (page === 1) throw new Error(`DOAJ error: ${res.status}`);
+      break;
+    }
+    const data = await res.json();
+    const results = data.results || [];
+    if (results.length === 0) break;
+    const pagePapers: Paper[] = results.map((r: any) => {
+      const bibJson = r.bibjson || {};
+      const title = bibJson.title || "Untitled";
+      const authors = (bibJson.author || []).map((a: any) => `${a.name || ""}`.trim()).filter(Boolean).join(", ") || "Unknown authors";
+      const year = bibJson.year || parseInt(bibJson.month?.slice(0, 4) || "0") || new Date().getFullYear();
+      const doi = bibJson.doi || "";
+      const abstract = bibJson.abstract || "No abstract available.";
+      const journal = bibJson.journal?.title || "Unknown Journal";
+      return {
+        id: `doaj-${r.id || Math.random().toString(36).slice(2, 8)}`,
+        title,
+        authors: authors.substring(0, 300),
+        journal,
+        year,
+        doi,
+        abstract: abstract.substring(0, 3000),
+        database: "DOAJ",
+        studyType: classifyStudyType(title, abstract),
+        selected: false,
+        url: doi ? `https://doi.org/${doi}` : r.id,
+        sourceBackend: "DOAJ API",
+        sources: ["DOAJ"],
+      };
+    });
+    papers.push(...pagePapers);
+    if (results.length < 100) break;
+  }
 
   let filtered = papers;
   if (yearFrom || yearTo) {
@@ -485,7 +496,7 @@ export async function fetchPaperSearchMcp(query: string, source: string, yearFro
 
 export async function fetcharXiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const searchQuery = encodeURIComponent(`all:${query}`);
-  const url = `https://export.arxiv.org/api/query?search_query=${searchQuery}&start=0&max_results=20&sortBy=relevance`;
+  const url = `https://export.arxiv.org/api/query?search_query=${searchQuery}&start=0&max_results=200&sortBy=relevance`;
   const res = await fetchWithTimeout(url);
   const text = await res.text();
   if (!text) return [];
@@ -544,7 +555,7 @@ export async function fetchBioRxiv(query: string, yearFrom?: string, yearTo?: st
   const baseUrl = `https://api.biorxiv.org/details/biorxiv/${from}/${to}`;
   const queryTerms = query.toLowerCase().split(/\s+/).filter(Boolean);
   const papers: Paper[] = [];
-  for (let page = 1; page <= 5; page++) {
+  for (let page = 1; page <= 20; page++) {
     const url = `${baseUrl}/${page}`;
     const res = await fetchWithTimeout(url);
     if (!res.ok) {
@@ -584,15 +595,15 @@ export async function fetchBioRxiv(query: string, yearFrom?: string, yearTo?: st
     }
     if (pageMatches === 0 && page > 1) break;
     const meta = data.messages?.[0] || {};
-    const totalPages = Math.ceil((parseInt(meta.total || "0") || 0) / (parseInt(meta.count || "30") || 30));
+    const totalPages = Math.ceil((parseInt(meta.total || "0") || 0) / (parseInt(meta.count || "100") || 100));
     if (page >= totalPages) break;
   }
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
     const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
-    return filtered.length > 0 ? filtered : papers.slice(0, 20);
+    return filtered.length > 0 ? filtered : papers;
   }
-  return papers.slice(0, 20);
+  return papers;
 }
 
 export async function fetchMedRxiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
@@ -605,7 +616,7 @@ export async function fetchMedRxiv(query: string, yearFrom?: string, yearTo?: st
   const baseUrl = `https://api.medrxiv.org/details/medrxiv/${from}/${to}`;
   const queryTerms = query.toLowerCase().split(/\s+/).filter(Boolean);
   const papers: Paper[] = [];
-  for (let page = 1; page <= 5; page++) {
+  for (let page = 1; page <= 20; page++) {
     const url = `${baseUrl}/${page}`;
     const res = await fetchWithTimeout(url);
     if (!res.ok) {
@@ -651,13 +662,13 @@ export async function fetchMedRxiv(query: string, yearFrom?: string, yearTo?: st
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
     const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
-    return filtered.length > 0 ? filtered : papers.slice(0, 20);
+    return filtered.length > 0 ? filtered : papers;
   }
-  return papers.slice(0, 20);
+  return papers;
 }
 
 export async function fetchZenodo(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const qs = new URLSearchParams({ q: query, size: "20", sort: "mostrecent" });
+  const qs = new URLSearchParams({ q: query, size: "100", sort: "mostrecent" });
   const url = `https://zenodo.org/api/records?${qs.toString()}`;
   const res = await fetchWithTimeout(url);
   if (!res.ok) throw new Error(`Zenodo error: ${res.status}`);
@@ -698,7 +709,7 @@ export async function fetchZenodo(query: string, yearFrom?: string, yearTo?: str
 }
 
 export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const qs = new URLSearchParams({ query: query, rows: "20", sort: "relevance" });
+  const qs = new URLSearchParams({ query: query, rows: "100", sort: "relevance" });
   if (yearFrom) qs.set("filter", `from-pub-date:${yearFrom}`);
   if (yearTo) qs.set("filter", `until-pub-date:${yearTo}`);
   const url = `https://api.crossref.org/works?${qs.toString()}`;
@@ -737,7 +748,7 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
 }
 
 export async function fetchOpenAIRE(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const qs = new URLSearchParams({ title: query, format: "json", size: "20" });
+  const qs = new URLSearchParams({ title: query, format: "json", size: "100" });
   const url = `https://api.openaire.eu/search/publications?${qs.toString()}`;
   const res = await fetchWithTimeout(url);
   if (!res.ok) throw new Error(`OpenAIRE error: ${res.status}`);
@@ -782,7 +793,7 @@ export async function fetchOpenAIRE(query: string, yearFrom?: string, yearTo?: s
 }
 
 export async function fetchDblp(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const qs = new URLSearchParams({ q: query, format: "json", h: "20", f: "0" });
+  const qs = new URLSearchParams({ q: query, format: "json", h: "100", f: "0" });
   const url = `https://dblp.org/search/publ/api?${qs.toString()}`;
   const res = await fetchWithTimeout(url);
   if (!res.ok) throw new Error(`DBLP error: ${res.status}`);
@@ -822,7 +833,7 @@ export async function fetchDblp(query: string, yearFrom?: string, yearTo?: strin
 }
 
 export async function fetchSemanticScholarRaw(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const qs = new URLSearchParams({ query: query, limit: "20", fields: "title,authors,year,externalIds,abstract,url,publicationDate,venue" });
+  const qs = new URLSearchParams({ query: query, limit: "100", fields: "title,authors,year,externalIds,abstract,url,publicationDate,venue" });
   const url = `https://api.semanticscholar.org/graph/v1/paper/search?${qs.toString()}`;
   const res = await fetchWithTimeout(url);
   if (!res.ok) throw new Error(`Semantic Scholar error: ${res.status}`);
@@ -1232,7 +1243,7 @@ export async function fetchClinicalTrialsGov(query: string, yearFrom?: string, y
   const qs = new URLSearchParams({
     "query.term": query,
     format: "json",
-    pageSize: "50",
+    pageSize: "100",
   });
   const url = `https://clinicaltrials.gov/api/v2/studies?${qs.toString()}`;
   const res = await fetchWithTimeout(url);
@@ -1293,7 +1304,7 @@ export async function fetchCochraneLibrary(query: string, yearFrom?: string, yea
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         query: `site:cochranelibrary.com ${query}`,
-        maxResults: 20,
+        maxResults: 100,
       }),
     });
 

@@ -1486,3 +1486,4 @@ Step 1 results now show:
 
 **Session History**
 - 2026-07-13: Fixed literature-search hang (removed blocking server-side DOI enrichment); reworked Evidence Synthesis PRISMA identification/dedup counts and propagated RoB tool (PROBAST+AI/robvis) to Steps 4–6; removed per-database paper-count caps.
+- 2026-07-14: Extracted Evidence Synthesis Step 1 into dedicated `EvidenceSynthesisStep1` component; increased per-database result limits across all fetchers (OpenAlex 300→2000, arXiv 20→200, bioRxiv/medRxiv 100→2000, Crossref/OpenAIRE/DBLP/Semantic Scholar 20→100, Europe PMC 300→2000, DOAJ 100→1000); added server-side Crossref DOI verification with citation status per paper; added "Show verified citations only" toggle in Step 1 UI; validation passes (`bun typecheck`, `bun lint`, `bun run build`).

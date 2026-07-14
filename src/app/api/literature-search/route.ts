@@ -15,6 +15,7 @@ import {
   fetchClinicalTrialsGov,
   fetchCochraneLibrary,
   deduplicatePapers,
+  verifyCitations,
 } from "@/lib/database-apis";
 
 export const runtime = "nodejs";
@@ -178,7 +179,28 @@ export async function POST(request: Request) {
     const totalBeforeDedup = allPapers.length;
     const deduped = deduplicatePapers(allPapers);
     const dedupedCount = totalBeforeDedup - deduped.length;
-    const enriched = deduped;
+
+    let citationValidationResults: Record<string, { valid: boolean; title?: string; message: string }> = {};
+    try {
+      const verified = await verifyCitations(deduped);
+      citationValidationResults = Object.fromEntries(verified);
+    } catch (err: any) {
+      console.warn("[literature-search] Citation validation failed:", err?.message || String(err));
+    }
+
+    const enriched = deduped.map((p) => {
+      const doiKey = (p.doi || "").toLowerCase();
+      const validation = doiKey ? citationValidationResults[doiKey] : undefined;
+      return {
+        ...p,
+        citationStatus: validation?.valid ? "verified" : (p.doi && p.doi.length > 3 ? "unverified" : "no-doi"),
+        citationMessage: validation?.message,
+      };
+    });
+
+    const verifiedCount = enriched.filter((p) => p.citationStatus === "verified").length;
+    const unverifiedCount = enriched.filter((p) => p.citationStatus === "unverified").length;
+    const noDoiCount = enriched.filter((p) => p.citationStatus === "no-doi").length;
 
     return NextResponse.json(
       {
@@ -200,6 +222,12 @@ export async function POST(request: Request) {
         databasesSkipped: skippedDatabases.length,
         dedupedCount,
         totalBeforeDedup,
+        citationValidation: {
+          verified: verifiedCount,
+          unverified: unverifiedCount,
+          noDoi: noDoiCount,
+          results: citationValidationResults,
+        },
       },
       { headers: corsHeaders() }
     );
