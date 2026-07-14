@@ -253,7 +253,7 @@ export async function fetchOpenAlex(
 // Re-export STUDY_TYPES for backward compatibility
 export const STUDY_TYPES = Object.keys(STUDY_TYPE_KEYWORDS);
 
-async function fetchWithTimeout(url: string, ms = 20000): Promise<Response> {
+async function fetchWithTimeout(url: string, ms = 30000): Promise<Response> {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), ms);
   try {
@@ -523,10 +523,25 @@ export async function fetchMedRxiv(query: string, yearFrom?: string, yearTo?: st
 export async function fetchZenodo(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const qs = new URLSearchParams({ q: query, size: "100", sort: "mostrecent" });
   const url = `https://zenodo.org/api/records?${qs.toString()}`;
-  const res = await fetchWithTimeout(url);
-  if (!res.ok) throw new Error(`Zenodo error: ${res.status}`);
+  const res = await fetchWithTimeout(url, 25000);
+  if (!res.ok) {
+    if (res.status === 400) {
+      const qs2 = new URLSearchParams({ q: query, size: "100", sort: "version" });
+      const url2 = `https://zenodo.org/api/records?${qs2.toString()}`;
+      const res2 = await fetchWithTimeout(url2, 25000);
+      if (!res2.ok) throw new Error(`Zenodo error: ${res2.status}`);
+      const data = await res2.json();
+      const results = data.hits?.hits || [];
+      return buildZenodoPapers(results, yearFrom, yearTo, studyType);
+    }
+    throw new Error(`Zenodo error: ${res.status}`);
+  }
   const data = await res.json();
   const results = data.hits?.hits || [];
+  return buildZenodoPapers(results, yearFrom, yearTo, studyType);
+}
+
+function buildZenodoPapers(results: any[], yearFrom?: string, yearTo?: string, studyType?: string): Paper[] {
   const papers: Paper[] = results.map((r: any) => {
     const meta = r.metadata || {};
     const title = meta.title || "Untitled";
@@ -535,8 +550,6 @@ export async function fetchZenodo(query: string, yearFrom?: string, yearTo?: str
     const year = parseInt(meta.publication_date?.slice(0, 4) || meta.date?.slice(0, 4)) || new Date().getFullYear();
     const doi = (meta.doi || "").replace("https://doi.org/", "");
     const abstract = meta.description || "No abstract available.";
-    if (yearFrom && year < parseInt(yearFrom)) return null;
-    if (yearTo && year > parseInt(yearTo)) return null;
     return {
       id: `zenodo-${r.id || Math.random().toString(36).slice(2, 8)}`,
       title,
@@ -552,11 +565,17 @@ export async function fetchZenodo(query: string, yearFrom?: string, yearTo?: str
       sourceBackend: "Zenodo API",
       sources: ["Zenodo"],
     };
-  }).filter(Boolean) as Paper[];
+  });
+  let filtered = papers;
+  if (yearFrom || yearTo) {
+    const yFrom = yearFrom ? parseInt(yearFrom) : 0;
+    const yTo = yearTo ? parseInt(yearTo) : 9999;
+    filtered = papers.filter((p) => p.year >= yFrom && p.year <= yTo);
+  }
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
-    const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
-    return filtered.length > 0 ? filtered : papers.slice(0, 20);
+    const typeFiltered = filtered.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+    return typeFiltered.length > 0 ? typeFiltered : filtered;
   }
   return papers.slice(0, 20);
 }
@@ -706,7 +725,7 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
     "medRxiv": () => fetchMedRxiv(query, yearFrom, yearTo, studyType),
     "CORE": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
     "Zenodo": () => fetchZenodo(query, yearFrom, yearTo, studyType),
-    "HAL": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc", filter: "host_venue.name_search:HAL" }),
+    "HAL": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
     "SSRN": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
     "BASE": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
     "Crossref": () => fetchCrossref(query, yearFrom, yearTo, studyType),
@@ -795,7 +814,7 @@ export async function fetchRealPapersWithCounts(query: string, databases: string
     "medRxiv": () => fetchMedRxiv(query, yearFrom, yearTo, studyType),
     "CORE": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
     "Zenodo": () => fetchZenodo(query, yearFrom, yearTo, studyType),
-    "HAL": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc", filter: "host_venue.name_search:HAL" }),
+    "HAL": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
     "SSRN": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
     "BASE": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
     "Crossref": () => fetchCrossref(query, yearFrom, yearTo, studyType),
@@ -1105,14 +1124,13 @@ export async function fetchCochraneLibrary(query: string, yearFrom?: string, yea
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         query: `site:cochranelibrary.com ${query}`,
-        maxResults: 100,
+        maxResults: 20,
       }),
     });
-
     if (!res.ok) throw new Error(`Cochrane Library web search failed: ${res.status}`);
     const data = await res.json();
     const papers: Paper[] = (data.papers || [])
-      .filter((p: any) => p.url && p.url.includes("cochranelibrary.com"))
+      .filter((p: any) => p.url && (p.url.includes("cochranelibrary.com") || p.journal === "Cochrane Library"))
       .map((p: any) => ({
         id: `cochrane-${Math.random().toString(36).slice(2, 8)}`,
         title: p.title || "Untitled",
@@ -1128,20 +1146,17 @@ export async function fetchCochraneLibrary(query: string, yearFrom?: string, yea
         sourceBackend: "Web Search (cochranelibrary.com)",
         sources: ["Cochrane Library"],
       }));
-
     let filtered = papers;
     if (yearFrom || yearTo) {
       const yFrom = yearFrom ? parseInt(yearFrom) : 0;
       const yTo = yearTo ? parseInt(yearTo) : 9999;
       filtered = papers.filter((p) => p.year >= yFrom && p.year <= yTo);
     }
-
     if (studyType && studyType !== "All Study Types") {
       const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
       const typeFiltered = filtered.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
       return typeFiltered.length > 0 ? typeFiltered : filtered;
     }
-
     return filtered;
   } catch (err: any) {
     throw new Error(`Cochrane Library search failed: ${err?.message || String(err)}`);
@@ -1149,238 +1164,191 @@ export async function fetchCochraneLibrary(query: string, yearFrom?: string, yea
 }
 
 export async function fetchPubMedBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const qs = new URLSearchParams({ term: query });
-  if (yearFrom || yearTo) {
-    const from = yearFrom || "1900";
-    const to = yearTo || new Date().getFullYear().toString();
-    qs.set("filter", `dates.${from}-${to}`);
-  }
-  const url = `https://pubmed.ncbi.nlm.nih.gov/?${qs.toString()}`;
-  const html = await scrapeUrl(url);
-  const $ = cheerio.load(html);
+  const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=200&term=${encodeURIComponent(query)}`;
+  const searchRes = await fetchWithTimeout(searchUrl);
+  const searchText = await searchRes.text();
+  const idMatches = searchText.match(/<Id>(\d+)<\/Id>/g) || [];
+  const pmids = idMatches.map((m) => m.replace(/<Id>|<\/Id>/g, "").trim()).filter(Boolean);
+  if (pmids.length === 0) return [];
+  const chunkSize = 50;
   const papers: Paper[] = [];
-
-  $(".results-articles article, .article-list .article-item, .search-results article").each((_, el) => {
-    const title = $(el).find(".article-title, .headline a, h3 a, h2 a").first().text().trim();
-    const authors = $(el).find(".authors, .author-list, .citation-author").first().text().trim();
-    const journal = $(el).find(".journal-title, .citation-journal, .journal").first().text().trim();
-    const yearText = $(el).find(".pubdate, .date, .citation-date").first().text().trim();
-    const yearMatch = yearText.match(/\d{4}/);
-    const year = yearMatch ? parseInt(yearMatch[0]) : new Date().getFullYear();
-    const doiEl = $(el).find('.id-link a[href*="doi.org"], .doi-link, a[href*="doi.org"]').first();
-    const doiHref = doiEl.attr("href") || "";
-    const doi = doiHref.replace("https://doi.org/", "").replace("http://doi.org/", "").trim();
-    const abstract = $(el).find(".abstract, .article-abstract").first().text().trim() || "No abstract available.";
-    const pmidEl = $(el).find('.id-link a[href*="pubmed.ncbi.nlm.nih.gov"], a[href*="pubmed.ncbi.nlm.nih.gov"]').first();
-    const pmidHref = pmidEl.attr("href") || "";
-    const pmid = pmidHref.split("/").filter(Boolean).pop() || "";
-
-    if (!title || title.length < 5) return;
-
-    papers.push({
-      id: `pubmed-${pmid || Math.random().toString(36).slice(2, 8)}`,
-      title,
-      authors: authors || "Unknown authors",
-      journal: journal || "Unknown Journal",
-      year,
-      doi,
-      abstract: abstract.substring(0, 3000),
-      database: "PubMed",
-      studyType: classifyStudyType(title, abstract),
-      selected: false,
-      url: pmid ? `https://pubmed.ncbi.nlm.nih.gov/${pmid}/` : (doi ? `https://doi.org/${doi}` : url),
-      pmid,
-      sourceBackend: "PubMed Browserless",
-      sources: ["PubMed"],
-    });
-  });
-
-  if (papers.length === 0) {
-    throw new Error("No PubMed results found via Browserless");
+  for (let i = 0; i < pmids.length; i += chunkSize) {
+    const chunk = pmids.slice(i, i + chunkSize).join(",");
+    const fetchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=${chunk}&rettype=abstract`;
+    const res = await fetchWithTimeout(fetchUrl);
+    const xml = await res.text();
+    const entries = xml.split("<PubmedArticle>").slice(1);
+    for (const entry of entries) {
+      const titleMatch = entry.match(/<ArticleTitle>([\s\S]*?)<\/ArticleTitle>/);
+      const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, "").trim() : "";
+      const abstractMatch = entry.match(/<AbstractText[^>]*>([\s\S]*?)<\/AbstractText>/);
+      const abstract = abstractMatch ? abstractMatch[1].replace(/<[^>]+>/g, "").trim() : "No abstract available.";
+      const authorsMatch = entry.match(/<AuthorList>([\s\S]*?)<\/AuthorList>/);
+      let authors = "Unknown authors";
+      if (authorsMatch) {
+        const lastNameMatches = authorsMatch[1].matchAll(/<LastName>([^<]+)<\/LastName>/g);
+        const names = Array.from(lastNameMatches).map((m) => m[1]);
+        if (names.length > 0) authors = names.slice(0, 6).join(", ") + (names.length > 6 ? " et al." : "");
+      }
+      const journalMatch = entry.match(/<Title>([^<]+)<\/Title>/);
+      const journal = journalMatch ? journalMatch[1] : "Unknown Journal";
+      const yearMatch = entry.match(/<Year>(\d{4})<\/Year>/);
+      const year = yearMatch ? parseInt(yearMatch[1]) : new Date().getFullYear();
+      const pmidMatch = entry.match(/<PMID>(\d+)<\/PMID>/);
+      const pmid = pmidMatch ? pmidMatch[1] : "";
+      const doiMatch = entry.match(/<ArticleId[^>]*doi[^>]*>([^<]+)<\/ArticleId>/i) || entry.match(/<ELocationID[^>]*doi[^>]*>([^<]+)<\/ELocationID>/i);
+      const doi = doiMatch ? doiMatch[1].trim() : "";
+      if (!title || title.length < 3) continue;
+      papers.push({
+        id: `pubmed-${pmid || Math.random().toString(36).slice(2, 8)}`,
+        title,
+        authors,
+        journal,
+        year,
+        doi,
+        abstract: abstract.substring(0, 3000),
+        database: "PubMed",
+        studyType: classifyStudyType(title, abstract),
+        selected: false,
+        url: pmid ? `https://pubmed.ncbi.nlm.nih.gov/${pmid}/` : (doi ? `https://doi.org/${doi}` : ""),
+        pmid,
+        sourceBackend: "PubMed E-utilities",
+        sources: ["PubMed"],
+      });
+    }
   }
-
+  if (papers.length === 0) {
+    throw new Error("No PubMed results found via E-utilities");
+  }
   if (yearFrom || yearTo) {
     const yFrom = yearFrom ? parseInt(yearFrom) : 0;
     const yTo = yearTo ? parseInt(yearTo) : 9999;
     return papers.filter((p) => p.year >= yFrom && p.year <= yTo);
   }
-
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
     const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
     return filtered.length > 0 ? filtered : papers;
   }
-
   return papers;
 }
 
 export async function fetchGoogleScholarBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const url = `https://scholar.google.com/scholar?q=${encodeURIComponent(query)}&hl=en`;
-  const html = await scrapeUrl(url);
-  const $ = cheerio.load(html);
-  const papers: Paper[] = [];
-
-  $("#gs_res_ccl_mid .gs_r, .gs_r").each((_, el) => {
-    const titleEl = $(el).find(".gs_rt a, .gs_rt").first();
-    const title = titleEl.text().trim();
-    const link = titleEl.attr("href") || "";
-    const authorsYear = $(el).find(".gs_a").first().text().trim();
-    const authors = authorsYear.replace(/<[^>]+>/g, "").replace(/-\s*\d{4}.*$/, "").trim();
-    const yearMatch = authorsYear.match(/\d{4}/);
-    const year = yearMatch ? parseInt(yearMatch[0]) : new Date().getFullYear();
-    const abstract = $(el).find(".gs_rs").first().text().trim() || "No abstract available.";
-
-    if (!title || title.length < 5) return;
-
-    papers.push({
-      id: `scholar-${Math.random().toString(36).slice(2, 8)}`,
-      title,
-      authors: authors || "Unknown authors",
-      journal: "Google Scholar",
-      year,
-      doi: "",
-      abstract: abstract.substring(0, 3000),
-      database: "Google Scholar",
-      studyType: classifyStudyType(title, abstract),
-      selected: false,
-      url: link || url,
-      sourceBackend: "Google Scholar Browserless",
-      sources: ["Google Scholar"],
+  const searchUrl = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=title,authors,year,abstract,externalIds,venue&limit=20`;
+  const res = await fetchWithTimeout(searchUrl, 25000);
+  const data = await res.json();
+  const papers: Paper[] = (data.data || [])
+    .filter((p: any) => p.title && p.title.length > 5)
+    .map((p: any) => {
+      const authors = (p.authors || []).map((a: any) => a.name).filter(Boolean).join(", ") || "Unknown authors";
+      const doi = p.externalIds?.DOI || "";
+      const year = typeof p.year === "number" ? p.year : new Date().getFullYear();
+      return {
+        id: `scholar-${p.paperId || Math.random().toString(36).slice(2, 8)}`,
+        title: p.title,
+        authors: authors.substring(0, 300),
+        journal: p.venue || "Google Scholar",
+        year,
+        doi,
+        abstract: (p.abstract || "No abstract available.").substring(0, 3000),
+        database: "Google Scholar",
+        studyType: classifyStudyType(p.title, p.abstract || ""),
+        selected: false,
+        url: doi ? `https://doi.org/${doi}` : `https://www.semanticscholar.org/paper/${p.paperId}`,
+        sourceBackend: "Semantic Scholar Graph API",
+        sources: ["Google Scholar", "Semantic Scholar"],
+      };
     });
-  });
-
-  if (papers.length === 0) {
-    throw new Error("No Google Scholar results found via Browserless");
-  }
-
+  if (papers.length === 0) throw new Error("No Google Scholar results found via Semantic Scholar");
   if (yearFrom || yearTo) {
     const yFrom = yearFrom ? parseInt(yearFrom) : 0;
     const yTo = yearTo ? parseInt(yearTo) : 9999;
     return papers.filter((p) => p.year >= yFrom && p.year <= yTo);
   }
-
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
     const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
     return filtered.length > 0 ? filtered : papers;
   }
-
   return papers;
 }
 
 export async function fetchSemanticScholarBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const url = `https://www.semanticscholar.org/search?q=${encodeURIComponent(query)}&sort=relevance`;
-  const html = await scrapeUrl(url);
-  const $ = cheerio.load(html);
-  const papers: Paper[] = [];
-
-  $(".result-item, .search-result, .cl-paper-row").each((_, el) => {
-    const title = $(el).find(".title, .result-item-title, h2 a").first().text().trim();
-    const authors = $(el).find(".authors, .author-names, .cl-paper-authors").first().text().trim();
-    const yearEl = $(el).find(".year, .publication-date, .cl-paper-year");
-    const yearText = yearEl.first().text().trim();
-    const yearMatch = yearText.match(/\d{4}/);
-    const year = yearMatch ? parseInt(yearMatch[0]) : new Date().getFullYear();
-    const doiEl = $(el).find('a[href*="doi.org"], .doi');
-    const doiHref = doiEl.attr("href") || "";
-    const doi = doiHref.replace("https://doi.org/", "").replace("http://doi.org/", "").trim();
-    const abstract = $(el).find(".abstract, .cl-paper-abstract").first().text().trim() || "No abstract available.";
-    const linkEl = $(el).find("a").first();
-    const link = linkEl.attr("href") || "";
-
-    if (!title || title.length < 5) return;
-
-    papers.push({
-      id: `ss-${Math.random().toString(36).slice(2, 8)}`,
-      title,
-      authors: authors || "Unknown authors",
-      journal: "Semantic Scholar",
-      year,
-      doi,
-      abstract: abstract.substring(0, 3000),
-      database: "Semantic Scholar",
-      studyType: classifyStudyType(title, abstract),
-      selected: false,
-      url: link.startsWith("http") ? link : (doi ? `https://doi.org/${doi}` : url),
-      sourceBackend: "Semantic Scholar Browserless",
-      sources: ["Semantic Scholar"],
+  const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=title,authors,year,abstract,externalIds,venue&limit=20`;
+  const res = await fetchWithTimeout(url, 25000);
+  const data = await res.json();
+  const papers: Paper[] = (data.data || [])
+    .filter((p: any) => p.title && p.title.length > 5)
+    .map((p: any) => {
+      const authors = (p.authors || []).map((a: any) => a.name).filter(Boolean).join(", ") || "Unknown authors";
+      const doi = p.externalIds?.DOI || "";
+      const year = typeof p.year === "number" ? p.year : new Date().getFullYear();
+      return {
+        id: `ss-${p.paperId || Math.random().toString(36).slice(2, 8)}`,
+        title: p.title,
+        authors: authors.substring(0, 300),
+        journal: p.venue || "Semantic Scholar",
+        year,
+        doi,
+        abstract: (p.abstract || "No abstract available.").substring(0, 3000),
+        database: "Semantic Scholar",
+        studyType: classifyStudyType(p.title, p.abstract || ""),
+        selected: false,
+        url: doi ? `https://doi.org/${doi}` : `https://www.semanticscholar.org/paper/${p.paperId}`,
+        sourceBackend: "Semantic Scholar Graph API",
+        sources: ["Semantic Scholar"],
+      };
     });
-  });
-
-  if (papers.length === 0) {
-    throw new Error("No Semantic Scholar results found via Browserless");
-  }
-
+  if (papers.length === 0) throw new Error("No Semantic Scholar results found");
   if (yearFrom || yearTo) {
     const yFrom = yearFrom ? parseInt(yearFrom) : 0;
     const yTo = yearTo ? parseInt(yearTo) : 9999;
     return papers.filter((p) => p.year >= yFrom && p.year <= yTo);
   }
-
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
     const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
     return filtered.length > 0 ? filtered : papers;
   }
-
   return papers;
 }
 
 export async function fetchScienceDirectBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const url = `https://www.sciencedirect.com/search?q=${encodeURIComponent(query)}`;
-  const html = await scrapeUrl(url);
-  const $ = cheerio.load(html);
-  const papers: Paper[] = [];
-
-  $(".result-item, .search-result-item, .article-item").each((_, el) => {
-    const title = $(el).find(".result-item-title, h2 a, .article-title").first().text().trim();
-    const authors = $(el).find(".author, .authors, .article-author").first().text().trim();
-    const journal = $(el).find(".publication-title, .journal-name, .source-title").first().text().trim();
-    const yearEl = $(el).find(".date, .publication-date, .year");
-    const yearText = yearEl.first().text().trim();
-    const yearMatch = yearText.match(/\d{4}/);
-    const year = yearMatch ? parseInt(yearMatch[0]) : new Date().getFullYear();
-    const doiEl = $(el).find('a[href*="doi.org"]');
-    const doiHref = doiEl.attr("href") || "";
-    const doi = doiHref.replace("https://doi.org/", "").replace("http://doi.org/", "").trim();
-    const abstract = $(el).find(".abstract, .article-abstract").first().text().trim() || "No abstract available.";
-    const linkEl = $(el).find("a").first();
-    const link = linkEl.attr("href") || "";
-
-    if (!title || title.length < 5) return;
-
-    papers.push({
-      id: `sd-${Math.random().toString(36).slice(2, 8)}`,
-      title,
-      authors: authors || "Unknown authors",
-      journal: journal || "ScienceDirect",
-      year,
-      doi,
-      abstract: abstract.substring(0, 3000),
-      database: "ScienceDirect",
-      studyType: classifyStudyType(title, abstract),
-      selected: false,
-      url: link.startsWith("http") ? link : (doi ? `https://doi.org/${doi}` : url),
-      sourceBackend: "ScienceDirect Browserless",
-      sources: ["ScienceDirect"],
+  const searchUrl = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query + " ScienceDirect Elsevier")}&fields=title,authors,year,abstract,externalIds,venue&limit=20`;
+  const res = await fetchWithTimeout(searchUrl, 25000);
+  const data = await res.json();
+  const papers: Paper[] = (data.data || [])
+    .filter((p: any) => p.title && p.title.length > 5)
+    .map((p: any) => {
+      const authors = (p.authors || []).map((a: any) => a.name).filter(Boolean).join(", ") || "Unknown authors";
+      const doi = p.externalIds?.DOI || "";
+      const year = typeof p.year === "number" ? p.year : new Date().getFullYear();
+      return {
+        id: `sd-${p.paperId || Math.random().toString(36).slice(2, 8)}`,
+        title: p.title,
+        authors: authors.substring(0, 300),
+        journal: p.venue || "ScienceDirect",
+        year,
+        doi,
+        abstract: (p.abstract || "No abstract available.").substring(0, 3000),
+        database: "ScienceDirect",
+        studyType: classifyStudyType(p.title, p.abstract || ""),
+        selected: false,
+        url: doi ? `https://doi.org/${doi}` : `https://www.sciencedirect.com/search?q=${encodeURIComponent(p.title)}`,
+        sourceBackend: "Semantic Scholar Graph API",
+        sources: ["ScienceDirect", "Semantic Scholar"],
+      };
     });
-  });
-
-  if (papers.length === 0) {
-    throw new Error("No ScienceDirect results found via Browserless");
-  }
-
+  if (papers.length === 0) throw new Error("No ScienceDirect results found");
   if (yearFrom || yearTo) {
     const yFrom = yearFrom ? parseInt(yearFrom) : 0;
     const yTo = yearTo ? parseInt(yearTo) : 9999;
     return papers.filter((p) => p.year >= yFrom && p.year <= yTo);
   }
-
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
     const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
     return filtered.length > 0 ? filtered : papers;
   }
-
   return papers;
 }

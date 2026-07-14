@@ -35,6 +35,10 @@ export interface EvidenceSynthesisStep1Props {
   showVerifiedOnly: boolean;
   onShowVerifiedOnlyChange: (value: boolean) => void;
   citationValidationCounts?: { verified: number; unverified: number; noDoi: number };
+  seeraiMode?: boolean;
+  seeraiProviders?: string[];
+  onToggleSeeraiProvider?: (provider: string) => void;
+  onSelectAllSeeraiProviders?: () => void;
 }
 
 export default function EvidenceSynthesisStep1({
@@ -68,6 +72,10 @@ export default function EvidenceSynthesisStep1({
   showVerifiedOnly,
   onShowVerifiedOnlyChange,
   citationValidationCounts,
+  seeraiMode,
+  seeraiProviders,
+  onToggleSeeraiProvider,
+  onSelectAllSeeraiProviders,
 }: EvidenceSynthesisStep1Props) {
   const getFilteredPapers = () => {
     return papers.filter((p) => {
@@ -110,6 +118,20 @@ export default function EvidenceSynthesisStep1({
           >
             {loading ? "Searching..." : "Search"}
           </button>
+          <label className="flex items-center gap-2 bg-purple-900/30 border border-purple-700/50 px-3 py-2 rounded-lg cursor-pointer">
+            <input
+              type="checkbox"
+              checked={seeraiMode}
+              onChange={(e) => {
+                if (!onToggleSeeraiProvider) return;
+                if (!e.target.checked) {
+                  onToggleSeeraiProvider("__reset__");
+                }
+              }}
+              className="rounded border-purple-600 bg-purple-950 text-purple-500 focus:ring-purple-500"
+            />
+            <span className="text-xs font-bold text-purple-200">SeerAI Mode</span>
+          </label>
         </div>
         <div className="flex flex-wrap items-center gap-2 mb-4">
           <span className="text-xs text-blue-300">Boolean:</span>
@@ -197,6 +219,15 @@ export default function EvidenceSynthesisStep1({
             Deselect All
           </button>
           <span className="text-xs text-blue-300">{selectedDbs.length} of {databases.length} selected</span>
+
+          {seeraiMode && (
+            <>
+              <button onClick={onSelectAllSeeraiProviders} className="text-xs bg-purple-900/50 text-purple-200 px-3 py-1 rounded hover:bg-purple-900/70">
+                Select All SeerAI Providers
+              </button>
+              <span className="text-xs text-purple-300">{seeraiProviders?.length || 0} providers</span>
+            </>
+          )}
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {databases.map((db) => (
@@ -213,6 +244,25 @@ export default function EvidenceSynthesisStep1({
             </button>
           ))}
         </div>
+
+        {seeraiMode && (
+          <div className="bg-purple-900/20 border border-purple-700/30 rounded-lg p-4">
+            <p className="text-xs text-purple-300 mb-2">SeerAI federated search providers:</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {(seeraiProviders || []).map((provider) => (
+                <label key={provider} className="flex items-center gap-2 bg-purple-950/50 border border-purple-900/50 p-2 rounded cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={seeraiProviders?.includes(provider)}
+                    onChange={() => onToggleSeeraiProvider?.(provider)}
+                    className="rounded border-purple-600 bg-purple-950 text-purple-500 focus:ring-purple-500"
+                  />
+                  <span className="text-xs text-purple-200">{provider}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {searchError && (
@@ -340,6 +390,25 @@ export default function EvidenceSynthesisStep1({
             <span key={t} className="text-[10px] bg-blue-900/40 text-blue-200 px-2 py-0.5 rounded-full border border-blue-800">{t}</span>
           ))}
         </div>
+
+        {seeraiMode && (
+          <div className="bg-purple-900/20 border border-purple-700/30 rounded-lg p-4">
+            <p className="text-xs text-purple-300 mb-2">SeerAI federated search providers:</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {(seeraiProviders || []).map((provider) => (
+                <label key={provider} className="flex items-center gap-2 bg-purple-950/50 border border-purple-900/50 p-2 rounded cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={seeraiProviders?.includes(provider)}
+                    onChange={() => onToggleSeeraiProvider?.(provider)}
+                    className="rounded border-purple-600 bg-purple-950 text-purple-500 focus:ring-purple-500"
+                  />
+                  <span className="text-xs text-purple-200">{provider}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

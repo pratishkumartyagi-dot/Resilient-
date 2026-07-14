@@ -309,6 +309,11 @@ export default function EvidenceSynthesisTab() {
   const [perDatabaseResults, setPerDatabaseResults] = useState<Array<{ database: string; status: string; count: number; error?: string }>>([]);
   const [citationValidationResults, setCitationValidationResults] = useState<Record<string, { valid: boolean; title?: string; message: string }>>({});
   const [showVerifiedOnly, setShowVerifiedOnly] = useState(false);
+  const [seeraiMode, setSeeraiMode] = useState(false);
+  const [seeraiProviders, setSeeraiProviders] = useState<string[]>([
+    "Semantic Scholar", "arXiv", "PubMed", "bioRxiv", "medRxiv",
+    "Europe PMC", "CORE", "BASE", "Zenodo", "HAL", "IACR"
+  ]);
 
   const toggleDb = (db: string) => {
     setSelectedDbs((prev) =>
@@ -324,6 +329,19 @@ export default function EvidenceSynthesisTab() {
     setSelectedDbs([]);
   };
 
+  const toggleSeeraiProvider = (provider: string) => {
+    setSeeraiProviders((prev) =>
+      prev.includes(provider) ? prev.filter((p) => p !== provider) : [...prev, provider]
+    );
+  };
+
+  const selectAllSeeraiProviders = () => {
+    setSeeraiProviders([
+      "Semantic Scholar", "arXiv", "PubMed", "bioRxiv", "medRxiv",
+      "Europe PMC", "CORE", "BASE", "Zenodo", "HAL", "IACR"
+    ]);
+  };
+
   const handleSearch = async () => {
     if (!query.trim() || selectedDbs.length === 0) return;
     setLoading(true);
@@ -332,15 +350,22 @@ export default function EvidenceSynthesisTab() {
     setSearchError(null);
     setPerDatabaseResults([]);
     try {
+      const dbs = seeraiMode ? seeraiProviders : selectedDbs;
+      if (dbs.length === 0) {
+        setSearchError("No databases selected");
+        setLoading(false);
+        return;
+      }
       const res = await fetch("/api/literature-search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           query,
-          databases: selectedDbs,
+          databases: dbs,
           yearFrom: yearFrom || undefined,
           yearTo: yearTo || undefined,
           studyType: studyTypeFilter === "All Study Types" ? undefined : studyTypeFilter,
+          mode: seeraiMode ? "seerai" : "standard",
         }),
       });
       if (!res.ok) {
@@ -1760,6 +1785,10 @@ ${isNarrative ? `## Evidence Synthesis
               unverified: papers.filter((p) => p.citationStatus === "unverified").length,
               noDoi: papers.filter((p) => p.citationStatus === "no-doi").length,
             }}
+            seeraiMode={seeraiMode}
+            seeraiProviders={seeraiProviders}
+            onToggleSeeraiProvider={toggleSeeraiProvider}
+            onSelectAllSeeraiProviders={selectAllSeeraiProviders}
           />
         )}
 
@@ -1781,9 +1810,14 @@ ${isNarrative ? `## Evidence Synthesis
                     <tr className="bg-blue-900/60 text-left">
                       <th className="border border-blue-800 px-3 py-2 text-yellow-200">Study</th>
                       <th className="border border-blue-800 px-3 py-2 text-yellow-200">Year</th>
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">DOI</th>
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Study Type</th>
+                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Population</th>
+                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Intervention</th>
+                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Comparison</th>
                       <th className="border border-blue-800 px-3 py-2 text-yellow-200">Outcome</th>
+                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Sample Size</th>
+                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Effect Estimate</th>
+                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">95% CI</th>
+                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Study Type</th>
                       <th className="border border-blue-800 px-3 py-2 text-yellow-200">ROB</th>
                     </tr>
                   </thead>
@@ -1792,10 +1826,15 @@ ${isNarrative ? `## Evidence Synthesis
                       <tr key={row.id} className="hover:bg-blue-900/20">
                         <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.title}</td>
                         <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.year}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.doi ? <a href={`https://doi.org/${row.doi}`} target="_blank" rel="noreferrer" className="text-yellow-300 underline flex items-center gap-1">DOI <ExternalLink size={10} /></a> : "—"}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.studyType}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.outcome}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.ROB}</td>
+                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.population || "—"}</td>
+                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.intervention || "—"}</td>
+                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.comparison || "—"}</td>
+                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.outcome || "—"}</td>
+                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.sampleSize || "—"}</td>
+                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.effectEstimate || "—"}</td>
+                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.ci || "—"}</td>
+                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.studyType || "—"}</td>
+                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.ROB || "—"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -2175,6 +2214,50 @@ ${isNarrative ? `## Evidence Synthesis
                     placeholder="e.g., subgroup by age and sex; include only RCTs; use GRADE for certainty assessment; meta-regression by dose..."
                     className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-2.5 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 min-h-[60px]"
                   />
+                </div>
+              </div>
+
+              <div className="bg-purple-900/20 border border-purple-700/30 rounded-lg p-4 mb-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Sparkles size={16} className="text-purple-400" />
+                  <h4 className="text-sm font-bold text-purple-200">SeerAI Evidence Synthesis</h4>
+                </div>
+                <p className="text-xs text-purple-300 mb-3">
+                  Use SeerAI federated search and RAG capabilities for enhanced evidence synthesis. This mode aggregates findings across selected databases and generates structured meta-analysis outputs.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={async () => {
+                      setSynthesisLoading(true);
+                      try {
+                        const seeraiPapers = papers.filter(p => selectedPaperIds.has(p.id) || selectedPaperIds.size === 0);
+                        const synthesis = await Promise.resolve(generateLocalLiteratureReview(
+                          seeraiPapers.map(p => ({
+                            authors: p.authors,
+                            year: typeof p.year === "number" ? p.year : parseInt(String(p.year), 10),
+                            title: p.title,
+                            journal: p.journal || "Unknown",
+                            abstract: p.abstract || "",
+                            doi: p.doi,
+                            studyType: p.studyType || "Unknown",
+                            database: p.database || "Unknown",
+                          })),
+                          query,
+                          { enableRobustReview: true }
+                        ));
+                        setSynthesisOutput(synthesis);
+                      } catch (err: any) {
+                        setSynthesisOutput(`Error: ${err?.message || String(err)}`);
+                      } finally {
+                        setSynthesisLoading(false);
+                      }
+                    }}
+                    disabled={synthesisLoading || extractedData.length === 0}
+                    className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-bold px-4 py-2 rounded-lg disabled:opacity-50 text-xs"
+                  >
+                    <Sparkles size={14} />
+                    {synthesisLoading ? "Synthesizing..." : "SeerAI Federated Synthesis"}
+                  </button>
                 </div>
               </div>
 
