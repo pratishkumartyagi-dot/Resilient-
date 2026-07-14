@@ -274,6 +274,8 @@ export default function EvidenceSynthesisTab() {
   const [totalIdentified, setTotalIdentified] = useState(0);
   const [dedupedCount, setDedupedCount] = useState(0);
   const [extractedData, setExtractedData] = useState<any[]>([]);
+  const [synthesisTable, setSynthesisTable] = useState<any[]>([]);
+  const [synthesisTableLoading, setSynthesisTableLoading] = useState(false);
   const [robAssessments, setRobAssessments] = useState<Record<string, RobAssessment>>({});
   const [robTool, setRobTool] = useState<string>("ROB2");
   const [robInstructions, setRobInstructions] = useState("");
@@ -852,6 +854,90 @@ Return a concise markdown report with a "## PROBAST+AI Assessment" heading and a
       }))
     );
     setPipelineStep(3);
+  };
+
+  const generateSynthesisTable = async () => {
+    const selected = papers.filter((p) => selectedPaperIds.has(p.id));
+    if (selected.length === 0) {
+      alert("Please select at least one paper in Step 1.");
+      return;
+    }
+    setSynthesisTableLoading(true);
+    try {
+      const papersContext = selected
+        .map(
+          (p, i) =>
+            `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || "Unknown journal"}. DOI: ${p.doi || "N/A"}. Abstract: ${p.abstract || "No abstract"}`
+        )
+        .join("\n\n");
+
+      const prompt = `You are an expert systematic review researcher. Deep analyze the following selected papers and produce a structured synthesis table aligned with the decipher-research-agent reasoning approach and the research-gaps format from https://gist.github.com/t0mst0ne/f3dd82637861384e6b2ffe3c9370f4d8.
+
+For each paper, extract:
+- Study reference: Author(s) (Year) — short title
+- Year
+- Setting: Where the study was conducted
+- Population: Who was studied
+- Intervention / exposure: What was tested
+- Comparison: What it was compared against
+- Outcome: Main findings/outcomes
+- Sample size
+- Effect estimate: Main effect size if reported
+- Risk Ratio (95% CI): If reported
+- Study type/Design
+- Research Gaps (Author acknowledged Limits/limitations/exclusion criteria): Use the format: "Limitations: [author-acknowledged limits]; Exclusions: [reported exclusion criteria]; Gaps: [unanswered questions]"
+
+ PAPERS:
+${papersContext}
+
+Return ONLY a markdown table with these exact columns:
+| Study reference | Year | Setting | Population | Intervention / exposure | Comparison | Outcome | Sample size | Effect estimate | Risk Ratio (95% CI) | Study type/Design | Research Gaps |`;
+
+      const response = await callGemini(state.geminiApiKey || state.groqApiKey!, prompt);
+
+      const tableText = response || "No table generated.";
+      const rows = parseSynthesisTable(tableText);
+      setSynthesisTable(rows);
+      setPipelineStep(2);
+    } catch (err: any) {
+      console.error("Synthesis table generation failed:", err);
+      alert("Failed to generate synthesis table: " + (err?.message || String(err)));
+    } finally {
+      setSynthesisTableLoading(false);
+    }
+  };
+
+  const parseSynthesisTable = (text: string): any[] => {
+    const lines = text.split("\n");
+    const rows: any[] = [];
+    let inTable = false;
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("|")) continue;
+      if (/^|\s*[-]+\s*\|/.test(trimmed) || trimmed.includes("---")) continue;
+      const cells = trimmed
+        .split("|")
+        .map((c) => c.trim())
+        .filter((c) => c.length > 0);
+      if (cells.length >= 12) {
+        rows.push({
+          id: `synth-${rows.length}`,
+          reference: cells[0] || "—",
+          year: cells[1] || "—",
+          setting: cells[2] || "—",
+          population: cells[3] || "—",
+          intervention: cells[4] || "—",
+          comparison: cells[5] || "—",
+          outcome: cells[6] || "—",
+          sampleSize: cells[7] || "—",
+          effectEstimate: cells[8] || "—",
+          riskRatio: cells[9] || "—",
+          studyType: cells[10] || "—",
+          researchGaps: cells[11] || "—",
+        });
+      }
+    }
+    return rows;
   };
 
   const updateRobAssessment = (id: string, field: keyof RobAssessment, value: string) => {
@@ -1835,6 +1921,58 @@ ${isNarrative ? `## Evidence Synthesis
                         <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.ci || "—"}</td>
                         <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.studyType || "—"}</td>
                         <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.ROB || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <Sparkles size={18} className="text-yellow-400" />
+                <h3 className="text-lg font-bold text-white">AI Synthesis Table</h3>
+              </div>
+              <p className="text-sm text-blue-300 mb-4">
+                Generate a structured evidence synthesis table from selected papers using deep reasoning aligned with <a href="https://github.com/mtwn105/decipher-research-agent" target="_blank" rel="noreferrer" className="text-yellow-300 underline">decipher-research-agent</a> and <a href="https://gist.github.com/t0mst0ne/f3dd82637861384e6b2ffe3c9370f4d8" target="_blank" rel="noreferrer" className="text-yellow-300 underline">research-gaps format</a>.
+              </p>
+              <button onClick={generateSynthesisTable} disabled={synthesisTableLoading || selectedPaperIds.size === 0} className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-5 py-2 rounded-lg disabled:opacity-50">
+                {synthesisTableLoading ? "Generating..." : "Generate Synthesis Table"}
+              </button>
+            </div>
+            {synthesisTable.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="bg-blue-900/60 text-left">
+                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Study reference</th>
+                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Year</th>
+                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Setting</th>
+                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Population</th>
+                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Intervention / exposure</th>
+                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Comparison</th>
+                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Outcome</th>
+                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Sample size</th>
+                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Effect estimate</th>
+                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Risk Ratio (95% CI)</th>
+                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Study type/Design</th>
+                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Research Gaps</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {synthesisTable.map((row) => (
+                      <tr key={row.id} className="hover:bg-blue-900/20">
+                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.reference}</td>
+                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.year}</td>
+                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.setting}</td>
+                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.population}</td>
+                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.intervention}</td>
+                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.comparison}</td>
+                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.outcome}</td>
+                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.sampleSize}</td>
+                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.effectEstimate}</td>
+                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.riskRatio}</td>
+                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.studyType}</td>
+                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.researchGaps}</td>
                       </tr>
                     ))}
                   </tbody>
