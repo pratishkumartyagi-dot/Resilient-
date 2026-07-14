@@ -23,7 +23,7 @@ const STUDY_TYPES = [
 ];
 
 const DATABASES = [
-  "PubMed", "OpenAlex", "Europe PMC", "Google Scholar",
+  "PubMed", "OpenAlex", "Google Scholar",
   "WHO IRIS", "Semantic Scholar", "Shodhganga", "Prospero",
   "ScienceDirect", "ClinicalTrials.gov", "DOAJ", "Clarivate",
   "Cochrane Library",
@@ -293,8 +293,6 @@ export default function Step1Search() {
                 <p className="text-xs text-blue-400">
                   {activeDbTab === "PubMed"
                     ? "https://pubmed.ncbi.nlm.nih.gov/"
-                    : activeDbTab === "Europe PMC"
-                    ? "https://europepmc.org/"
                     : activeDbTab === "ClinicalTrials.gov"
                     ? "https://clinicaltrials.gov/expert-search"
                     : activeDbTab === "WHO IRIS"

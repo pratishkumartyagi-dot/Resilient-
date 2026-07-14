@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import {
   fetchOpenAlex,
-  fetchPubMed,
-  fetchEuropePMC,
   fetchDoaj,
   fetcharXiv,
   fetchBioRxiv,
@@ -11,11 +9,14 @@ import {
   fetchCrossref,
   fetchOpenAIRE,
   fetchDblp,
-  fetchSemanticScholarRaw,
   fetchClinicalTrialsGov,
   fetchCochraneLibrary,
   deduplicatePapers,
   verifyCitations,
+  fetchPubMedBrowserless,
+  fetchGoogleScholarBrowserless,
+  fetchSemanticScholarBrowserless,
+  fetchScienceDirectBrowserless,
 } from "@/lib/database-apis";
 
 export const runtime = "nodejs";
@@ -67,17 +68,14 @@ export async function POST(request: Request) {
     }
 
     const apiMap: Record<string, (() => Promise<any[]>) | undefined> = {
-      "PubMed": () => fetchPubMed(query, yearFrom, yearTo, studyType),
+      "PubMed": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
       "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
-      "Europe PMC": () => fetchEuropePMC(query, yearFrom, yearTo, studyType),
-      "Google Scholar": () => fetchOpenAlex(`scholarly articles ${query}`, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
-      "WHO IRIS": () => fetchEuropePMC(`WHO health guidelines ${query}`, yearFrom, yearTo, studyType),
-      "Semantic Scholar": () => fetchOpenAlex(`AI machine learning ${query}`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
+      "Google Scholar": () => fetchGoogleScholarBrowserless(query, yearFrom, yearTo, studyType),
+      "Semantic Scholar": () => fetchSemanticScholarBrowserless(query, yearFrom, yearTo, studyType),
       "ClinicalTrials.gov": () => fetchClinicalTrialsGov(query, yearFrom, yearTo, studyType),
       "Cochrane Library": () => fetchCochraneLibrary(query, yearFrom, yearTo, studyType),
-      "Shodhganga": () => fetchOpenAlex(`theses dissertations ${query}`, yearFrom, yearTo, studyType, { filter: "type:dissertation,authorships.institutions.country_code:IN" }),
-      "Prospero": () => fetchEuropePMC(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
-      "ScienceDirect": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc", filter: "host_venue:publisher:Elsevier" }),
+      "Shodhganga": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { filter: "type:dissertation,authorships.institutions.country_code:IN" }),
+      "ScienceDirect": () => fetchScienceDirectBrowserless(query, yearFrom, yearTo, studyType),
       "Clarivate": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc", filter: "has_doi:true" }),
       "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
       "arXiv": () => fetcharXiv(query, yearFrom, yearTo, studyType),
@@ -94,11 +92,10 @@ export async function POST(request: Request) {
       "dblp": () => fetchDblp(query, yearFrom, yearTo, studyType),
       "IACR": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
       "Unpaywall": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
-      "ERIC": () => fetchEuropePMC(`education research ${query}`, yearFrom, yearTo, studyType),
-      "CTRI – India": () => fetchEuropePMC(`clinical trials India ${query}`, yearFrom, yearTo, studyType),
+      "WHO IRIS": () => fetchOpenAlex(`WHO health guidelines ${query}`, yearFrom, yearTo, studyType),
+      "Prospero": () => fetchOpenAlex(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
       "scite.ai": () => fetchOpenAlex(`${query} citation analysis`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
       "paper-search-mcp": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
-      "Semantic Scholar (raw)": () => fetchSemanticScholarRaw(query, yearFrom, yearTo, studyType),
     };
 
     const selectedApis = databases.filter((db) => apiMap[db]);

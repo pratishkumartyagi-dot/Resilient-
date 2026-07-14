@@ -1,4 +1,6 @@
 import { getSkillById, MEDICAL_SKILLS_REGISTRY } from "./medical-skills/skills-registry";
+import { scrapeUrl } from "./browserless-scraper";
+import * as cheerio from "cheerio";
 
 export interface Paper {
   id: string;
@@ -251,81 +253,6 @@ export async function fetchOpenAlex(
 // Re-export STUDY_TYPES for backward compatibility
 export const STUDY_TYPES = Object.keys(STUDY_TYPE_KEYWORDS);
 
-export async function fetchPubMed(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const dateParts: string[] = [];
-  if (yearFrom) dateParts.push(`(${yearFrom}[Date - Publication] : ${yearTo || new Date().getFullYear()}[Date - Publication])`);
-  const pubDateFilter = dateParts.join(" AND ");
-
-  const searchQuery = pubDateFilter ? `(${query}) AND ${pubDateFilter}` : query;
-  const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmode=json&retmax=1000&term=${encodeURIComponent(searchQuery)}`;
-
-  const searchRes = await fetchWithTimeout(searchUrl);
-  if (!searchRes.ok) throw new Error(`PubMed search error: ${searchRes.status}`);
-  const searchData = await searchRes.json();
-  const pmids: string[] = searchData.esearchresult?.idlist || [];
-  if (pmids.length === 0) return [];
-
-  const papers: Paper[] = [];
-  const BATCH = 200;
-  for (let i = 0; i < pmids.length; i += BATCH) {
-    const batch = pmids.slice(i, i + BATCH);
-    const fetchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&retmode=xml&id=${batch.join(",")}`;
-    const fetchRes = await fetchWithTimeout(fetchUrl);
-    if (!fetchRes.ok) continue;
-    const xmlText = await fetchRes.text();
-
-    const articleRegex = /<PubmedArticle>([\s\S]*?)<\/PubmedArticle>/g;
-    let match: RegExpExecArray | null;
-
-    while ((match = articleRegex.exec(xmlText)) !== null) {
-      const articleXml = match[1];
-      const pmid = (articleXml.match(/<PMID[^>]*>(\d+)<\/PMID>/) || [])[1] || "";
-      const titleMatch = articleXml.match(/<ArticleTitle[^>]*>([\s\S]*?)<\/ArticleTitle>/);
-      const abstractMatch = articleXml.match(/<AbstractText[^>]*>([\s\S]*?)<\/AbstractText>/g);
-      const authors: string[] = [];
-      const authorRegex = /<Author[^>]*>[\s\S]*?<LastName>([^<]+)<\/LastName>[\s\S]*?<ForeName>([^<]+)<\/ForeName>[\s\S]*?<\/Author>/g;
-      let authorMatch: RegExpExecArray | null;
-      while ((authorMatch = authorRegex.exec(articleXml)) !== null && authors.length < 8) {
-        authors.push(`${authorMatch[2]} ${authorMatch[1]}`);
-      }
-      const journalMatch = articleXml.match(/<Title[^>]*>([^<]+)<\/Title>/) || articleXml.match(/<ISOAbbreviation[^>]*>([^<]+)<\/ISOAbbreviation>/);
-      const yearMatch = articleXml.match(/<Year[^>]*>(\d{4})<\/Year>/);
-      const doiMatch = articleXml.match(/<ELocationID EIdType="doi"[^>]*>([^<]+)<\/ELocationID>/);
-
-      if (!titleMatch) continue;
-
-      const title = titleMatch[1].replace(/<[^>]+>/g, "").trim();
-      const abstract = abstractMatch
-        ? abstractMatch.map((a) => a.replace(/<[^>]+>/g, "").trim()).join(" ")
-        : "No abstract available.";
-      const paper: Paper = {
-        id: `pubmed-${pmid || Math.random().toString(36).slice(2, 8)}`,
-        title,
-        authors: authors.length > 0 ? authors.join(", ") + (authors.length >= 8 ? " et al." : "") : "Unknown authors",
-        journal: journalMatch ? journalMatch[1].trim() : "Unknown Journal",
-        year: yearMatch ? parseInt(yearMatch[1]) : new Date().getFullYear(),
-        doi: doiMatch ? doiMatch[1].replace("https://doi.org/", "") : "",
-        abstract: abstract.substring(0, 3000),
-        database: "PubMed",
-        studyType: classifyStudyType(title, abstract),
-        selected: false,
-        url: pmid ? `https://pubmed.ncbi.nlm.nih.gov/${pmid}/` : "",
-        pmid,
-      };
-      papers.push(paper);
-    }
-  }
-
-  if (studyType && studyType !== "All Study Types") {
-    const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
-    const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
-    return filtered.length > 0 ? filtered : papers.slice(0, 20);
-  }
-
-  return papers;
-}
-
-
 async function fetchWithTimeout(url: string, ms = 20000): Promise<Response> {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), ms);
@@ -348,80 +275,6 @@ async function fetchWithTimeout(url: string, ms = 20000): Promise<Response> {
   } finally {
     clearTimeout(id);
   }
-}
-
-export async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const yearFilter = yearFrom || yearTo ? `(FIRST_DATE:[${yearFrom || "1000"} TO ${yearTo || "9999"}]) AND ` : "";
-  const papers: Paper[] = [];
-  let cursorMark: string | undefined;
-
-  for (let page = 0; page < 20; page++) {
-    const qs = new URLSearchParams({
-      query: yearFilter + query,
-      resultType: "core",
-      pageSize: "100",
-      format: "json",
-    });
-    if (cursorMark) qs.set("cursorMark", cursorMark);
-    const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?${qs.toString()}`;
-    let res: Response;
-    try {
-      res = await fetchWithTimeout(url);
-    } catch (err: any) {
-      if (page === 0 && papers.length === 0) throw new Error(`Europe PMC fetch failed: ${err?.message || String(err)}`);
-      break;
-    }
-    if (!res.ok) {
-      if (page === 0 && papers.length === 0) throw new Error(`Europe PMC error: ${res.status}`);
-      break;
-    }
-    const data = await res.json();
-    const results = data.resultList?.result || [];
-    if (results.length === 0) break;
-    results.forEach((r: any) => {
-      if (!r.title || r.title.length <= 10) return;
-      const authors = (r.authorList?.author || [])
-        .slice(0, 8)
-        .map((a: any) => `${a.firstName || ""} ${a.lastName || ""}`.trim())
-        .join(", ");
-      papers.push({
-        id: `epmc-${r.id || Math.random().toString(36).slice(2, 8)}`,
-        title: r.title,
-        authors: authors || "Unknown",
-        journal: r.journalInfo?.journal?.title || r.source || "Unknown Journal",
-        year: parseInt(r.pubYear || r.firstPublicationDate?.slice(0, 4)) || new Date().getFullYear(),
-        doi: r.doi || "",
-        abstract: r.abstractText || r.abstract || "No abstract available.",
-        database: "Europe PMC",
-        studyType: classifyStudyType(r.title, r.abstractText || r.abstract || ""),
-        selected: false,
-        url: r.doi ? `https://doi.org/${r.doi}` : `https://europepmc.org/article/${r.id}`,
-        pmid: r.pmid,
-      });
-    });
-    cursorMark = data.nextCursorMark;
-    if (!cursorMark) break;
-  }
-
-  const seenDois = new Set<string>();
-  const seenTitles = new Set<string>();
-  const deduped = papers.filter((p) => {
-    const doiKey = p.doi?.toLowerCase();
-    const titleKey = p.title.toLowerCase().trim().slice(0, 60);
-    if (doiKey && seenDois.has(doiKey)) return false;
-    if (titleKey && seenTitles.has(titleKey)) return false;
-    if (doiKey) seenDois.add(doiKey);
-    if (titleKey) seenTitles.add(titleKey);
-    return true;
-  });
-
-  if (studyType && studyType !== "All Study Types") {
-    const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
-    const filtered = deduped.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
-    return filtered.length > 0 ? filtered : deduped.slice(0, 20);
-  }
-
-  return deduped;
 }
 
 export async function fetchDoaj(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
@@ -832,46 +685,6 @@ export async function fetchDblp(query: string, yearFrom?: string, yearTo?: strin
   return papers.slice(0, 20);
 }
 
-export async function fetchSemanticScholarRaw(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const qs = new URLSearchParams({ query: query, limit: "100", fields: "title,authors,year,externalIds,abstract,url,publicationDate,venue" });
-  const url = `https://api.semanticscholar.org/graph/v1/paper/search?${qs.toString()}`;
-  const res = await fetchWithTimeout(url);
-  if (!res.ok) throw new Error(`Semantic Scholar error: ${res.status}`);
-  const data = await res.json();
-  const results = data.data || [];
-  const papers: Paper[] = results.map((p: any) => {
-    const title = p.title || "Untitled";
-    const authors = (p.authors || []).map((a: any) => a.name || "").filter(Boolean).join(", ") || "Unknown authors";
-    const year = p.year || parseInt(p.publicationDate?.slice(0, 4)) || new Date().getFullYear();
-    const doi = p.externalIds?.DOI || "";
-    const abstract = p.abstract || "No abstract available.";
-    const venue = p.venue || "Unknown Journal";
-    if (yearFrom && year < parseInt(yearFrom)) return null;
-    if (yearTo && year > parseInt(yearTo)) return null;
-    return {
-      id: `ss-${p.paperId || Math.random().toString(36).slice(2, 8)}`,
-      title,
-      authors: authors.substring(0, 300),
-      journal: venue,
-      year,
-      doi,
-      abstract: abstract.substring(0, 3000),
-      database: "Semantic Scholar (raw)",
-      studyType: classifyStudyType(title, abstract),
-      selected: false,
-      url: p.url || (doi ? `https://doi.org/${doi}` : ""),
-      sourceBackend: "Semantic Scholar API",
-      sources: ["Semantic Scholar (raw)"],
-    };
-  }).filter(Boolean) as Paper[];
-  if (studyType && studyType !== "All Study Types") {
-    const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
-    const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
-    return filtered.length > 0 ? filtered : papers.slice(0, 20);
-  }
-  return papers.slice(0, 20);
-}
-
 export async function fetchRealPapers(query: string, databases: string[], yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const allPapers: Paper[] = [];
   const failedDbs: string[] = [];
@@ -879,21 +692,15 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
 
   const apiDatabases: Record<string, () => Promise<Paper[]>> = {
     "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
-    "PubMed": () => fetchPubMed(query, yearFrom, yearTo, studyType),
-    "Europe PMC": () => fetchEuropePMC(query, yearFrom, yearTo, studyType),
-    "ERIC": () => fetchEuropePMC(`education research ${query}`, yearFrom, yearTo, studyType),
-    "Google Scholar": () => fetchOpenAlex(`scholarly articles ${query}`, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
-    "Shodhganga": () => fetchOpenAlex(`theses dissertations ${query}`, yearFrom, yearTo, studyType, { filter: "type:dissertation,authorships.institutions.country_code:IN" }),
-    "CTRI – India": () => fetchEuropePMC(`clinical trials India ${query}`, yearFrom, yearTo, studyType),
-    "scite.ai": () => fetchOpenAlex(`${query} citation analysis`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
-    "WHO IRIS": () => fetchEuropePMC(`WHO health guidelines ${query}`, yearFrom, yearTo, studyType),
-    "Semantic Scholar": () => fetchOpenAlex(`AI machine learning ${query}`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
+    "PubMed": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
+    "Google Scholar": () => fetchGoogleScholarBrowserless(query, yearFrom, yearTo, studyType),
+    "Semantic Scholar": () => fetchSemanticScholarBrowserless(query, yearFrom, yearTo, studyType),
     "ClinicalTrials.gov": () => fetchClinicalTrialsGov(query, yearFrom, yearTo, studyType),
     "Cochrane Library": () => fetchCochraneLibrary(query, yearFrom, yearTo, studyType),
-    "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
-    "Prospero": () => fetchEuropePMC(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
-    "ScienceDirect": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc", filter: "host_venue:publisher:Elsevier" }),
+    "Shodhganga": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { filter: "type:dissertation,authorships.institutions.country_code:IN" }),
+    "ScienceDirect": () => fetchScienceDirectBrowserless(query, yearFrom, yearTo, studyType),
     "Clarivate": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc", filter: "has_doi:true" }),
+    "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
     "arXiv": () => fetcharXiv(query, yearFrom, yearTo, studyType),
     "bioRxiv": () => fetchBioRxiv(query, yearFrom, yearTo, studyType),
     "medRxiv": () => fetchMedRxiv(query, yearFrom, yearTo, studyType),
@@ -908,8 +715,10 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
     "dblp": () => fetchDblp(query, yearFrom, yearTo, studyType),
     "IACR": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
     "Unpaywall": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
+    "WHO IRIS": () => fetchOpenAlex(`WHO health guidelines ${query}`, yearFrom, yearTo, studyType),
+    "Prospero": () => fetchOpenAlex(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
+    "scite.ai": () => fetchOpenAlex(`${query} citation analysis`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
     "paper-search-mcp": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
-    "Semantic Scholar (raw)": () => fetchSemanticScholarRaw(query, yearFrom, yearTo, studyType),
   };
 
   const selectedApis = databases.filter((db) => apiDatabases[db]);
@@ -972,21 +781,15 @@ export async function fetchRealPapersWithCounts(query: string, databases: string
 
   const apiDatabases: Record<string, () => Promise<Paper[]>> = {
     "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
-    "PubMed": () => fetchPubMed(query, yearFrom, yearTo, studyType),
-    "Europe PMC": () => fetchEuropePMC(query, yearFrom, yearTo, studyType),
-    "ERIC": () => fetchEuropePMC(`education research ${query}`, yearFrom, yearTo, studyType),
-    "Google Scholar": () => fetchOpenAlex(`scholarly articles ${query}`, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
-    "Shodhganga": () => fetchOpenAlex(`theses dissertations ${query}`, yearFrom, yearTo, studyType, { filter: "type:dissertation,authorships.institutions.country_code:IN" }),
-    "CTRI – India": () => fetchEuropePMC(`clinical trials India ${query}`, yearFrom, yearTo, studyType),
-    "scite.ai": () => fetchOpenAlex(`${query} citation analysis`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
-    "WHO IRIS": () => fetchEuropePMC(`WHO health guidelines ${query}`, yearFrom, yearTo, studyType),
-    "Semantic Scholar": () => fetchOpenAlex(`AI machine learning ${query}`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
+    "PubMed": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
+    "Google Scholar": () => fetchGoogleScholarBrowserless(query, yearFrom, yearTo, studyType),
+    "Semantic Scholar": () => fetchSemanticScholarBrowserless(query, yearFrom, yearTo, studyType),
     "ClinicalTrials.gov": () => fetchClinicalTrialsGov(query, yearFrom, yearTo, studyType),
     "Cochrane Library": () => fetchCochraneLibrary(query, yearFrom, yearTo, studyType),
-    "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
-    "Prospero": () => fetchEuropePMC(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
-    "ScienceDirect": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc", filter: "host_venue:publisher:Elsevier" }),
+    "Shodhganga": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { filter: "type:dissertation,authorships.institutions.country_code:IN" }),
+    "ScienceDirect": () => fetchScienceDirectBrowserless(query, yearFrom, yearTo, studyType),
     "Clarivate": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc", filter: "has_doi:true" }),
+    "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
     "arXiv": () => fetcharXiv(query, yearFrom, yearTo, studyType),
     "bioRxiv": () => fetchBioRxiv(query, yearFrom, yearTo, studyType),
     "medRxiv": () => fetchMedRxiv(query, yearFrom, yearTo, studyType),
@@ -1001,8 +804,10 @@ export async function fetchRealPapersWithCounts(query: string, databases: string
     "dblp": () => fetchDblp(query, yearFrom, yearTo, studyType),
     "IACR": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
     "Unpaywall": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
+    "WHO IRIS": () => fetchOpenAlex(`WHO health guidelines ${query}`, yearFrom, yearTo, studyType),
+    "Prospero": () => fetchOpenAlex(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
+    "scite.ai": () => fetchOpenAlex(`${query} citation analysis`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
     "paper-search-mcp": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
-    "Semantic Scholar (raw)": () => fetchSemanticScholarRaw(query, yearFrom, yearTo, studyType),
   };
 
   const selectedApis = databases.filter((db) => apiDatabases[db]);
@@ -1041,21 +846,15 @@ export async function fetchRealPapersWithCounts(query: string, databases: string
 function getDatabaseBackend(uiDatabase: string): string {
   const mapping: Record<string, string> = {
     "OpenAlex": "OpenAlex API",
-    "PubMed": "NCBI E-utilities",
-    "Europe PMC": "Europe PMC REST API",
-    "ERIC": "Europe PMC REST API",
-    "Google Scholar": "OpenAlex API",
-    "Shodhganga": "OpenAlex API",
-    "CTRI – India": "Europe PMC REST API",
-    "scite.ai": "OpenAlex API",
-    "WHO IRIS": "Europe PMC REST API",
-    "Semantic Scholar": "OpenAlex API",
+    "PubMed": "PubMed Browserless",
+    "Google Scholar": "Google Scholar Browserless",
+    "Semantic Scholar": "Semantic Scholar Browserless",
     "ClinicalTrials.gov": "ClinicalTrials.gov API v2",
     "Cochrane Library": "Web Search (cochranelibrary.com)",
-    "DOAJ": "DOAJ API",
-    "Prospero": "Europe PMC REST API",
-    "ScienceDirect": "OpenAlex API",
+    "Shodhganga": "OpenAlex API",
+    "ScienceDirect": "ScienceDirect Browserless",
     "Clarivate": "OpenAlex API",
+    "DOAJ": "DOAJ API",
     "arXiv": "arXiv API",
     "bioRxiv": "bioRxiv API",
     "medRxiv": "medRxiv API",
@@ -1070,7 +869,9 @@ function getDatabaseBackend(uiDatabase: string): string {
     "dblp": "DBLP API",
     "IACR": "OpenAlex API",
     "Unpaywall": "OpenAlex API",
-    "Semantic Scholar (raw)": "Semantic Scholar API",
+    "WHO IRIS": "OpenAlex API",
+    "Prospero": "OpenAlex API",
+    "scite.ai": "OpenAlex API",
     "paper-search-mcp": "OpenAlex API",
   };
   return mapping[uiDatabase] || uiDatabase;
@@ -1345,4 +1146,241 @@ export async function fetchCochraneLibrary(query: string, yearFrom?: string, yea
   } catch (err: any) {
     throw new Error(`Cochrane Library search failed: ${err?.message || String(err)}`);
   }
+}
+
+export async function fetchPubMedBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+  const qs = new URLSearchParams({ term: query });
+  if (yearFrom || yearTo) {
+    const from = yearFrom || "1900";
+    const to = yearTo || new Date().getFullYear().toString();
+    qs.set("filter", `dates.${from}-${to}`);
+  }
+  const url = `https://pubmed.ncbi.nlm.nih.gov/?${qs.toString()}`;
+  const html = await scrapeUrl(url);
+  const $ = cheerio.load(html);
+  const papers: Paper[] = [];
+
+  $(".results-articles article, .article-list .article-item, .search-results article").each((_, el) => {
+    const title = $(el).find(".article-title, .headline a, h3 a, h2 a").first().text().trim();
+    const authors = $(el).find(".authors, .author-list, .citation-author").first().text().trim();
+    const journal = $(el).find(".journal-title, .citation-journal, .journal").first().text().trim();
+    const yearText = $(el).find(".pubdate, .date, .citation-date").first().text().trim();
+    const yearMatch = yearText.match(/\d{4}/);
+    const year = yearMatch ? parseInt(yearMatch[0]) : new Date().getFullYear();
+    const doiEl = $(el).find('.id-link a[href*="doi.org"], .doi-link, a[href*="doi.org"]').first();
+    const doiHref = doiEl.attr("href") || "";
+    const doi = doiHref.replace("https://doi.org/", "").replace("http://doi.org/", "").trim();
+    const abstract = $(el).find(".abstract, .article-abstract").first().text().trim() || "No abstract available.";
+    const pmidEl = $(el).find('.id-link a[href*="pubmed.ncbi.nlm.nih.gov"], a[href*="pubmed.ncbi.nlm.nih.gov"]').first();
+    const pmidHref = pmidEl.attr("href") || "";
+    const pmid = pmidHref.split("/").filter(Boolean).pop() || "";
+
+    if (!title || title.length < 5) return;
+
+    papers.push({
+      id: `pubmed-${pmid || Math.random().toString(36).slice(2, 8)}`,
+      title,
+      authors: authors || "Unknown authors",
+      journal: journal || "Unknown Journal",
+      year,
+      doi,
+      abstract: abstract.substring(0, 3000),
+      database: "PubMed",
+      studyType: classifyStudyType(title, abstract),
+      selected: false,
+      url: pmid ? `https://pubmed.ncbi.nlm.nih.gov/${pmid}/` : (doi ? `https://doi.org/${doi}` : url),
+      pmid,
+      sourceBackend: "PubMed Browserless",
+      sources: ["PubMed"],
+    });
+  });
+
+  if (papers.length === 0) {
+    throw new Error("No PubMed results found via Browserless");
+  }
+
+  if (yearFrom || yearTo) {
+    const yFrom = yearFrom ? parseInt(yearFrom) : 0;
+    const yTo = yearTo ? parseInt(yearTo) : 9999;
+    return papers.filter((p) => p.year >= yFrom && p.year <= yTo);
+  }
+
+  if (studyType && studyType !== "All Study Types") {
+    const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
+    const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+    return filtered.length > 0 ? filtered : papers;
+  }
+
+  return papers;
+}
+
+export async function fetchGoogleScholarBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+  const url = `https://scholar.google.com/scholar?q=${encodeURIComponent(query)}&hl=en`;
+  const html = await scrapeUrl(url);
+  const $ = cheerio.load(html);
+  const papers: Paper[] = [];
+
+  $("#gs_res_ccl_mid .gs_r, .gs_r").each((_, el) => {
+    const titleEl = $(el).find(".gs_rt a, .gs_rt").first();
+    const title = titleEl.text().trim();
+    const link = titleEl.attr("href") || "";
+    const authorsYear = $(el).find(".gs_a").first().text().trim();
+    const authors = authorsYear.replace(/<[^>]+>/g, "").replace(/-\s*\d{4}.*$/, "").trim();
+    const yearMatch = authorsYear.match(/\d{4}/);
+    const year = yearMatch ? parseInt(yearMatch[0]) : new Date().getFullYear();
+    const abstract = $(el).find(".gs_rs").first().text().trim() || "No abstract available.";
+
+    if (!title || title.length < 5) return;
+
+    papers.push({
+      id: `scholar-${Math.random().toString(36).slice(2, 8)}`,
+      title,
+      authors: authors || "Unknown authors",
+      journal: "Google Scholar",
+      year,
+      doi: "",
+      abstract: abstract.substring(0, 3000),
+      database: "Google Scholar",
+      studyType: classifyStudyType(title, abstract),
+      selected: false,
+      url: link || url,
+      sourceBackend: "Google Scholar Browserless",
+      sources: ["Google Scholar"],
+    });
+  });
+
+  if (papers.length === 0) {
+    throw new Error("No Google Scholar results found via Browserless");
+  }
+
+  if (yearFrom || yearTo) {
+    const yFrom = yearFrom ? parseInt(yearFrom) : 0;
+    const yTo = yearTo ? parseInt(yearTo) : 9999;
+    return papers.filter((p) => p.year >= yFrom && p.year <= yTo);
+  }
+
+  if (studyType && studyType !== "All Study Types") {
+    const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
+    const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+    return filtered.length > 0 ? filtered : papers;
+  }
+
+  return papers;
+}
+
+export async function fetchSemanticScholarBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+  const url = `https://www.semanticscholar.org/search?q=${encodeURIComponent(query)}&sort=relevance`;
+  const html = await scrapeUrl(url);
+  const $ = cheerio.load(html);
+  const papers: Paper[] = [];
+
+  $(".result-item, .search-result, .cl-paper-row").each((_, el) => {
+    const title = $(el).find(".title, .result-item-title, h2 a").first().text().trim();
+    const authors = $(el).find(".authors, .author-names, .cl-paper-authors").first().text().trim();
+    const yearEl = $(el).find(".year, .publication-date, .cl-paper-year");
+    const yearText = yearEl.first().text().trim();
+    const yearMatch = yearText.match(/\d{4}/);
+    const year = yearMatch ? parseInt(yearMatch[0]) : new Date().getFullYear();
+    const doiEl = $(el).find('a[href*="doi.org"], .doi');
+    const doiHref = doiEl.attr("href") || "";
+    const doi = doiHref.replace("https://doi.org/", "").replace("http://doi.org/", "").trim();
+    const abstract = $(el).find(".abstract, .cl-paper-abstract").first().text().trim() || "No abstract available.";
+    const linkEl = $(el).find("a").first();
+    const link = linkEl.attr("href") || "";
+
+    if (!title || title.length < 5) return;
+
+    papers.push({
+      id: `ss-${Math.random().toString(36).slice(2, 8)}`,
+      title,
+      authors: authors || "Unknown authors",
+      journal: "Semantic Scholar",
+      year,
+      doi,
+      abstract: abstract.substring(0, 3000),
+      database: "Semantic Scholar",
+      studyType: classifyStudyType(title, abstract),
+      selected: false,
+      url: link.startsWith("http") ? link : (doi ? `https://doi.org/${doi}` : url),
+      sourceBackend: "Semantic Scholar Browserless",
+      sources: ["Semantic Scholar"],
+    });
+  });
+
+  if (papers.length === 0) {
+    throw new Error("No Semantic Scholar results found via Browserless");
+  }
+
+  if (yearFrom || yearTo) {
+    const yFrom = yearFrom ? parseInt(yearFrom) : 0;
+    const yTo = yearTo ? parseInt(yearTo) : 9999;
+    return papers.filter((p) => p.year >= yFrom && p.year <= yTo);
+  }
+
+  if (studyType && studyType !== "All Study Types") {
+    const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
+    const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+    return filtered.length > 0 ? filtered : papers;
+  }
+
+  return papers;
+}
+
+export async function fetchScienceDirectBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+  const url = `https://www.sciencedirect.com/search?q=${encodeURIComponent(query)}`;
+  const html = await scrapeUrl(url);
+  const $ = cheerio.load(html);
+  const papers: Paper[] = [];
+
+  $(".result-item, .search-result-item, .article-item").each((_, el) => {
+    const title = $(el).find(".result-item-title, h2 a, .article-title").first().text().trim();
+    const authors = $(el).find(".author, .authors, .article-author").first().text().trim();
+    const journal = $(el).find(".publication-title, .journal-name, .source-title").first().text().trim();
+    const yearEl = $(el).find(".date, .publication-date, .year");
+    const yearText = yearEl.first().text().trim();
+    const yearMatch = yearText.match(/\d{4}/);
+    const year = yearMatch ? parseInt(yearMatch[0]) : new Date().getFullYear();
+    const doiEl = $(el).find('a[href*="doi.org"]');
+    const doiHref = doiEl.attr("href") || "";
+    const doi = doiHref.replace("https://doi.org/", "").replace("http://doi.org/", "").trim();
+    const abstract = $(el).find(".abstract, .article-abstract").first().text().trim() || "No abstract available.";
+    const linkEl = $(el).find("a").first();
+    const link = linkEl.attr("href") || "";
+
+    if (!title || title.length < 5) return;
+
+    papers.push({
+      id: `sd-${Math.random().toString(36).slice(2, 8)}`,
+      title,
+      authors: authors || "Unknown authors",
+      journal: journal || "ScienceDirect",
+      year,
+      doi,
+      abstract: abstract.substring(0, 3000),
+      database: "ScienceDirect",
+      studyType: classifyStudyType(title, abstract),
+      selected: false,
+      url: link.startsWith("http") ? link : (doi ? `https://doi.org/${doi}` : url),
+      sourceBackend: "ScienceDirect Browserless",
+      sources: ["ScienceDirect"],
+    });
+  });
+
+  if (papers.length === 0) {
+    throw new Error("No ScienceDirect results found via Browserless");
+  }
+
+  if (yearFrom || yearTo) {
+    const yFrom = yearFrom ? parseInt(yearFrom) : 0;
+    const yTo = yearTo ? parseInt(yearTo) : 9999;
+    return papers.filter((p) => p.year >= yFrom && p.year <= yTo);
+  }
+
+  if (studyType && studyType !== "All Study Types") {
+    const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
+    const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+    return filtered.length > 0 ? filtered : papers;
+  }
+
+  return papers;
 }

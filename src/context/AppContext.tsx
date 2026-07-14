@@ -254,7 +254,6 @@ const initialState: AppState = {
   selectedDatabases: [
     "PubMed",
     "OpenAlex",
-    "Europe PMC",
     "Google Scholar",
     "ClinicalTrials.gov",
     "WHO IRIS",
