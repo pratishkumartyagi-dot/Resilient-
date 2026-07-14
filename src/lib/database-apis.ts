@@ -864,13 +864,13 @@ export async function fetchRealPapersWithCounts(query: string, databases: string
 function getDatabaseBackend(uiDatabase: string): string {
   const mapping: Record<string, string> = {
     "OpenAlex": "OpenAlex API",
-    "PubMed": "PubMed Browserless",
-    "Google Scholar": "Google Scholar Browserless",
-    "Semantic Scholar": "Semantic Scholar Browserless",
+    "PubMed": "PubMed E-utilities",
+    "Google Scholar": "Semantic Scholar Graph API",
+    "Semantic Scholar": "Semantic Scholar Graph API",
     "ClinicalTrials.gov": "ClinicalTrials.gov API v2",
     "Cochrane Library": "Web Search (cochranelibrary.com)",
     "Shodhganga": "OpenAlex API",
-    "ScienceDirect": "ScienceDirect Browserless",
+    "ScienceDirect": "Semantic Scholar Graph API",
     "Clarivate": "OpenAlex API",
     "DOAJ": "DOAJ API",
     "arXiv": "arXiv API",
