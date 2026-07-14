@@ -1,5 +1,4 @@
 import { getSkillById, MEDICAL_SKILLS_REGISTRY } from "./medical-skills/skills-registry";
-import { scrapeUrl } from "./browserless-scraper";
 import * as cheerio from "cheerio";
 
 export interface Paper {
