@@ -630,7 +630,8 @@ export async function fetchOpenAIRE(query: string, yearFrom?: string, yearTo?: s
     const entity = meta["oaf:entity"] || {};
     const result = entity["oaf:result"] || {};
     const title = result.resulttitle || "Untitled";
-    const authors = (result.publisher || "").substring(0, 300);
+    const creatorList = Array.isArray(result.creator) ? result.creator : (result.creator ? [result.creator] : []);
+    const authors = creatorList.map((c: any) => c["$"] || c.content || c.name || "").filter(Boolean).join(", ").substring(0, 300) || "Unknown authors";
     const year = parseInt(result.dateofcollection?.slice(0, 4) || result.dateofacceptance?.slice(0, 4)) || new Date().getFullYear();
     const doi = (result.doi || "").replace("https://doi.org/", "");
     const abstract = result.description || result.abstract || "No abstract available.";
