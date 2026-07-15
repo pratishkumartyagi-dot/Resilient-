@@ -6,7 +6,7 @@ import {
   RotateCcw, CheckCircle2, ExternalLink, FlaskConical,
   Save, Sparkles, ClipboardList, Table, Download,
   FileJson, BarChart3, PenTool, BookOpen, FileCode,
-  Bot, ShieldCheck, Loader2
+  Bot, ShieldCheck, Loader2, Zap
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
@@ -23,6 +23,11 @@ import {
   formatAgentsForPrompt,
   type ReviewFinding,
 } from "@/lib/academic-writing-agents";
+import {
+  buildSTORMOutlinePrompt,
+  buildSTORMOutlineDraftPrompt,
+  buildSTORMReviewPrompt,
+} from "@/lib/storm-draft-generator";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Legend
@@ -292,6 +297,13 @@ export default function EvidenceSynthesisTab() {
   const [reviewLoading, setReviewLoading] = useState(false);
   const [finalManuscript, setFinalManuscript] = useState("");
   const [finalManuscriptLoading, setFinalManuscriptLoading] = useState(false);
+  const [stormMode, setStormMode] = useState<"academic-agents" | "storm">("academic-agents");
+  const [stormDraft, setStormDraft] = useState("");
+  const [stormLoading, setStormLoading] = useState(false);
+  const [stormReview, setStormReview] = useState("");
+  const [stormReviewLoading, setStormReviewLoading] = useState(false);
+  const [stormFinal, setStormFinal] = useState("");
+  const [stormFinalLoading, setStormFinalLoading] = useState(false);
   const [literatureReviewSections, setLiteratureReviewSections] = useState({
     introduction: "",
     globalIndian: "",
@@ -1636,6 +1648,155 @@ ${isNarrative ? `## Evidence Synthesis
     }
   };
 
+  const generateStormDraft = async () => {
+    if (extractedData.length === 0) {
+      alert("Please complete data extraction first.");
+      return;
+    }
+    setStormLoading(true);
+    setStormDraft("");
+    setStormReview("");
+    setStormFinal("");
+    try {
+      const papersForSynthesis = extractedData.filter((p) => selectedPaperIds.has(p.id));
+      const prompt = buildSTORMOutlinePrompt({
+        topic: query || "the research topic",
+        reviewType,
+        papers: papersForSynthesis.map((p) => ({
+          id: p.id,
+          title: p.title,
+          authors: p.authors,
+          year: p.year,
+          studyType: p.studyType,
+          outcome: p.outcome,
+          abstract: p.abstract || "",
+        })),
+        extractedData,
+        synthesisOutput,
+        effectSizes,
+        robAssessments,
+        prismaCounts: {
+          identification: totalIdentified || papers.length,
+          deduped: dedupedCount || papers.length,
+          screened: selectedPaperIds.size,
+          excluded: Math.max(0, selectedPaperIds.size - extractedData.length),
+          assessed: extractedData.length,
+          included: extractedData.length || effectSizes.length,
+        },
+        query,
+      });
+
+      const apiKey = state.geminiApiKey || state.groqApiKey;
+      if (!apiKey) {
+        setStormDraft("# STORM Draft\n\nNo API key configured. Please add your Gemini or Groq API key in Settings to generate the STORM research-paper draft.\n\n## References\n\n1. Page MJ, McKenzie JE, Bossuyt PM, et al. The PRISMA 2020 statement. BMJ. 2021;372:n71.\n");
+        setStormLoading(false);
+        return;
+      }
+
+      let text: string;
+      const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
+      if (state.geminiApiKey) {
+        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
+      } else if (state.groqApiKey) {
+        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
+      } else {
+        throw new Error("No API key configured. Please open Settings (gear icon).");
+      }
+
+      const cleaned = text.replace(/```/g, "").trim();
+      setStormDraft(cleaned);
+    } catch (err: any) {
+      setStormDraft(`# Error\n\n**Failed to generate STORM draft:** ${err.message || "Unknown error"}\n\nPlease complete Steps 1–5 and try again.`);
+    } finally {
+      setStormLoading(false);
+    }
+  };
+
+  const runStormReview = async () => {
+    if (!stormDraft) {
+      alert("Please generate a STORM draft first before running the review.");
+      return;
+    }
+    setStormReviewLoading(true);
+    setStormReview("");
+    setStormFinal("");
+    try {
+      const prompt = buildSTORMReviewPrompt({ draft: stormDraft, topic: query || "the research topic" });
+      const apiKey = state.geminiApiKey || state.groqApiKey;
+      if (!apiKey) {
+        setStormReview("No API key configured. Please add your Gemini or Groq API key in Settings to run the STORM self-review.");
+        setStormReviewLoading(false);
+        return;
+      }
+
+      let text: string;
+      const searchOptions: AICallOptions = { searchEnabled: false, searchQuery: query };
+      if (state.geminiApiKey) {
+        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
+      } else if (state.groqApiKey) {
+        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
+      } else {
+        throw new Error("No API key configured. Please open Settings (gear icon).");
+      }
+
+      const cleaned = text.replace(/```/g, "").trim();
+      setStormReview(cleaned);
+    } catch (err: any) {
+      setStormReview(`# Error\n\n**Failed to generate STORM review:** ${err.message || "Unknown error"}\n\nPlease ensure your API key is valid and try again.`);
+    } finally {
+      setStormReviewLoading(false);
+    }
+  };
+
+  const incorporateStormReview = async () => {
+    if (!stormDraft || !stormReview) {
+      alert("Please generate both a STORM draft and a review first.");
+      return;
+    }
+    setStormFinalLoading(true);
+    setStormFinal("");
+    try {
+      const prompt = `You are STORM (Synthesis of Topic Outlines through Research and Multi-perspective Questioning). Incorporate the review feedback below into the research-paper draft and produce a final polished version.
+
+## Original Draft
+${stormDraft}
+
+## Review Feedback
+${stormReview}
+
+## Instructions
+- Address every point raised in the review
+- Maintain the academic tone and structure
+- Do not remove any required sections (Title Page, Abstract, Introduction, Methods, Results, Discussion, Conclusion, References, Self-Review Checklist)
+- Output the complete final draft in Markdown
+`;
+
+      const apiKey = state.geminiApiKey || state.groqApiKey;
+      if (!apiKey) {
+        setStormFinal("No API key configured. Please add your Gemini or Groq API key in Settings to regenerate the final STORM draft.");
+        setStormFinalLoading(false);
+        return;
+      }
+
+      let text: string;
+      const searchOptions: AICallOptions = { searchEnabled: false, searchQuery: query };
+      if (state.geminiApiKey) {
+        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
+      } else if (state.groqApiKey) {
+        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
+      } else {
+        throw new Error("No API key configured. Please open Settings (gear icon).");
+      }
+
+      const cleaned = text.replace(/```/g, "").trim();
+      setStormFinal(cleaned);
+    } catch (err: any) {
+      setStormFinal(`# Error\n\n**Failed to regenerate final STORM draft:** ${err.message || "Unknown error"}\n\nPlease ensure your API key is valid and try again.`);
+    } finally {
+      setStormFinalLoading(false);
+    }
+  };
+
   const downloadManuscript = () => {
     if (!manuscript) return;
     const blob = new Blob([manuscript], { type: "text/markdown" });
@@ -2867,205 +3028,417 @@ ${isNarrative ? `## Evidence Synthesis
             <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
               <div className="flex items-center gap-2 mb-3">
                 <PenTool size={18} className="text-yellow-400" />
-                <h3 className="text-lg font-bold text-white">Research Paper Draft — Academic Writing Agents</h3>
+                <h3 className="text-lg font-bold text-white">Research Paper Draft</h3>
               </div>
               <p className="text-xs text-blue-400 mb-4">
-                This step uses <a href="https://github.com/andrehuang/academic-writing-agents" target="_blank" rel="noreferrer" className="text-yellow-300 underline">Academic Writing Agents</a> (andrehuang/academic-writing-agents) to generate a complete research-paper draft from the source papers gathered in Risk of Bias, Synthesis &amp; Meta-analysis, and Reporting &amp; PRISMA steps. The draft is editable below. After review and approval, export to PDF, Word, or LaTeX.
+                Generate a complete research-paper draft from the source papers gathered in Risk of Bias, Synthesis &amp; Meta-analysis, and Reporting &amp; PRISMA steps. The draft is editable below. After review and approval, export to PDF, Word, or LaTeX.
               </p>
 
-              {!manuscript ? (
-                <div className="space-y-4">
-                  <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
-                    <h4 className="text-sm font-bold text-white mb-2">Academic Writing Agents Pipeline</h4>
-                    <div className="text-xs text-blue-200 space-y-1">
-                      <p>• <strong>Research phase:</strong> gathers included studies from Steps 3–5</p>
-                      <p>• <strong>Structure phase:</strong> builds academic outline with GPS Rhythm (Goal-Problem-Solution)</p>
-                      <p>• <strong>Writing phase:</strong> drafts each section with academic tone, applying 30 principles</p>
-                      <p>• <strong>Citation phase:</strong> cites only verified pipeline studies with Vancouver style</p>
-                      <p>• <strong>Polish phase:</strong> refines language and applies self-review checklist</p>
-                      <p>• <strong>Review phase:</strong> 12 specialist agents review for consistency, logic, technical correctness, and style</p>
-                      <p>• <strong>Export phase:</strong> PDF, Word (.docx), or LaTeX source</p>
-                    </div>
-                  </div>
+              <div className="flex items-center gap-2 mb-6 bg-blue-950/60 rounded-lg p-1.5">
+                <button
+                  onClick={() => setStormMode("academic-agents")}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    stormMode === "academic-agents"
+                      ? "bg-yellow-500 text-[#0a1a3a] shadow"
+                      : "bg-transparent text-blue-300 hover:text-white"
+                  }`}
+                >
+                  <BookOpen size={14} />
+                  Academic Writing Agents
+                </button>
+                <button
+                  onClick={() => setStormMode("storm")}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    stormMode === "storm"
+                      ? "bg-yellow-500 text-[#0a1a3a] shadow"
+                      : "bg-transparent text-blue-300 hover:text-white"
+                  }`}
+                >
+                  <Zap size={14} />
+                  STORM (Stanford)
+                </button>
+              </div>
 
-                  <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
-                    <h4 className="text-sm font-bold text-white mb-2">30 Writing Principles Applied</h4>
-                    <div className="text-xs text-blue-200 grid grid-cols-2 gap-1">
-                      <span>A1–A7 Structure &amp; Narrative</span>
-                      <span>B1–B8 Prose &amp; Style</span>
-                      <span>C1–C3 Math &amp; Equations</span>
-                      <span>D1–D7 Figures &amp; Tables</span>
-                      <span>E1–E3 Citations &amp; Bibliography</span>
-                      <span>F1–F2 Process &amp; Meta</span>
-                    </div>
-                  </div>
-
-                  <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
-                    <h4 className="text-sm font-bold text-white mb-2">12 Specialist Review Agents</h4>
-                    <div className="text-xs text-blue-200 grid grid-cols-2 gap-1">
-                      <span>Consistency Checker</span>
-                      <span>Logic Reviewer</span>
-                      <span>Technical Reviewer</span>
-                      <span>Writing Reviewer</span>
-                      <span>Bibliography Auditor</span>
-                      <span>Research Analyst</span>
-                      <span>Prose Polisher</span>
-                      <span>Section Drafter</span>
-                      <span>LaTeX Figure Specialist</span>
-                      <span>LaTeX Layout Auditor</span>
-                      <span>Brainstormer</span>
-                      <span>Paper Crawler</span>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={generateManuscript}
-                    disabled={manuscriptLoading || extractedData.length === 0}
-                    className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
-                  >
-                    {manuscriptLoading ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-[#0a1a3a] border-t-transparent rounded-full animate-spin" />
-                        Generating Draft...
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles size={16} />
-                        Generate Research Draft
-                      </>
-                    )}
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-sm font-bold text-white">Generated Manuscript (editable)</h4>
-                      <span className="text-[10px] text-blue-400">Edit the draft below, then export when ready</span>
-                    </div>
-                    <textarea
-                      value={manuscript}
-                      onChange={(e) => setManuscript(e.target.value)}
-                      className="w-full h-[600px] bg-blue-950 border border-blue-800 text-white rounded-lg p-4 text-sm font-mono leading-relaxed placeholder:text-blue-600 focus:outline-none focus:ring-2 focus:ring-yellow-500 resize-y whitespace-pre-wrap"
-                    />
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span className="text-xs text-blue-300 mr-auto">Export format:</span>
-                    <button
-                      onClick={() => downloadMarkdownAsPDF(finalManuscript || manuscript, `academic-writing-agents-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pdf`)}
-                      className="flex items-center gap-1.5 bg-emerald-900/50 text-emerald-300 px-4 py-2 rounded-lg hover:bg-emerald-800/70 text-sm"
-                    >
-                      <Download size={14} />
-                      Export PDF
-                    </button>
-                    <button
-                      onClick={() => downloadMarkdownAsWord(finalManuscript || manuscript, `academic-writing-agents-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.docx`)}
-                      className="flex items-center gap-1.5 bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg hover:bg-blue-800/70 text-sm"
-                    >
-                      <Download size={14} />
-                      Export Word
-                    </button>
-                    <button
-                      onClick={() => downloadMarkdownAsLaTeX(finalManuscript || manuscript, `academic-writing-agents-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.tex`)}
-                      className="flex items-center gap-1.5 bg-purple-900/50 text-purple-200 px-4 py-2 rounded-lg hover:bg-purple-800/70 text-sm"
-                    >
-                      <FileCode size={14} />
-                      Export LaTeX
-                    </button>
-                    <button
-                      onClick={generateReview}
-                      disabled={reviewLoading}
-                      className="flex items-center gap-1.5 bg-indigo-900/50 text-indigo-200 px-4 py-2 rounded-lg hover:bg-indigo-800/70 text-sm disabled:opacity-50"
-                    >
-                      {reviewLoading ? (
-                        <>
-                          <div className="w-4 h-4 border-2 border-indigo-200 border-t-transparent rounded-full animate-spin" />
-                          Reviewing...
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles size={14} />
-                          Run Academic Writing Agents Review
-                        </>
-                      )}
-                    </button>
-                    <button
-                      onClick={() => { setManuscript(""); setReviewReport(""); setFinalManuscript(""); }}
-                      className="flex items-center gap-1.5 bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg hover:bg-blue-800/70 text-sm"
-                    >
-                      <RotateCcw size={14} />
-                      Regenerate
-                    </button>
-                  </div>
-
-                  {reviewReport && (
-                    <div className="bg-indigo-950/50 border border-indigo-900 rounded-lg p-4">
-                      <h4 className="text-sm font-bold text-white mb-2">Academic Writing Agents Review Report</h4>
-                      <textarea
-                        value={reviewReport}
-                        onChange={(e) => setReviewReport(e.target.value)}
-                        className="w-full h-[400px] bg-indigo-950 border border-indigo-800 text-white rounded-lg p-4 text-sm font-mono leading-relaxed placeholder:text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y whitespace-pre-wrap"
-                      />
-                      <div className="flex flex-wrap items-center gap-3 mt-3">
-                        <button
-                          onClick={incorporateReviewAndRegenerate}
-                          disabled={finalManuscriptLoading}
-                          className="flex items-center gap-1.5 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
-                        >
-                          {finalManuscriptLoading ? (
-                            <>
-                              <div className="w-4 h-4 border-2 border-[#0a1a3a] border-t-transparent rounded-full animate-spin" />
-                              Regenerating Final Manuscript...
-                            </>
-                          ) : (
-                            <>
-                              <Sparkles size={14} />
-                              Incorporate Review &amp; Regenerate Final Manuscript
-                            </>
-                          )}
-                        </button>
+              {stormMode === "academic-agents" && (
+                <>
+                  {!manuscript ? (
+                    <div className="space-y-4">
+                      <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+                        <h4 className="text-sm font-bold text-white mb-2">Academic Writing Agents Pipeline</h4>
+                        <div className="text-xs text-blue-200 space-y-1">
+                          <p>• <strong>Research phase:</strong> gathers included studies from Steps 3–5</p>
+                          <p>• <strong>Structure phase:</strong> builds academic outline with GPS Rhythm (Goal-Problem-Solution)</p>
+                          <p>• <strong>Writing phase:</strong> drafts each section with academic tone, applying 30 principles</p>
+                          <p>• <strong>Citation phase:</strong> cites only verified pipeline studies with Vancouver style</p>
+                          <p>• <strong>Polish phase:</strong> refines language and applies self-review checklist</p>
+                          <p>• <strong>Review phase:</strong> 12 specialist agents review for consistency, logic, technical correctness, and style</p>
+                          <p>• <strong>Export phase:</strong> PDF, Word (.docx), or LaTeX source</p>
+                        </div>
                       </div>
-                    </div>
-                  )}
 
-                  {finalManuscript && (
-                    <div className="bg-green-950/50 border border-green-900 rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-sm font-bold text-white">Final Manuscript (review-incorporated)</h4>
-                        <span className="text-[10px] text-green-400">Read-only final output — export as PDF, Word, or LaTeX</span>
+                      <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+                        <h4 className="text-sm font-bold text-white mb-2">30 Writing Principles Applied</h4>
+                        <div className="text-xs text-blue-200 grid grid-cols-2 gap-1">
+                          <span>A1–A7 Structure &amp; Narrative</span>
+                          <span>B1–B8 Prose &amp; Style</span>
+                          <span>C1–C3 Math &amp; Equations</span>
+                          <span>D1–D7 Figures &amp; Tables</span>
+                          <span>E1–E3 Citations &amp; Bibliography</span>
+                          <span>F1–F2 Process &amp; Meta</span>
+                        </div>
                       </div>
-                      <div
-                        className="w-full h-[600px] bg-green-950 border border-green-800 text-white rounded-lg p-4 text-sm leading-relaxed overflow-y-auto whitespace-pre-wrap"
-                        dangerouslySetInnerHTML={{ __html: marked.parse(finalManuscript) as string }}
-                      />
-                      <div className="flex flex-wrap items-center gap-3 mt-3">
-                        <span className="text-xs text-green-300 mr-auto">Export final manuscript:</span>
+
+                      <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+                        <h4 className="text-sm font-bold text-white mb-2">12 Specialist Review Agents</h4>
+                        <div className="text-xs text-blue-200 grid grid-cols-2 gap-1">
+                          <span>Consistency Checker</span>
+                          <span>Logic Reviewer</span>
+                          <span>Technical Reviewer</span>
+                          <span>Writing Reviewer</span>
+                          <span>Bibliography Auditor</span>
+                          <span>Research Analyst</span>
+                          <span>Prose Polisher</span>
+                          <span>Section Drafter</span>
+                          <span>LaTeX Figure Specialist</span>
+                          <span>LaTeX Layout Auditor</span>
+                          <span>Brainstormer</span>
+                          <span>Paper Crawler</span>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={generateManuscript}
+                        disabled={manuscriptLoading || extractedData.length === 0}
+                        className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
+                      >
+                        {manuscriptLoading ? (
+                          <>
+                            <div className="w-4 h-4 border-2 border-[#0a1a3a] border-t-transparent rounded-full animate-spin" />
+                            Generating Draft...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles size={16} />
+                            Generate Research Draft
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-sm font-bold text-white">Generated Manuscript (editable)</h4>
+                          <span className="text-[10px] text-blue-400">Edit the draft below, then export when ready</span>
+                        </div>
+                        <textarea
+                          value={manuscript}
+                          onChange={(e) => setManuscript(e.target.value)}
+                          className="w-full h-[600px] bg-blue-950 border border-blue-800 text-white rounded-lg p-4 text-sm font-mono leading-relaxed placeholder:text-blue-600 focus:outline-none focus:ring-2 focus:ring-yellow-500 resize-y whitespace-pre-wrap"
+                        />
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span className="text-xs text-blue-300 mr-auto">Export format:</span>
                         <button
-                          onClick={() => downloadMarkdownAsPDF(finalManuscript, `academic-writing-agents-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pdf`)}
+                          onClick={() => downloadMarkdownAsPDF(finalManuscript || manuscript, `academic-writing-agents-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pdf`)}
                           className="flex items-center gap-1.5 bg-emerald-900/50 text-emerald-300 px-4 py-2 rounded-lg hover:bg-emerald-800/70 text-sm"
                         >
                           <Download size={14} />
                           Export PDF
                         </button>
                         <button
-                          onClick={() => downloadMarkdownAsWord(finalManuscript, `academic-writing-agents-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.docx`)}
+                          onClick={() => downloadMarkdownAsWord(finalManuscript || manuscript, `academic-writing-agents-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.docx`)}
                           className="flex items-center gap-1.5 bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg hover:bg-blue-800/70 text-sm"
                         >
                           <Download size={14} />
                           Export Word
                         </button>
                         <button
-                          onClick={() => downloadMarkdownAsLaTeX(finalManuscript, `academic-writing-agents-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.tex`)}
+                          onClick={() => downloadMarkdownAsLaTeX(finalManuscript || manuscript, `academic-writing-agents-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.tex`)}
                           className="flex items-center gap-1.5 bg-purple-900/50 text-purple-200 px-4 py-2 rounded-lg hover:bg-purple-800/70 text-sm"
                         >
                           <FileCode size={14} />
                           Export LaTeX
                         </button>
+                        <button
+                          onClick={generateReview}
+                          disabled={reviewLoading}
+                          className="flex items-center gap-1.5 bg-indigo-900/50 text-indigo-200 px-4 py-2 rounded-lg hover:bg-indigo-800/70 text-sm disabled:opacity-50"
+                        >
+                          {reviewLoading ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-indigo-200 border-t-transparent rounded-full animate-spin" />
+                              Reviewing...
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles size={14} />
+                              Run Academic Writing Agents Review
+                            </>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => { setManuscript(""); setReviewReport(""); setFinalManuscript(""); }}
+                          className="flex items-center gap-1.5 bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg hover:bg-blue-800/70 text-sm"
+                        >
+                          <RotateCcw size={14} />
+                          Regenerate
+                        </button>
                       </div>
+
+                      {reviewReport && (
+                        <div className="bg-indigo-950/50 border border-indigo-900 rounded-lg p-4">
+                          <h4 className="text-sm font-bold text-white mb-2">Academic Writing Agents Review Report</h4>
+                          <textarea
+                            value={reviewReport}
+                            onChange={(e) => setReviewReport(e.target.value)}
+                            className="w-full h-[400px] bg-indigo-950 border border-indigo-800 text-white rounded-lg p-4 text-sm font-mono leading-relaxed placeholder:text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y whitespace-pre-wrap"
+                          />
+                          <div className="flex flex-wrap items-center gap-3 mt-3">
+                            <button
+                              onClick={incorporateReviewAndRegenerate}
+                              disabled={finalManuscriptLoading}
+                              className="flex items-center gap-1.5 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
+                            >
+                              {finalManuscriptLoading ? (
+                                <>
+                                  <div className="w-4 h-4 border-2 border-[#0a1a3a] border-t-transparent rounded-full animate-spin" />
+                                  Regenerating Final Manuscript...
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles size={14} />
+                                  Incorporate Review &amp; Regenerate Final Manuscript
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {finalManuscript && (
+                        <div className="bg-green-950/50 border border-green-900 rounded-lg p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="text-sm font-bold text-white">Final Manuscript (review-incorporated)</h4>
+                            <span className="text-[10px] text-green-400">Read-only final output — export as PDF, Word, or LaTeX</span>
+                          </div>
+                          <div
+                            className="w-full h-[600px] bg-green-950 border border-green-800 text-white rounded-lg p-4 text-sm leading-relaxed overflow-y-auto whitespace-pre-wrap"
+                            dangerouslySetInnerHTML={{ __html: marked.parse(finalManuscript) as string }}
+                          />
+                          <div className="flex flex-wrap items-center gap-3 mt-3">
+                            <span className="text-xs text-green-300 mr-auto">Export final manuscript:</span>
+                            <button
+                              onClick={() => downloadMarkdownAsPDF(finalManuscript, `academic-writing-agents-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pdf`)}
+                              className="flex items-center gap-1.5 bg-emerald-900/50 text-emerald-300 px-4 py-2 rounded-lg hover:bg-emerald-800/70 text-sm"
+                            >
+                              <Download size={14} />
+                              Export PDF
+                            </button>
+                            <button
+                              onClick={() => downloadMarkdownAsWord(finalManuscript, `academic-writing-agents-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.docx`)}
+                              className="flex items-center gap-1.5 bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg hover:bg-blue-800/70 text-sm"
+                            >
+                              <Download size={14} />
+                              Export Word
+                            </button>
+                            <button
+                              onClick={() => downloadMarkdownAsLaTeX(finalManuscript, `academic-writing-agents-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.tex`)}
+                              className="flex items-center gap-1.5 bg-purple-900/50 text-purple-200 px-4 py-2 rounded-lg hover:bg-purple-800/70 text-sm"
+                            >
+                              <FileCode size={14} />
+                              Export LaTeX
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
-                </div>
+                </>
+              )}
+
+              {stormMode === "storm" && (
+                <>
+                  {!stormDraft ? (
+                    <div className="space-y-4">
+                      <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+                        <h4 className="text-sm font-bold text-white mb-2">STORM Pipeline (Stanford)</h4>
+                        <p className="text-xs text-blue-300 mb-3">
+                          STORM (Synthesis of Topic Outlines through Research and Multi-perspective Questioning) — https://github.com/stanford-oval/storm
+                        </p>
+                        <div className="text-xs text-blue-200 space-y-1">
+                          <p>• <strong>Perspective-Seeking:</strong> identifies 3–5 distinct expert perspectives on your topic</p>
+                          <p>• <strong>Information-Gathering:</strong> uses your extracted studies as the evidence base</p>
+                          <p>• <strong>Outline-Generation:</strong> creates a structured academic outline</p>
+                          <p>• <strong>Drafting:</strong> writes each section with academic tone and rigor</p>
+                          <p>• <strong>Self-Review:</strong> ensures internal consistency, proper citations, and completeness</p>
+                          <p>• <strong>Export phase:</strong> PDF, Word (.docx), or LaTeX source</p>
+                        </div>
+                      </div>
+
+                      <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+                        <h4 className="text-sm font-bold text-white mb-2">STORM Methodology</h4>
+                        <div className="text-xs text-blue-200 grid grid-cols-2 gap-1">
+                          <span>Multi-perspective reasoning</span>
+                          <span>Knowledge-grounded drafting</span>
+                          <span>Iterative outline refinement</span>
+                          <span>Self-review &amp; polish</span>
+                          <span>Vancouver citation style</span>
+                          <span>PRISMA 2020 compliant</span>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={generateStormDraft}
+                        disabled={stormLoading || extractedData.length === 0}
+                        className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
+                      >
+                        {stormLoading ? (
+                          <>
+                            <div className="w-4 h-4 border-2 border-[#0a1a3a] border-t-transparent rounded-full animate-spin" />
+                            Generating STORM Draft...
+                          </>
+                        ) : (
+                          <>
+                            <Zap size={16} />
+                            Generate STORM Research Draft
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-sm font-bold text-white">STORM Draft (editable)</h4>
+                          <span className="text-[10px] text-blue-400">Edit the draft below, then export when ready</span>
+                        </div>
+                        <textarea
+                          value={stormDraft}
+                          onChange={(e) => setStormDraft(e.target.value)}
+                          className="w-full h-[600px] bg-blue-950 border border-blue-800 text-white rounded-lg p-4 text-sm font-mono leading-relaxed placeholder:text-blue-600 focus:outline-none focus:ring-2 focus:ring-yellow-500 resize-y whitespace-pre-wrap"
+                        />
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span className="text-xs text-blue-300 mr-auto">Export format:</span>
+                        <button
+                          onClick={() => downloadMarkdownAsPDF(stormFinal || stormDraft, `storm-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pdf`)}
+                          className="flex items-center gap-1.5 bg-emerald-900/50 text-emerald-300 px-4 py-2 rounded-lg hover:bg-emerald-800/70 text-sm"
+                        >
+                          <Download size={14} />
+                          Export PDF
+                        </button>
+                        <button
+                          onClick={() => downloadMarkdownAsWord(stormFinal || stormDraft, `storm-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.docx`)}
+                          className="flex items-center gap-1.5 bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg hover:bg-blue-800/70 text-sm"
+                        >
+                          <Download size={14} />
+                          Export Word
+                        </button>
+                        <button
+                          onClick={() => downloadMarkdownAsLaTeX(stormFinal || stormDraft, `storm-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.tex`)}
+                          className="flex items-center gap-1.5 bg-purple-900/50 text-purple-200 px-4 py-2 rounded-lg hover:bg-purple-800/70 text-sm"
+                        >
+                          <FileCode size={14} />
+                          Export LaTeX
+                        </button>
+                        <button
+                          onClick={runStormReview}
+                          disabled={stormReviewLoading}
+                          className="flex items-center gap-1.5 bg-indigo-900/50 text-indigo-200 px-4 py-2 rounded-lg hover:bg-indigo-800/70 text-sm disabled:opacity-50"
+                        >
+                          {stormReviewLoading ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-indigo-200 border-t-transparent rounded-full animate-spin" />
+                              Reviewing...
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles size={14} />
+                              Run STORM Self-Review
+                            </>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => { setStormDraft(""); setStormReview(""); setStormFinal(""); }}
+                          className="flex items-center gap-1.5 bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg hover:bg-blue-800/70 text-sm"
+                        >
+                          <RotateCcw size={14} />
+                          Regenerate
+                        </button>
+                      </div>
+
+                      {stormReview && (
+                        <div className="bg-indigo-950/50 border border-indigo-900 rounded-lg p-4">
+                          <h4 className="text-sm font-bold text-white mb-2">STORM Self-Review Report</h4>
+                          <textarea
+                            value={stormReview}
+                            onChange={(e) => setStormReview(e.target.value)}
+                            className="w-full h-[400px] bg-indigo-950 border border-indigo-800 text-white rounded-lg p-4 text-sm font-mono leading-relaxed placeholder:text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y whitespace-pre-wrap"
+                          />
+                          <div className="flex flex-wrap items-center gap-3 mt-3">
+                            <button
+                              onClick={incorporateStormReview}
+                              disabled={stormFinalLoading}
+                              className="flex items-center gap-1.5 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
+                            >
+                              {stormFinalLoading ? (
+                                <>
+                                  <div className="w-4 h-4 border-2 border-[#0a1a3a] border-t-transparent rounded-full animate-spin" />
+                                  Regenerating Final Draft...
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles size={14} />
+                                  Incorporate Review &amp; Regenerate Final Draft
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {stormFinal && (
+                        <div className="bg-green-950/50 border border-green-900 rounded-lg p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="text-sm font-bold text-white">Final STORM Draft (review-incorporated)</h4>
+                            <span className="text-[10px] text-green-400">Read-only final output — export as PDF, Word, or LaTeX</span>
+                          </div>
+                          <div
+                            className="w-full h-[600px] bg-green-950 border border-green-800 text-white rounded-lg p-4 text-sm leading-relaxed overflow-y-auto whitespace-pre-wrap"
+                            dangerouslySetInnerHTML={{ __html: marked.parse(stormFinal) as string }}
+                          />
+                          <div className="flex flex-wrap items-center gap-3 mt-3">
+                            <span className="text-xs text-green-300 mr-auto">Export final draft:</span>
+                            <button
+                              onClick={() => downloadMarkdownAsPDF(stormFinal, `storm-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pdf`)}
+                              className="flex items-center gap-1.5 bg-emerald-900/50 text-emerald-300 px-4 py-2 rounded-lg hover:bg-emerald-800/70 text-sm"
+                            >
+                              <Download size={14} />
+                              Export PDF
+                            </button>
+                            <button
+                              onClick={() => downloadMarkdownAsWord(stormFinal, `storm-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.docx`)}
+                              className="flex items-center gap-1.5 bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg hover:bg-blue-800/70 text-sm"
+                            >
+                              <Download size={14} />
+                              Export Word
+                            </button>
+                            <button
+                              onClick={() => downloadMarkdownAsLaTeX(stormFinal, `storm-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.tex`)}
+                              className="flex items-center gap-1.5 bg-purple-900/50 text-purple-200 px-4 py-2 rounded-lg hover:bg-purple-800/70 text-sm"
+                            >
+                              <FileCode size={14} />
+                              Export LaTeX
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
