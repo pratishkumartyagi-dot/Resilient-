@@ -39,10 +39,9 @@ const INTEGRATED_EVIDENCE_SKILLS = getIntegratedSkills().filter(s => ["literatur
 const SR_DATABASES = [
   "PubMed", "OpenAlex", "Google Scholar",
   "Semantic Scholar", "ClinicalTrials.gov", "Cochrane Library",
-  "Shodhganga", "ScienceDirect", "Clarivate",
-  "DOAJ", "arXiv", "bioRxiv", "medRxiv",
-  "CORE", "Zenodo", "HAL", "SSRN", "BASE", "Crossref",
-  "OpenAIRE", "CiteSeerX", "dblp", "IACR", "Unpaywall"
+  "ScienceDirect", "DOAJ",
+  "arXiv", "bioRxiv", "medRxiv",
+  "Zenodo", "Crossref", "OpenAIRE", "dblp"
 ];
 
 const PIPELINE_STEPS = [
@@ -2087,7 +2086,7 @@ ${stormReview}
           <h2 className="text-xl font-bold text-white">Evidence Synthesis & Meta-analysis</h2>
         </div>
         <p className="text-sm text-blue-300 mb-6">
-          Guided workflow derived from <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a> and enhanced with <a href="https://github.com/FreedomIntelligence/OpenClaw-Medical-Skills" target="_blank" rel="noreferrer" className="text-yellow-300 underline">OpenClaw-Medical-Skills</a> (literature-review, literature-deep-research, scientific-writing, research-paper-writing), <a href="https://github.com/andrehuang/academic-writing-agents" target="_blank" rel="noreferrer" className="text-yellow-300 underline">academic-writing-agents</a>, and <a href="https://github.com/openags/paper-search-mcp" target="_blank" rel="noreferrer" className="text-yellow-300 underline">paper-search-mcp</a>: systematic search across 20+ academic databases, AI-assisted screening, structured data extraction, risk-of-bias assessment, meta-analysis, and PRISMA-compliant reporting.
+          Guided workflow derived from <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a> and enhanced with <a href="https://github.com/FreedomIntelligence/OpenClaw-Medical-Skills" target="_blank" rel="noreferrer" className="text-yellow-300 underline">OpenClaw-Medical-Skills</a> (literature-review, literature-deep-research, scientific-writing, research-paper-writing), <a href="https://github.com/andrehuang/academic-writing-agents" target="_blank" rel="noreferrer" className="text-yellow-300 underline">academic-writing-agents</a>, and <a href="https://github.com/openags/paper-search-mcp" target="_blank" rel="noreferrer" className="text-yellow-300 underline">paper-search-mcp</a>: systematic search across 15 academic databases, AI-assisted screening, structured data extraction, risk-of-bias assessment, meta-analysis, and PRISMA-compliant reporting.
         </p>
 
         <div className="flex items-center gap-2 mb-6 bg-blue-950/60 rounded-lg p-1.5 overflow-x-auto">

@@ -336,7 +336,7 @@ export default function EvidenceSynthesisStep1({
       <div className="bg-blue-950/40 border border-blue-900/40 rounded-lg p-4">
         <p className="text-xs text-blue-300 mb-2">Tools referenced from awesome-evidence-synthesis</p>
         <div className="flex flex-wrap gap-2">
-          {["OpenAlex", "PubMed", "Google Scholar", "Semantic Scholar", "ScienceDirect", "paper-search-mcp (arXiv, bioRxiv, medRxiv, CORE, Semantic Scholar, OpenAlex, Zenodo, DOAJ, HAL, SSRN)", "ASReview", "prismAId", "CitationChaser", "robvis", "forestplot", "PRISMA 2020"].map((t) => (
+          {["OpenAlex", "PubMed", "Google Scholar", "Semantic Scholar", "ScienceDirect", "arXiv", "bioRxiv", "medRxiv", "Zenodo", "DOAJ", "Crossref", "OpenAIRE", "dblp", "ClinicalTrials.gov", "Cochrane Library", "ASReview", "prismAId", "CitationChaser", "robvis", "forestplot", "PRISMA 2020"].map((t) => (
             <span key={t} className="text-[10px] bg-blue-900/40 text-blue-200 px-2 py-0.5 rounded-full border border-blue-800">{t}</span>
           ))}
         </div>

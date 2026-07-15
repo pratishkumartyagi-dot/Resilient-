@@ -24,10 +24,10 @@ const STUDY_TYPES = [
 
 const DATABASES = [
   "PubMed", "OpenAlex", "Google Scholar",
-  "WHO IRIS", "Semantic Scholar", "Shodhganga", "Prospero",
-  "ScienceDirect", "ClinicalTrials.gov", "DOAJ", "Clarivate",
-  "Cochrane Library",
-  "paper-search-mcp (arXiv, bioRxiv, medRxiv, CORE, Zenodo, HAL, SSRN, Crossref, dblp, CiteSeerX, OpenAIRE, BASE)"
+  "Semantic Scholar", "ClinicalTrials.gov", "Cochrane Library",
+  "ScienceDirect", "DOAJ",
+  "arXiv", "bioRxiv", "medRxiv",
+  "Zenodo", "Crossref", "OpenAIRE", "dblp"
 ];
 
 export default function Step1Search() {
@@ -295,8 +295,6 @@ export default function Step1Search() {
                     ? "https://pubmed.ncbi.nlm.nih.gov/"
                     : activeDbTab === "ClinicalTrials.gov"
                     ? "https://clinicaltrials.gov/expert-search"
-                    : activeDbTab === "WHO IRIS"
-                    ? "apps.who.int/iris/rest/"
                     : activeDbTab === "DOAJ"
                     ? "https://doaj.org/"
                     : activeDbTab === "OpenAlex"
@@ -305,36 +303,24 @@ export default function Step1Search() {
                     ? "https://www.semanticscholar.org/"
                     : activeDbTab === "Google Scholar"
                     ? "https://scholar.google.com/"
-                    : activeDbTab === "paper-search-mcp"
-                    ? "https://github.com/openags/paper-search-mcp"
                     : activeDbTab === "arXiv"
                     ? "https://arxiv.org/"
                     : activeDbTab === "bioRxiv"
                     ? "https://www.biorxiv.org/"
                     : activeDbTab === "medRxiv"
                     ? "https://www.medrxiv.org/"
-                    : activeDbTab === "CORE"
-                    ? "https://core.ac.uk/"
                     : activeDbTab === "Zenodo"
                     ? "https://zenodo.org/"
-                    : activeDbTab === "HAL"
-                    ? "https://hal.science/"
-                    : activeDbTab === "SSRN"
-                    ? "https://www.ssrn.com/"
-                    : activeDbTab === "BASE"
-                    ? "https://www.base-search.net/"
                     : activeDbTab === "Crossref"
                     ? "https://www.crossref.org/"
                     : activeDbTab === "OpenAIRE"
                     ? "https://www.openaire.eu/"
-                    : activeDbTab === "CiteSeerX"
-                    ? "https://citeseerx.ist.psu.edu/"
                     : activeDbTab === "dblp"
                     ? "https://dblp.org/"
-                    : activeDbTab === "IACR"
-                    ? "https://www.iacr.org/"
-                    : activeDbTab === "Unpaywall"
-                    ? "https://unpaywall.org/"
+                    : activeDbTab === "Cochrane Library"
+                    ? "https://www.cochranelibrary.com/"
+                    : activeDbTab === "ScienceDirect"
+                    ? "https://www.sciencedirect.com/"
                     : `https://${activeDbTab.toLowerCase().replace(/\s/g, "")}.org/`}
                 </p>
               </div>

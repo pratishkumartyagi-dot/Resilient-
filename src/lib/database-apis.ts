@@ -206,7 +206,7 @@ export async function fetchOpenAlex(
   let cursor = "*";
   let cursorUrl = `${baseUrl}&cursor=${cursor}`;
 
-  const MAX_PAGES = 20;
+  const MAX_PAGES = 200;
   for (let page = 0; page < MAX_PAGES; page++) {
     let res: Response;
     try {
@@ -243,7 +243,7 @@ export async function fetchOpenAlex(
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
     const filtered = deduped.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
-    return filtered.length > 0 ? filtered : deduped.slice(0, 20);
+    return filtered.length > 0 ? filtered : deduped;
   }
 
   return deduped;
@@ -278,7 +278,7 @@ async function fetchWithTimeout(url: string, ms = 30000): Promise<Response> {
 
 export async function fetchDoaj(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const papers: Paper[] = [];
-  for (let page = 1; page <= 10; page++) {
+  for (let page = 1; page <= 100; page++) {
     const qs = new URLSearchParams({
       search: query,
       pageSize: "100",
@@ -348,7 +348,7 @@ export async function fetchPaperSearchMcp(query: string, source: string, yearFro
 
 export async function fetcharXiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const searchQuery = encodeURIComponent(`all:${query}`);
-  const url = `https://export.arxiv.org/api/query?search_query=${searchQuery}&start=0&max_results=200&sortBy=relevance`;
+  const url = `https://export.arxiv.org/api/query?search_query=${searchQuery}&start=0&max_results=5000&sortBy=relevance`;
   const res = await fetchWithTimeout(url);
   const text = await res.text();
   if (!text) return [];
@@ -392,9 +392,9 @@ export async function fetcharXiv(query: string, yearFrom?: string, yearTo?: stri
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
     const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
-    return filtered.length > 0 ? filtered : papers.slice(0, 20);
+    return filtered.length > 0 ? filtered : papers;
   }
-  return papers.slice(0, 20);
+  return papers;
 }
 
 export async function fetchBioRxiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
@@ -576,7 +576,7 @@ function buildZenodoPapers(results: any[], yearFrom?: string, yearTo?: string, s
     const typeFiltered = filtered.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
     return typeFiltered.length > 0 ? typeFiltered : filtered;
   }
-  return papers.slice(0, 20);
+  return papers;
 }
 
 export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
@@ -613,9 +613,9 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
     const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
-    return filtered.length > 0 ? filtered : papers.slice(0, 20);
+    return filtered.length > 0 ? filtered : papers;
   }
-  return papers.slice(0, 20);
+  return papers;
 }
 
 export async function fetchOpenAIRE(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
@@ -659,9 +659,9 @@ export async function fetchOpenAIRE(query: string, yearFrom?: string, yearTo?: s
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
     const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
-    return filtered.length > 0 ? filtered : papers.slice(0, 20);
+    return filtered.length > 0 ? filtered : papers;
   }
-  return papers.slice(0, 20);
+  return papers;
 }
 
 export async function fetchDblp(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
@@ -699,9 +699,9 @@ export async function fetchDblp(query: string, yearFrom?: string, yearTo?: strin
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
     const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
-    return filtered.length > 0 ? filtered : papers.slice(0, 20);
+    return filtered.length > 0 ? filtered : papers;
   }
-  return papers.slice(0, 20);
+  return papers;
 }
 
 export async function fetchRealPapers(query: string, databases: string[], yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
@@ -710,34 +710,21 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
   const succeededDbs: string[] = [];
 
   const apiDatabases: Record<string, () => Promise<Paper[]>> = {
-    "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
     "PubMed": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
+    "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
     "Google Scholar": () => fetchGoogleScholarBrowserless(query, yearFrom, yearTo, studyType),
     "Semantic Scholar": () => fetchSemanticScholarBrowserless(query, yearFrom, yearTo, studyType),
     "ClinicalTrials.gov": () => fetchClinicalTrialsGov(query, yearFrom, yearTo, studyType),
     "Cochrane Library": () => fetchCochraneLibrary(query, yearFrom, yearTo, studyType),
-    "Shodhganga": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { filter: "type:dissertation,authorships.institutions.country_code:IN" }),
     "ScienceDirect": () => fetchScienceDirectBrowserless(query, yearFrom, yearTo, studyType),
-    "Clarivate": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc", filter: "has_doi:true" }),
     "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
     "arXiv": () => fetcharXiv(query, yearFrom, yearTo, studyType),
     "bioRxiv": () => fetchBioRxiv(query, yearFrom, yearTo, studyType),
     "medRxiv": () => fetchMedRxiv(query, yearFrom, yearTo, studyType),
-    "CORE": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
     "Zenodo": () => fetchZenodo(query, yearFrom, yearTo, studyType),
-    "HAL": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
-    "SSRN": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
-    "BASE": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
     "Crossref": () => fetchCrossref(query, yearFrom, yearTo, studyType),
     "OpenAIRE": () => fetchOpenAIRE(query, yearFrom, yearTo, studyType),
-    "CiteSeerX": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
     "dblp": () => fetchDblp(query, yearFrom, yearTo, studyType),
-    "IACR": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
-    "Unpaywall": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
-    "WHO IRIS": () => fetchOpenAlex(`WHO health guidelines ${query}`, yearFrom, yearTo, studyType),
-    "Prospero": () => fetchOpenAlex(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
-    "scite.ai": () => fetchOpenAlex(`${query} citation analysis`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
-    "paper-search-mcp": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
   };
 
   const selectedApis = databases.filter((db) => apiDatabases[db]);
@@ -799,34 +786,21 @@ export async function fetchRealPapersWithCounts(query: string, databases: string
   const allPapers: Paper[] = [];
 
   const apiDatabases: Record<string, () => Promise<Paper[]>> = {
-    "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
     "PubMed": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
+    "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
     "Google Scholar": () => fetchGoogleScholarBrowserless(query, yearFrom, yearTo, studyType),
     "Semantic Scholar": () => fetchSemanticScholarBrowserless(query, yearFrom, yearTo, studyType),
     "ClinicalTrials.gov": () => fetchClinicalTrialsGov(query, yearFrom, yearTo, studyType),
     "Cochrane Library": () => fetchCochraneLibrary(query, yearFrom, yearTo, studyType),
-    "Shodhganga": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { filter: "type:dissertation,authorships.institutions.country_code:IN" }),
     "ScienceDirect": () => fetchScienceDirectBrowserless(query, yearFrom, yearTo, studyType),
-    "Clarivate": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc", filter: "has_doi:true" }),
     "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
     "arXiv": () => fetcharXiv(query, yearFrom, yearTo, studyType),
     "bioRxiv": () => fetchBioRxiv(query, yearFrom, yearTo, studyType),
     "medRxiv": () => fetchMedRxiv(query, yearFrom, yearTo, studyType),
-    "CORE": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
     "Zenodo": () => fetchZenodo(query, yearFrom, yearTo, studyType),
-    "HAL": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
-    "SSRN": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
-    "BASE": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
     "Crossref": () => fetchCrossref(query, yearFrom, yearTo, studyType),
     "OpenAIRE": () => fetchOpenAIRE(query, yearFrom, yearTo, studyType),
-    "CiteSeerX": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
     "dblp": () => fetchDblp(query, yearFrom, yearTo, studyType),
-    "IACR": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
-    "Unpaywall": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
-    "WHO IRIS": () => fetchOpenAlex(`WHO health guidelines ${query}`, yearFrom, yearTo, studyType),
-    "Prospero": () => fetchOpenAlex(`systematic review protocol ${query}`, yearFrom, yearTo, studyType),
-    "scite.ai": () => fetchOpenAlex(`${query} citation analysis`, yearFrom, yearTo, studyType, { sort: "publication_year:desc" }),
-    "paper-search-mcp": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
   };
 
   const selectedApis = databases.filter((db) => apiDatabases[db]);
@@ -870,28 +844,15 @@ function getDatabaseBackend(uiDatabase: string): string {
     "Semantic Scholar": "Semantic Scholar Graph API",
     "ClinicalTrials.gov": "ClinicalTrials.gov API v2",
     "Cochrane Library": "Web Search (cochranelibrary.com)",
-    "Shodhganga": "OpenAlex API",
     "ScienceDirect": "Semantic Scholar Graph API",
-    "Clarivate": "OpenAlex API",
     "DOAJ": "DOAJ API",
     "arXiv": "arXiv API",
     "bioRxiv": "bioRxiv API",
     "medRxiv": "medRxiv API",
-    "CORE": "OpenAlex API",
     "Zenodo": "Zenodo API",
-    "HAL": "OpenAlex API",
-    "SSRN": "OpenAlex API",
-    "BASE": "OpenAlex API",
     "Crossref": "Crossref API",
     "OpenAIRE": "OpenAIRE API",
-    "CiteSeerX": "OpenAlex API",
     "dblp": "DBLP API",
-    "IACR": "OpenAlex API",
-    "Unpaywall": "OpenAlex API",
-    "WHO IRIS": "OpenAlex API",
-    "Prospero": "OpenAlex API",
-    "scite.ai": "OpenAlex API",
-    "paper-search-mcp": "OpenAlex API",
   };
   return mapping[uiDatabase] || uiDatabase;
 }
@@ -1105,7 +1066,7 @@ export async function fetchClinicalTrialsGov(query: string, yearFrom?: string, y
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
     const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
-    return filtered.length > 0 ? filtered : papers.slice(0, 20);
+    return filtered.length > 0 ? filtered : papers;
   }
 
   if (yearFrom || yearTo) {
@@ -1114,7 +1075,7 @@ export async function fetchClinicalTrialsGov(query: string, yearFrom?: string, y
     return papers.filter((p) => p.year >= yFrom && p.year <= yTo);
   }
 
-  return papers.slice(0, 50);
+  return papers;
 }
 
 export async function fetchCochraneLibrary(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
@@ -1164,7 +1125,7 @@ export async function fetchCochraneLibrary(query: string, yearFrom?: string, yea
 }
 
 export async function fetchPubMedBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=200&term=${encodeURIComponent(query)}`;
+  const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=5000&term=${encodeURIComponent(query)}`;
   const searchRes = await fetchWithTimeout(searchUrl);
   const searchText = await searchRes.text();
   const idMatches = searchText.match(/<Id>(\d+)<\/Id>/g) || [];
@@ -1234,7 +1195,7 @@ export async function fetchPubMedBrowserless(query: string, yearFrom?: string, y
 }
 
 export async function fetchGoogleScholarBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const searchUrl = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=title,authors,year,abstract,externalIds,venue&limit=20`;
+  const searchUrl = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=title,authors,year,abstract,externalIds,venue&limit=100`;
   const res = await fetchWithTimeout(searchUrl, 25000);
   const data = await res.json();
   const papers: Paper[] = (data.data || [])
@@ -1274,7 +1235,7 @@ export async function fetchGoogleScholarBrowserless(query: string, yearFrom?: st
 }
 
 export async function fetchSemanticScholarBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=title,authors,year,abstract,externalIds,venue&limit=20`;
+  const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=title,authors,year,abstract,externalIds,venue&limit=100`;
   const res = await fetchWithTimeout(url, 25000);
   const data = await res.json();
   const papers: Paper[] = (data.data || [])
@@ -1314,7 +1275,7 @@ export async function fetchSemanticScholarBrowserless(query: string, yearFrom?: 
 }
 
 export async function fetchScienceDirectBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const searchUrl = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query + " ScienceDirect Elsevier")}&fields=title,authors,year,abstract,externalIds,venue&limit=20`;
+  const searchUrl = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query + " ScienceDirect Elsevier")}&fields=title,authors,year,abstract,externalIds,venue&limit=100`;
   const res = await fetchWithTimeout(searchUrl, 25000);
   const data = await res.json();
   const papers: Paper[] = (data.data || [])
