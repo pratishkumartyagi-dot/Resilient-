@@ -279,6 +279,7 @@ export default function EvidenceSynthesisTab() {
   const [totalIdentified, setTotalIdentified] = useState(0);
   const [dedupedCount, setDedupedCount] = useState(0);
   const [extractedData, setExtractedData] = useState<any[]>([]);
+  const [extractionLoading, setExtractionLoading] = useState(false);
   const [synthesisTable, setSynthesisTable] = useState<any[]>([]);
   const [synthesisTableLoading, setSynthesisTableLoading] = useState(false);
   const [robAssessments, setRobAssessments] = useState<Record<string, RobAssessment>>({});
@@ -825,15 +826,22 @@ Return a concise markdown report with a "## PROBAST+AI Assessment" heading and a
     }
   };
 
-  const runExtraction = () => {
+  const runExtraction = async () => {
     const selected = papers.filter((p) => selectedPaperIds.has(p.id));
+    if (selected.length === 0) {
+      alert("Please select at least one paper in Step 1.");
+      return;
+    }
+    setExtractionLoading(true);
     const assessments: Record<string, RobAssessment> = {};
     selected.forEach((p) => {
       assessments[p.id] = initRobAssessment(p.id, { studyType: p.studyType, year: p.year, title: p.title });
     });
     setRobAssessments(assessments);
-    setExtractedData(
-      selected.map((p) => {
+
+    const apiKey = state.geminiApiKey || state.groqApiKey;
+    if (!apiKey) {
+      const fallback = selected.map((p) => {
         const doiLink = p.doi ? `<a href="https://doi.org/${p.doi}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">doi:${p.doi}</a>` : "";
         const urlLink = p.url && !p.doi ? `<a href="${p.url}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">Link</a>` : "";
         const vancouverRef = `${p.authors}. ${p.title}. ${p.journal || "Unknown journal"}. ${p.year}. ${doiLink} ${urlLink}`.trim();
@@ -850,9 +858,129 @@ Return a concise markdown report with a "## PROBAST+AI Assessment" heading and a
           ROB: "Pending — assess in Step 3",
           vancouverReference: vancouverRef,
         };
-      })
-    );
-    setPipelineStep(3);
+      });
+      setExtractedData(fallback);
+      setPipelineStep(3);
+      setExtractionLoading(false);
+      return;
+    }
+
+    try {
+      const papersContext = selected
+        .map(
+          (p, i) =>
+            `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || "Unknown journal"}. DOI: ${p.doi || "N/A"}. Type: ${p.studyType || "N/A"}. Abstract: ${p.abstract || "No abstract"}`
+        )
+        .join("\n\n");
+
+      const prompt = `You are an expert systematic review researcher applying the decipher-research-agent deep-reasoning methodology (https://github.com/mtwn105/decipher-research-agent) and the research-gaps extraction framework (https://gist.github.com/t0mst0ne/f3dd82637861384e6b2ffe3c9370f4d8).
+
+## Task
+Perform deep reasoning on the following selected papers and extract structured data for each paper. For each paper, analyze the abstract and metadata to populate the fields below. Ground every extraction in the provided text; do not fabricate data.
+
+## Papers
+${papersContext}
+
+## Required Output
+Return ONLY a JSON array (no markdown fences, no extra text) with one object per paper. Each object must have exactly these keys:
+- id: string (the paper id from the input)
+- title: string
+- authors: string
+- year: number
+- doi: string or null
+- studyType: string
+- population: string (who was studied, or "Not specified")
+- intervention: string (what was tested/exposed, or "Not specified")
+- comparison: string (what it was compared against, or "Not specified")
+- outcome: string (main findings/outcomes)
+- sampleSize: string (e.g. "120 adults" or "Not specified")
+- effectEstimate: string (main effect size if reported, or "Not reported")
+- ci: string (95% CI if reported, or "Not reported")
+- ROB: string (initial assessment: "Low risk / Some concerns / High risk / Pending")
+- vancouverReference: string (format: "Authors. Title. Journal. Year. doi:DOI" with clickable DOI link if available, otherwise URL link)
+- researchGaps: string (format: "Limitations: [author-acknowledged limits]; Exclusions: [reported exclusion criteria]; Gaps: [unanswered questions]")
+- evidenceLevel: string (T1 mechanistic, T2 experimental, T3 observational, T4 mention, based on study type)
+
+Apply deep reasoning:
+1. Identify themes and patterns across papers
+2. Extract only information explicitly stated in the abstracts
+3. Use "Not specified" when information is absent
+4. Maintain consistency across all extracted fields
+`;
+
+      let text: string;
+      const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
+      if (state.geminiApiKey) {
+        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
+      } else if (state.groqApiKey) {
+        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
+      } else {
+        throw new Error("No API key configured. Please open Settings (gear icon).");
+      }
+
+      const cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
+      let parsed: any[];
+      try {
+        parsed = JSON.parse(cleaned);
+      } catch {
+        const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
+        if (!jsonMatch) throw new Error("AI returned invalid JSON. Please try again.");
+        parsed = JSON.parse(jsonMatch[0]);
+      }
+
+      const mapped = parsed.map((item: any) => {
+        const paper = selected.find((p) => p.id === item.id) || selected[0];
+        const doiLink = paper.doi ? `<a href="https://doi.org/${paper.doi}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">doi:${paper.doi}</a>` : "";
+        const urlLink = paper.url && !paper.doi ? `<a href="${paper.url}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">Link</a>` : "";
+        const vancouverRef = `${item.authors || paper.authors}. ${item.title || paper.title}. ${paper.journal || "Unknown journal"}. ${item.year || paper.year}. ${doiLink} ${urlLink}`.trim();
+        return {
+          id: item.id || paper.id,
+          title: item.title || paper.title,
+          authors: item.authors || paper.authors,
+          year: item.year || paper.year,
+          doi: item.doi || paper.doi,
+          studyType: item.studyType || paper.studyType,
+          population: item.population || "Not specified",
+          intervention: item.intervention || "Not specified",
+          comparison: item.comparison || "Not specified",
+          outcome: item.outcome || "Not specified",
+          sampleSize: item.sampleSize || "Not specified",
+          effectEstimate: item.effectEstimate || "Not reported",
+          ci: item.ci || "Not reported",
+          ROB: item.ROB || "Pending — assess in Step 3",
+          vancouverReference: vancouverRef,
+          researchGaps: item.researchGaps || "",
+          evidenceLevel: item.evidenceLevel || "T4 mention",
+        };
+      });
+
+      setExtractedData(mapped);
+      setPipelineStep(3);
+    } catch (err: any) {
+      alert("AI extraction failed: " + (err.message || "Unknown error") + ". Falling back to local extraction.");
+      const fallback = selected.map((p) => {
+        const doiLink = p.doi ? `<a href="https://doi.org/${p.doi}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">doi:${p.doi}</a>` : "";
+        const urlLink = p.url && !p.doi ? `<a href="${p.url}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">Link</a>` : "";
+        const vancouverRef = `${p.authors}. ${p.title}. ${p.journal || "Unknown journal"}. ${p.year}. ${doiLink} ${urlLink}`.trim();
+        return {
+          id: p.id,
+          title: p.title,
+          authors: p.authors,
+          year: p.year,
+          doi: p.doi,
+          studyType: p.studyType,
+          population: "Extracted from abstract",
+          intervention: "Extracted from abstract",
+          outcome: "Extracted from abstract",
+          ROB: "Pending — assess in Step 3",
+          vancouverReference: vancouverRef,
+        };
+      });
+      setExtractedData(fallback);
+      setPipelineStep(3);
+    } finally {
+      setExtractionLoading(false);
+    }
   };
 
   const generateSynthesisTable = async () => {
@@ -2029,8 +2157,8 @@ ${stormReview}
               <p className="text-sm text-blue-300 mb-4">
                 Structured extraction aligned with <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a> data-extraction guidance. Fields below can be fed into meta-analysis packages such as <em>meta</em>, <em>metafor</em>, or <em>metaumbrella</em>.
               </p>
-              <button onClick={runExtraction} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2 rounded-lg">
-                Auto-Extract from Selected Papers
+              <button onClick={runExtraction} disabled={extractionLoading} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2 rounded-lg disabled:opacity-50">
+                {extractionLoading ? "Extracting..." : "Auto-Extract from Selected Papers"}
               </button>
             </div>
              {extractedData.length > 0 && (
@@ -2050,6 +2178,8 @@ ${stormReview}
                        <th className="border border-blue-800 px-3 py-2 text-yellow-200">95% CI</th>
                        <th className="border border-blue-800 px-3 py-2 text-yellow-200">Study Type</th>
                        <th className="border border-blue-800 px-3 py-2 text-yellow-200">ROB</th>
+                       <th className="border border-blue-800 px-3 py-2 text-yellow-200">Research Gaps</th>
+                       <th className="border border-blue-800 px-3 py-2 text-yellow-200">Evidence Level</th>
                      </tr>
                    </thead>
                    <tbody>
@@ -2067,6 +2197,8 @@ ${stormReview}
                          <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.ci || "—"}</td>
                          <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.studyType || "—"}</td>
                          <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.ROB || "—"}</td>
+                         <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.researchGaps || "—"}</td>
+                         <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.evidenceLevel || "—"}</td>
                        </tr>
                      ))}
                    </tbody>
