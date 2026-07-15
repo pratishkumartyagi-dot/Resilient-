@@ -208,6 +208,7 @@ export async function fetchOpenAlex(
 
   const MAX_PAGES = 200;
   for (let page = 0; page < MAX_PAGES; page++) {
+    if (page > 0) await sleep(200);
     let res: Response;
     try {
       res = await fetchWithTimeout(cursorUrl);
@@ -1154,15 +1155,16 @@ export async function fetchCochraneLibrary(query: string, yearFrom?: string, yea
 }
 
 export async function fetchPubMedBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=5000&term=${encodeURIComponent(query)}`;
+  const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=500&term=${encodeURIComponent(query)}`;
   const searchRes = await fetchWithTimeout(searchUrl);
   const searchText = await searchRes.text();
   const idMatches = searchText.match(/<Id>(\d+)<\/Id>/g) || [];
   const pmids = idMatches.map((m) => m.replace(/<Id>|<\/Id>/g, "").trim()).filter(Boolean);
   if (pmids.length === 0) return [];
-  const chunkSize = 50;
+  const chunkSize = 10;
   const papers: Paper[] = [];
   for (let i = 0; i < pmids.length; i += chunkSize) {
+    if (i > 0) await sleep(500);
     const chunk = pmids.slice(i, i + chunkSize).join(",");
     const fetchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=${chunk}&rettype=abstract`;
     const res = await fetchWithTimeout(fetchUrl);

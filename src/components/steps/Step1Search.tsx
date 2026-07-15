@@ -37,7 +37,6 @@ const DATABASES = [
   "Google Scholar",
   "Semantic Scholar",
   "ClinicalTrials.gov",
-  "paper-search-mcp",
 ];
 
 const DATABASE_URLS: Record<string, string> = {
@@ -55,7 +54,6 @@ const DATABASE_URLS: Record<string, string> = {
   "Google Scholar": "https://scholar.google.com/",
   "Semantic Scholar": "https://www.semanticscholar.org/",
   "ClinicalTrials.gov": "https://clinicaltrials.gov/",
-  "paper-search-mcp": "https://github.com/openags/paper-search-mcp",
 };
 
 export default function Step1Search() {

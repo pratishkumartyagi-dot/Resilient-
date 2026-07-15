@@ -252,7 +252,12 @@ const initialState: AppState = {
   error: "",
   showPrisma: false,
   selectedDatabases: [
-    "paper-search-mcp",
+    "PubMed",
+    "OpenAlex",
+    "DOAJ",
+    "bioRxiv",
+    "medRxiv",
+    "Crossref",
   ],
   geminiApiKey: "",
   groqApiKey: "",

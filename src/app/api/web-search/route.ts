@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import * as cheerio from "cheerio";
 
 export const runtime = "nodejs";
 
@@ -135,23 +136,24 @@ export async function POST(request: Request) {
     }
     const arxivText = await arxivResp.text();
 
-    const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(arxivText, "application/xml");
-    const entries = xmlDoc.querySelectorAll("entry");
-    const papers: WebSearchResult[] = Array.from(entries)
+    const $ = cheerio.load(arxivText, { xmlMode: true });
+    const entries = $("entry");
+    const papers: WebSearchResult[] = entries
       .slice(0, maxResults)
-      .map((entry, i) => {
-        const title = entry.querySelector("title")?.textContent?.trim() || "";
-        const summary = entry.querySelector("summary")?.textContent?.trim() || "";
-        const authors = Array.from(entry.querySelectorAll("author name"))
-          .map((n) => n.textContent?.trim() || "")
+      .map((i, el) => {
+        const entry = $(el);
+        const title = entry.find("title").first().text().trim();
+        const summary = entry.find("summary").first().text().trim();
+        const authors = entry.find("author name")
+          .map((_, n) => $(n).text().trim())
+          .get()
           .filter(Boolean)
           .join(", ");
         const year = extractYear(summary);
-        const id = entry.querySelector("id")?.textContent?.trim() || `arxiv-${Date.now()}-${i}`;
+        const id = entry.find("id").first().text().trim() || `arxiv-${Date.now()}-${i}`;
         const doiMatch = summary.match(/10\.\d{4,}\/[^?#\s]+/) || title.match(/10\.\d{4,}\/[^?#\s]+/);
         const doi = doiMatch ? doiMatch[0] : "";
-        const link = entry.querySelector("link[href]")?.getAttribute("href") || id;
+        const link = entry.find("link[href]").first().attr("href") || id;
 
         return {
           id: `arxiv-${id.split("/").pop() || i}`,
@@ -167,7 +169,8 @@ export async function POST(request: Request) {
           citationCount: 0,
           source: "arxiv",
         };
-      });
+      })
+      .get();
 
     return NextResponse.json({
       query,

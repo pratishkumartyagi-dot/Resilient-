@@ -39,7 +39,6 @@ const INTEGRATED_EVIDENCE_SKILLS = getIntegratedSkills().filter(s => ["literatur
 const SR_DATABASES = [
   "PubMed",
   "OpenAlex",
-  "Europe PMC",
   "DOAJ",
   "bioRxiv",
   "medRxiv",
@@ -51,7 +50,6 @@ const SR_DATABASES = [
   "Google Scholar",
   "Semantic Scholar",
   "ClinicalTrials.gov",
-  "paper-search-mcp",
 ];
 
 const PIPELINE_STEPS = [
@@ -277,7 +275,7 @@ export default function EvidenceSynthesisTab() {
   const { state } = useApp();
   const [pipelineStep, setPipelineStep] = useState(1);
   const [query, setQuery] = useState("");
-  const [selectedDbs, setSelectedDbs] = useState<string[]>(["OpenAlex", "DOAJ", "bioRxiv", "medRxiv", "Crossref", "OpenAIRE", "dblp", "findpapers"]);
+  const [selectedDbs, setSelectedDbs] = useState<string[]>(["OpenAlex", "DOAJ", "bioRxiv", "medRxiv", "Crossref", "OpenAIRE", "dblp", "PubMed"]);
   const [papers, setPapers] = useState<Paper[]>([]);
   const [selectedPaperIds, setSelectedPaperIds] = useState<Set<string>>(new Set());
   const [robSelectedPaperIds, setRobSelectedPaperIds] = useState<Set<string>>(new Set());
@@ -378,7 +376,11 @@ export default function EvidenceSynthesisTab() {
         throw new Error(data?.error || `Search failed with status ${res.status}`);
       }
       const data = await res.json();
-      setPapers(data.papers || []);
+      const apiPapers = data.papers || [];
+      if (apiPapers.length === 0) {
+        throw new Error("No papers returned from literature search.");
+      }
+      setPapers(apiPapers);
       setDbSearchStatus(data.sourceBreakdown || {});
       setFailedDatabases(data.failedDatabases || []);
       setPerDatabaseResults(data.perDatabaseResults || []);
@@ -2096,7 +2098,7 @@ ${stormReview}
           <h2 className="text-xl font-bold text-white">Evidence Synthesis & Meta-analysis</h2>
         </div>
         <p className="text-sm text-blue-300 mb-6">
-          Guided workflow derived from <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a> and enhanced with <a href="https://github.com/FreedomIntelligence/OpenClaw-Medical-Skills" target="_blank" rel="noreferrer" className="text-yellow-300 underline">OpenClaw-Medical-Skills</a> (literature-review, literature-deep-research, scientific-writing, research-paper-writing), <a href="https://github.com/andrehuang/academic-writing-agents" target="_blank" rel="noreferrer" className="text-yellow-300 underline">academic-writing-agents</a>, and <a href="https://github.com/openags/paper-search-mcp" target="_blank" rel="noreferrer" className="text-yellow-300 underline">paper-search-mcp</a>: unified internal search via paper-search-mcp across 14 academic platforms, AI-assisted screening, structured data extraction, risk-of-bias assessment, meta-analysis, and PRISMA-compliant reporting.
+          Guided workflow derived from <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a> and enhanced with <a href="https://github.com/FreedomIntelligence/OpenClaw-Medical-Skills" target="_blank" rel="noreferrer" className="text-yellow-300 underline">OpenClaw-Medical-Skills</a> (literature-review, literature-deep-research, scientific-writing, research-paper-writing) and <a href="https://github.com/andrehuang/academic-writing-agents" target="_blank" rel="noreferrer" className="text-yellow-300 underline">academic-writing-agents</a>: unified multi-database search across PubMed, OpenAlex, Europe PMC, Crossref, arXiv, bioRxiv, medRxiv, and other open academic platforms, AI-assisted screening, structured data extraction, risk-of-bias assessment, meta-analysis, and PRISMA-compliant reporting.
         </p>
 
         <div className="flex items-center gap-2 mb-6 bg-blue-950/60 rounded-lg p-1.5 overflow-x-auto">
