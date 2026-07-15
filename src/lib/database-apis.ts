@@ -343,53 +343,34 @@ const API_BASE =
     : "http://localhost:3000";
 
 export async function fetchPaperSearchMcp(query: string, source: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  throw new Error("paper-search-mcp CLI binary is not installed. Databases should use direct API fetchers.");
-}
-
-export async function fetchFindpapers(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   try {
-    const res = await fetch(`${API_BASE}/api/findpapers-search`, {
+    const res = await fetch(`${API_BASE}/api/paper-search-mcp`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query,
-        maxResults: 200,
-        since: yearFrom || "",
-        until: yearTo || "",
-      }),
+      body: JSON.stringify({ query, source, maxResults: 200, yearFrom, yearTo, studyType }),
     });
-
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || `findpapers search failed: ${res.status}`);
+      throw new Error(err.error || `paper-search-mcp failed: ${res.status}`);
     }
-
     const data = await res.json();
-    const papers: Paper[] = (data.papers || []).map((p: any) => ({
-      id: p.id || `findpapers-${Math.random().toString(36).slice(2, 8)}`,
+    return (data.papers || []).map((p: any) => ({
+      id: p.id || `mcp-${Math.random().toString(36).slice(2, 8)}`,
       title: p.title || "",
       authors: p.authors || "Unknown authors",
-      journal: p.database || "findpapers",
+      journal: p.journal || p.source || "paper-search-mcp",
       year: p.year || new Date().getFullYear(),
       doi: p.doi || "",
       abstract: p.abstract || "",
-      database: "findpapers",
+      database: p.source || "paper-search-mcp",
       studyType: p.studyType || "Journal Article",
       selected: false,
       url: p.url || (p.doi ? `https://doi.org/${p.doi}` : ""),
-      sourceBackend: "findpapers",
-      sources: p.source ? [p.source] : ["findpapers"],
+      sourceBackend: "paper-search-mcp-nodejs",
+      sources: p.source ? [p.source] : ["paper-search-mcp"],
     }));
-
-    if (studyType && studyType !== "All Study Types") {
-      const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
-      const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
-      return filtered.length > 0 ? filtered : papers;
-    }
-
-    return papers;
   } catch (err: any) {
-    console.error("[fetchFindpapers] error:", err?.message || String(err));
+    console.error("[fetchPaperSearchMcp] error:", err?.message || String(err));
     return [];
   }
 }
@@ -758,14 +739,7 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
   const succeededDbs: string[] = [];
 
   const apiDatabases: Record<string, () => Promise<Paper[]>> = {
-    "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
-    "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
-    "bioRxiv": () => fetchBioRxiv(query, yearFrom, yearTo, studyType),
-    "medRxiv": () => fetchMedRxiv(query, yearFrom, yearTo, studyType),
-    "Crossref": () => fetchCrossref(query, yearFrom, yearTo, studyType),
-    "OpenAIRE": () => fetchOpenAIRE(query, yearFrom, yearTo, studyType),
-    "dblp": () => fetchDblp(query, yearFrom, yearTo, studyType),
-    "findpapers": () => fetchFindpapers(query, yearFrom, yearTo, studyType),
+    "paper-search-mcp": () => fetchPaperSearchMcp(query, "all", yearFrom, yearTo, studyType),
   };
 
   const selectedApis = databases.filter((db) => apiDatabases[db]);
@@ -827,14 +801,7 @@ export async function fetchRealPapersWithCounts(query: string, databases: string
   const allPapers: Paper[] = [];
 
   const apiDatabases: Record<string, () => Promise<Paper[]>> = {
-    "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
-    "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
-    "bioRxiv": () => fetchBioRxiv(query, yearFrom, yearTo, studyType),
-    "medRxiv": () => fetchMedRxiv(query, yearFrom, yearTo, studyType),
-    "Crossref": () => fetchCrossref(query, yearFrom, yearTo, studyType),
-    "OpenAIRE": () => fetchOpenAIRE(query, yearFrom, yearTo, studyType),
-    "dblp": () => fetchDblp(query, yearFrom, yearTo, studyType),
-    "findpapers": () => fetchFindpapers(query, yearFrom, yearTo, studyType),
+    "paper-search-mcp": () => fetchPaperSearchMcp(query, "all", yearFrom, yearTo, studyType),
   };
 
   const selectedApis = databases.filter((db) => apiDatabases[db]);
@@ -872,14 +839,7 @@ export async function fetchRealPapersWithCounts(query: string, databases: string
 
 function getDatabaseBackend(uiDatabase: string): string {
   const mapping: Record<string, string> = {
-    "OpenAlex": "OpenAlex API",
-    "DOAJ": "DOAJ API",
-    "bioRxiv": "bioRxiv API",
-    "medRxiv": "medRxiv API",
-    "Crossref": "Crossref API",
-    "OpenAIRE": "OpenAIRE API",
-    "dblp": "DBLP API",
-    "findpapers": "findpapers",
+    "paper-search-mcp": "paper-search-mcp-nodejs",
   };
   return mapping[uiDatabase] || uiDatabase;
 }

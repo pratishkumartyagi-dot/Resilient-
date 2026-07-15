@@ -37,10 +37,7 @@ import EvidenceSynthesisStep1, { type EvidenceSynthesisStep1Props } from "./Evid
 const INTEGRATED_EVIDENCE_SKILLS = getIntegratedSkills().filter(s => ["literature-review", "literature-deep-research", "clinical-trials-database"].includes(s.id));
 
 const SR_DATABASES = [
-  "OpenAlex", "DOAJ",
-  "bioRxiv", "medRxiv",
-  "Crossref", "OpenAIRE", "dblp",
-  "findpapers"
+  "paper-search-mcp"
 ];
 
 const PIPELINE_STEPS = [

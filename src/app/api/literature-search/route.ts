@@ -1,17 +1,8 @@
 import { NextResponse } from "next/server";
 import {
-  fetchOpenAlex,
-  fetchDoaj,
-  fetchBioRxiv,
-  fetchMedRxiv,
-  fetchCrossref,
-  fetchOpenAIRE,
-  fetchDblp,
-  fetchClinicalTrialsGov,
-  fetchCochraneLibrary,
+  fetchPaperSearchMcp,
   deduplicatePapers,
   verifyCitations,
-  fetchFindpapers,
 } from "@/lib/database-apis";
 
 export const runtime = "nodejs";
@@ -63,14 +54,7 @@ export async function POST(request: Request) {
     }
 
     const apiMap: Record<string, (() => Promise<any[]>) | undefined> = {
-      "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
-      "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
-      "bioRxiv": () => fetchBioRxiv(query, yearFrom, yearTo, studyType),
-      "medRxiv": () => fetchMedRxiv(query, yearFrom, yearTo, studyType),
-      "Crossref": () => fetchCrossref(query, yearFrom, yearTo, studyType),
-      "OpenAIRE": () => fetchOpenAIRE(query, yearFrom, yearTo, studyType),
-      "dblp": () => fetchDblp(query, yearFrom, yearTo, studyType),
-      "findpapers": () => fetchFindpapers(query, yearFrom, yearTo, studyType),
+      "paper-search-mcp": () => fetchPaperSearchMcp(query, "all", yearFrom, yearTo, studyType),
     };
 
     const selectedApis = databases.filter((db) => apiMap[db]);

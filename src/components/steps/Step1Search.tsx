@@ -23,10 +23,7 @@ const STUDY_TYPES = [
 ];
 
 const DATABASES = [
-  "OpenAlex", "DOAJ",
-  "bioRxiv", "medRxiv",
-  "Crossref", "OpenAIRE", "dblp",
-  "findpapers"
+  "paper-search-mcp"
 ];
 
 export default function Step1Search() {
@@ -290,22 +287,8 @@ export default function Step1Search() {
               <div>
                 <p className="text-sm font-medium text-white">{activeDbTab}</p>
                 <p className="text-xs text-blue-400">
-                  {activeDbTab === "OpenAlex"
-                    ? "https://openalex.org/"
-                    : activeDbTab === "DOAJ"
-                    ? "https://doaj.org/"
-                    : activeDbTab === "bioRxiv"
-                    ? "https://www.biorxiv.org/"
-                    : activeDbTab === "medRxiv"
-                    ? "https://www.medrxiv.org/"
-                    : activeDbTab === "Crossref"
-                    ? "https://www.crossref.org/"
-                    : activeDbTab === "OpenAIRE"
-                    ? "https://www.openaire.eu/"
-                    : activeDbTab === "dblp"
-                    ? "https://dblp.org/"
-                    : activeDbTab === "findpapers"
-                    ? "https://github.com/jonatasgrosman/findpapers"
+                  {activeDbTab === "paper-search-mcp"
+                    ? "https://github.com/Dianel555/paper-search-mcp-nodejs"
                     : `https://${activeDbTab.toLowerCase().replace(/\s/g, "")}.org/`}
                 </p>
               </div>
