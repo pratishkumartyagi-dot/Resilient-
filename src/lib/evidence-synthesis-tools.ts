@@ -11,16 +11,6 @@ export interface EvidenceSynthesisTool {
 
 export const EVIDENCE_SYNTHESIS_TOOLS: EvidenceSynthesisTool[] = [
   {
-    id: "seerai",
-    name: "SeerAI",
-    category: "literature-search",
-    description: "Zotero 9 AI research assistant plugin (dralkh/seerai) providing federated scholarly search across 11 providers, RAG, OCR, AI chat, systematic reviews, and structured data extraction tables.",
-    url: "https://github.com/dralkh/seerai",
-    useInSynthesis: true,
-    useInMetaAnalysis: true,
-    useInReporting: true,
-  },
-  {
     id: "openalex",
     name: "OpenAlex",
     category: "literature-search",

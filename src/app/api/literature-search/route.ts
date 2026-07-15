@@ -27,7 +27,6 @@ interface LiteratureSearchRequestBody {
   yearFrom?: string;
   yearTo?: string;
   studyType?: string;
-  mode?: "standard" | "seerai";
 }
 
 function corsHeaders() {
@@ -60,7 +59,6 @@ export async function POST(request: Request) {
     const yearFrom = body.yearFrom;
     const yearTo = body.yearTo;
     const studyType = body.studyType;
-    const mode = body.mode || "standard";
 
     if (!query) {
       return NextResponse.json({ error: "Missing query parameter" }, { status: 400, headers: corsHeaders() });
@@ -133,25 +131,6 @@ export async function POST(request: Request) {
           };
         } catch (err: any) {
           const message = err?.message || String(err);
-          if (mode === "seerai") {
-            try {
-              const fallbackPapers = await fetchSemanticScholarBrowserless(query, yearFrom, yearTo, studyType);
-              return {
-                database: db,
-                status: fallbackPapers.length > 0 ? "success" : "empty",
-                count: fallbackPapers.length,
-                papers: fallbackPapers.map(p => ({ ...p, sources: [...(p.sources || []), db] })),
-                error: message,
-              };
-            } catch (fallbackErr: any) {
-              return {
-                database: db,
-                status: "failed",
-                count: 0,
-                error: message,
-              };
-            }
-          }
           return {
             database: db,
             status: "failed",

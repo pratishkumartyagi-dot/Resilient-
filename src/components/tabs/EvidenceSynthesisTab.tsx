@@ -311,11 +311,6 @@ export default function EvidenceSynthesisTab() {
   const [perDatabaseResults, setPerDatabaseResults] = useState<Array<{ database: string; status: string; count: number; error?: string }>>([]);
   const [citationValidationResults, setCitationValidationResults] = useState<Record<string, { valid: boolean; title?: string; message: string }>>({});
   const [showVerifiedOnly, setShowVerifiedOnly] = useState(false);
-  const [seeraiMode, setSeeraiMode] = useState(false);
-  const [seeraiProviders, setSeeraiProviders] = useState<string[]>([
-    "Semantic Scholar", "arXiv", "PubMed", "bioRxiv", "medRxiv",
-    "Europe PMC", "CORE", "BASE", "Zenodo", "HAL", "IACR"
-  ]);
 
   const toggleDb = (db: string) => {
     setSelectedDbs((prev) =>
@@ -331,19 +326,6 @@ export default function EvidenceSynthesisTab() {
     setSelectedDbs([]);
   };
 
-  const toggleSeeraiProvider = (provider: string) => {
-    setSeeraiProviders((prev) =>
-      prev.includes(provider) ? prev.filter((p) => p !== provider) : [...prev, provider]
-    );
-  };
-
-  const selectAllSeeraiProviders = () => {
-    setSeeraiProviders([
-      "Semantic Scholar", "arXiv", "PubMed", "bioRxiv", "medRxiv",
-      "Europe PMC", "CORE", "BASE", "Zenodo", "HAL", "IACR"
-    ]);
-  };
-
   const handleSearch = async () => {
     if (!query.trim() || selectedDbs.length === 0) return;
     setLoading(true);
@@ -352,7 +334,7 @@ export default function EvidenceSynthesisTab() {
     setSearchError(null);
     setPerDatabaseResults([]);
     try {
-      const dbs = seeraiMode ? seeraiProviders : selectedDbs;
+      const dbs = selectedDbs;
       if (dbs.length === 0) {
         setSearchError("No databases selected");
         setLoading(false);
@@ -367,7 +349,6 @@ export default function EvidenceSynthesisTab() {
           yearFrom: yearFrom || undefined,
           yearTo: yearTo || undefined,
           studyType: studyTypeFilter === "All Study Types" ? undefined : studyTypeFilter,
-          mode: seeraiMode ? "seerai" : "standard",
         }),
       });
       if (!res.ok) {
@@ -1865,17 +1846,13 @@ ${isNarrative ? `## Evidence Synthesis
             onProceed={() => setPipelineStep(2)}
             onClearFilters={() => { setYearFrom(""); setYearTo(""); setStudyTypeFilter("All Study Types"); }}
             showVerifiedOnly={showVerifiedOnly}
-            onShowVerifiedOnlyChange={setShowVerifiedOnly}
-            citationValidationCounts={{
-              verified: papers.filter((p) => p.citationStatus === "verified").length,
-              unverified: papers.filter((p) => p.citationStatus === "unverified").length,
-              noDoi: papers.filter((p) => p.citationStatus === "no-doi").length,
-            }}
-            seeraiMode={seeraiMode}
-            seeraiProviders={seeraiProviders}
-            onToggleSeeraiProvider={toggleSeeraiProvider}
-            onSelectAllSeeraiProviders={selectAllSeeraiProviders}
-          />
+             onShowVerifiedOnlyChange={setShowVerifiedOnly}
+             citationValidationCounts={{
+               verified: papers.filter((p) => p.citationStatus === "verified").length,
+               unverified: papers.filter((p) => p.citationStatus === "unverified").length,
+               noDoi: papers.filter((p) => p.citationStatus === "no-doi").length,
+             }}
+           />
         )}
 
         {pipelineStep === 2 && (
@@ -2352,50 +2329,6 @@ ${isNarrative ? `## Evidence Synthesis
                     placeholder="e.g., subgroup by age and sex; include only RCTs; use GRADE for certainty assessment; meta-regression by dose..."
                     className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-2.5 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 min-h-[60px]"
                   />
-                </div>
-              </div>
-
-              <div className="bg-purple-900/20 border border-purple-700/30 rounded-lg p-4 mb-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <Sparkles size={16} className="text-purple-400" />
-                  <h4 className="text-sm font-bold text-purple-200">SeerAI Evidence Synthesis</h4>
-                </div>
-                <p className="text-xs text-purple-300 mb-3">
-                  Use SeerAI federated search and RAG capabilities for enhanced evidence synthesis. This mode aggregates findings across selected databases and generates structured meta-analysis outputs.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={async () => {
-                      setSynthesisLoading(true);
-                      try {
-                        const seeraiPapers = papers.filter(p => selectedPaperIds.has(p.id) || selectedPaperIds.size === 0);
-                        const synthesis = await Promise.resolve(generateLocalLiteratureReview(
-                          seeraiPapers.map(p => ({
-                            authors: p.authors,
-                            year: typeof p.year === "number" ? p.year : parseInt(String(p.year), 10),
-                            title: p.title,
-                            journal: p.journal || "Unknown",
-                            abstract: p.abstract || "",
-                            doi: p.doi,
-                            studyType: p.studyType || "Unknown",
-                            database: p.database || "Unknown",
-                          })),
-                          query,
-                          { enableRobustReview: true }
-                        ));
-                        setSynthesisOutput(synthesis);
-                      } catch (err: any) {
-                        setSynthesisOutput(`Error: ${err?.message || String(err)}`);
-                      } finally {
-                        setSynthesisLoading(false);
-                      }
-                    }}
-                    disabled={synthesisLoading || extractedData.length === 0}
-                    className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-bold px-4 py-2 rounded-lg disabled:opacity-50 text-xs"
-                  >
-                    <Sparkles size={14} />
-                    {synthesisLoading ? "Synthesizing..." : "SeerAI Federated Synthesis"}
-                  </button>
                 </div>
               </div>
 
