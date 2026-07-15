@@ -346,6 +346,54 @@ export async function fetchPaperSearchMcp(query: string, source: string, yearFro
   throw new Error("paper-search-mcp CLI binary is not installed. Databases should use direct API fetchers.");
 }
 
+export async function fetchFindpapers(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+  try {
+    const res = await fetch(`${API_BASE}/api/findpapers-search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query,
+        maxResults: 200,
+        since: yearFrom || "",
+        until: yearTo || "",
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `findpapers search failed: ${res.status}`);
+    }
+
+    const data = await res.json();
+    const papers: Paper[] = (data.papers || []).map((p: any) => ({
+      id: p.id || `findpapers-${Math.random().toString(36).slice(2, 8)}`,
+      title: p.title || "",
+      authors: p.authors || "Unknown authors",
+      journal: p.database || "findpapers",
+      year: p.year || new Date().getFullYear(),
+      doi: p.doi || "",
+      abstract: p.abstract || "",
+      database: "findpapers",
+      studyType: p.studyType || "Journal Article",
+      selected: false,
+      url: p.url || (p.doi ? `https://doi.org/${p.doi}` : ""),
+      sourceBackend: "findpapers",
+      sources: p.source ? [p.source] : ["findpapers"],
+    }));
+
+    if (studyType && studyType !== "All Study Types") {
+      const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
+      const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+      return filtered.length > 0 ? filtered : papers;
+    }
+
+    return papers;
+  } catch (err: any) {
+    console.error("[fetchFindpapers] error:", err?.message || String(err));
+    return [];
+  }
+}
+
 export async function fetcharXiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const searchQuery = encodeURIComponent(`all:${query}`);
   const url = `https://export.arxiv.org/api/query?search_query=${searchQuery}&start=0&max_results=5000&sortBy=relevance`;
@@ -710,21 +758,14 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
   const succeededDbs: string[] = [];
 
   const apiDatabases: Record<string, () => Promise<Paper[]>> = {
-    "PubMed": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
     "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
-    "Google Scholar": () => fetchGoogleScholarBrowserless(query, yearFrom, yearTo, studyType),
-    "Semantic Scholar": () => fetchSemanticScholarBrowserless(query, yearFrom, yearTo, studyType),
-    "ClinicalTrials.gov": () => fetchClinicalTrialsGov(query, yearFrom, yearTo, studyType),
-    "Cochrane Library": () => fetchCochraneLibrary(query, yearFrom, yearTo, studyType),
-    "ScienceDirect": () => fetchScienceDirectBrowserless(query, yearFrom, yearTo, studyType),
     "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
-    "arXiv": () => fetcharXiv(query, yearFrom, yearTo, studyType),
     "bioRxiv": () => fetchBioRxiv(query, yearFrom, yearTo, studyType),
     "medRxiv": () => fetchMedRxiv(query, yearFrom, yearTo, studyType),
-    "Zenodo": () => fetchZenodo(query, yearFrom, yearTo, studyType),
     "Crossref": () => fetchCrossref(query, yearFrom, yearTo, studyType),
     "OpenAIRE": () => fetchOpenAIRE(query, yearFrom, yearTo, studyType),
     "dblp": () => fetchDblp(query, yearFrom, yearTo, studyType),
+    "findpapers": () => fetchFindpapers(query, yearFrom, yearTo, studyType),
   };
 
   const selectedApis = databases.filter((db) => apiDatabases[db]);
@@ -786,21 +827,14 @@ export async function fetchRealPapersWithCounts(query: string, databases: string
   const allPapers: Paper[] = [];
 
   const apiDatabases: Record<string, () => Promise<Paper[]>> = {
-    "PubMed": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
     "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
-    "Google Scholar": () => fetchGoogleScholarBrowserless(query, yearFrom, yearTo, studyType),
-    "Semantic Scholar": () => fetchSemanticScholarBrowserless(query, yearFrom, yearTo, studyType),
-    "ClinicalTrials.gov": () => fetchClinicalTrialsGov(query, yearFrom, yearTo, studyType),
-    "Cochrane Library": () => fetchCochraneLibrary(query, yearFrom, yearTo, studyType),
-    "ScienceDirect": () => fetchScienceDirectBrowserless(query, yearFrom, yearTo, studyType),
     "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
-    "arXiv": () => fetcharXiv(query, yearFrom, yearTo, studyType),
     "bioRxiv": () => fetchBioRxiv(query, yearFrom, yearTo, studyType),
     "medRxiv": () => fetchMedRxiv(query, yearFrom, yearTo, studyType),
-    "Zenodo": () => fetchZenodo(query, yearFrom, yearTo, studyType),
     "Crossref": () => fetchCrossref(query, yearFrom, yearTo, studyType),
     "OpenAIRE": () => fetchOpenAIRE(query, yearFrom, yearTo, studyType),
     "dblp": () => fetchDblp(query, yearFrom, yearTo, studyType),
+    "findpapers": () => fetchFindpapers(query, yearFrom, yearTo, studyType),
   };
 
   const selectedApis = databases.filter((db) => apiDatabases[db]);
@@ -839,20 +873,13 @@ export async function fetchRealPapersWithCounts(query: string, databases: string
 function getDatabaseBackend(uiDatabase: string): string {
   const mapping: Record<string, string> = {
     "OpenAlex": "OpenAlex API",
-    "PubMed": "PubMed E-utilities",
-    "Google Scholar": "Semantic Scholar Graph API",
-    "Semantic Scholar": "Semantic Scholar Graph API",
-    "ClinicalTrials.gov": "ClinicalTrials.gov API v2",
-    "Cochrane Library": "Web Search (cochranelibrary.com)",
-    "ScienceDirect": "Semantic Scholar Graph API",
     "DOAJ": "DOAJ API",
-    "arXiv": "arXiv API",
     "bioRxiv": "bioRxiv API",
     "medRxiv": "medRxiv API",
-    "Zenodo": "Zenodo API",
     "Crossref": "Crossref API",
     "OpenAIRE": "OpenAIRE API",
     "dblp": "DBLP API",
+    "findpapers": "findpapers",
   };
   return mapping[uiDatabase] || uiDatabase;
 }

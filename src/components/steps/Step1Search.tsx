@@ -23,11 +23,10 @@ const STUDY_TYPES = [
 ];
 
 const DATABASES = [
-  "PubMed", "OpenAlex", "Google Scholar",
-  "Semantic Scholar", "ClinicalTrials.gov", "Cochrane Library",
-  "ScienceDirect", "DOAJ",
-  "arXiv", "bioRxiv", "medRxiv",
-  "Zenodo", "Crossref", "OpenAIRE", "dblp"
+  "OpenAlex", "DOAJ",
+  "bioRxiv", "medRxiv",
+  "Crossref", "OpenAIRE", "dblp",
+  "findpapers"
 ];
 
 export default function Step1Search() {
@@ -291,36 +290,22 @@ export default function Step1Search() {
               <div>
                 <p className="text-sm font-medium text-white">{activeDbTab}</p>
                 <p className="text-xs text-blue-400">
-                  {activeDbTab === "PubMed"
-                    ? "https://pubmed.ncbi.nlm.nih.gov/"
-                    : activeDbTab === "ClinicalTrials.gov"
-                    ? "https://clinicaltrials.gov/expert-search"
+                  {activeDbTab === "OpenAlex"
+                    ? "https://openalex.org/"
                     : activeDbTab === "DOAJ"
                     ? "https://doaj.org/"
-                    : activeDbTab === "OpenAlex"
-                    ? "https://openalex.org/"
-                    : activeDbTab === "Semantic Scholar"
-                    ? "https://www.semanticscholar.org/"
-                    : activeDbTab === "Google Scholar"
-                    ? "https://scholar.google.com/"
-                    : activeDbTab === "arXiv"
-                    ? "https://arxiv.org/"
                     : activeDbTab === "bioRxiv"
                     ? "https://www.biorxiv.org/"
                     : activeDbTab === "medRxiv"
                     ? "https://www.medrxiv.org/"
-                    : activeDbTab === "Zenodo"
-                    ? "https://zenodo.org/"
                     : activeDbTab === "Crossref"
                     ? "https://www.crossref.org/"
                     : activeDbTab === "OpenAIRE"
                     ? "https://www.openaire.eu/"
                     : activeDbTab === "dblp"
                     ? "https://dblp.org/"
-                    : activeDbTab === "Cochrane Library"
-                    ? "https://www.cochranelibrary.com/"
-                    : activeDbTab === "ScienceDirect"
-                    ? "https://www.sciencedirect.com/"
+                    : activeDbTab === "findpapers"
+                    ? "https://github.com/jonatasgrosman/findpapers"
                     : `https://${activeDbTab.toLowerCase().replace(/\s/g, "")}.org/`}
                 </p>
               </div>

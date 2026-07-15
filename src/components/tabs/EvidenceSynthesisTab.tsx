@@ -37,11 +37,10 @@ import EvidenceSynthesisStep1, { type EvidenceSynthesisStep1Props } from "./Evid
 const INTEGRATED_EVIDENCE_SKILLS = getIntegratedSkills().filter(s => ["literature-review", "literature-deep-research", "clinical-trials-database"].includes(s.id));
 
 const SR_DATABASES = [
-  "PubMed", "OpenAlex", "Google Scholar",
-  "Semantic Scholar", "ClinicalTrials.gov", "Cochrane Library",
-  "ScienceDirect", "DOAJ",
-  "arXiv", "bioRxiv", "medRxiv",
-  "Zenodo", "Crossref", "OpenAIRE", "dblp"
+  "OpenAlex", "DOAJ",
+  "bioRxiv", "medRxiv",
+  "Crossref", "OpenAIRE", "dblp",
+  "findpapers"
 ];
 
 const PIPELINE_STEPS = [
@@ -267,7 +266,7 @@ export default function EvidenceSynthesisTab() {
   const { state } = useApp();
   const [pipelineStep, setPipelineStep] = useState(1);
   const [query, setQuery] = useState("");
-  const [selectedDbs, setSelectedDbs] = useState<string[]>(["PubMed", "OpenAlex", "Google Scholar"]);
+  const [selectedDbs, setSelectedDbs] = useState<string[]>(["OpenAlex", "DOAJ", "bioRxiv", "medRxiv", "Crossref", "OpenAIRE", "dblp", "findpapers"]);
   const [papers, setPapers] = useState<Paper[]>([]);
   const [selectedPaperIds, setSelectedPaperIds] = useState<Set<string>>(new Set());
   const [robSelectedPaperIds, setRobSelectedPaperIds] = useState<Set<string>>(new Set());

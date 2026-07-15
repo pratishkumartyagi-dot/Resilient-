@@ -2,10 +2,8 @@ import { NextResponse } from "next/server";
 import {
   fetchOpenAlex,
   fetchDoaj,
-  fetcharXiv,
   fetchBioRxiv,
   fetchMedRxiv,
-  fetchZenodo,
   fetchCrossref,
   fetchOpenAIRE,
   fetchDblp,
@@ -13,10 +11,7 @@ import {
   fetchCochraneLibrary,
   deduplicatePapers,
   verifyCitations,
-  fetchPubMedBrowserless,
-  fetchGoogleScholarBrowserless,
-  fetchSemanticScholarBrowserless,
-  fetchScienceDirectBrowserless,
+  fetchFindpapers,
 } from "@/lib/database-apis";
 
 export const runtime = "nodejs";
@@ -68,21 +63,14 @@ export async function POST(request: Request) {
     }
 
     const apiMap: Record<string, (() => Promise<any[]>) | undefined> = {
-      "PubMed": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
       "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType, { sort: "cited_by_count:desc" }),
-      "Google Scholar": () => fetchGoogleScholarBrowserless(query, yearFrom, yearTo, studyType),
-      "Semantic Scholar": () => fetchSemanticScholarBrowserless(query, yearFrom, yearTo, studyType),
-      "ClinicalTrials.gov": () => fetchClinicalTrialsGov(query, yearFrom, yearTo, studyType),
-      "Cochrane Library": () => fetchCochraneLibrary(query, yearFrom, yearTo, studyType),
-      "ScienceDirect": () => fetchScienceDirectBrowserless(query, yearFrom, yearTo, studyType),
       "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
-      "arXiv": () => fetcharXiv(query, yearFrom, yearTo, studyType),
       "bioRxiv": () => fetchBioRxiv(query, yearFrom, yearTo, studyType),
       "medRxiv": () => fetchMedRxiv(query, yearFrom, yearTo, studyType),
-      "Zenodo": () => fetchZenodo(query, yearFrom, yearTo, studyType),
       "Crossref": () => fetchCrossref(query, yearFrom, yearTo, studyType),
       "OpenAIRE": () => fetchOpenAIRE(query, yearFrom, yearTo, studyType),
       "dblp": () => fetchDblp(query, yearFrom, yearTo, studyType),
+      "findpapers": () => fetchFindpapers(query, yearFrom, yearTo, studyType),
     };
 
     const selectedApis = databases.filter((db) => apiMap[db]);
