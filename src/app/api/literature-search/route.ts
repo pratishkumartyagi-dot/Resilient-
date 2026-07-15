@@ -1,6 +1,19 @@
 import { NextResponse } from "next/server";
 import {
   fetchPaperSearchMcp,
+  fetchPubMedBrowserless,
+  fetchOpenAlex,
+  fetchDoaj,
+  fetchBioRxiv,
+  fetchMedRxiv,
+  fetchCrossref,
+  fetcharXiv,
+  fetchOpenAIRE,
+  fetchDblp,
+  fetchZenodo,
+  fetchGoogleScholarBrowserless,
+  fetchSemanticScholarBrowserless,
+  fetchClinicalTrialsGov,
   deduplicatePapers,
   verifyCitations,
 } from "@/lib/database-apis";
@@ -54,6 +67,20 @@ export async function POST(request: Request) {
     }
 
     const apiMap: Record<string, (() => Promise<any[]>) | undefined> = {
+      "PubMed": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
+      "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
+      "Europe PMC": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
+      "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
+      "bioRxiv": () => fetchBioRxiv(query, yearFrom, yearTo, studyType),
+      "medRxiv": () => fetchMedRxiv(query, yearFrom, yearTo, studyType),
+      "Crossref": () => fetchCrossref(query, yearFrom, yearTo, studyType),
+      "arXiv": () => fetcharXiv(query, yearFrom, yearTo, studyType),
+      "OpenAIRE": () => fetchOpenAIRE(query, yearFrom, yearTo, studyType),
+      "dblp": () => fetchDblp(query, yearFrom, yearTo, studyType),
+      "Zenodo": () => fetchZenodo(query, yearFrom, yearTo, studyType),
+      "Google Scholar": () => fetchGoogleScholarBrowserless(query, yearFrom, yearTo, studyType),
+      "Semantic Scholar": () => fetchSemanticScholarBrowserless(query, yearFrom, yearTo, studyType),
+      "ClinicalTrials.gov": () => fetchClinicalTrialsGov(query, yearFrom, yearTo, studyType),
       "paper-search-mcp": () => fetchPaperSearchMcp(query, "all", yearFrom, yearTo, studyType),
     };
 

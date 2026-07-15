@@ -23,8 +23,40 @@ const STUDY_TYPES = [
 ];
 
 const DATABASES = [
-  "paper-search-mcp"
+  "PubMed",
+  "OpenAlex",
+  "Europe PMC",
+  "DOAJ",
+  "bioRxiv",
+  "medRxiv",
+  "Crossref",
+  "arXiv",
+  "OpenAIRE",
+  "dblp",
+  "Zenodo",
+  "Google Scholar",
+  "Semantic Scholar",
+  "ClinicalTrials.gov",
+  "paper-search-mcp",
 ];
+
+const DATABASE_URLS: Record<string, string> = {
+  "PubMed": "https://pubmed.ncbi.nlm.nih.gov/",
+  "OpenAlex": "https://openalex.org/",
+  "Europe PMC": "https://europepmc.org/",
+  "DOAJ": "https://doaj.org/",
+  "bioRxiv": "https://www.biorxiv.org/",
+  "medRxiv": "https://www.medrxiv.org/",
+  "Crossref": "https://www.crossref.org/",
+  "arXiv": "https://arxiv.org/",
+  "OpenAIRE": "https://www.openaire.eu/",
+  "dblp": "https://dblp.org/",
+  "Zenodo": "https://zenodo.org/",
+  "Google Scholar": "https://scholar.google.com/",
+  "Semantic Scholar": "https://www.semanticscholar.org/",
+  "ClinicalTrials.gov": "https://clinicaltrials.gov/",
+  "paper-search-mcp": "https://github.com/openags/paper-search-mcp",
+};
 
 export default function Step1Search() {
   const { state, dispatch } = useApp();
@@ -286,11 +318,7 @@ export default function Step1Search() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-white">{activeDbTab}</p>
-                <p className="text-xs text-blue-400">
-                  {activeDbTab === "paper-search-mcp"
-                    ? "https://github.com/Dianel555/paper-search-mcp-nodejs"
-                    : `https://${activeDbTab.toLowerCase().replace(/\s/g, "")}.org/`}
-                </p>
+                <p className="text-xs text-blue-400">{DATABASE_URLS[activeDbTab] || `https://${activeDbTab.toLowerCase().replace(/\s/g, "")}.org/`}</p>
               </div>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input

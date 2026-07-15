@@ -366,7 +366,7 @@ export async function fetchPaperSearchMcp(query: string, source: string, yearFro
       studyType: p.studyType || "Journal Article",
       selected: false,
       url: p.url || (p.doi ? `https://doi.org/${p.doi}` : ""),
-      sourceBackend: "paper-search-mcp-nodejs",
+      sourceBackend: "openags/paper-search-mcp",
       sources: p.source ? [p.source] : ["paper-search-mcp"],
     }));
   } catch (err: any) {
@@ -739,6 +739,20 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
   const succeededDbs: string[] = [];
 
   const apiDatabases: Record<string, () => Promise<Paper[]>> = {
+    "PubMed": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
+    "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
+    "Europe PMC": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
+    "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
+    "bioRxiv": () => fetchBioRxiv(query, yearFrom, yearTo, studyType),
+    "medRxiv": () => fetchMedRxiv(query, yearFrom, yearTo, studyType),
+    "Crossref": () => fetchCrossref(query, yearFrom, yearTo, studyType),
+    "arXiv": () => fetcharXiv(query, yearFrom, yearTo, studyType),
+    "OpenAIRE": () => fetchOpenAIRE(query, yearFrom, yearTo, studyType),
+    "dblp": () => fetchDblp(query, yearFrom, yearTo, studyType),
+    "Zenodo": () => fetchZenodo(query, yearFrom, yearTo, studyType),
+    "Google Scholar": () => fetchGoogleScholarBrowserless(query, yearFrom, yearTo, studyType),
+    "Semantic Scholar": () => fetchSemanticScholarBrowserless(query, yearFrom, yearTo, studyType),
+    "ClinicalTrials.gov": () => fetchClinicalTrialsGov(query, yearFrom, yearTo, studyType),
     "paper-search-mcp": () => fetchPaperSearchMcp(query, "all", yearFrom, yearTo, studyType),
   };
 
@@ -801,6 +815,20 @@ export async function fetchRealPapersWithCounts(query: string, databases: string
   const allPapers: Paper[] = [];
 
   const apiDatabases: Record<string, () => Promise<Paper[]>> = {
+    "PubMed": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
+    "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
+    "Europe PMC": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
+    "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
+    "bioRxiv": () => fetchBioRxiv(query, yearFrom, yearTo, studyType),
+    "medRxiv": () => fetchMedRxiv(query, yearFrom, yearTo, studyType),
+    "Crossref": () => fetchCrossref(query, yearFrom, yearTo, studyType),
+    "arXiv": () => fetcharXiv(query, yearFrom, yearTo, studyType),
+    "OpenAIRE": () => fetchOpenAIRE(query, yearFrom, yearTo, studyType),
+    "dblp": () => fetchDblp(query, yearFrom, yearTo, studyType),
+    "Zenodo": () => fetchZenodo(query, yearFrom, yearTo, studyType),
+    "Google Scholar": () => fetchGoogleScholarBrowserless(query, yearFrom, yearTo, studyType),
+    "Semantic Scholar": () => fetchSemanticScholarBrowserless(query, yearFrom, yearTo, studyType),
+    "ClinicalTrials.gov": () => fetchClinicalTrialsGov(query, yearFrom, yearTo, studyType),
     "paper-search-mcp": () => fetchPaperSearchMcp(query, "all", yearFrom, yearTo, studyType),
   };
 
@@ -839,7 +867,21 @@ export async function fetchRealPapersWithCounts(query: string, databases: string
 
 function getDatabaseBackend(uiDatabase: string): string {
   const mapping: Record<string, string> = {
-    "paper-search-mcp": "paper-search-mcp-nodejs",
+    "PubMed": "PubMed E-utilities",
+    "OpenAlex": "OpenAlex API",
+    "Europe PMC": "Europe PMC API",
+    "DOAJ": "DOAJ API v2",
+    "bioRxiv": "bioRxiv API",
+    "medRxiv": "medRxiv API",
+    "Crossref": "Crossref API",
+    "arXiv": "arXiv API",
+    "OpenAIRE": "OpenAIRE API",
+    "dblp": "DBLP API",
+    "Zenodo": "Zenodo API",
+    "Google Scholar": "Semantic Scholar Graph API",
+    "Semantic Scholar": "Semantic Scholar Graph API",
+    "ClinicalTrials.gov": "ClinicalTrials.gov API v2",
+    "paper-search-mcp": "openags/paper-search-mcp",
   };
   return mapping[uiDatabase] || uiDatabase;
 }

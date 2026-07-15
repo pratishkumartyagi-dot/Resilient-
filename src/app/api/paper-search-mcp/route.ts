@@ -11,7 +11,7 @@ const PAPER_SEARCH_MCP_CANDIDATES = [
   "/usr/bin/paper-search-mcp",
   "/opt/homebrew/bin/paper-search-mcp",
   path.join(process.env.HOME || "", ".local/bin/paper-search-mcp"),
-  path.join(process.env.HOME || "", "paper-search-mcp-nodejs", "dist", "server.js"),
+  path.join(process.env.HOME || "", "paper-search-mcp", "dist", "server.js"),
 ];
 
 function findPaperSearchMcpBinary(): string | null {
@@ -105,7 +105,7 @@ export async function POST(request: Request) {
 
     if (!MCP_BINARY) {
       return NextResponse.json({
-        error: "paper-search-mcp binary not found. Install paper-search-mcp-nodejs and ensure the binary is in PATH.",
+        error: "paper-search-mcp binary not found. Install openags/paper-search-mcp and ensure the binary is in PATH.",
         papers: [],
         total: 0,
         sourcesUsed: [],
@@ -161,7 +161,7 @@ export async function POST(request: Request) {
         selected: false,
         citationCount: p.citationCount || 0,
         keywords: p.keywords || [],
-        sourceBackend: "paper-search-mcp-nodejs",
+        sourceBackend: "openags/paper-search-mcp",
         sources: p.source ? [p.source] : ["paper-search-mcp"],
       }));
 
