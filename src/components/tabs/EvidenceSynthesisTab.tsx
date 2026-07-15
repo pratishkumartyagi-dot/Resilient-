@@ -833,18 +833,24 @@ Return a concise markdown report with a "## PROBAST+AI Assessment" heading and a
     });
     setRobAssessments(assessments);
     setExtractedData(
-      selected.map((p) => ({
-        id: p.id,
-        title: p.title,
-        authors: p.authors,
-        year: p.year,
-        doi: p.doi,
-        studyType: p.studyType,
-        population: "Extracted from abstract",
-        intervention: "Extracted from abstract",
-        outcome: "Extracted from abstract",
-        ROB: "Pending — assess in Step 3",
-      }))
+      selected.map((p) => {
+        const doiLink = p.doi ? `<a href="https://doi.org/${p.doi}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">doi:${p.doi}</a>` : "";
+        const urlLink = p.url && !p.doi ? `<a href="${p.url}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">Link</a>` : "";
+        const vancouverRef = `${p.authors}. ${p.title}. ${p.journal || "Unknown journal"}. ${p.year}. ${doiLink} ${urlLink}`.trim();
+        return {
+          id: p.id,
+          title: p.title,
+          authors: p.authors,
+          year: p.year,
+          doi: p.doi,
+          studyType: p.studyType,
+          population: "Extracted from abstract",
+          intervention: "Extracted from abstract",
+          outcome: "Extracted from abstract",
+          ROB: "Pending — assess in Step 3",
+          vancouverReference: vancouverRef,
+        };
+      })
     );
     setPipelineStep(3);
   };
@@ -2027,97 +2033,47 @@ ${stormReview}
                 Auto-Extract from Selected Papers
               </button>
             </div>
-            {extractedData.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-sm">
-                  <thead>
-                    <tr className="bg-blue-900/60 text-left">
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Study</th>
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Year</th>
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Population</th>
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Intervention</th>
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Comparison</th>
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Outcome</th>
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Sample Size</th>
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Effect Estimate</th>
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">95% CI</th>
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Study Type</th>
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">ROB</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {extractedData.map((row) => (
-                      <tr key={row.id} className="hover:bg-blue-900/20">
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.title}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.year}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.population || "—"}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.intervention || "—"}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.comparison || "—"}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.outcome || "—"}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.sampleSize || "—"}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.effectEstimate || "—"}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.ci || "—"}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.studyType || "—"}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.ROB || "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
-              <div className="flex items-center gap-2 mb-3">
-                <Sparkles size={18} className="text-yellow-400" />
-                <h3 className="text-lg font-bold text-white">AI Synthesis Table</h3>
-              </div>
-              <p className="text-sm text-blue-300 mb-4">
-                Generate a structured evidence synthesis table from selected papers using deep reasoning aligned with <a href="https://github.com/mtwn105/decipher-research-agent" target="_blank" rel="noreferrer" className="text-yellow-300 underline">decipher-research-agent</a> and <a href="https://gist.github.com/t0mst0ne/f3dd82637861384e6b2ffe3c9370f4d8" target="_blank" rel="noreferrer" className="text-yellow-300 underline">research-gaps format</a>.
-              </p>
-              <button onClick={generateSynthesisTable} disabled={synthesisTableLoading || selectedPaperIds.size === 0} className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-5 py-2 rounded-lg disabled:opacity-50">
-                {synthesisTableLoading ? "Generating..." : "Generate Synthesis Table"}
-              </button>
-            </div>
-            {synthesisTable.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-sm">
-                  <thead>
-                    <tr className="bg-blue-900/60 text-left">
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Study reference</th>
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Year</th>
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Setting</th>
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Population</th>
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Intervention / exposure</th>
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Comparison</th>
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Outcome</th>
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Sample size</th>
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Effect estimate</th>
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Risk Ratio (95% CI)</th>
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Study type/Design</th>
-                      <th className="border border-blue-800 px-3 py-2 text-yellow-200">Research Gaps</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {synthesisTable.map((row) => (
-                      <tr key={row.id} className="hover:bg-blue-900/20">
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.reference}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.year}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.setting}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.population}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.intervention}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.comparison}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.outcome}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.sampleSize}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.effectEstimate}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.riskRatio}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.studyType}</td>
-                        <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.researchGaps}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            <div className="flex justify-end">
+             {extractedData.length > 0 && (
+               <div className="overflow-x-auto">
+                 <table className="w-full border-collapse text-sm">
+                   <thead>
+                     <tr className="bg-blue-900/60 text-left">
+                       <th className="border border-blue-800 px-3 py-2 text-yellow-200">Vancouver style reference with DOI &amp; Searchable</th>
+                       <th className="border border-blue-800 px-3 py-2 text-yellow-200">Study</th>
+                       <th className="border border-blue-800 px-3 py-2 text-yellow-200">Year</th>
+                       <th className="border border-blue-800 px-3 py-2 text-yellow-200">Population</th>
+                       <th className="border border-blue-800 px-3 py-2 text-yellow-200">Intervention</th>
+                       <th className="border border-blue-800 px-3 py-2 text-yellow-200">Comparison</th>
+                       <th className="border border-blue-800 px-3 py-2 text-yellow-200">Outcome</th>
+                       <th className="border border-blue-800 px-3 py-2 text-yellow-200">Sample Size</th>
+                       <th className="border border-blue-800 px-3 py-2 text-yellow-200">Effect Estimate</th>
+                       <th className="border border-blue-800 px-3 py-2 text-yellow-200">95% CI</th>
+                       <th className="border border-blue-800 px-3 py-2 text-yellow-200">Study Type</th>
+                       <th className="border border-blue-800 px-3 py-2 text-yellow-200">ROB</th>
+                     </tr>
+                   </thead>
+                   <tbody>
+                     {extractedData.map((row) => (
+                       <tr key={row.id} className="hover:bg-blue-900/20">
+                         <td className="border border-blue-800 px-3 py-2 text-blue-100" dangerouslySetInnerHTML={{ __html: row.vancouverReference || "" }} />
+                         <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.title}</td>
+                         <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.year}</td>
+                         <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.population || "—"}</td>
+                         <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.intervention || "—"}</td>
+                         <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.comparison || "—"}</td>
+                         <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.outcome || "—"}</td>
+                         <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.sampleSize || "—"}</td>
+                         <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.effectEstimate || "—"}</td>
+                         <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.ci || "—"}</td>
+                         <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.studyType || "—"}</td>
+                         <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.ROB || "—"}</td>
+                       </tr>
+                     ))}
+                   </tbody>
+                 </table>
+               </div>
+             )}
+             <div className="flex justify-end">
               <button onClick={() => setPipelineStep(3)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">
                 Proceed to Risk of Bias
                 <ChevronRight size={16} />
