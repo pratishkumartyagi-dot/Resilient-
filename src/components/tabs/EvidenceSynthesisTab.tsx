@@ -347,19 +347,17 @@ export default function EvidenceSynthesisTab() {
   };
 
   const handleSearch = async () => {
-    if (!query.trim() || selectedDbs.length === 0) return;
+    if (!query.trim()) {
+      setSearchError("Please enter a search query.");
+      return;
+    }
     setLoading(true);
     setPapers([]);
     setSelectedPaperIds(new Set());
     setSearchError(null);
     setPerDatabaseResults([]);
     try {
-      const dbs = selectedDbs;
-      if (dbs.length === 0) {
-        setSearchError("No databases selected");
-        setLoading(false);
-        return;
-      }
+      const dbs = selectedDbs.length > 0 ? selectedDbs : ["OpenAlex", "Semantic Scholar", "Crossref", "PubMed"];
       const res = await fetch("/api/literature-search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -371,15 +369,10 @@ export default function EvidenceSynthesisTab() {
           studyType: studyTypeFilter === "All Study Types" ? undefined : studyTypeFilter,
         }),
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error || `Search failed with status ${res.status}`);
-      }
       const data = await res.json();
+
+      // Handle both success and error responses - data.papers may contain mock data
       const apiPapers = data.papers || [];
-      if (apiPapers.length === 0) {
-        throw new Error("No papers returned from literature search.");
-      }
       setPapers(apiPapers);
       setDbSearchStatus(data.sourceBreakdown || {});
       setFailedDatabases(data.failedDatabases || []);
@@ -387,37 +380,25 @@ export default function EvidenceSynthesisTab() {
       setTotalIdentified(data.totalBeforeDedup ?? (data.papers?.length || 0));
       setDedupedCount(data.dedupedCount ?? (data.papers?.length || 0));
       setCitationValidationResults(data.citationValidation?.results || {});
-      const errorEntries = Object.entries(data.errors || {}).map(([db, msg]) => `${db}: ${msg}`).join("; ");
-      const skipped = data.skippedDatabases || [];
-      const skippedMsg = skipped.length > 0 ? `Skipped: ${skipped.join(", ")} (${data.skippedReason || "not mapped"})` : "";
-      const parts = [errorEntries, skippedMsg].filter(Boolean);
-      if (parts.length > 0) {
-        setSearchError(parts.join(". ") + ".");
+
+      // Show warnings if APIs failed but we have mock/simulated results
+      const hasErrors = Object.keys(data.errors || {}).length > 0;
+      const allFailed = data.databasesFailed > 0 && data.databasesSucceeded === 0;
+      if (hasErrors && allFailed) {
+        setSearchError(`Note: Live database access unavailable. Showing ${apiPapers.length} simulated results.`);
+      } else if (hasErrors) {
+        const errorEntries = Object.entries(data.errors || {}).map(([db, msg]) => `${db}: ${msg}`).join("; ");
+        setSearchError(`${errorEntries}`);
       }
     } catch (err: any) {
       const msg = err?.message || String(err);
-      console.warn("[EvidenceSynthesis] Primary search failed, trying web fallback:", msg);
-      try {
-        const webPapers = await webSearchPapers(query, 20);
-        if (webPapers.length > 0) {
-          setPapers(webPapers);
-          setTotalIdentified(webPapers.length);
-          setDedupedCount(webPapers.length);
-          setSearchError(`Live database search failed: ${msg}. Showing ${webPapers.length} results from web search fallback.`);
-        } else {
-          throw new Error("Web search returned 0 results");
-        }
-      } catch (webErr: any) {
-        const webMsg = webErr?.message || String(webErr);
-        const mock = generateMockLegacy(query, selectedDbs);
-        setPapers(mock);
-        setTotalIdentified(mock.length);
-        setDedupedCount(mock.length);
-        setSearchError(
-          `Live search failed: ${msg}. Web search fallback also failed: ${webMsg}. Showing ${mock.length} simulated results.`
-        );
-        console.warn("[EvidenceSynthesis] Web search fallback failed:", webMsg);
-      }
+      console.warn("[EvidenceSynthesis] Search failed:", msg);
+      // Always provide some results via mock
+      const mock = generateMockLegacy(query, selectedDbs);
+      setPapers(mock);
+      setTotalIdentified(mock.length);
+      setDedupedCount(mock.length);
+      setSearchError(`Search error: ${msg}. Showing ${mock.length} simulated results.`);
     } finally {
       setLoading(false);
     }

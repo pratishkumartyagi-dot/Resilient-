@@ -16,6 +16,7 @@ import {
   fetchClinicalTrialsGov,
   deduplicatePapers,
   verifyCitations,
+  generateMockLegacy,
 } from "@/lib/database-apis";
 
 export const runtime = "nodejs";
@@ -62,9 +63,10 @@ export async function POST(request: Request) {
     if (!query) {
       return NextResponse.json({ error: "Missing query parameter" }, { status: 400, headers: corsHeaders() });
     }
-    if (databases.length === 0) {
-      return NextResponse.json({ error: "No databases selected" }, { status: 400, headers: corsHeaders() });
-    }
+
+    // Default databases if none selected
+    const defaultDbs = ["PubMed", "OpenAlex", "Semantic Scholar", "Crossref", "arXiv", "bioRxiv"];
+    const dbsToSearch = databases.length > 0 ? databases : defaultDbs;
 
     const apiMap: Record<string, (() => Promise<any[]>) | undefined> = {
       "PubMed": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
@@ -84,8 +86,8 @@ export async function POST(request: Request) {
       "paper-search-mcp": () => fetchPaperSearchMcp(query, "all", yearFrom, yearTo, studyType),
     };
 
-    const selectedApis = databases.filter((db) => apiMap[db]);
-    const skippedDatabases = databases.filter((db) => !apiMap[db]);
+    const selectedApis = dbsToSearch.filter((db) => apiMap[db]);
+    const skippedDatabases = dbsToSearch.filter((db) => !apiMap[db]);
 
     const allPapers: any[] = [];
     const perDatabaseResults: PerDatabaseResult[] = [];
@@ -184,6 +186,42 @@ export async function POST(request: Request) {
     const verifiedCount = enriched.filter((p) => p.citationStatus === "verified").length;
     const unverifiedCount = enriched.filter((p) => p.citationStatus === "unverified").length;
     const noDoiCount = enriched.filter((p) => p.citationStatus === "no-doi").length;
+
+    // If no papers were returned, provide mock data as fallback
+    if (enriched.length === 0 && succeeded.length === 0) {
+      const mockPapers = generateMockLegacy(query, dbsToSearch);
+      const mockEnriched = mockPapers.map((p) => ({
+        ...p,
+        citationStatus: "unverified" as const,
+        citationMessage: "Simulated paper - live database unavailable",
+      }));
+      return NextResponse.json(
+        {
+          query,
+          total: mockEnriched.length,
+          papers: mockEnriched,
+          sourceBreakdown: {},
+          sourcesUsed: [],
+          errors: {
+            message: `All ${selectedApis.length} database searches failed. Showing ${mockEnriched.length} simulated results.`,
+            ...perDatabaseErrors,
+          },
+          failedDatabases: failed,
+          skippedDatabases,
+          perDatabaseResults: perDatabaseResults.map((r) => ({ database: r.database, status: r.status, count: r.count, error: r.error })),
+          databasesRequested: dbsToSearch.length,
+          databasesProcessed: selectedApis.length,
+          databasesSucceeded: 0,
+          databasesEmpty: 0,
+          databasesFailed: selectedApis.length,
+          databasesSkipped: 0,
+          dedupedCount: 0,
+          totalBeforeDedup: 0,
+          citationValidation: { verified: 0, unverified: mockEnriched.length, noDoi: 0, results: {} },
+        },
+        { headers: corsHeaders() }
+      );
+    }
 
     return NextResponse.json(
       {

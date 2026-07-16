@@ -688,6 +688,35 @@ Added as an add-on layer to the existing app — does not modify existing step n
 - `bun typecheck` ✅
 - `bun lint` ✅
 
+## Robust Search Fallback & Mock Data Enhancement (2026-07-16)
+
+**Feature**: Enhanced Step 1 search to always return papers to the app, even when external APIs fail.
+
+### Changes Applied
+- Updated `src/lib/database-apis.ts`:
+  - `fetchPubMedBrowserless`: Added try-catch with graceful error handling; returns empty array on failure instead of throwing
+  - `fetchSemanticScholarBrowserless`: Added try-catch with fallback; returns empty array on failure instead of throwing
+  - `fetchGoogleScholarBrowserless`: Now uses Semantic Scholar API as proxy with graceful error handling
+  - `fetchRealPapers` and `fetchRealPapersWithCounts`: Return mock papers instead of throwing errors when all APIs fail
+- Updated `src/app/api/literature-search/route.ts`:
+  - Added default database list when none selected (`["PubMed", "OpenAlex", "Semantic Scholar", "Crossref", "arXiv", "bioRxiv"]`)
+  - Added mock data fallback when all database searches fail
+  - Added `generateMockLegacy` import
+- Updated `src/components/tabs/EvidenceSynthesisTab.tsx`:
+  - Simplified `handleSearch` to handle both success and error responses gracefully
+  - Removed complex web search fallback chain; unified to use mock data
+  - Shows informative message when live database access is unavailable
+
+### Key Behaviors
+- Search always returns papers to the app (never empty)
+- When APIs fail, mock/simulated papers are provided
+- User sees clear indication: "Live database access unavailable. Showing X simulated results."
+- All database fetchers catch errors internally and let the caller handle fallback
+
+### Validation
+- `bun typecheck` ✅
+- `bun lint` ✅
+
 ## OpenClaw Scientific Research & Writing Integration — EvidenceSynthesisTab Step 6 (2026-07-04)
 
 **Feature**: Integrated the OpenClaw `scientific-writing` skill from FreedomIntelligence/OpenClaw-Medical-Skills into Step 6 ("Writing Review & Meta-analysis") so the manuscript generation reads the full pipeline and produces IMRAD/PRISMA, two-stage outline-to-prose output with Vancouver-style inline citations.
