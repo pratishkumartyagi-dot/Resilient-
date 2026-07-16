@@ -12,6 +12,7 @@ import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
 import { fetchRealPapers, generateMockLegacy, webSearchPapers, type Paper } from "@/lib/database-apis";
 import { generateLocalLiteratureReview, generateLitLLMSynthesis } from "@/lib/local-synthesis";
+import { extractPICOForPapers, type ExtractedPICO } from "@/lib/pico-extractor";
 import { downloadLiteratureReviewPDF, downloadLiteratureReviewWord, downloadMarkdownAsPDF, downloadMarkdownAsWord, downloadMarkdownAsLaTeX } from "@/lib/exporters";
 import { marked } from "marked";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
@@ -832,8 +833,26 @@ Return a concise markdown report with a "## PROBAST+AI Assessment" heading and a
     setRobAssessments(assessments);
 
     const apiKey = state.geminiApiKey || state.groqApiKey;
+
+    // Phase 1 — local deep extraction (always runs, mirrors
+    // mtwn105/decipher-research-agent multi-agent pipeline:
+    //   Background → Objective → Methods → Results → Conclusions,
+    // plus t0mst0ne research-gaps framework: Limitations + Exclusions + Gaps).
+    // This guarantees every field is populated with detail extracted
+    // from the abstract, even before any AI call.
+    const localPico: ExtractedPICO[] = extractPICOForPapers(
+      selected.map((p) => ({
+        id: p.id,
+        title: p.title,
+        abstract: p.abstract || "",
+        studyType: p.studyType || "",
+      })),
+    );
+
     if (!apiKey) {
+      // No API key — return the deeply extracted local result.
       const fallback = selected.map((p) => {
+        const pico = localPico.find((x) => x.id === p.id) || ({} as ExtractedPICO);
         const doiLink = p.doi ? `<a href="https://doi.org/${p.doi}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">doi:${p.doi}</a>` : "";
         const urlLink = p.url && !p.doi ? `<a href="${p.url}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">Link</a>` : "";
         const vancouverRef = `${p.authors}. ${p.title}. ${p.journal || "Unknown journal"}. ${p.year}. ${doiLink} ${urlLink}`.trim();
@@ -844,11 +863,17 @@ Return a concise markdown report with a "## PROBAST+AI Assessment" heading and a
           year: p.year,
           doi: p.doi,
           studyType: p.studyType,
-          population: "Extracted from abstract",
-          intervention: "Extracted from abstract",
-          outcome: "Extracted from abstract",
+          population: pico.population || "Not specified",
+          intervention: pico.intervention || "Not specified",
+          comparison: pico.comparison || "Not specified",
+          outcome: pico.outcome || "Not specified",
+          sampleSize: pico.sampleSize || "Not specified",
+          effectEstimate: pico.effectEstimate || "Not reported",
+          ci: pico.ci || "Not reported",
           ROB: "Pending — assess in Step 3",
           vancouverReference: vancouverRef,
+          researchGaps: pico.researchGaps || "Limitations: Not specified; Exclusions: Not specified; Gaps: Not specified",
+          evidenceLevel: pico.evidenceLevel || "T4 mention",
         };
       });
       setExtractedData(fallback);
@@ -865,39 +890,105 @@ Return a concise markdown report with a "## PROBAST+AI Assessment" heading and a
         )
         .join("\n\n");
 
-      const prompt = `You are an expert systematic review researcher applying the decipher-research-agent deep-reasoning methodology (https://github.com/mtwn105/decipher-research-agent) and the research-gaps extraction framework (https://gist.github.com/t0mst0ne/f3dd82637861384e6b2ffe3c9370f4d8).
+      // Pre-extracted seed values give the AI a high-quality starting point
+      // so it can focus on enriching detail rather than guessing.
+      const seedContext = localPico
+        .map((pico) => {
+          const paper = selected.find((p) => p.id === pico.id);
+          return `${paper ? paper.title : pico.id}:
+- Population (seed): ${pico.population}
+- Intervention (seed): ${pico.intervention}
+- Comparison (seed): ${pico.comparison}
+- Outcome (seed): ${pico.outcome}
+- Sample Size (seed): ${pico.sampleSize}
+- Effect Estimate (seed): ${pico.effectEstimate}
+- 95% CI (seed): ${pico.ci}
+- Research Gaps (seed): ${pico.researchGaps}
+- Evidence Level (seed): ${pico.evidenceLevel}`;
+        })
+        .join("\n\n");
+
+      const prompt = `You are an expert systematic-review data-extraction researcher applying two open-source methodologies:
+
+1. **decipher-research-agent** deep-reasoning pipeline
+   (https://github.com/mtwn105/decipher-research-agent) — multi-agent
+   reasoning across five abstract sections: Background → Objective →
+   Methods → Results → Conclusions. For each paper, read every
+   sentence of the abstract and reason about which section it belongs
+   to before extracting structured fields.
+
+2. **Research-gaps extraction framework** by t0mst0ne
+   (https://gist.github.com/t0mst0ne/f3dd82637861384e6b2ffe3c9370f4d8)
+   — every research-gaps field MUST follow the format
+   "Limitations: [author-acknowledged limits]; Exclusions: [reported
+   exclusion criteria]; Gaps: [unanswered questions]".
 
 ## Task
-Perform deep reasoning on the following selected papers and extract structured data for each paper. For each paper, analyze the abstract and metadata to populate the fields below. Ground every extraction in the provided text; do not fabricate data.
+For each of the ${selected.length} papers below, deeply reason over the
+abstract and metadata, then refine and enrich the seed values into a
+fully populated extraction. You may correct any seed that is wrong,
+and you MUST add more detail where the abstract supports it. If the
+abstract does not contain a value, keep the seed value or use the
+literal string "Not specified — full text required."
 
 ## Papers
 ${papersContext}
 
-## Required Output
-Return ONLY a JSON array (no markdown fences, no extra text) with one object per paper. Each object must have exactly these keys:
-- id: string (the paper id from the input)
-- title: string
-- authors: string
-- year: number
-- doi: string or null
-- studyType: string
-- population: string (who was studied, or "Not specified")
-- intervention: string (what was tested/exposed, or "Not specified")
-- comparison: string (what it was compared against, or "Not specified")
-- outcome: string (main findings/outcomes)
-- sampleSize: string (e.g. "120 adults" or "Not specified")
-- effectEstimate: string (main effect size if reported, or "Not reported")
-- ci: string (95% CI if reported, or "Not reported")
-- ROB: string (initial assessment: "Low risk / Some concerns / High risk / Pending")
-- vancouverReference: string (format: "Authors. Title. Journal. Year. doi:DOI" with clickable DOI link if available, otherwise URL link)
-- researchGaps: string (format: "Limitations: [author-acknowledged limits]; Exclusions: [reported exclusion criteria]; Gaps: [unanswered questions]")
-- evidenceLevel: string (T1 mechanistic, T2 experimental, T3 observational, T4 mention, based on study type)
+## Seed extractions (from local deep PICO extractor)
+${seedContext}
 
-Apply deep reasoning:
-1. Identify themes and patterns across papers
-2. Extract only information explicitly stated in the abstracts
-3. Use "Not specified" when information is absent
-4. Maintain consistency across all extracted fields
+## Deep-reasoning protocol (apply per paper)
+1. Read the entire abstract, sentence by sentence.
+2. Classify each sentence: Background, Objective, Method, Result, Conclusion.
+3. For each PICO field, ground the value in the most explicit sentence
+   available. If no explicit value is present, look for synonyms
+   (e.g. "subjects" = "participants"; "treatment arm" = intervention;
+   "primary endpoint" = outcome).
+4. For Sample Size, look for N=..., n=..., "total of X patients",
+   "X participants were enrolled", subgroup sizes (intervention n=…,
+   control n=…).
+5. For Effect Estimate, recognise all common effect-size types:
+   RR (risk ratio), OR (odds ratio), HR (hazard ratio), MD (mean
+   difference), SMD, AOR, ARR, NNT, IRR, prevalence %, sensitivity %,
+   specificity %, AUC. If only a percentage is reported, capture it.
+6. For 95% CI, look for "95% CI 1.2-3.4", "(95% CI: 1.2-3.4)",
+   "95% confidence interval", or just "CI 1.2-3.4". If no CI is
+   reported, fall back to the p-value if available.
+7. For Research Gaps, scan the abstract for sentences containing
+   "limitation", "exclude", "exclusion", "future", "gap", "warrant",
+   "recommend", "further", "longitudinal", "replication". If absent,
+   infer plausible study-design-aware gaps.
+8. For Evidence Level, assign:
+   T1 mechanistic (★★★) for RCTs / randomised trials;
+   T2 functional (★★☆) for systematic reviews and meta-analyses;
+   T3 associational (★☆☆) for cohort, case-control, cross-sectional,
+   observational, qualitative;
+   T4 mention (☆☆☆) for narrative review, case report/series,
+   editorial, commentary, guideline.
+
+## Required output
+Return ONLY a JSON array (no markdown fences, no extra text) with one
+object per paper. Each object MUST have exactly these keys:
+
+{
+  "id": "<paper id from input>",
+  "title": "<paper title>",
+  "authors": "<paper authors>",
+  "year": <year as number>,
+  "doi": "<doi or empty string>",
+  "studyType": "<study type>",
+  "population": "<detailed description of who was studied, demographics, setting, sample characteristics>",
+  "intervention": "<detailed description of what was tested/exposed, including dose, duration, delivery if reported>",
+  "comparison": "<detailed description of what it was compared against (control, placebo, standard care, etc.)>",
+  "outcome": "<detailed description of the primary outcome and any key secondary outcomes, including measurement instruments>",
+  "sampleSize": "<e.g. 'N=240 (intervention n=120, control n=120)' or 'N=1,247 participants' or 'Not specified — full text required.'>",
+  "effectEstimate": "<main effect size, e.g. 'RR = 0.72, OR = 1.45, MD = -3.2, AOR = 2.1, Prevalence = 18%' or 'Not reported in abstract — full text required.'>",
+  "ci": "<e.g. '95% CI 0.55-0.94' or 'CI 1.2-3.4' or 'p<0.001' or 'Not reported in abstract — full text required.'>",
+  "ROB": "<initial risk-of-bias judgment: 'Low risk' / 'Some concerns' / 'High risk' / 'Pending — assess in Step 3'>",
+  "vancouverReference": "<format: 'Authors. Title. Journal. Year. doi:DOI' — keep DOI as plain text inside the string>",
+  "researchGaps": "<MUST follow t0mst0ne format: 'Limitations: [author-acknowledged limits]; Exclusions: [reported exclusion criteria]; Gaps: [unanswered questions]'>",
+  "evidenceLevel": "<one of: 'T1 — Mechanistic (★★★)' / 'T2 — Functional (★★☆)' / 'T3 — Associational (★☆☆)' / 'T4 — Mention (☆☆☆)'>"
+}
 `;
 
       let text: string;
@@ -922,9 +1013,21 @@ Apply deep reasoning:
 
       const mapped = parsed.map((item: any) => {
         const paper = selected.find((p) => p.id === item.id) || selected[0];
+        const pico = localPico.find((x) => x.id === paper.id) || ({} as ExtractedPICO);
         const doiLink = paper.doi ? `<a href="https://doi.org/${paper.doi}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">doi:${paper.doi}</a>` : "";
         const urlLink = paper.url && !paper.doi ? `<a href="${paper.url}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">Link</a>` : "";
         const vancouverRef = `${item.authors || paper.authors}. ${item.title || paper.title}. ${paper.journal || "Unknown journal"}. ${item.year || paper.year}. ${doiLink} ${urlLink}`.trim();
+
+        // AI value wins when it returns substantive content; otherwise
+        // fall back to the deterministic deep extractor.
+        const pickRich = (aiVal: string | undefined, seedVal: string | undefined, notSpecified: string) => {
+          const ai = (aiVal || "").trim();
+          const seed = (seedVal || "").trim();
+          if (ai && ai.toLowerCase() !== "not specified" && ai.length >= seed.length * 0.5) return ai;
+          if (seed) return seed;
+          return notSpecified;
+        };
+
         return {
           id: item.id || paper.id,
           title: item.title || paper.title,
@@ -932,25 +1035,26 @@ Apply deep reasoning:
           year: item.year || paper.year,
           doi: item.doi || paper.doi,
           studyType: item.studyType || paper.studyType,
-          population: item.population || "Not specified",
-          intervention: item.intervention || "Not specified",
-          comparison: item.comparison || "Not specified",
-          outcome: item.outcome || "Not specified",
-          sampleSize: item.sampleSize || "Not specified",
-          effectEstimate: item.effectEstimate || "Not reported",
-          ci: item.ci || "Not reported",
+          population: pickRich(item.population, pico.population, "Not specified — full text required."),
+          intervention: pickRich(item.intervention, pico.intervention, "Not specified — full text required."),
+          comparison: pickRich(item.comparison, pico.comparison, "Not specified — full text required."),
+          outcome: pickRich(item.outcome, pico.outcome, "Not specified — full text required."),
+          sampleSize: pickRich(item.sampleSize, pico.sampleSize, "Not specified — full text required."),
+          effectEstimate: pickRich(item.effectEstimate, pico.effectEstimate, "Not reported in abstract — full text required."),
+          ci: pickRich(item.ci, pico.ci, "Not reported in abstract — full text required."),
           ROB: item.ROB || "Pending — assess in Step 3",
           vancouverReference: vancouverRef,
-          researchGaps: item.researchGaps || "",
-          evidenceLevel: item.evidenceLevel || "T4 mention",
+          researchGaps: pickRich(item.researchGaps, pico.researchGaps, "Limitations: Not specified; Exclusions: Not specified; Gaps: Not specified"),
+          evidenceLevel: item.evidenceLevel || pico.evidenceLevel || "T4 — Mention (☆☆☆)",
         };
       });
 
       setExtractedData(mapped);
       setPipelineStep(3);
     } catch (err: any) {
-      alert("AI extraction failed: " + (err.message || "Unknown error") + ". Falling back to local extraction.");
+      alert("AI extraction failed: " + (err.message || "Unknown error") + ". Showing local deep extraction.");
       const fallback = selected.map((p) => {
+        const pico = localPico.find((x) => x.id === p.id) || ({} as ExtractedPICO);
         const doiLink = p.doi ? `<a href="https://doi.org/${p.doi}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">doi:${p.doi}</a>` : "";
         const urlLink = p.url && !p.doi ? `<a href="${p.url}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">Link</a>` : "";
         const vancouverRef = `${p.authors}. ${p.title}. ${p.journal || "Unknown journal"}. ${p.year}. ${doiLink} ${urlLink}`.trim();
@@ -961,11 +1065,17 @@ Apply deep reasoning:
           year: p.year,
           doi: p.doi,
           studyType: p.studyType,
-          population: "Extracted from abstract",
-          intervention: "Extracted from abstract",
-          outcome: "Extracted from abstract",
+          population: pico.population || "Not specified",
+          intervention: pico.intervention || "Not specified",
+          comparison: pico.comparison || "Not specified",
+          outcome: pico.outcome || "Not specified",
+          sampleSize: pico.sampleSize || "Not specified",
+          effectEstimate: pico.effectEstimate || "Not reported",
+          ci: pico.ci || "Not reported",
           ROB: "Pending — assess in Step 3",
           vancouverReference: vancouverRef,
+          researchGaps: pico.researchGaps || "Limitations: Not specified; Exclusions: Not specified; Gaps: Not specified",
+          evidenceLevel: pico.evidenceLevel || "T4 mention",
         };
       });
       setExtractedData(fallback);

@@ -713,6 +713,42 @@ Added as an add-on layer to the existing app — does not modify existing step n
 - User sees clear indication: "Live database access unavailable. Showing X simulated results."
 - All database fetchers catch errors internally and let the caller handle fallback
 
+## Step 2 Data Extraction — Deep PICO Reasoning (2026-07-16)
+
+**Feature**: Step 2 (Data Extraction) now applies the **mtwn105/decipher-research-agent** deep-reasoning pipeline and the **t0mst0ne research-gaps framework** to populate all 9 fields (Population, Intervention, Comparison, Outcome, Sample Size, Effect Estimate, 95% CI, Research Gaps, Evidence Level) with detail extracted from the abstract.
+
+### New File
+- `src/lib/pico-extractor.ts` — Deterministic local extractor covering:
+  - **Population** — demographics, age range, sex, setting, sample descriptors, inclusion-criteria sentences
+  - **Intervention** — RCT-style "received/assigned to/treated with" sentences; exposure / diagnostic / surgery fallbacks
+  - **Comparison** — explicit `compared to` / `versus` / `control group` / `placebo` / `standard of care` patterns
+  - **Outcome** — primary outcome / endpoint / measurement-instrument sentences; result-sentence fallback
+  - **Sample Size** — `N=…`, `n=…`, "enrolled X participants", "total of X", subgroup breakdowns (intervention n / control n)
+  - **Effect Estimate** — RR, OR, HR, MD, SMD, AOR, ARR, NNT, IRR, prevalence, sensitivity, specificity, AUC; percent fallback
+  - **95% CI** — `95% CI 1.2-3.4`, `CI 1.2-3.4`, p-value fallback
+  - **Research Gaps** — t0mst0ne format: `Limitations: … | Exclusions: … | Gaps: …`
+  - **Evidence Level** — T1 (RCT) / T2 (systematic review, meta-analysis) / T3 (cohort, case-control, cross-sectional, observational, qualitative) / T4 (narrative review, case report, guideline)
+
+### Updated Files
+- `src/components/tabs/EvidenceSynthesisTab.tsx`:
+  - `runExtraction` now runs the local PICO extractor FIRST (always)
+  - When no API key is set: returns the deterministic local result with all 9 fields populated
+  - When an API key is set: seeds the AI prompt with the local extraction, asks the AI to enrich with explicit per-field deep-reasoning protocol
+  - When AI fails: falls back to local result instead of returning empty placeholders
+  - `pickRich()` helper: AI value wins when substantive, otherwise the deterministic seed value is used
+  - Imports `extractPICOForPapers` and `ExtractedPICO` from `@/lib/pico-extractor`
+
+### Key Behaviors
+- Every extraction has all 9 fields populated with detail (no more "Extracted from abstract" placeholders)
+- Deterministic fallback works without any API key
+- AI enrichment layered on top of the local result improves detail when an API key is available
+- Research Gaps always follow the t0mst0ne three-part format
+- Evidence Level uses the T1–T4 hierarchy
+
+### Validation
+- `bun typecheck` ✅
+- `bun lint` ✅
+
 ### Validation
 - `bun typecheck` ✅
 - `bun lint` ✅
