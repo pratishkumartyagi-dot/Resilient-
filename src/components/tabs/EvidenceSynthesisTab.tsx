@@ -789,7 +789,7 @@ export default function EvidenceSynthesisTab() {
     setProbastAiLoading(true);
     try {
       autoAssessProbast();
-      if (state.geminiApiKey || state.groqApiKey || state.deepseekApiKey) {
+      if (state.geminiApiKey || state.groqApiKey || true) {
         try {
           const studyList = extractedData
             .map((p, i) => `${i + 1}. ${p.title} (${p.authors || "Unknown"}, ${p.year || "n/d"}) — type: ${p.studyType || "prediction model study"}${p.doi ? `; DOI: ${p.doi}` : ""}`)
@@ -800,7 +800,7 @@ Studies:
 ${studyList}
 
 Return a concise markdown report with a "## PROBAST+AI Assessment" heading and a per-study bullet list.`;
-          const content = state.geminiApiKey ? await callGemini(state.geminiApiKey || state.groqApiKey!, prompt) : state.groqApiKey ? await callGroq(state.groqApiKey!, prompt) : await callDeepSeek(state.deepseekApiKey, prompt);
+          const content = state.geminiApiKey ? await callGemini(state.geminiApiKey, prompt) : state.groqApiKey ? await callGroq(state.groqApiKey!, prompt) : await callDeepSeek(prompt);
           if (content) {
             setProbastAnalysis(content);
             return;
@@ -1122,7 +1122,7 @@ ${papersContext}
 Return ONLY a markdown table with these exact columns:
 | Study reference | Year | Setting | Population | Intervention / exposure | Comparison | Outcome | Sample size | Effect estimate | Risk Ratio (95% CI) | Study type/Design | Research Gaps |`;
 
-      const response = state.geminiApiKey ? await callGemini(state.geminiApiKey, prompt) : state.groqApiKey ? await callGroq(state.groqApiKey!, prompt) : await callDeepSeek(state.deepseekApiKey, prompt);
+      const response = state.geminiApiKey ? await callGemini(state.geminiApiKey, prompt) : state.groqApiKey ? await callGroq(state.groqApiKey!, prompt) : await callDeepSeek(prompt);
 
       const tableText = response || "No table generated.";
       const rows = parseSynthesisTable(tableText);
@@ -1701,10 +1701,8 @@ ${isNarrative ? `## Evidence Synthesis
         text = await callGemini(state.geminiApiKey, prompt, searchOptions);
       } else if (state.groqApiKey) {
         text = await callGroq(state.groqApiKey!, prompt, searchOptions);
-      } else if (state.deepseekApiKey) {
-        text = await callDeepSeek(state.deepseekApiKey, prompt, searchOptions);
       } else {
-        throw new Error("No API key configured. Please open Settings (gear icon).");
+        text = await callDeepSeek(prompt, searchOptions);
       }
 
         const cleaned = text.replace(/```markdown/g, "").replace(/```/g, "").trim();

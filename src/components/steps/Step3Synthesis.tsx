@@ -52,7 +52,7 @@ export default function Step3Synthesis() {
     try {
       let synthesis: SynthesisRow[] = [];
 
-      if (state.geminiApiKey || state.groqApiKey || state.deepseekApiKey) {
+      if (state.geminiApiKey || state.groqApiKey) {
           const prompt = buildStep3Prompt(filteredPapers, uploadedText);
         const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: state.searchQuery };
         try {
@@ -61,10 +61,8 @@ export default function Step3Synthesis() {
             responseText = await callGemini(state.geminiApiKey, prompt, searchOptions);
           } else if (state.groqApiKey) {
             responseText = await callGroq(state.groqApiKey, prompt, searchOptions);
-          } else if (state.deepseekApiKey) {
-            responseText = await callDeepSeek(state.deepseekApiKey, prompt, searchOptions);
           } else {
-            throw new Error("No API key configured. Please open Settings (gear icon).");
+            responseText = await callDeepSeek(prompt, searchOptions);
           }
           const cleaned = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
           synthesis = JSON.parse(cleaned);

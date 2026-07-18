@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { provider, prompt, apiKey, test = false, searchQuery, searchEnabled = false } = body as {
-      provider: "gemini" | "groq" | "deepseek";
+      provider: "gemini" | "groq";
       prompt: string;
       apiKey: string;
       test?: boolean;
@@ -118,29 +118,6 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Groq returned empty content" }, { status: 502 });
       }
       return NextResponse.json({ content: groqContent, searchPerformed });
-    }
-
-    if (provider === "deepseek") {
-      const deepseekRes = await fetch("https://api.deepseek.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({ model: "deepseek-reasoner", messages: [{ role: "user", content: finalPrompt }] }),
-      });
-
-      if (!deepseekRes.ok) {
-        const text = await deepseekRes.text();
-        return NextResponse.json({ error: `DeepSeek API error: ${deepseekRes.status} — ${text}` }, { status: deepseekRes.status });
-      }
-
-      const deepseekData = await deepseekRes.json();
-      const deepseekContent = deepseekData?.choices?.[0]?.message?.content;
-      if (!deepseekContent) {
-        return NextResponse.json({ error: "DeepSeek returned empty content" }, { status: 502 });
-      }
-      return NextResponse.json({ content: deepseekContent, searchPerformed });
     }
 
     return NextResponse.json({ error: `Unsupported provider: ${provider}` }, { status: 400 });

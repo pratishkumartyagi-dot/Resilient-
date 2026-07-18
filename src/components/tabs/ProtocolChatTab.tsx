@@ -182,10 +182,8 @@ export default function ProtocolChatTab() {
           );
         } else if (state.groqApiKey) {
           responseText = await callGroq(state.groqApiKey, prompt, searchOptions);
-        } else if (state.deepseekApiKey) {
-          responseText = await callDeepSeek(state.deepseekApiKey, prompt, searchOptions);
         } else {
-          responseText = generateProtocolResponse(currentInput, documentContent);
+          responseText = await callDeepSeek(prompt, searchOptions);
         }
       } else {
         responseText = generateProtocolResponse(currentInput, documentContent);
@@ -250,14 +248,11 @@ export default function ProtocolChatTab() {
           `${DEEP_REASONING_SYSTEM_PROMPT}\n\n${documentContent ? `Uploaded document:\n${documentContent.substring(0, 20000)}\n\n` : ""}Generate a complete AIPOCH-structured research protocol (Sections A–L) in markdown format.${!documentContent ? " Use a generic clinical research protocol template." : ""}`,
           genSearchOptions
         );
-      } else if (state.deepseekApiKey) {
+      } else {
         responseText = await callDeepSeek(
-          state.deepseekApiKey,
           `${DEEP_REASONING_SYSTEM_PROMPT}\n\n${documentContent ? `Uploaded document:\n${documentContent.substring(0, 20000)}\n\n` : ""}Generate a complete AIPOCH-structured research protocol (Sections A–L) in markdown format.${!documentContent ? " Use a generic clinical research protocol template." : ""}`,
           genSearchOptions
         );
-      } else {
-        responseText = generateDefaultProtocol(documentContent);
       }
 
       const cleaned = responseText.replace(/```markdown/g, "").replace(/```/g, "").trim();

@@ -132,19 +132,11 @@ export default function PredictiveAnalysisTab() {
         prompt = "Provide guidance for this step.";
     }
 
-    const apiKey = state.geminiApiKey || state.groqApiKey || state.deepseekApiKey;
-    if (!apiKey) {
-      setAiOutput("Please configure an AI provider in Settings first.");
-      setLocalLoading(false);
-      return;
-    }
-
     try {
       let response: string;
-      if (state.geminiApiKey) response = await callGemini(apiKey, prompt);
-      else if (state.groqApiKey) response = await callGroq(apiKey, prompt);
-      else if (state.deepseekApiKey) response = await callDeepSeek(apiKey, prompt);
-      else throw new Error("No API key configured. Please open Settings (gear icon).");
+      if (state.geminiApiKey) response = await callGemini(state.geminiApiKey, prompt);
+      else if (state.groqApiKey) response = await callGroq(state.groqApiKey, prompt);
+      else response = await callDeepSeek(prompt);
 
       setAiOutput(response);
     } catch (e) {
@@ -228,12 +220,6 @@ export default function PredictiveAnalysisTab() {
     if (!csvFile) return;
     setRelationshipLoading(true);
     setRelationshipResults(null);
-    const apiKey = state.geminiApiKey || state.groqApiKey || state.deepseekApiKey;
-    if (!apiKey) {
-      setRelationshipResults("Please configure an AI provider in Settings first.");
-      setRelationshipLoading(false);
-      return;
-    }
 
     try {
       let text = "";
@@ -259,10 +245,9 @@ export default function PredictiveAnalysisTab() {
 
       try {
         let response: string;
-        if (state.geminiApiKey) response = await callGemini(apiKey, prompt);
-        else if (state.groqApiKey) response = await callGroq(apiKey, prompt);
-        else if (state.deepseekApiKey) response = await callDeepSeek(apiKey, prompt);
-        else throw new Error("No API key configured. Please open Settings (gear icon).");
+        if (state.geminiApiKey) response = await callGemini(state.geminiApiKey, prompt);
+        else if (state.groqApiKey) response = await callGroq(state.groqApiKey, prompt);
+        else response = await callDeepSeek(prompt);
 
         setRelationshipResults(response);
       } catch (e) {

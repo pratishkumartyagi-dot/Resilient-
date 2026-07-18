@@ -145,9 +145,9 @@ export default function ResilientChatTab() {
     setInput("");
     setIsTyping(true);
 
-    const apiKey = state.geminiApiKey || state.groqApiKey || state.deepseekApiKey;
+    const apiKey = state.geminiApiKey || state.groqApiKey;
 
-    if (apiKey) {
+    if (apiKey || true) {
       try {
         const pipelineContext = `
 Current research pipeline state:
@@ -177,8 +177,8 @@ Answer the user's question based on the pipeline state above. If they ask about 
           responseText = await callGemini(state.geminiApiKey, prompt, searchOptions);
         } else if (state.groqApiKey) {
           responseText = await callGroq(state.groqApiKey, prompt, searchOptions);
-        } else if (state.deepseekApiKey) {
-          responseText = await callDeepSeek(state.deepseekApiKey, prompt, searchOptions);
+        } else {
+          responseText = await callDeepSeek(prompt, searchOptions);
         }
 
         const assistantMsg: Message = {

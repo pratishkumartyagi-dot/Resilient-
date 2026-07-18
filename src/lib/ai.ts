@@ -1,3 +1,5 @@
+import { generateLocal, isModelLoaded, loadModel } from "./local-llm";
+
 const CHAT_TIMEOUT_MS = 60_000;
 
 async function withTimeout<T>(promise: Promise<T>): Promise<T> {
@@ -15,7 +17,7 @@ const API_BASE =
     ? window.location.origin
     : "http://localhost:3000";
 
-async function postChat(provider: "gemini" | "groq" | "deepseek", apiKey: string, prompt: string, options?: AICallOptions): Promise<{ content: string; searchPerformed: boolean }> {
+async function postChat(provider: "gemini" | "groq", apiKey: string, prompt: string, options?: AICallOptions): Promise<{ content: string; searchPerformed: boolean }> {
   const res = await withTimeout(fetch(`${API_BASE}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -40,9 +42,15 @@ export async function callGroq(apiKey: string, prompt: string, options?: AICallO
   return result.content;
 }
 
-export async function callDeepSeek(apiKey: string, prompt: string, options?: AICallOptions): Promise<string> {
-  const result = await postChat("deepseek", apiKey, prompt, options);
-  return result.content;
+export async function callDeepSeek(prompt: string, options?: AICallOptions): Promise<string> {
+  if (!isModelLoaded()) {
+    await loadModel();
+  }
+  return await generateLocal(prompt, {
+    maxTokens: 2048,
+    temperature: 0.7,
+    topP: 0.9,
+  });
 }
 
 export async function testGeminiKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
@@ -63,9 +71,10 @@ export async function testGroqKey(apiKey: string): Promise<{ ok: boolean; error?
   }
 }
 
-export async function testDeepSeekKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
+export async function testDeepSeekKey(): Promise<{ ok: boolean; error?: string }> {
   try {
-    await callDeepSeek(apiKey, "Hello, this is a test message. Please respond with OK.");
+    await loadModel();
+    await generateLocal("Hello, this is a test message. Please respond with OK.", { maxTokens: 50 });
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error" };

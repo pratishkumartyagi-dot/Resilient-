@@ -39,10 +39,11 @@ export default function Step4LiteratureReview() {
       } else if (state.groqApiKey) {
         const prompt = buildStep4Prompt(selected, "") + synthesisContext;
         review = await callGroq(state.groqApiKey, prompt, { searchEnabled: true, searchQuery: state.searchQuery });
-      } else if (state.deepseekApiKey) {
-        const prompt = buildStep4Prompt(selected, "") + synthesisContext;
-        review = await callDeepSeek(state.deepseekApiKey, prompt, { searchEnabled: true, searchQuery: state.searchQuery });
       } else {
+        const prompt = buildStep4Prompt(selected, "") + synthesisContext;
+        review = await callDeepSeek(prompt, { searchEnabled: true, searchQuery: state.searchQuery });
+      }
+      if (false) {
         review = generateLocalLiteratureReview(
           selected.map((p) => ({
             authors: p.authors,

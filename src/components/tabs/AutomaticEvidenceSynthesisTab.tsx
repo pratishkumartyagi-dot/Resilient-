@@ -147,12 +147,6 @@ export default function AutomaticEvidenceSynthesisTab() {
     setScreeningLoading(true);
     setMissingApiError(null);
     try {
-      const apiKey = state.geminiApiKey || state.groqApiKey || state.deepseekApiKey;
-      if (!apiKey) {
-        setMissingApiError("Please configure an AI provider in Settings to use ASReview-style screening.");
-        setScreeningLoading(false);
-        return;
-      }
       const prompt = `Act as ASReview LAB (Rensvandeschoot/automated-systematic-review) active-learning screener.
 
 Research question: ${searchQuery}
@@ -162,7 +156,7 @@ Generate 8 representative candidate studies (title + 120-word abstract) relevant
    ABSTRACT: ...
 
 For each study, provide an ASReview-style relevance score (0-1) and include/exclude recommendation.`;
-      const text = state.geminiApiKey ? await callGemini(state.geminiApiKey, prompt) : state.groqApiKey ? await callGroq(state.groqApiKey!, prompt) : await callDeepSeek(state.deepseekApiKey, prompt);
+      const text = state.geminiApiKey ? await callGemini(state.geminiApiKey, prompt) : state.groqApiKey ? await callGroq(state.groqApiKey!, prompt) : await callDeepSeek(prompt);
       const matchArr = text.match(/1\.\s+TITLE:([\s\S]*?)ABSTRACT:([\s\S]*?)(?=\n\d\.|\Z)/g);
       let studies: string[] = matchArr || [];
       if (studies.length === 0) {
@@ -205,12 +199,6 @@ For each study, provide an ASReview-style relevance score (0-1) and include/excl
     setMetaOut("");
     setMissingApiError(null);
     try {
-      const apiKey = state.geminiApiKey || state.groqApiKey || state.deepseekApiKey;
-      if (!apiKey) {
-        setMetaOut("Please configure an AI provider in Settings to use meta-pipe extraction.");
-        setMetaLoading(false);
-        return;
-      }
       const included = screened.filter((s) => s.decision === "include" || s.decision === "uncertain");
       const prompt = `Act as meta-pipe (htlin222/meta-pipe) automated extractor for clinical prediction-modeling studies.
 
@@ -226,7 +214,7 @@ Also provide:
 4. Forest-plot data in CSV format
 
 Reference meta-pipe stages: ma-data-extraction, ma-meta-analysis.`;
-      const text = state.geminiApiKey ? await callGemini(state.geminiApiKey, prompt) : state.groqApiKey ? await callGroq(state.groqApiKey!, prompt) : await callDeepSeek(state.deepseekApiKey, prompt);
+      const text = state.geminiApiKey ? await callGemini(state.geminiApiKey, prompt) : state.groqApiKey ? await callGroq(state.groqApiKey!, prompt) : await callDeepSeek(prompt);
       setMetaOut(text);
     } catch (err: any) {
       setMetaOut("Extraction error: " + (err.message || "Unknown"));

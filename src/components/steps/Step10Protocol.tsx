@@ -42,10 +42,8 @@ export default function Step10Protocol() {
         responseText = await callGemini(state.geminiApiKey, prompt, searchOptions);
       } else if (state.groqApiKey) {
         responseText = await callGroq(state.groqApiKey, prompt, searchOptions);
-      } else if (state.deepseekApiKey) {
-        responseText = await callDeepSeek(state.deepseekApiKey, prompt, searchOptions);
       } else {
-        throw new Error("No API key configured. Please open Settings (gear icon).");
+        responseText = await callDeepSeek(prompt, searchOptions);
       }
 
       const cleaned = responseText.replace(/```markdown/g, "").replace(/```/g, "").trim();
