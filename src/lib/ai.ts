@@ -15,7 +15,7 @@ const API_BASE =
     ? window.location.origin
     : "http://localhost:3000";
 
-async function postChat(provider: "gemini" | "groq", apiKey: string, prompt: string, options?: AICallOptions): Promise<{ content: string; searchPerformed: boolean }> {
+async function postChat(provider: "gemini" | "groq" | "deepseek", apiKey: string, prompt: string, options?: AICallOptions): Promise<{ content: string; searchPerformed: boolean }> {
   const res = await withTimeout(fetch(`${API_BASE}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -40,6 +40,11 @@ export async function callGroq(apiKey: string, prompt: string, options?: AICallO
   return result.content;
 }
 
+export async function callDeepSeek(apiKey: string, prompt: string, options?: AICallOptions): Promise<string> {
+  const result = await postChat("deepseek", apiKey, prompt, options);
+  return result.content;
+}
+
 export async function testGeminiKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
   try {
     await callGemini(apiKey, "Hello, this is a test message. Please respond with OK.");
@@ -52,6 +57,15 @@ export async function testGeminiKey(apiKey: string): Promise<{ ok: boolean; erro
 export async function testGroqKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
   try {
     await callGroq(apiKey, "Hello, this is a test message. Please respond with OK.");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unknown error" };
+  }
+}
+
+export async function testDeepSeekKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await callDeepSeek(apiKey, "Hello, this is a test message. Please respond with OK.");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error" };

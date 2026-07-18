@@ -3,7 +3,7 @@
 import React, { useState, useRef } from "react";
 import { Download, FileUp, Sparkles, Trash2, ChevronDown, FileText, AlertCircle, Loader2 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq } from "@/lib/ai";
+import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
 import { downloadCSV, downloadExcel, downloadPDF, downloadWord, parseCSVText } from "@/lib/exporters";
 import { buildStep3Prompt, type Paper } from "@/lib/research-skills";
 import { generateLocalSynthesis, type SynthesisRow } from "@/lib/local-synthesis";
@@ -52,7 +52,7 @@ export default function Step3Synthesis() {
     try {
       let synthesis: SynthesisRow[] = [];
 
-      if (state.geminiApiKey || state.groqApiKey) {
+      if (state.geminiApiKey || state.groqApiKey || state.deepseekApiKey) {
           const prompt = buildStep3Prompt(filteredPapers, uploadedText);
         const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: state.searchQuery };
         try {
@@ -61,6 +61,8 @@ export default function Step3Synthesis() {
             responseText = await callGemini(state.geminiApiKey, prompt, searchOptions);
           } else if (state.groqApiKey) {
             responseText = await callGroq(state.groqApiKey, prompt, searchOptions);
+          } else if (state.deepseekApiKey) {
+            responseText = await callDeepSeek(state.deepseekApiKey, prompt, searchOptions);
           } else {
             throw new Error("No API key configured. Please open Settings (gear icon).");
           }

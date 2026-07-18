@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Send, MessageSquare, User, Bot, Trash2, FlaskConical, Stethoscope } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
+import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
 
 interface Message {
   id: string;
@@ -145,7 +145,7 @@ export default function ResilientChatTab() {
     setInput("");
     setIsTyping(true);
 
-    const apiKey = state.geminiApiKey || state.groqApiKey;
+    const apiKey = state.geminiApiKey || state.groqApiKey || state.deepseekApiKey;
 
     if (apiKey) {
       try {
@@ -177,6 +177,8 @@ Answer the user's question based on the pipeline state above. If they ask about 
           responseText = await callGemini(state.geminiApiKey, prompt, searchOptions);
         } else if (state.groqApiKey) {
           responseText = await callGroq(state.groqApiKey, prompt, searchOptions);
+        } else if (state.deepseekApiKey) {
+          responseText = await callDeepSeek(state.deepseekApiKey, prompt, searchOptions);
         }
 
         const assistantMsg: Message = {

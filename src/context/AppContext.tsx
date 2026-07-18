@@ -109,6 +109,7 @@ export interface AppState {
   selectedDatabases: string[];
   geminiApiKey: string;
   groqApiKey: string;
+  deepseekApiKey: string;
   srStudyTypeCategory: "systematic" | "meta" | null;
   dedupPapers: Paper[];
   filteredPapers: Paper[];
@@ -172,6 +173,7 @@ type Action =
   | { type: "SET_SELECTED_PAPERS"; payload: Paper[] }
   | { type: "SET_GEMINI_KEY"; payload: string }
   | { type: "SET_GROQ_KEY"; payload: string }
+  | { type: "SET_DEEPSEEK_KEY"; payload: string }
   | { type: "SET_SYSTEMATIC_STEP"; payload: number }
   | { type: "SET_SR_CATEGORY"; payload: "systematic" | "meta" | null }
   | { type: "SET_DEDUP_PAPERS"; payload: any[] }
@@ -201,8 +203,7 @@ type Action =
   | { type: "SET_PREDICTION_IMPORTANCE_METHOD"; payload: "shap" | "permutation" | "captum" | "both" | "all" | null }
   | { type: "SET_PREDICTION_REPORT_NOTES"; payload: string }
   | { type: "SET_PREDICTION_CAPTUM_ENABLED"; payload: boolean }
-  | { type: "SET_PREDICTION_CAPTUM_RESULTS"; payload: string }
-  | { type: "RESET_STATE" };
+  | { type: "SET_PREDICTION_CAPTUM_RESULTS"; payload: string };
 
 const initialState: AppState = {
   currentTab: "main",
@@ -261,6 +262,7 @@ const initialState: AppState = {
   ],
   geminiApiKey: "",
   groqApiKey: "",
+  deepseekApiKey: "",
   srStudyTypeCategory: null,
   dedupPapers: [],
   filteredPapers: [],
@@ -412,6 +414,8 @@ function appReducer(state: AppState, action: Action): AppState {
       return { ...state, geminiApiKey: action.payload };
     case "SET_GROQ_KEY":
       return { ...state, groqApiKey: action.payload };
+    case "SET_DEEPSEEK_KEY":
+      return { ...state, deepseekApiKey: action.payload };
     case "SET_SYSTEMATIC_STEP":
       return { ...state, systematicStep: action.payload };
     case "SET_SR_CATEGORY":

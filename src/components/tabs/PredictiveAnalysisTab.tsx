@@ -7,7 +7,7 @@ import {
   Download, Table, ToggleLeft, FileSpreadsheet, AlertCircle, Zap
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq } from "@/lib/ai";
+import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
 import { downloadMarkdownAsWord, downloadMarkdownAsPDF } from "@/lib/exporters";
 
 const renderMarkdown = (text: string): string => {
@@ -132,7 +132,7 @@ export default function PredictiveAnalysisTab() {
         prompt = "Provide guidance for this step.";
     }
 
-    const apiKey = state.geminiApiKey || state.groqApiKey;
+    const apiKey = state.geminiApiKey || state.groqApiKey || state.deepseekApiKey;
     if (!apiKey) {
       setAiOutput("Please configure an AI provider in Settings first.");
       setLocalLoading(false);
@@ -143,6 +143,7 @@ export default function PredictiveAnalysisTab() {
       let response: string;
       if (state.geminiApiKey) response = await callGemini(apiKey, prompt);
       else if (state.groqApiKey) response = await callGroq(apiKey, prompt);
+      else if (state.deepseekApiKey) response = await callDeepSeek(apiKey, prompt);
       else throw new Error("No API key configured. Please open Settings (gear icon).");
 
       setAiOutput(response);
@@ -227,7 +228,7 @@ export default function PredictiveAnalysisTab() {
     if (!csvFile) return;
     setRelationshipLoading(true);
     setRelationshipResults(null);
-    const apiKey = state.geminiApiKey || state.groqApiKey;
+    const apiKey = state.geminiApiKey || state.groqApiKey || state.deepseekApiKey;
     if (!apiKey) {
       setRelationshipResults("Please configure an AI provider in Settings first.");
       setRelationshipLoading(false);
@@ -260,6 +261,7 @@ export default function PredictiveAnalysisTab() {
         let response: string;
         if (state.geminiApiKey) response = await callGemini(apiKey, prompt);
         else if (state.groqApiKey) response = await callGroq(apiKey, prompt);
+        else if (state.deepseekApiKey) response = await callDeepSeek(apiKey, prompt);
         else throw new Error("No API key configured. Please open Settings (gear icon).");
 
         setRelationshipResults(response);

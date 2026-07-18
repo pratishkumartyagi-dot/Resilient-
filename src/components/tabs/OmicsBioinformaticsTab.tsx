@@ -53,7 +53,7 @@ function buildSkillContext(skillId?: string): string {
   return `[Active Skill Context]\nSkill: ${skill.name}\nCategory: ${skill.subcategory}\nDescription: ${skill.description}\nSource: ${skill.sourceRepo}/${skill.skillPath}\n\nUse this skill's methodology when responding. If the skill involves specific tools, databases, or workflows, reference them explicitly.`;
 }
 
-async function callAI(provider: "gemini" | "groq", apiKey: string, prompt: string, skillId?: string): Promise<string> {
+async function callAI(provider: "gemini" | "groq" | "deepseek", apiKey: string, prompt: string, skillId?: string): Promise<string> {
   const skillContext = buildSkillContext(skillId);
   const finalPrompt = skillContext ? `${skillContext}\n\n[User Request]\n${prompt}` : prompt;
 
@@ -191,12 +191,15 @@ export default function OmicsBioinformaticsTab() {
 
       const geminiKey = state.geminiApiKey;
       const groqKey = state.groqApiKey;
+      const deepseekKey = state.deepseekApiKey;
 
       let responseContent = "";
       if (geminiKey) {
         responseContent = await callAI("gemini", geminiKey, prompt, selectedSkill || undefined);
       } else if (groqKey) {
         responseContent = await callAI("groq", groqKey, prompt, selectedSkill || undefined);
+      } else if (deepseekKey) {
+        responseContent = await callAI("deepseek", deepseekKey, prompt, selectedSkill || undefined);
       } else {
         responseContent = generateLocalResponse(currentInput, selectedSkill || undefined);
       }

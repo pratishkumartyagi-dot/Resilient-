@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { ChevronRight, ChevronLeft, FileText, Save, Sparkles } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
+import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
 import { buildStep10Prompt } from "@/lib/research-skills";
 
 export default function Step10Protocol() {
@@ -42,6 +42,8 @@ export default function Step10Protocol() {
         responseText = await callGemini(state.geminiApiKey, prompt, searchOptions);
       } else if (state.groqApiKey) {
         responseText = await callGroq(state.groqApiKey, prompt, searchOptions);
+      } else if (state.deepseekApiKey) {
+        responseText = await callDeepSeek(state.deepseekApiKey, prompt, searchOptions);
       } else {
         throw new Error("No API key configured. Please open Settings (gear icon).");
       }

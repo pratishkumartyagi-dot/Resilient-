@@ -16,7 +16,7 @@ import {
   FileCheck2,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
+import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
 import { buildStep10Prompt } from "@/lib/research-skills";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
 import { parseUploadedDocument, ALLOWED_DOCUMENT_TYPES } from "@/lib/document-parser";
@@ -182,6 +182,8 @@ export default function ProtocolChatTab() {
           );
         } else if (state.groqApiKey) {
           responseText = await callGroq(state.groqApiKey, prompt, searchOptions);
+        } else if (state.deepseekApiKey) {
+          responseText = await callDeepSeek(state.deepseekApiKey, prompt, searchOptions);
         } else {
           responseText = generateProtocolResponse(currentInput, documentContent);
         }
@@ -245,7 +247,13 @@ export default function ProtocolChatTab() {
       } else if (state.groqApiKey) {
         responseText = await callGroq(
           state.groqApiKey,
-          `${DEEP_REASONING_SYSTEM_PROMPT}\n\n${documentContent ? `Uploaded document:\n${documentContent.substring(0, 20000)}\n\n` : ""}Generate a complete AIPOCH-structured research protocol (Sections A–L) in markdown format.${!documentContent ? " Use a generic clinical research template." : ""}`,
+          `${DEEP_REASONING_SYSTEM_PROMPT}\n\n${documentContent ? `Uploaded document:\n${documentContent.substring(0, 20000)}\n\n` : ""}Generate a complete AIPOCH-structured research protocol (Sections A–L) in markdown format.${!documentContent ? " Use a generic clinical research protocol template." : ""}`,
+          genSearchOptions
+        );
+      } else if (state.deepseekApiKey) {
+        responseText = await callDeepSeek(
+          state.deepseekApiKey,
+          `${DEEP_REASONING_SYSTEM_PROMPT}\n\n${documentContent ? `Uploaded document:\n${documentContent.substring(0, 20000)}\n\n` : ""}Generate a complete AIPOCH-structured research protocol (Sections A–L) in markdown format.${!documentContent ? " Use a generic clinical research protocol template." : ""}`,
           genSearchOptions
         );
       } else {

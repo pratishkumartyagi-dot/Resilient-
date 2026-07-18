@@ -9,7 +9,7 @@ import {
   Bot, ShieldCheck, Loader2, Zap
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
+import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
 import { fetchRealPapers, generateMockLegacy, webSearchPapers, type Paper } from "@/lib/database-apis";
 import { generateLocalLiteratureReview, generateLitLLMSynthesis } from "@/lib/local-synthesis";
 import { extractPICOForPapers, type ExtractedPICO } from "@/lib/pico-extractor";
@@ -789,7 +789,7 @@ export default function EvidenceSynthesisTab() {
     setProbastAiLoading(true);
     try {
       autoAssessProbast();
-      if (state.geminiApiKey || state.groqApiKey) {
+      if (state.geminiApiKey || state.groqApiKey || state.deepseekApiKey) {
         try {
           const studyList = extractedData
             .map((p, i) => `${i + 1}. ${p.title} (${p.authors || "Unknown"}, ${p.year || "n/d"}) — type: ${p.studyType || "prediction model study"}${p.doi ? `; DOI: ${p.doi}` : ""}`)
@@ -800,7 +800,7 @@ Studies:
 ${studyList}
 
 Return a concise markdown report with a "## PROBAST+AI Assessment" heading and a per-study bullet list.`;
-          const content = await callGemini(state.geminiApiKey || state.groqApiKey!, prompt);
+          const content = state.geminiApiKey ? await callGemini(state.geminiApiKey || state.groqApiKey!, prompt) : state.groqApiKey ? await callGroq(state.groqApiKey!, prompt) : await callDeepSeek(state.deepseekApiKey, prompt);
           if (content) {
             setProbastAnalysis(content);
             return;
@@ -1122,7 +1122,7 @@ ${papersContext}
 Return ONLY a markdown table with these exact columns:
 | Study reference | Year | Setting | Population | Intervention / exposure | Comparison | Outcome | Sample size | Effect estimate | Risk Ratio (95% CI) | Study type/Design | Research Gaps |`;
 
-      const response = await callGemini(state.geminiApiKey || state.groqApiKey!, prompt);
+      const response = state.geminiApiKey ? await callGemini(state.geminiApiKey, prompt) : state.groqApiKey ? await callGroq(state.groqApiKey!, prompt) : await callDeepSeek(state.deepseekApiKey, prompt);
 
       const tableText = response || "No table generated.";
       const rows = parseSynthesisTable(tableText);
@@ -1695,15 +1695,17 @@ ${isNarrative ? `## Evidence Synthesis
         return;
       }
 
-          let text: string;
-          const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
-          if (state.geminiApiKey) {
-            text = await callGemini(state.geminiApiKey, prompt, searchOptions);
-          } else if (state.groqApiKey) {
-            text = await callGroq(state.groqApiKey!, prompt, searchOptions);
-         } else {
-           throw new Error("No API key configured. Please open Settings (gear icon).");
-         }
+      let text: string;
+      const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
+      if (state.geminiApiKey) {
+        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
+      } else if (state.groqApiKey) {
+        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
+      } else if (state.deepseekApiKey) {
+        text = await callDeepSeek(state.deepseekApiKey, prompt, searchOptions);
+      } else {
+        throw new Error("No API key configured. Please open Settings (gear icon).");
+      }
 
         const cleaned = text.replace(/```markdown/g, "").replace(/```/g, "").trim();
         setSynthesisOutput(cleaned);

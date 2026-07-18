@@ -7,7 +7,7 @@ import {
   Download, Table, ToggleLeft, FileSpreadsheet, AlertCircle, Zap, Search, Filter, Inbox, GitMerge, BookOpen, Play
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq } from "@/lib/ai";
+import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
 import { downloadMarkdownAsWord, downloadMarkdownAsPDF } from "@/lib/exporters";
 import { runAutoPrognosis, type AutoPrognosisResult } from "@/lib/autoprognosis-compute";
 
@@ -133,7 +133,7 @@ export default function AutoPrognosisTab() {
     if (!searchQuery.trim()) return;
     setScreeningLoading(true);
     try {
-      const apiKey = state.geminiApiKey || state.groqApiKey;
+      const apiKey = state.geminiApiKey || state.groqApiKey || state.deepseekApiKey;
       const prompt = `Act as ASReview LAB (Rensvandeschoot/automated-systematic-review) active-learning screener.
 
 Research question: ${searchQuery}
@@ -148,6 +148,8 @@ Then for each study, provide an ASReview-style relevance score (0-1) and include
         text = await callGemini(state.geminiApiKey, prompt);
       } else if (state.groqApiKey) {
         text = await callGroq(state.groqApiKey!, prompt);
+      } else if (state.deepseekApiKey) {
+        text = await callDeepSeek(state.deepseekApiKey, prompt);
       } else {
         text = "Please configure an AI provider in Settings to use ASReview-style screening.";
       }
@@ -199,6 +201,8 @@ Reference meta-pipe stages: ma-data-extraction, ma-meta-analysis.`;
         text = await callGemini(state.geminiApiKey, prompt);
       } else if (state.groqApiKey) {
         text = await callGroq(state.groqApiKey!, prompt);
+      } else if (state.deepseekApiKey) {
+        text = await callDeepSeek(state.deepseekApiKey, prompt);
       } else {
         text = "Please configure an AI provider in Settings to use meta-pipe extraction.";
       }
@@ -337,7 +341,7 @@ Include:
         prompt = "Provide guidance for this AutoPrognosis step.";
     }
 
-    const apiKey = state.geminiApiKey || state.groqApiKey;
+    const apiKey = state.geminiApiKey || state.groqApiKey || state.deepseekApiKey;
     if (!apiKey) {
       setAiOutput("Please configure an AI provider in Settings first.");
       setLocalLoading(false);
@@ -348,8 +352,12 @@ Include:
       let text: string;
       if (state.geminiApiKey) {
         text = await callGemini(state.geminiApiKey, prompt);
-      } else {
+      } else if (state.groqApiKey) {
         text = await callGroq(state.groqApiKey!, prompt);
+      } else if (state.deepseekApiKey) {
+        text = await callDeepSeek(state.deepseekApiKey, prompt);
+      } else {
+        throw new Error("No API key configured");
       }
       setAiOutput(text);
     } catch (err: any) {
