@@ -1567,3 +1567,15 @@ Step 1 results now show:
   - **Tab Navigation Fixed**: Updated `TopTabs.tsx` to include all 12 tabs: Research Pipeline, Omics & Bioinformatics, Resilient Chat, Statistical Analysis, Sample Size Calculator, Predictive Analysis, AutoPrognosis, Evidence Synthesis & Meta-analysis, Auto Evidence Synthesis, Paper Writer & Reviewer, Protocol Generator, and Grant Writing. Previously, AutoPrognosis, Auto Evidence Synthesis, and Grant Writing tabs were rendered in `page.tsx` but had no navigation buttons in TopTabs, making them inaccessible.
   - **Removed Duplicate RESET_STATE**: Cleaned up `AppContext.tsx` action type union which had duplicate `RESET_STATE` definition.
   - **Validation**: `bun typecheck` ✅, `bun lint` ✅ (0 errors; only pre-existing not-found.tsx warning), `bun run build` ✅ passes cleanly.
+- 2026-07-18: **Step 2 Data Extraction Enhancement — meta-pipe Integration**:
+  - **Predictors Column Added**: Enhanced Evidence Synthesis & Meta-analysis Step 2 (Data Extraction) to extract predictor variables, risk factors, and independent variables from selected papers. Added new "Predictors" column to the extraction table UI, positioned after "Sample Size" column.
+  - **95% CI Split**: Split the single "95% CI" column into separate "95% CI Lower" and "95% CI Upper" columns for better meta-analysis compatibility. Updated extraction logic to parse CI ranges and extract bounds separately.
+  - **Vancouver Reference Enhancement**: Improved Vancouver style reference format to include searchable links. Added Google Scholar search link (`[Search]`) for papers with DOI, making references clickable and searchable.
+  - **meta-pipe Methodology Integration**: Updated AI extraction prompt in `EvidenceSynthesisTab.tsx` to incorporate meta-pipe (https://github.com/htlin222/meta-pipe) data extraction methodology. Prompt now instructs AI to extract:
+    - Demographic predictors (age, sex, ethnicity, socioeconomic status)
+    - Clinical predictors (comorbidities, disease severity, biomarkers)
+    - Behavioral predictors (smoking, diet, physical activity)
+    - Environmental predictors (exposure, location, occupation)
+    - Statistical predictors (covariates, confounders, effect modifiers)
+  - **Fallback Updates**: Updated all fallback cases (no API key, AI extraction failure) to include `predictors`, `ciLower`, and `ciUpper` fields with appropriate default values.
+  - **Validation**: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅ passes cleanly.

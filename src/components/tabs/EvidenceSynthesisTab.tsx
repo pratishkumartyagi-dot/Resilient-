@@ -855,7 +855,8 @@ Return a concise markdown report with a "## PROBAST+AI Assessment" heading and a
         const pico = localPico.find((x) => x.id === p.id) || ({} as ExtractedPICO);
         const doiLink = p.doi ? `<a href="https://doi.org/${p.doi}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">doi:${p.doi}</a>` : "";
         const urlLink = p.url && !p.doi ? `<a href="${p.url}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">Link</a>` : "";
-        const vancouverRef = `${p.authors}. ${p.title}. ${p.journal || "Unknown journal"}. ${p.year}. ${doiLink} ${urlLink}`.trim();
+        const searchLink = p.doi ? `<a href="https://scholar.google.com/scholar?q=${encodeURIComponent(p.title)}" target="_blank" rel="noreferrer" class="text-blue-300 underline">[Search]</a>` : "";
+        const vancouverRef = `${p.authors}. ${p.title}. ${p.journal || "Unknown journal"}. ${p.year}. ${doiLink} ${urlLink} ${searchLink}`.trim();
         return {
           id: p.id,
           title: p.title,
@@ -868,8 +869,10 @@ Return a concise markdown report with a "## PROBAST+AI Assessment" heading and a
           comparison: pico.comparison || "Not specified",
           outcome: pico.outcome || "Not specified",
           sampleSize: pico.sampleSize || "Not specified",
+          predictors: "Not specified — extract from full text",
           effectEstimate: pico.effectEstimate || "Not reported",
-          ci: pico.ci || "Not reported",
+          ciLower: "Not reported",
+          ciUpper: "Not reported",
           ROB: "Pending — assess in Step 3",
           vancouverReference: vancouverRef,
           researchGaps: pico.researchGaps || "Limitations: Not specified; Exclusions: Not specified; Gaps: Not specified",
@@ -908,16 +911,22 @@ Return a concise markdown report with a "## PROBAST+AI Assessment" heading and a
         })
         .join("\n\n");
 
-      const prompt = `You are an expert systematic-review data-extraction researcher applying two open-source methodologies:
+      const prompt = `You are an expert systematic-review data-extraction researcher applying three open-source methodologies:
 
-1. **decipher-research-agent** deep-reasoning pipeline
+1. **meta-pipe** end-to-end pipeline (https://github.com/htlin222/meta-pipe) — 
+   automated data extraction for meta-analysis following stages:
+   ma-data-extraction → ma-meta-analysis → ma-publication-quality.
+   Extract predictors, effect estimates, and confidence intervals
+   using structured extraction aligned with meta-pipe schema.
+
+2. **decipher-research-agent** deep-reasoning pipeline
    (https://github.com/mtwn105/decipher-research-agent) — multi-agent
    reasoning across five abstract sections: Background → Objective →
    Methods → Results → Conclusions. For each paper, read every
    sentence of the abstract and reason about which section it belongs
    to before extracting structured fields.
 
-2. **Research-gaps extraction framework** by t0mst0ne
+3. **Research-gaps extraction framework** by t0mst0ne
    (https://gist.github.com/t0mst0ne/f3dd82637861384e6b2ffe3c9370f4d8)
    — every research-gaps field MUST follow the format
    "Limitations: [author-acknowledged limits]; Exclusions: [reported
@@ -947,18 +956,28 @@ ${seedContext}
 4. For Sample Size, look for N=..., n=..., "total of X patients",
    "X participants were enrolled", subgroup sizes (intervention n=…,
    control n=…).
-5. For Effect Estimate, recognise all common effect-size types:
+5. For Predictors (meta-pipe aligned), extract all predictor variables,
+   risk factors, or independent variables used in the study. Include:
+   - Demographic predictors (age, sex, ethnicity, socioeconomic status)
+   - Clinical predictors (comorbidities, disease severity, biomarkers)
+   - Behavioral predictors (smoking, diet, physical activity)
+   - Environmental predictors (exposure, location, occupation)
+   - Statistical predictors (covariates, confounders, effect modifiers)
+   Format as comma-separated list with brief descriptions.
+6. For Effect Estimate, recognise all common effect-size types:
    RR (risk ratio), OR (odds ratio), HR (hazard ratio), MD (mean
    difference), SMD, AOR, ARR, NNT, IRR, prevalence %, sensitivity %,
    specificity %, AUC. If only a percentage is reported, capture it.
-6. For 95% CI, look for "95% CI 1.2-3.4", "(95% CI: 1.2-3.4)",
-   "95% confidence interval", or just "CI 1.2-3.4". If no CI is
-   reported, fall back to the p-value if available.
-7. For Research Gaps, scan the abstract for sentences containing
+7. For 95% CI, extract BOTH lower and upper bounds separately:
+   - Look for "95% CI 1.2-3.4", "(95% CI: 1.2-3.4)", "95% confidence interval 1.2 to 3.4"
+   - Extract ciLower as the lower bound (e.g., "1.2")
+   - Extract ciUpper as the upper bound (e.g., "3.4")
+   - If no CI is reported, fall back to the p-value if available.
+8. For Research Gaps, scan the abstract for sentences containing
    "limitation", "exclude", "exclusion", "future", "gap", "warrant",
    "recommend", "further", "longitudinal", "replication". If absent,
    infer plausible study-design-aware gaps.
-8. For Evidence Level, assign:
+9. For Evidence Level, assign:
    T1 mechanistic (★★★) for RCTs / randomised trials;
    T2 functional (★★☆) for systematic reviews and meta-analyses;
    T3 associational (★☆☆) for cohort, case-control, cross-sectional,
@@ -982,8 +1001,10 @@ object per paper. Each object MUST have exactly these keys:
   "comparison": "<detailed description of what it was compared against (control, placebo, standard care, etc.)>",
   "outcome": "<detailed description of the primary outcome and any key secondary outcomes, including measurement instruments>",
   "sampleSize": "<e.g. 'N=240 (intervention n=120, control n=120)' or 'N=1,247 participants' or 'Not specified — full text required.'>",
+  "predictors": "<comma-separated list of all predictor variables/risk factors/independent variables used in the study, e.g. 'Age (years), Sex (male/female), BMI (kg/m²), Smoking status (current/former/never), Hypertension (yes/no), Diabetes (yes/no)'>",
   "effectEstimate": "<main effect size, e.g. 'RR = 0.72, OR = 1.45, MD = -3.2, AOR = 2.1, Prevalence = 18%' or 'Not reported in abstract — full text required.'>",
-  "ci": "<e.g. '95% CI 0.55-0.94' or 'CI 1.2-3.4' or 'p<0.001' or 'Not reported in abstract — full text required.'>",
+  "ciLower": "<lower bound of 95% CI as a number or range, e.g. '0.55' or '1.2' or 'Not reported in abstract — full text required.'>",
+  "ciUpper": "<upper bound of 95% CI as a number or range, e.g. '0.94' or '3.4' or 'Not reported in abstract — full text required.'>",
   "ROB": "<initial risk-of-bias judgment: 'Low risk' / 'Some concerns' / 'High risk' / 'Pending — assess in Step 3'>",
   "vancouverReference": "<format: 'Authors. Title. Journal. Year. doi:DOI' — keep DOI as plain text inside the string>",
   "researchGaps": "<MUST follow t0mst0ne format: 'Limitations: [author-acknowledged limits]; Exclusions: [reported exclusion criteria]; Gaps: [unanswered questions]'>",
@@ -1016,7 +1037,8 @@ object per paper. Each object MUST have exactly these keys:
         const pico = localPico.find((x) => x.id === paper.id) || ({} as ExtractedPICO);
         const doiLink = paper.doi ? `<a href="https://doi.org/${paper.doi}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">doi:${paper.doi}</a>` : "";
         const urlLink = paper.url && !paper.doi ? `<a href="${paper.url}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">Link</a>` : "";
-        const vancouverRef = `${item.authors || paper.authors}. ${item.title || paper.title}. ${paper.journal || "Unknown journal"}. ${item.year || paper.year}. ${doiLink} ${urlLink}`.trim();
+        const searchLink = paper.doi ? `<a href="https://scholar.google.com/scholar?q=${encodeURIComponent(paper.title)}" target="_blank" rel="noreferrer" class="text-blue-300 underline">[Search]</a>` : "";
+        const vancouverRef = `${item.authors || paper.authors}. ${item.title || paper.title}. ${paper.journal || "Unknown journal"}. ${item.year || paper.year}. ${doiLink} ${urlLink} ${searchLink}`.trim();
 
         // AI value wins when it returns substantive content; otherwise
         // fall back to the deterministic deep extractor.
@@ -1027,6 +1049,17 @@ object per paper. Each object MUST have exactly these keys:
           if (seed) return seed;
           return notSpecified;
         };
+
+        // Parse CI if it's in combined format (e.g., "0.55-0.94" or "1.2 to 3.4")
+        let ciLower = item.ciLower || "Not reported in abstract — full text required.";
+        let ciUpper = item.ciUpper || "Not reported in abstract — full text required.";
+        if (item.ci && !item.ciLower && !item.ciUpper) {
+          const ciMatch = item.ci.match(/([\d.]+)\s*[-–to]+\s*([\d.]+)/);
+          if (ciMatch) {
+            ciLower = ciMatch[1];
+            ciUpper = ciMatch[2];
+          }
+        }
 
         return {
           id: item.id || paper.id,
@@ -1040,8 +1073,10 @@ object per paper. Each object MUST have exactly these keys:
           comparison: pickRich(item.comparison, pico.comparison, "Not specified — full text required."),
           outcome: pickRich(item.outcome, pico.outcome, "Not specified — full text required."),
           sampleSize: pickRich(item.sampleSize, pico.sampleSize, "Not specified — full text required."),
+          predictors: item.predictors || "Not specified — extract from full text",
           effectEstimate: pickRich(item.effectEstimate, pico.effectEstimate, "Not reported in abstract — full text required."),
-          ci: pickRich(item.ci, pico.ci, "Not reported in abstract — full text required."),
+          ciLower: ciLower,
+          ciUpper: ciUpper,
           ROB: item.ROB || "Pending — assess in Step 3",
           vancouverReference: vancouverRef,
           researchGaps: pickRich(item.researchGaps, pico.researchGaps, "Limitations: Not specified; Exclusions: Not specified; Gaps: Not specified"),
@@ -1057,7 +1092,8 @@ object per paper. Each object MUST have exactly these keys:
         const pico = localPico.find((x) => x.id === p.id) || ({} as ExtractedPICO);
         const doiLink = p.doi ? `<a href="https://doi.org/${p.doi}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">doi:${p.doi}</a>` : "";
         const urlLink = p.url && !p.doi ? `<a href="${p.url}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">Link</a>` : "";
-        const vancouverRef = `${p.authors}. ${p.title}. ${p.journal || "Unknown journal"}. ${p.year}. ${doiLink} ${urlLink}`.trim();
+        const searchLink = p.doi ? `<a href="https://scholar.google.com/scholar?q=${encodeURIComponent(p.title)}" target="_blank" rel="noreferrer" class="text-blue-300 underline">[Search]</a>` : "";
+        const vancouverRef = `${p.authors}. ${p.title}. ${p.journal || "Unknown journal"}. ${p.year}. ${doiLink} ${urlLink} ${searchLink}`.trim();
         return {
           id: p.id,
           title: p.title,
@@ -1070,8 +1106,10 @@ object per paper. Each object MUST have exactly these keys:
           comparison: pico.comparison || "Not specified",
           outcome: pico.outcome || "Not specified",
           sampleSize: pico.sampleSize || "Not specified",
+          predictors: "Not specified — extract from full text",
           effectEstimate: pico.effectEstimate || "Not reported",
-          ci: pico.ci || "Not reported",
+          ciLower: "Not reported",
+          ciUpper: "Not reported",
           ROB: "Pending — assess in Step 3",
           vancouverReference: vancouverRef,
           researchGaps: pico.researchGaps || "Limitations: Not specified; Exclusions: Not specified; Gaps: Not specified",
@@ -2252,17 +2290,17 @@ ${stormReview}
            />
         )}
 
-        {pipelineStep === 2 && (
-          <div className="space-y-4">
-            <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
-              <h3 className="text-lg font-bold text-white mb-3">Data Extraction</h3>
-              <p className="text-sm text-blue-300 mb-4">
-                Structured extraction aligned with <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a> data-extraction guidance. Fields below can be fed into meta-analysis packages such as <em>meta</em>, <em>metafor</em>, or <em>metaumbrella</em>.
-              </p>
-              <button onClick={runExtraction} disabled={extractionLoading} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2 rounded-lg disabled:opacity-50">
-                {extractionLoading ? "Extracting..." : "Auto-Extract from Selected Papers"}
-              </button>
-            </div>
+         {pipelineStep === 2 && (
+           <div className="space-y-4">
+             <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
+               <h3 className="text-lg font-bold text-white mb-3">Data Extraction</h3>
+               <p className="text-sm text-blue-300 mb-4">
+                 Structured extraction aligned with <a href="https://github.com/htlin222/meta-pipe" target="_blank" rel="noreferrer" className="text-yellow-300 underline">meta-pipe</a> and <a href="https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis" target="_blank" rel="noreferrer" className="text-yellow-300 underline">awesome-evidence-synthesis</a> data-extraction guidance. Fields below can be fed into meta-analysis packages such as <em>meta</em>, <em>metafor</em>, or <em>metaumbrella</em>.
+               </p>
+               <button onClick={runExtraction} disabled={extractionLoading} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2 rounded-lg disabled:opacity-50">
+                 {extractionLoading ? "Extracting..." : "Auto-Extract from Selected Papers"}
+               </button>
+             </div>
              {extractedData.length > 0 && (
                <div className="overflow-x-auto">
                  <table className="w-full border-collapse text-sm">
@@ -2276,8 +2314,10 @@ ${stormReview}
                        <th className="border border-blue-800 px-3 py-2 text-yellow-200">Comparison</th>
                        <th className="border border-blue-800 px-3 py-2 text-yellow-200">Outcome</th>
                        <th className="border border-blue-800 px-3 py-2 text-yellow-200">Sample Size</th>
+                       <th className="border border-blue-800 px-3 py-2 text-yellow-200">Predictors</th>
                        <th className="border border-blue-800 px-3 py-2 text-yellow-200">Effect Estimate</th>
-                       <th className="border border-blue-800 px-3 py-2 text-yellow-200">95% CI</th>
+                       <th className="border border-blue-800 px-3 py-2 text-yellow-200">95% CI Lower</th>
+                       <th className="border border-blue-800 px-3 py-2 text-yellow-200">95% CI Upper</th>
                        <th className="border border-blue-800 px-3 py-2 text-yellow-200">Study Type</th>
                        <th className="border border-blue-800 px-3 py-2 text-yellow-200">ROB</th>
                        <th className="border border-blue-800 px-3 py-2 text-yellow-200">Research Gaps</th>
@@ -2295,8 +2335,10 @@ ${stormReview}
                          <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.comparison || "—"}</td>
                          <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.outcome || "—"}</td>
                          <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.sampleSize || "—"}</td>
+                         <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.predictors || "—"}</td>
                          <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.effectEstimate || "—"}</td>
-                         <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.ci || "—"}</td>
+                         <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.ciLower || "—"}</td>
+                         <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.ciUpper || "—"}</td>
                          <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.studyType || "—"}</td>
                          <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.ROB || "—"}</td>
                          <td className="border border-blue-800 px-3 py-2 text-blue-100">{row.researchGaps || "—"}</td>
