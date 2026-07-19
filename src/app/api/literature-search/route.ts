@@ -18,8 +18,6 @@ import {
   deduplicatePapers,
   generateMockLegacy,
 } from "@/lib/database-apis";
-import { spawn } from "child_process";
-import path from "path";
 
 export const runtime = "nodejs";
 
@@ -167,74 +165,13 @@ export async function POST(request: Request) {
     const deduped = deduplicatePapers(allPapers);
     const dedupedCount = totalBeforeDedup - deduped.length;
 
-    let citationValidationResults: Record<string, { valid: boolean; title?: string; message: string }> = {};
-    try {
-      const scriptPath = path.join(process.cwd(), "scripts", "validate-citations.py");
-      const papersToValidate = deduped.slice(0, 50).map((p) => ({
-        doi: p.doi || "",
-        title: p.title,
-        authors: p.authors || "",
-      }));
+    const enriched = deduped.map((p) => ({
+      ...p,
+      citationStatus: p.doi ? "unverified" as const : "no-doi" as const,
+      citationMessage: p.doi ? "Pending verification in Step 2" : "No DOI available",
+    }));
 
-      const stdout = await new Promise<string>((resolve, reject) => {
-        const proc = spawn("python3", [scriptPath], {
-          timeout: 120000,
-        });
-
-        let stdout = "";
-        let stderr = "";
-
-        proc.stdout.on("data", (data) => {
-          stdout += data.toString();
-        });
-
-        proc.stderr.on("data", (data) => {
-          stderr += data.toString();
-        });
-
-        proc.on("close", (code) => {
-          if (code === 0) {
-            resolve(stdout);
-          } else {
-            reject(new Error(`Process exited with code ${code}: ${stderr}`));
-          }
-        });
-
-        proc.on("error", (err) => {
-          reject(err);
-        });
-
-        proc.stdin.write(JSON.stringify({ papers: papersToValidate }));
-        proc.stdin.end();
-      });
-
-      const result = JSON.parse(stdout);
-      if (result.success && result.results) {
-        result.results.forEach((r: any) => {
-          if (r.doi) {
-            citationValidationResults[r.doi.toLowerCase()] = {
-              valid: r.valid,
-              title: r.verified_title,
-              message: r.message,
-            };
-          }
-        });
-      }
-    } catch (err: any) {
-      console.warn("[literature-search] Citation validation failed:", err?.message || String(err));
-    }
-
-    const enriched = deduped.map((p) => {
-      const doiKey = (p.doi || "").toLowerCase();
-      const validation = doiKey ? citationValidationResults[doiKey] : undefined;
-      return {
-        ...p,
-        citationStatus: validation?.valid ? "verified" : (p.doi && p.doi.length > 3 ? "unverified" : "no-doi"),
-        citationMessage: validation?.message,
-      };
-    });
-
-    const verifiedCount = enriched.filter((p) => p.citationStatus === "verified").length;
+    const verifiedCount = 0;
     const unverifiedCount = enriched.filter((p) => p.citationStatus === "unverified").length;
     const noDoiCount = enriched.filter((p) => p.citationStatus === "no-doi").length;
 
@@ -298,7 +235,7 @@ export async function POST(request: Request) {
           verified: verifiedCount,
           unverified: unverifiedCount,
           noDoi: noDoiCount,
-          results: citationValidationResults,
+          results: {},
         },
       },
       { headers: corsHeaders() }
