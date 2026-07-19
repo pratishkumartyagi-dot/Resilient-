@@ -1,12 +1,63 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { CheckSquare, Square, Trash2, FileText, Search, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 
 export default function Step2Results() {
   const { state, dispatch } = useApp();
   const [searchFilter, setSearchFilter] = useState("");
+  const [validating, setValidating] = useState(false);
+
+  useEffect(() => {
+    const validateCitations = async () => {
+      if (state.papers.length === 0 || state.citationValidationStatus === "done") return;
+
+      setValidating(true);
+      dispatch({ type: "SET_CITATION_STATUS", payload: "running" });
+
+      try {
+        const papersToValidate = state.papers.slice(0, 50).map((p) => ({
+          doi: p.doi || "",
+          title: p.title,
+          authors: p.authors || "",
+        }));
+
+        const res = await fetch("/api/citation-validation", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ papers: papersToValidate }),
+        });
+
+        if (!res.ok) throw new Error(`Validation failed: ${res.status}`);
+
+        const data = await res.json();
+        const results: Record<string, { valid: boolean; title?: string; message: string }> = {};
+
+        if (data.results) {
+          data.results.forEach((r: any) => {
+            if (r.doi) {
+              results[r.doi.toLowerCase()] = {
+                valid: r.valid,
+                title: r.verified_title,
+                message: r.message,
+              };
+            }
+          });
+        }
+
+        dispatch({ type: "SET_CITATION_RESULTS", payload: results });
+        dispatch({ type: "SET_CITATION_STATUS", payload: "done" });
+      } catch (err: any) {
+        console.warn("[Step2Results] Citation validation failed:", err?.message);
+        dispatch({ type: "SET_CITATION_STATUS", payload: "done" });
+      } finally {
+        setValidating(false);
+      }
+    };
+
+    validateCitations();
+  }, [state.papers, state.citationValidationStatus, dispatch]);
 
   const papers = state.papers.filter((p) =>
     p.title.toLowerCase().includes(searchFilter.toLowerCase()) ||

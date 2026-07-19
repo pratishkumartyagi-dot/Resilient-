@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   fetchPaperSearchMcp,
   fetchPubMedBrowserless,
+  fetchEuropePMC,
   fetchOpenAlex,
   fetchDoaj,
   fetchBioRxiv,
@@ -15,9 +16,10 @@ import {
   fetchSemanticScholarBrowserless,
   fetchClinicalTrialsGov,
   deduplicatePapers,
-  verifyCitations,
   generateMockLegacy,
 } from "@/lib/database-apis";
+import { spawn } from "child_process";
+import path from "path";
 
 export const runtime = "nodejs";
 
@@ -71,7 +73,7 @@ export async function POST(request: Request) {
     const apiMap: Record<string, (() => Promise<any[]>) | undefined> = {
       "PubMed": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
       "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
-      "Europe PMC": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
+      "Europe PMC": () => fetchEuropePMC(query, yearFrom, yearTo, studyType),
       "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
       "bioRxiv": () => fetchBioRxiv(query, yearFrom, yearTo, studyType),
       "medRxiv": () => fetchMedRxiv(query, yearFrom, yearTo, studyType),
@@ -167,8 +169,57 @@ export async function POST(request: Request) {
 
     let citationValidationResults: Record<string, { valid: boolean; title?: string; message: string }> = {};
     try {
-      const verified = await verifyCitations(deduped);
-      citationValidationResults = Object.fromEntries(verified);
+      const scriptPath = path.join(process.cwd(), "scripts", "validate-citations.py");
+      const papersToValidate = deduped.slice(0, 50).map((p) => ({
+        doi: p.doi || "",
+        title: p.title,
+        authors: p.authors || "",
+      }));
+
+      const stdout = await new Promise<string>((resolve, reject) => {
+        const proc = spawn("python3", [scriptPath], {
+          timeout: 120000,
+        });
+
+        let stdout = "";
+        let stderr = "";
+
+        proc.stdout.on("data", (data) => {
+          stdout += data.toString();
+        });
+
+        proc.stderr.on("data", (data) => {
+          stderr += data.toString();
+        });
+
+        proc.on("close", (code) => {
+          if (code === 0) {
+            resolve(stdout);
+          } else {
+            reject(new Error(`Process exited with code ${code}: ${stderr}`));
+          }
+        });
+
+        proc.on("error", (err) => {
+          reject(err);
+        });
+
+        proc.stdin.write(JSON.stringify({ papers: papersToValidate }));
+        proc.stdin.end();
+      });
+
+      const result = JSON.parse(stdout);
+      if (result.success && result.results) {
+        result.results.forEach((r: any) => {
+          if (r.doi) {
+            citationValidationResults[r.doi.toLowerCase()] = {
+              valid: r.valid,
+              title: r.verified_title,
+              message: r.message,
+            };
+          }
+        });
+      }
     } catch (err: any) {
       console.warn("[literature-search] Citation validation failed:", err?.message || String(err));
     }

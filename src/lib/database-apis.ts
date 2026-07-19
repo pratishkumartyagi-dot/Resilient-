@@ -277,6 +277,105 @@ async function fetchWithTimeout(url: string, ms = 30000): Promise<Response> {
   }
 }
 
+async function fetchWithRetry(url: string, maxRetries = 3, baseDelay = 1000): Promise<Response> {
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const res = await fetchWithTimeout(url);
+      return res;
+    } catch (err: any) {
+      lastError = err;
+      const status = err?.message?.match(/HTTP (\d+)/)?.[1];
+      if (status === "429" || status === "503" || status === "504") {
+        const delay = baseDelay * Math.pow(2, attempt);
+        await sleep(delay);
+        continue;
+      }
+      if (attempt < maxRetries - 1) {
+        await sleep(baseDelay * Math.pow(2, attempt));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError || new Error("Fetch failed after retries");
+}
+
+export async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+  const papers: Paper[] = [];
+  const pageSize = 100;
+  let cursorMark = "*";
+  let hasNext = true;
+
+  while (hasNext && papers.length < 1000) {
+    const params = new URLSearchParams({
+      query: query,
+      format: "json",
+      pageSize: pageSize.toString(),
+      cursorMark: cursorMark,
+      sort: "CITED desc",
+    });
+
+    if (yearFrom) {
+      params.set("query", `${params.get("query")} AND publication_year>=${yearFrom}`);
+    }
+    if (yearTo) {
+      params.set("query", `${params.get("query")} AND publication_year<=${yearTo}`);
+    }
+
+    const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?${params.toString()}`;
+
+    try {
+      const res = await fetchWithRetry(url, 3, 1000);
+      const data = await res.json();
+      const results = data.resultList?.result || [];
+
+      if (results.length === 0) break;
+
+      for (const r of results) {
+        const title = r.title || "Untitled";
+        const authors = (r.authorString || "Unknown authors").substring(0, 300);
+        const journal = r.journalTitle || "Unknown Journal";
+        const year = parseInt(r.pubYear) || new Date().getFullYear();
+        const doi = r.doi || "";
+        const pmid = r.pmid || "";
+        const abstract = r.abstractText || "No abstract available.";
+
+        papers.push({
+          id: `europepmc-${pmid || r.id || Math.random().toString(36).slice(2, 8)}`,
+          title,
+          authors,
+          journal,
+          year,
+          doi,
+          abstract: abstract.substring(0, 3000),
+          database: "Europe PMC",
+          studyType: classifyStudyType(title, abstract),
+          selected: false,
+          url: doi ? `https://doi.org/${doi}` : pmid ? `https://pubmed.ncbi.nlm.nih.gov/${pmid}/` : "",
+          pmid,
+          sourceBackend: "Europe PMC API",
+          sources: ["Europe PMC"],
+        });
+      }
+
+      hasNext = data.nextCursorMark && data.nextCursorMark !== cursorMark;
+      cursorMark = data.nextCursorMark || "";
+    } catch (err: any) {
+      console.warn("[Europe PMC] fetch failed:", err?.message);
+      break;
+    }
+  }
+
+  if (studyType && studyType !== "All Study Types") {
+    const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
+    const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+    return filtered.length > 0 ? filtered : papers;
+  }
+
+  return papers;
+}
+
 export async function fetchDoaj(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const papers: Paper[] = [];
   for (let page = 1; page <= 100; page++) {
@@ -614,7 +713,7 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
   if (yearFrom) qs.set("filter", `from-pub-date:${yearFrom}`);
   if (yearTo) qs.set("filter", `until-pub-date:${yearTo}`);
   const url = `https://api.crossref.org/works?${qs.toString()}`;
-  const res = await fetchWithTimeout(url);
+  const res = await fetchWithRetry(url, 3, 2000);
   if (!res.ok) throw new Error(`Crossref error: ${res.status}`);
   const data = await res.json();
   const results = data.message?.items || [];
@@ -649,49 +748,70 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
 }
 
 export async function fetchOpenAIRE(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const qs = new URLSearchParams({ title: query, format: "json", size: "100" });
-  const url = `https://api.openaire.eu/search/publications?${qs.toString()}`;
-  const res = await fetchWithTimeout(url);
-  if (!res.ok) throw new Error(`OpenAIRE error: ${res.status}`);
-  const data = await res.json();
-  const results = data.response?.results?.result || [];
-  const papers: Paper[] = results.map((r: any) => {
-    const meta = r.metadata || {};
-    const entity = meta["oaf:entity"] || {};
-    const result = entity["oaf:result"] || {};
-    const title = result.resulttitle || "Untitled";
-    const creatorList = Array.isArray(result.creator) ? result.creator : (result.creator ? [result.creator] : []);
-    const authors = creatorList.map((c: any) => c["$"] || c.content || c.name || "").filter(Boolean).join(", ").substring(0, 300) || "Unknown authors";
-    const year = parseInt(result.dateofcollection?.slice(0, 4) || result.dateofacceptance?.slice(0, 4)) || new Date().getFullYear();
-    const doi = (result.doi || "").replace("https://doi.org/", "");
-    const abstract = result.description || result.abstract || "No abstract available.";
-    const pid = result.pid || [];
-    const doiPid = pid.find((p: any) => p["@classname"] === "Digital Object Identifier");
-    const resolvedDoi = doiPid?.["$"]?.replace("doi_dedup___::", "") || doi;
-    if (yearFrom && year < parseInt(yearFrom)) return null;
-    if (yearTo && year > parseInt(yearTo)) return null;
-    return {
-      id: `openaire-${resolvedDoi || Math.random().toString(36).slice(2, 8)}`,
-      title,
-      authors: authors || "Unknown authors",
-      journal: result.journal || "Unknown Journal",
-      year,
-      doi: resolvedDoi,
-      abstract: abstract.substring(0, 3000),
-      database: "OpenAIRE",
-      studyType: classifyStudyType(title, abstract),
-      selected: false,
-      url: resolvedDoi ? `https://doi.org/${resolvedDoi}` : "",
-      sourceBackend: "OpenAIRE API",
-      sources: ["OpenAIRE"],
-    };
-  }).filter(Boolean) as Paper[];
-  if (studyType && studyType !== "All Study Types") {
-    const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
-    const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
-    return filtered.length > 0 ? filtered : papers;
+  try {
+    const qs = new URLSearchParams({ 
+      query: query, 
+      format: "json", 
+      size: "100",
+      page: "1"
+    });
+    const url = `https://api.openaire.eu/search/publications?${qs.toString()}`;
+    const res = await fetchWithRetry(url, 3, 2000);
+    if (!res.ok) throw new Error(`OpenAIRE error: ${res.status}`);
+    const data = await res.json();
+    const results = data.response?.results?.result || [];
+    
+    const papers: Paper[] = [];
+    for (const r of results) {
+      try {
+        const meta = r.metadata || {};
+        const entity = meta["oaf:entity"] || {};
+        const result = entity["oaf:result"] || {};
+        
+        const title = result.resulttitle?.$ || result.resulttitle || "Untitled";
+        const creatorList = Array.isArray(result.creator) ? result.creator : (result.creator ? [result.creator] : []);
+        const authors = creatorList.map((c: any) => c["$"] || c.content || c.name || "").filter(Boolean).join(", ").substring(0, 300) || "Unknown authors";
+        
+        const yearStr = result.dateofacceptance?.$ || result.dateofacceptance || result.dateofcollection?.$ || result.dateofcollection || "";
+        const year = parseInt(yearStr.slice(0, 4)) || new Date().getFullYear();
+        
+        const doi = (result.doi?.$ || result.doi || "").replace("https://doi.org/", "");
+        const abstract = result.description?.$ || result.description || result.abstract?.$ || result.abstract || "No abstract available.";
+        
+        if (yearFrom && year < parseInt(yearFrom)) continue;
+        if (yearTo && year > parseInt(yearTo)) continue;
+        
+        papers.push({
+          id: `openaire-${doi || Math.random().toString(36).slice(2, 8)}`,
+          title: typeof title === "string" ? title : "Untitled",
+          authors: authors || "Unknown authors",
+          journal: result.journal?.$ || result.journal || "Unknown Journal",
+          year,
+          doi,
+          abstract: (typeof abstract === "string" ? abstract : "No abstract available.").substring(0, 3000),
+          database: "OpenAIRE",
+          studyType: classifyStudyType(typeof title === "string" ? title : "", typeof abstract === "string" ? abstract : ""),
+          selected: false,
+          url: doi ? `https://doi.org/${doi}` : "",
+          sourceBackend: "OpenAIRE API",
+          sources: ["OpenAIRE"],
+        });
+      } catch (err) {
+        console.warn("[OpenAIRE] Failed to parse result:", err);
+        continue;
+      }
+    }
+    
+    if (studyType && studyType !== "All Study Types") {
+      const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
+      const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+      return filtered.length > 0 ? filtered : papers;
+    }
+    return papers;
+  } catch (err: any) {
+    console.warn("[OpenAIRE] fetch failed:", err?.message);
+    return [];
   }
-  return papers;
 }
 
 export async function fetchDblp(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
@@ -1247,9 +1367,8 @@ export async function fetchPubMedBrowserless(query: string, yearFrom?: string, y
 
 export async function fetchGoogleScholarBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   try {
-    // Google Scholar is accessed via Semantic Scholar API (no direct GS API available)
     const searchUrl = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=title,authors,year,abstract,externalIds,venue,citationCount&limit=100`;
-    const res = await fetchWithTimeout(searchUrl, 25000);
+    const res = await fetchWithRetry(searchUrl, 3, 2000);
     const data = await res.json();
     const papers: Paper[] = (data.data || [])
       .filter((p: any) => p.title && p.title.length > 5)
@@ -1277,7 +1396,8 @@ export async function fetchGoogleScholarBrowserless(query: string, yearFrom?: st
     if (yearFrom || yearTo) {
       const yFrom = yearFrom ? parseInt(yearFrom) : 0;
       const yTo = yearTo ? parseInt(yearTo) : 9999;
-      return papers.filter((p) => p.year >= yFrom && p.year <= yTo);
+      const filtered = papers.filter((p) => p.year >= yFrom && p.year <= yTo);
+      if (filtered.length > 0) return filtered;
     }
     if (studyType && studyType !== "All Study Types") {
       const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
@@ -1286,7 +1406,7 @@ export async function fetchGoogleScholarBrowserless(query: string, yearFrom?: st
     }
     return papers;
   } catch (err: any) {
-    // Return empty array to let caller handle fallback gracefully
+    console.warn("[Google Scholar] fetch failed:", err?.message);
     return [];
   }
 }
@@ -1294,7 +1414,7 @@ export async function fetchGoogleScholarBrowserless(query: string, yearFrom?: st
 export async function fetchSemanticScholarBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   try {
     const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=title,authors,year,abstract,externalIds,venue,publicationDate&limit=100`;
-    const res = await fetchWithTimeout(url, 25000);
+    const res = await fetchWithRetry(url, 3, 2000);
     const data = await res.json();
     const papers: Paper[] = (data.data || [])
       .filter((p: any) => p.title && p.title.length > 5)
@@ -1319,11 +1439,10 @@ export async function fetchSemanticScholarBrowserless(query: string, yearFrom?: 
         };
       });
 
-    // If no exact match, try a broader search
     if (papers.length === 0) {
       const fallbackUrl = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=title,authors,year,abstract,externalIds,venue&limit=50`;
       try {
-        const fallbackRes = await fetchWithTimeout(fallbackUrl, 20000);
+        const fallbackRes = await fetchWithRetry(fallbackUrl, 2, 2000);
         const fallbackData = await fallbackRes.json();
         const fallbackPapers: Paper[] = (fallbackData.data || [])
           .filter((p: any) => p.title && p.title.length > 5)
@@ -1351,9 +1470,22 @@ export async function fetchSemanticScholarBrowserless(query: string, yearFrom?: 
       } catch {}
     }
 
+    if (yearFrom || yearTo) {
+      const yFrom = yearFrom ? parseInt(yearFrom) : 0;
+      const yTo = yearTo ? parseInt(yearTo) : 9999;
+      const filtered = papers.filter((p) => p.year >= yFrom && p.year <= yTo);
+      if (filtered.length > 0) return filtered;
+    }
+
+    if (studyType && studyType !== "All Study Types") {
+      const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
+      const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
+      return filtered.length > 0 ? filtered : papers;
+    }
+
     return papers;
   } catch (err: any) {
-    // Return empty array to let caller handle fallback
+    console.warn("[Semantic Scholar] fetch failed:", err?.message);
     return [];
   }
 }
