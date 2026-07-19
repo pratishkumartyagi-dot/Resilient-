@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useApp } from "@/context/AppContext";
-import { FlaskConical as FlaskConicalIcon, Dna, MessageSquare, BarChart3, Sigma, FileText, PenLine, ScrollText, Brain, GitMerge, DollarSign } from "lucide-react";
+import { FlaskConical as FlaskConicalIcon, Dna, MessageSquare, BarChart3, Sigma, FileText, PenLine, ScrollText, GitMerge, DollarSign } from "lucide-react";
 
 const MAIN_TABS = [
   { id: "main", label: "Research Pipeline", icon: FlaskConicalIcon },
@@ -11,7 +11,6 @@ const MAIN_TABS = [
   { id: "stats", label: "Statistical Analysis", icon: BarChart3 },
   { id: "samplesize", label: "Sample Size Calculator", icon: Sigma },
   { id: "predictive", label: "Predictive Analysis", icon: BarChart3 },
-  { id: "autoprognosis", label: "AutoPrognosis", icon: Brain },
   { id: "systematic", label: "Evidence Synthesis & Meta-analysis", icon: FileText },
   { id: "auto_evidence", label: "Auto Evidence Synthesis", icon: GitMerge },
   { id: "paperwriter", label: "Paper Writer & Reviewer", icon: PenLine },
