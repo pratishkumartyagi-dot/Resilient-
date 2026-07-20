@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { X, Settings as SettingsIcon, Key, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { testGeminiKey, testGroqKey } from "@/lib/ai";
+import { LOCAL_MODEL_LABEL } from "@/lib/local-llm";
 
 export default function SettingsModal() {
   const { state, dispatch } = useApp();
@@ -157,7 +158,10 @@ export default function SettingsModal() {
 
           <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-3">
             <p className="text-xs text-blue-300">
-               Keys are stored locally in the application state. Gemini 3.1 Flash Lite is the primary AI provider. Groq (Llama 3.3 70B) is the secondary fallback. DeepSeek R1 (8B) runs locally in your browser.
+              Keys are stored locally in your browser. Gemini 3.1 Flash Lite is the primary AI provider and Groq (Llama 3.3 70B) is the secondary fallback.
+            </p>
+            <p className="text-xs text-blue-400 mt-2">
+              No key? A local {LOCAL_MODEL_LABEL} model runs directly in your browser as a free fallback. It downloads once (~350&nbsp;MB) on first use and is cached. WebGPU is used when available; otherwise it falls back to CPU, which is slower. For fastest, highest-quality results, add an API key above.
             </p>
           </div>
         </div>

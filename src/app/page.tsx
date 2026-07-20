@@ -29,6 +29,7 @@ const GrantWritingTab = dynamic(() => import("@/components/tabs/GrantWritingTab"
 const OmicsBioinformaticsTab = dynamic(() => import("@/components/tabs/OmicsBioinformaticsTab"), { ssr: false });
 
 import SettingsModal from "@/components/SettingsModal";
+import ModelLoadingIndicator from "@/components/ModelLoadingIndicator";
 
 function AppContent() {
   const { state } = useApp();
@@ -71,6 +72,7 @@ function AppContent() {
       <TopTabs />
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-6">{renderTabContent()}</main>
       <SettingsModal />
+      <ModelLoadingIndicator />
     </div>
   );
 }
