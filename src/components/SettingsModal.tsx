@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState } from "react";
 import { X, Settings as SettingsIcon, Key, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { testGeminiKey, testGroqKey } from "@/lib/ai";
@@ -9,43 +9,35 @@ import { LOCAL_MODEL_LABEL } from "@/lib/local-llm";
 export default function SettingsModal() {
   const { state, dispatch } = useApp();
   const [isOpen, setIsOpen] = useState(false);
-  const [geminiKey, setGeminiKey] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("resilient_gemini_api_key") || "";
-    }
-    return "";
-  });
-  const [groqKey, setGroqKey] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("resilient_groq_api_key") || "";
-    }
-    return "";
-  });
-  const didLoadRef = useRef(false);
+  const [geminiKey, setGeminiKey] = useState("");
+  const [groqKey, setGroqKey] = useState("");
+  const [loadedFromStorage, setLoadedFromStorage] = useState(false);
   const [testingGemini, setTestingGemini] = useState(false);
   const [testingGroq, setTestingGroq] = useState(false);
   const [geminiResult, setGeminiResult] = useState<{ ok: boolean; error?: string } | null>(null);
   const [groqResult, setGroqResult] = useState<{ ok: boolean; error?: string } | null>(null);
 
-  useEffect(() => {
-    if (typeof window !== "undefined" && !didLoadRef.current) {
-      didLoadRef.current = true;
-      try {
-        const savedGemini = localStorage.getItem("resilient_gemini_api_key") || "";
-        const savedGroq = localStorage.getItem("resilient_groq_api_key") || "";
-        if (savedGemini || savedGroq) {
-          dispatch({ type: "SET_GEMINI_KEY", payload: savedGemini });
-          dispatch({ type: "SET_GROQ_KEY", payload: savedGroq });
-        }
+  React.useEffect(() => {
+    if (typeof window !== "undefined" && !loadedFromStorage) {
+    try {
+      const savedGemini = localStorage.getItem("resilient_gemini_api_key") || "";
+      const savedGroq = localStorage.getItem("resilient_groq_api_key") || "";
+      setGeminiKey(savedGemini);
+      setGroqKey(savedGroq);
+      if (savedGemini || savedGroq) {
+        dispatch({ type: "SET_GEMINI_KEY", payload: savedGemini });
+        dispatch({ type: "SET_GROQ_KEY", payload: savedGroq });
+      }
       } catch {
         // Storage unavailable
       }
+      setLoadedFromStorage(true);
     }
 
     const handler = () => setIsOpen(true);
     window.addEventListener("open-settings", handler);
     return () => window.removeEventListener("open-settings", handler);
-  }, [dispatch]);
+  }, [dispatch, loadedFromStorage]);
 
   const handleSave = () => {
     dispatch({ type: "SET_GEMINI_KEY", payload: geminiKey });
