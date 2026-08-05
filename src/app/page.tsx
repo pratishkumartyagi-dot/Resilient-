@@ -1,68 +1,76 @@
 "use client";
 
-import dynamic from "next/dynamic";
+import { Suspense, lazy } from "react";
 import { AppProvider, useApp } from "@/context/AppContext";
 import Header from "@/components/Header";
 import TopTabs from "@/components/TopTabs";
 import StepNavigator from "@/components/StepNavigator";
 
-const Step1Search = dynamic(() => import("@/components/steps/Step1Search"), { ssr: false });
-const Step2Results = dynamic(() => import("@/components/steps/Step2Results"), { ssr: false });
-const Step3Synthesis = dynamic(() => import("@/components/steps/Step3Synthesis"), { ssr: false });
-const Step4LiteratureReview = dynamic(() => import("@/components/steps/Step4LiteratureReview"), { ssr: false });
-const Step5Themes = dynamic(() => import("@/components/steps/Step5Themes"), { ssr: false });
-const Step6ResearchQuestions = dynamic(() => import("@/components/steps/Step6ResearchQuestions"), { ssr: false });
-const Step7ResearchTitles = dynamic(() => import("@/components/steps/Step7ResearchTitles"), { ssr: false });
-const Step8AimObjectives = dynamic(() => import("@/components/steps/Step8AimObjectives"), { ssr: false });
-const Step9Methodology = dynamic(() => import("@/components/steps/Step9Methodology"), { ssr: false });
-const Step10Protocol = dynamic(() => import("@/components/steps/Step10Protocol"), { ssr: false });
-const Step11Impact = dynamic(() => import("@/components/steps/Step11Impact"), { ssr: false });
+const Step1Search = lazy(() => import("@/components/steps/Step1Search"));
+const Step2Results = lazy(() => import("@/components/steps/Step2Results"));
+const Step3Synthesis = lazy(() => import("@/components/steps/Step3Synthesis"));
+const Step4LiteratureReview = lazy(() => import("@/components/steps/Step4LiteratureReview"));
+const Step5Themes = lazy(() => import("@/components/steps/Step5Themes"));
+const Step6ResearchQuestions = lazy(() => import("@/components/steps/Step6ResearchQuestions"));
+const Step7ResearchTitles = lazy(() => import("@/components/steps/Step7ResearchTitles"));
+const Step8AimObjectives = lazy(() => import("@/components/steps/Step8AimObjectives"));
+const Step9Methodology = lazy(() => import("@/components/steps/Step9Methodology"));
+const Step10Protocol = lazy(() => import("@/components/steps/Step10Protocol"));
+const Step11Impact = lazy(() => import("@/components/steps/Step11Impact"));
 
-const ResilientChatTab = dynamic(() => import("@/components/tabs/ResilientChatTab"), { ssr: false });
-const StatisticalAnalysisTab = dynamic(() => import("@/components/tabs/StatisticalAnalysisTab"), { ssr: false });
-const SampleSizeTab = dynamic(() => import("@/components/tabs/SampleSizeTab"), { ssr: false });
-const PredictiveAnalysisTab = dynamic(() => import("@/components/tabs/PredictiveAnalysisTab"), { ssr: false });
-const EvidenceSynthesisTab = dynamic(() => import("@/components/tabs/EvidenceSynthesisTab"), { ssr: false });
-const PaperWriterTab = dynamic(() => import("@/components/tabs/PaperWriterTab"), { ssr: false });
-const ProtocolChatTab = dynamic(() => import("@/components/tabs/ProtocolChatTab"), { ssr: false });
-const GrantWritingTab = dynamic(() => import("@/components/tabs/GrantWritingTab"), { ssr: false });
-const OmicsBioinformaticsTab = dynamic(() => import("@/components/tabs/OmicsBioinformaticsTab"), { ssr: false });
+const ResilientChatTab = lazy(() => import("@/components/tabs/ResilientChatTab"));
+const StatisticalAnalysisTab = lazy(() => import("@/components/tabs/StatisticalAnalysisTab"));
+const SampleSizeTab = lazy(() => import("@/components/tabs/SampleSizeTab"));
+const PredictiveAnalysisTab = lazy(() => import("@/components/tabs/PredictiveAnalysisTab"));
+const EvidenceSynthesisTab = lazy(() => import("@/components/tabs/EvidenceSynthesisTab"));
+const PaperWriterTab = lazy(() => import("@/components/tabs/PaperWriterTab"));
+const ProtocolChatTab = lazy(() => import("@/components/tabs/ProtocolChatTab"));
+const GrantWritingTab = lazy(() => import("@/components/tabs/GrantWritingTab"));
+const OmicsBioinformaticsTab = lazy(() => import("@/components/tabs/OmicsBioinformaticsTab"));
 
 import SettingsModal from "@/components/SettingsModal";
 import ModelLoadingIndicator from "@/components/ModelLoadingIndicator";
+
+function LazyStep({ children }: { children: React.ReactNode }) {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center p-8 text-blue-300">Loading...</div>}>
+      {children}
+    </Suspense>
+  );
+}
 
 function AppContent() {
   const { state } = useApp();
 
   const renderMainPipeline = () => {
     switch (state.currentStep) {
-      case 1: return <Step1Search />;
-      case 2: return <Step2Results />;
-      case 3: return <Step3Synthesis />;
-      case 4: return <Step4LiteratureReview />;
-      case 5: return <Step5Themes />;
-      case 6: return <Step6ResearchQuestions />;
-      case 7: return <Step7ResearchTitles />;
-      case 8: return <Step8AimObjectives />;
-      case 9: return <Step9Methodology />;
-      case 10: return <Step10Protocol />;
-      case 11: return <Step11Impact />;
-      default: return <Step1Search />;
+      case 1: return <LazyStep><Step1Search /></LazyStep>;
+      case 2: return <LazyStep><Step2Results /></LazyStep>;
+      case 3: return <LazyStep><Step3Synthesis /></LazyStep>;
+      case 4: return <LazyStep><Step4LiteratureReview /></LazyStep>;
+      case 5: return <LazyStep><Step5Themes /></LazyStep>;
+      case 6: return <LazyStep><Step6ResearchQuestions /></LazyStep>;
+      case 7: return <LazyStep><Step7ResearchTitles /></LazyStep>;
+      case 8: return <LazyStep><Step8AimObjectives /></LazyStep>;
+      case 9: return <LazyStep><Step9Methodology /></LazyStep>;
+      case 10: return <LazyStep><Step10Protocol /></LazyStep>;
+      case 11: return <LazyStep><Step11Impact /></LazyStep>;
+      default: return <LazyStep><Step1Search /></LazyStep>;
     }
   };
 
   const renderTabContent = () => {
     switch (state.currentTab) {
       case "main": return <StepNavigator>{renderMainPipeline()}</StepNavigator>;
-      case "omics": return <OmicsBioinformaticsTab />;
-      case "chat": return <ResilientChatTab />;
-      case "stats": return <StatisticalAnalysisTab />;
-      case "samplesize": return <SampleSizeTab />;
-      case "predictive": return <PredictiveAnalysisTab />;
-      case "systematic": return <EvidenceSynthesisTab />;
-      case "paperwriter": return <PaperWriterTab />;
-      case "protocol": return <ProtocolChatTab />;
-      default: return <GrantWritingTab />;
+      case "omics": return <LazyStep><OmicsBioinformaticsTab /></LazyStep>;
+      case "chat": return <LazyStep><ResilientChatTab /></LazyStep>;
+      case "stats": return <LazyStep><StatisticalAnalysisTab /></LazyStep>;
+      case "samplesize": return <LazyStep><SampleSizeTab /></LazyStep>;
+      case "predictive": return <LazyStep><PredictiveAnalysisTab /></LazyStep>;
+      case "systematic": return <LazyStep><EvidenceSynthesisTab /></LazyStep>;
+      case "paperwriter": return <LazyStep><PaperWriterTab /></LazyStep>;
+      case "protocol": return <LazyStep><ProtocolChatTab /></LazyStep>;
+      default: return <LazyStep><GrantWritingTab /></LazyStep>;
     }
   };
 
