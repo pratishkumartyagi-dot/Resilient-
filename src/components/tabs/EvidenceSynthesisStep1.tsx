@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Search, Database, ChevronRight } from "lucide-react";
+import { Search, Database, ChevronRight, CheckSquare, Square, ExternalLink } from "lucide-react";
 import { type Paper } from "@/lib/database-apis";
 
 export interface EvidenceSynthesisStep1Props {
@@ -15,6 +15,7 @@ export interface EvidenceSynthesisStep1Props {
   papers: Paper[];
   selectedPaperIds: Set<string>;
   onTogglePaper: (id: string) => void;
+  onToggleDatabase?: (db: string) => void;
   onSelectAllPapers: () => void;
   loading: boolean;
   searchError: string | null;
@@ -49,6 +50,7 @@ export default function EvidenceSynthesisStep1({
   selectedPaperIds,
   onTogglePaper,
   onSelectAllPapers,
+  onToggleDatabase,
   loading,
   searchError,
   perDatabaseResults,
@@ -84,13 +86,26 @@ export default function EvidenceSynthesisStep1({
   const displayPapers = getFilteredPapers();
   const hasActiveFilters = yearFrom || yearTo || studyTypeFilter !== "All Study Types" || showVerifiedOnly;
 
+  const papersByDatabase = (() => {
+    const map: Record<string, Paper[]> = {};
+    for (const p of displayPapers) {
+      const db = p.database || p.sourceBackend || "Unknown";
+      if (!map[db]) map[db] = [];
+      map[db].push(p);
+    }
+    return map;
+  })();
+
   return (
     <div className="space-y-6">
       <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
         <div className="flex items-center gap-2 mb-4">
           <Database size={18} className="text-yellow-400" />
-          <h3 className="text-lg font-bold text-white">Systematic Search</h3>
+          <h3 className="text-lg font-bold text-white">Systematic Search &amp; Selection</h3>
         </div>
+        <p className="text-xs text-blue-300 mb-4">
+          Enter your research topic with boolean logic, filters, and select databases. Results are grouped by database below — select individual papers or entire databases, then proceed to extraction.
+        </p>
         <div className="flex gap-2 mb-4">
           <div className="relative flex-1">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-400" />
@@ -289,30 +304,74 @@ export default function EvidenceSynthesisStep1({
               )}
             </div>
           )}
-          <div className="space-y-2 max-h-[400px] overflow-y-auto">
-            {displayPapers.map((p) => (
-              <div
-                key={p.id}
-                onClick={() => onTogglePaper(p.id)}
-                className={`p-3 rounded-lg border cursor-pointer ${
-                  selectedPaperIds.has(p.id)
-                    ? "bg-yellow-900/20 border-yellow-600/50"
-                    : "bg-blue-950/50 border-blue-900 hover:border-blue-700"
-                }`}
-              >
-                <div className="flex items-start gap-3">
-                  <div className="mt-0.5">
-                    <div className={`w-4 h-4 rounded border-2 ${selectedPaperIds.has(p.id) ? "bg-yellow-500 border-yellow-400" : "border-blue-600"}`}>
-                      {selectedPaperIds.has(p.id) && <svg className="w-3 h-3 text-[#0a1a3a] p-0.5" fill="currentColor" viewBox="0 0 20 20"><path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" /></svg>}
+          <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
+            {Object.entries(papersByDatabase)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([database, dbPapers]) => {
+                const dbSelectedCount = dbPapers.filter((p) => selectedPaperIds.has(p.id)).length;
+                const allDbSelected = dbPapers.length > 0 && dbPapers.every((p) => selectedPaperIds.has(p.id));
+                return (
+                  <div key={database} className="bg-blue-950/30 border border-blue-900 rounded-lg p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Database size={14} className="text-yellow-400" />
+                        <p className="text-sm font-semibold text-white">{database}</p>
+                        <span className="text-[10px] text-blue-400">({dbPapers.length} papers)</span>
+                        <span className="text-[10px] text-green-300">({dbSelectedCount} selected)</span>
+                      </div>
+                      {onToggleDatabase && (
+                        <button
+                          onClick={() => onToggleDatabase(database)}
+                          className="text-[10px] bg-blue-900/50 text-blue-200 px-2 py-1 rounded hover:bg-blue-900/70"
+                        >
+                          {allDbSelected ? "Deselect DB" : "Select DB"}
+                        </button>
+                      )}
+                    </div>
+                    <div className="space-y-1.5">
+                      {dbPapers.map((p) => (
+                        <div
+                          key={p.id}
+                          onClick={() => onTogglePaper(p.id)}
+                          className={`flex items-start gap-2 p-2 rounded border cursor-pointer ${
+                            selectedPaperIds.has(p.id)
+                              ? "bg-yellow-900/20 border-yellow-600/50"
+                              : "bg-blue-950/40 border-blue-900 hover:border-blue-700"
+                          }`}
+                        >
+                          <div className="mt-0.5">
+                            {selectedPaperIds.has(p.id) ? (
+                              <CheckSquare size={14} className="text-yellow-400" />
+                            ) : (
+                              <Square size={14} className="text-blue-400" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-white line-clamp-2">{p.title}</p>
+                            <p className="text-[10px] text-blue-300 mt-0.5">{p.authors} · {p.year} · {p.studyType}</p>
+                            <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                              {p.doi && (
+                                <a
+                                  href={`https://doi.org/${p.doi}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="text-[10px] text-yellow-300 underline inline-flex items-center gap-0.5"
+                                >
+                                  <ExternalLink size={9} /> doi:{p.doi}
+                                </a>
+                              )}
+                              {p.citationStatus === "verified" && (
+                                <span className="text-[10px] bg-green-900/50 text-green-300 px-1.5 py-0.5 rounded">Verified</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <h4 className="text-sm font-semibold text-white truncate">{p.title}</h4>
-                    <p className="text-xs text-blue-300">{p.authors} • {p.year} • {p.database}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
+                );
+              })}
             {displayPapers.length === 0 && (
               <p className="text-xs text-blue-400 py-4 text-center">No papers match the selected year range.</p>
             )}

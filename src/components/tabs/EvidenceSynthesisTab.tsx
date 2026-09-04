@@ -422,6 +422,30 @@ export default function EvidenceSynthesisTab() {
     });
   };
 
+  const toggleDbPapers = (database: string) => {
+    const dbPapers = papers.filter((p) => {
+      const db = p.database || p.sourceBackend || "Unknown";
+      if (db !== database) return false;
+      const y = typeof p.year === "number" ? p.year : parseInt(String(p.year), 10);
+      if (isNaN(y)) return false;
+      if (yearFrom && y < parseInt(yearFrom, 10)) return false;
+      if (yearTo && y > parseInt(yearTo, 10)) return false;
+      if (studyTypeFilter !== "All Study Types" && p.studyType !== studyTypeFilter) return false;
+      if (showVerifiedOnly && p.citationStatus !== "verified") return false;
+      return true;
+    });
+    if (dbPapers.length === 0) return;
+    const allSelected = dbPapers.every((p) => selectedPaperIds.has(p.id));
+    setSelectedPaperIds((prev) => {
+      const next = new Set(prev);
+      dbPapers.forEach((p) => {
+        if (allSelected) next.delete(p.id);
+        else next.add(p.id);
+      });
+      return next;
+    });
+  };
+
   const selectAll = () => {
     if (selectedPaperIds.size === papers.length) {
       setSelectedPaperIds(new Set());
@@ -2263,6 +2287,7 @@ ${stormReview}
             papers={papers}
             selectedPaperIds={selectedPaperIds}
             onTogglePaper={togglePaper}
+            onToggleDatabase={toggleDbPapers}
             onSelectAllPapers={selectAll}
             loading={loading}
             searchError={searchError}
@@ -2278,7 +2303,14 @@ ${stormReview}
             studyTypeFilter={studyTypeFilter}
             onStudyTypeFilterChange={setStudyTypeFilter}
             onSearch={handleSearch}
-            onProceed={() => setPipelineStep(2)}
+            onProceed={() => {
+              if (selectedPaperIds.size === 0) {
+                setSearchError("Select at least one paper before proceeding to extraction.");
+                return;
+              }
+              setSearchError(null);
+              setPipelineStep(2);
+            }}
             onClearFilters={() => { setYearFrom(""); setYearTo(""); setStudyTypeFilter("All Study Types"); }}
             showVerifiedOnly={showVerifiedOnly}
              onShowVerifiedOnlyChange={setShowVerifiedOnly}
