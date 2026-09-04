@@ -188,7 +188,7 @@ export default function Step3Synthesis() {
       <div className="bg-[#0d1b3e] border border-blue-900/50 rounded-lg p-6 shadow">
         <h2 className="text-xl font-bold text-white mb-1">Step 3: Generate Synthesis Table</h2>
         <p className="text-sm text-blue-300 mb-6">
-          Deep-search and reason through the selected papers to produce a structured evidence synthesis table including Vancouver-style references, key findings, synopsis, study details, and identified research gaps.
+          Deep-search and reason through the selected papers to produce a structured evidence synthesis table including Vancouver-style references (ICMJE/NLM), key findings, synopsis, study details, and identified research gaps. The <strong>Research Gaps</strong> column combines two methodologies: (1) Tharinda-Pamindu/Research-Gap-table-generator for <em>Limitations / Contradictions / Exclusion criteria / Gaps</em>, and (2) IbrahimAlAzhar/FutureWorkGeneration for the <em>Future Work / Recommendations</em> sub-section.
         </p>
 
         {error && (

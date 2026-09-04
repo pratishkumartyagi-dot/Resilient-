@@ -106,11 +106,31 @@ TASK: Produce a structured evidence synthesis table by deeply analyzing each pap
 
 SYNTHESIS RULES:
 - Base ALL outputs strictly on the provided paper metadata (title, authors, journal, year, DOI, abstract, study type).
-- For Vancouver reference: format as "Authors. Title. Journal. Year;Volume(Issue):Pages. doi:DOI" and include the DOI link as https://doi.org/DOI.
+- For Vancouver reference (ICMJE / NLM / PubMed Vancouver style, 1st-reference type, numeric in-text style):
+  "Authors. Title. Journal Abbrev. Year;Volume(Issue):Pages. doi:DOI"
+  - Up to 6 authors: list all as "Last FM, Last FM, Last FM". 7+ authors: list first 6 followed by ", et al."
+  - Use the journal abbreviation when known; otherwise full journal name in italics.
+  - ALWAYS include the DOI as a clickable link: <a href="https://doi.org/DOI">doi:DOI</a>.
+  - Mark the journal name with <em>...</em> for italics.
+  - Example: "Smith JA, Doe J, Patel R, et al. Effects of X on Y. N Engl J Med. 2023;388(12):1117-1128. <a href=\"https://doi.org/10.1056/NEJMoa1234567\">doi:10.1056/NEJMoa1234567</a>".
 - Key findings: extract the most important quantitative and qualitative findings from the abstract, graded by evidence tier.
 - Synopsis/Takeaway: 1-2 sentences explaining the core contribution to the evidence base.
 - Study Conducted: explicitly state Population, Setting, Time period of study, and any Intervention or diagnostic method tested.
-- Research Gaps: identify (1) author-acknowledged limitations, (2) contradictions or conflicting evidence, (3) exclusion criteria if stated, (4) underexplored areas the authors highlight. If the abstract does not specify, infer plausible gaps based on study design and scope.
+- Research Gaps column — follow the combined methodology of two reference tools:
+
+  (A) Tharinda-Pamindu/Research-Gap-table-generator style (Gap Table):
+  - Produce "Limitations: ... | Contradictions: ... | Exclusion criteria: ... | Gaps: ..." drawn from (1) author-acknowledged limitations, (2) contradictions or conflicting evidence, (3) exclusion criteria if stated, (4) underexplored areas the authors highlight. If the abstract does not specify, infer plausible gaps based on study design and scope.
+
+  (B) IbrahimAlAzhar/FutureWorkGeneration style (Future Work):
+  - On a new line within the same researchGaps string, append "Future Work / Recommendations: <paragraph>" synthesized from the abstract, conclusion sentences, and study design.
+  - Future-work paragraph rules (≤100 words):
+    * Focus on potential areas for future investigation, further research needed, or additional strategies to improve the current study.
+    * Be coherent, logical, and aligned with the article's main topic.
+    * If the abstract explicitly mentions future work, refine those statements; otherwise generate study-type-appropriate forward-looking recommendations (RCT → multicenter RCTs / head-to-head trials; cohort → prospective multicenter cohorts; review → updated living review; qualitative → multi-site mixed-methods; etc.).
+    * Consider: replication in diverse populations, longer follow-up, mechanistic studies, harmonized outcome reporting, cost-effectiveness, implementation research, and clinical translation.
+
+  Combine both parts in the researchGaps field separated by a newline, e.g.:
+  "Limitations: ... | Contradictions: ... | Exclusion criteria: ... | Gaps: ...\n\nFuture Work / Recommendations: ..."
 - Grade every claim by evidence strength.
 - Avoid study-by-study summaries: synthesize across papers thematically when producing higher-level outputs.
 
@@ -118,11 +138,11 @@ OUTPUT FORMAT — strict JSON array only:
 [
   {
     "id": "unique-id",
-    "reference": "Vancouver style with <em>journal</em> and DOI searchable link",
+    "reference": "Vancouver style with <em>journal</em> and DOI searchable link (ICMJE / NLM conventions)",
     "keyFindings": "string with evidence grade (T1/T2/T3/T4)",
     "synopsis": "string",
     "studyDetails": "Population: ... Setting: ... Time: ... Intervention: ...",
-    "researchGaps": "Limitations: ... Contradictions: ... Exclusion criteria: ... Future work: ..."
+    "researchGaps": "Limitations: ... | Contradictions: ... | Exclusion criteria: ... | Gaps: ...\\n\\nFuture Work / Recommendations: ..."
   }
 ]
 
