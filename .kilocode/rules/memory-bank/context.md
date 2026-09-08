@@ -1579,3 +1579,21 @@ Step 1 results now show:
     - Statistical predictors (covariates, confounders, effect modifiers)
   - **Fallback Updates**: Updated all fallback cases (no API key, AI extraction failure) to include `predictors`, `ciLower`, and `ciUpper` fields with appropriate default values.
   - **Validation**: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅ passes cleanly.
+
+## Step 1 Database Parity — Europe PMC restored (2026-09-08)
+
+**Issue**: Evidence Synthesis & Meta-analysis pipeline Step 1 was missing "Europe PMC" from its database list, making it unavailable for search despite being present in the Research Pipeline Step 1 and in the `/api/literature-search` backend. Additionally, `fetchRealPapers` and `fetchRealPapersWithCounts` in `database-apis.ts` incorrectly mapped "Europe PMC" to `fetchPubMedBrowserless` instead of `fetchEuropePMC`.
+
+### Changes Applied
+- `src/components/tabs/EvidenceSynthesisTab.tsx`:
+  - Added `"Europe PMC"` to `SR_DATABASES` array (was the only database present in the main pipeline but missing from the evidence synthesis pipeline).
+  - Updated the default `selectedDbs` state to include all 14 databases from `SR_DATABASES` so all are searchable by default.
+- `src/lib/database-apis.ts`:
+  - Fixed `fetchRealPapers` and `fetchRealPapersWithCounts` `apiDatabases` maps: `"Europe PMC"` now correctly routes to `fetchEuropePMC` instead of `fetchPubMedBrowserless`.
+
+### Result
+Both Step 1 components (Research Pipeline and Evidence Synthesis & Meta-analysis) now offer the same full set of 14 searchable databases: PubMed, OpenAlex, Europe PMC, DOAJ, bioRxiv, medRxiv, Crossref, arXiv, OpenAIRE, dblp, Zenodo, Google Scholar, Semantic Scholar, ClinicalTrials.gov.
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes (0 errors; only pre-existing not-found.tsx warning)

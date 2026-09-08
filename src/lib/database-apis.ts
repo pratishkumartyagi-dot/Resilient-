@@ -862,7 +862,7 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
   const apiDatabases: Record<string, () => Promise<Paper[]>> = {
     "PubMed": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
     "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
-    "Europe PMC": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
+    "Europe PMC": () => fetchEuropePMC(query, yearFrom, yearTo, studyType),
     "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
     "bioRxiv": () => fetchBioRxiv(query, yearFrom, yearTo, studyType),
     "medRxiv": () => fetchMedRxiv(query, yearFrom, yearTo, studyType),
@@ -935,7 +935,7 @@ export async function fetchRealPapersWithCounts(query: string, databases: string
   const apiDatabases: Record<string, () => Promise<Paper[]>> = {
     "PubMed": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
     "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
-    "Europe PMC": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
+    "Europe PMC": () => fetchEuropePMC(query, yearFrom, yearTo, studyType),
     "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
     "bioRxiv": () => fetchBioRxiv(query, yearFrom, yearTo, studyType),
     "medRxiv": () => fetchMedRxiv(query, yearFrom, yearTo, studyType),

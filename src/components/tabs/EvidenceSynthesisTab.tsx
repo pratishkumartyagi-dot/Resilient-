@@ -40,6 +40,7 @@ const INTEGRATED_EVIDENCE_SKILLS = getIntegratedSkills().filter(s => ["literatur
 const SR_DATABASES = [
   "PubMed",
   "OpenAlex",
+  "Europe PMC",
   "DOAJ",
   "bioRxiv",
   "medRxiv",
@@ -276,7 +277,7 @@ export default function EvidenceSynthesisTab() {
   const { state } = useApp();
   const [pipelineStep, setPipelineStep] = useState(1);
   const [query, setQuery] = useState("");
-  const [selectedDbs, setSelectedDbs] = useState<string[]>(["OpenAlex", "DOAJ", "bioRxiv", "medRxiv", "Crossref", "OpenAIRE", "dblp", "PubMed"]);
+  const [selectedDbs, setSelectedDbs] = useState<string[]>(["PubMed", "OpenAlex", "Europe PMC", "DOAJ", "bioRxiv", "medRxiv", "Crossref", "arXiv", "OpenAIRE", "dblp", "Zenodo", "Google Scholar", "Semantic Scholar", "ClinicalTrials.gov"]);
   const [papers, setPapers] = useState<Paper[]>([]);
   const [selectedPaperIds, setSelectedPaperIds] = useState<Set<string>>(new Set());
   const [robSelectedPaperIds, setRobSelectedPaperIds] = useState<Set<string>>(new Set());
