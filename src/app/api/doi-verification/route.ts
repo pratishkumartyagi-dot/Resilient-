@@ -3,13 +3,14 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// doi-mcp is a GitHub-only dependency (github:tfscharff/doi-mcp) with no npm
-// tarball. Builders that install with a different package manager (bun) or a
-// lockfile that doesn't pin the git ref can end up WITHOUT node_modules/doi-mcp,
-// which used to crash this route's module load and fail the whole build's
-// route collection — the preview then hung at "Your app is being built"
-// forever. So: load doi-mcp lazily at request time and degrade gracefully to a
-// direct doi.org + Crossref lookup when it's unavailable.
+// Citation verification with ZERO repository dependencies.
+//
+// Previously this route imported `doi-mcp`, a GitHub-only dependency
+// (github:tfscharff/doi-mcp). Declaring it forced the builder to CLONE a
+// repository from GitHub during `bun install`; when that clone failed the
+// whole build stalled at "Your app is being built". It is now implemented
+// directly against doi.org (CSL-JSON content negotiation) and the Crossref
+// REST API, so no repository is cloned at install time.
 
 interface Paper {
   doi?: string;
@@ -28,8 +29,38 @@ interface VerificationResult {
   journal?: string;
   source?: string;
   confidence?: string;
+  score?: number;
   message: string;
 }
+
+interface CslAuthor {
+  given?: string;
+  family?: string;
+  name?: string;
+}
+
+interface CslMeta {
+  DOI?: string;
+  title?: string | string[];
+  author?: CslAuthor[];
+  issued?: { "date-parts"?: number[][] };
+  published?: { "date-parts"?: number[][] };
+  "container-title"?: string | string[];
+  publisher?: string;
+}
+
+interface CrossrefItem {
+  DOI?: string;
+  title?: string[];
+  author?: CslAuthor[];
+  issued?: { "date-parts"?: number[][] };
+  "container-title"?: string[];
+  publisher?: string;
+}
+
+const CITATION_UA =
+  "ResilientResearcher/1.0 (citation-verification; mailto:noreply@kilo.app)";
+const FETCH_TIMEOUT_MS = 15_000;
 
 function corsHeaders() {
   return new Headers({
@@ -39,191 +70,215 @@ function corsHeaders() {
   });
 }
 
-interface DoiMcpResponse {
-  isError?: boolean;
-  content: Array<{ text: string }>;
+function normalizeDoi(doi: string): string {
+  return doi
+    .trim()
+    .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "")
+    .replace(/^doi:\s*/i, "");
 }
 
-type DoiMcpBatchFn = (args: { citations: Array<Record<string, unknown>> }) => Promise<DoiMcpResponse>;
-
-/**
- * Lazy-load doi-mcp at request time. Returns null when the package isn't
- * installed (e.g. builder installed from bun.lock without the git dep), so
- * the route can fall back to a direct doi.org lookup instead of crashing
- * the build's route collection.
- */
-async function loadDoiMcp(): Promise<DoiMcpBatchFn | null> {
-  try {
-    const mod = await import(
-      /* webpackIgnore: true */ "doi-mcp/dist/tools/batchVerifyCitations.js"
-    );
-    // Cast: the git dep ships no usable TS types for this deep path.
-    return (mod.batchVerifyCitations ?? null) as DoiMcpBatchFn | null;
-  } catch {
-    return null;
-  }
+function firstString(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0];
+  return value;
 }
 
-/** Direct doi.org resolution — no dependencies, always available. */
-async function resolveViaDoiOrg(doi: string): Promise<VerificationResult | null> {
+function extractAuthors(authors?: CslAuthor[]): string[] {
+  if (!Array.isArray(authors)) return [];
+  return authors
+    .map((a) => a.name || [a.given, a.family].filter(Boolean).join(" "))
+    .filter((s): s is string => Boolean(s && s.trim()));
+}
+
+function extractYear(meta: {
+  issued?: { "date-parts"?: number[][] };
+  published?: { "date-parts"?: number[][] };
+}): number | undefined {
+  const parts =
+    meta.issued?.["date-parts"]?.[0]?.[0] ?? meta.published?.["date-parts"]?.[0]?.[0];
+  return typeof parts === "number" ? parts : undefined;
+}
+
+function titleTokens(title: string): Set<string> {
+  return new Set(
+    (title || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 2),
+  );
+}
+
+function jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let intersection = 0;
+  for (const token of a) if (b.has(token)) intersection++;
+  return intersection / (a.size + b.size - intersection);
+}
+
+/** Resolve a supplied DOI via doi.org content negotiation, then Crossref. */
+async function resolveDoi(rawDoi: string): Promise<VerificationResult | null> {
+  const doi = normalizeDoi(rawDoi);
+  if (!doi) return null;
+
+  // 1) doi.org content negotiation (authoritative CSL-JSON metadata).
   try {
-    const clean = doi.trim().replace(/^https?:\/\/(dx\.)?doi\.org\//i, "");
-    const res = await fetch(`https://doi.org/${encodeURIComponent(clean)}`, {
-      headers: { Accept: "application/vnd.citationstyles.csl+json" },
-      signal: AbortSignal.timeout(15000),
+    const res = await fetch(`https://doi.org/${encodeURIComponent(doi)}`, {
+      headers: {
+        Accept: "application/vnd.citationstyles.csl+json",
+        "User-Agent": CITATION_UA,
+      },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
+    if (res.ok) {
+      const meta = (await res.json()) as CslMeta;
+      const resolved = (meta.DOI || doi).toLowerCase();
+      return {
+        verified: true,
+        doi: meta.DOI || doi,
+        title: firstString(meta.title),
+        authors: extractAuthors(meta.author),
+        year: extractYear(meta),
+        journal: firstString(meta["container-title"]) || meta.publisher,
+        source: "DOI.org",
+        confidence: "high",
+        message: `Verified via DOI.org (${resolved})`,
+      };
+    }
+  } catch {
+    // fall through to Crossref
+  }
+
+  // 2) Crossref works lookup (covers DOIs doi.org content negotiation misses).
+  try {
+    const res = await fetch(
+      `https://api.crossref.org/works/${encodeURIComponent(doi)}?mailto=noreply@kilo.app`,
+      { headers: { "User-Agent": CITATION_UA }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) },
+    );
+    if (res.ok) {
+      const data = (await res.json()) as { message?: CrossrefItem };
+      const meta = data.message;
+      if (meta) {
+        return {
+          verified: true,
+          doi: meta.DOI || doi,
+          title: firstString(meta.title),
+          authors: extractAuthors(meta.author),
+          year: extractYear(meta),
+          journal: firstString(meta["container-title"]) || meta.publisher,
+          source: "Crossref",
+          confidence: "high",
+          message: `Verified via Crossref (${(meta.DOI || doi).toLowerCase()})`,
+        };
+      }
+    }
+  } catch {
+    // unrecoverable; report unverified below
+  }
+
+  return null;
+}
+
+/** Fuzzy title lookup via Crossref; only high-similarity matches count. */
+async function searchByTitle(
+  title: string,
+  authors?: string,
+): Promise<{ result: VerificationResult; score: number } | null> {
+  if (!title || title.trim().length < 8) return null;
+  const query = authors ? `${title} ${authors.split(",")[0] ?? ""}` : title;
+
+  try {
+    const res = await fetch(
+      `https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(
+        query,
+      )}&rows=5&select=DOI,title,author,issued,container-title,publisher&mailto=noreply@kilo.app`,
+      { headers: { "User-Agent": CITATION_UA }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) },
+    );
     if (!res.ok) return null;
-    const meta = await res.json();
-    const authors: string[] = Array.isArray(meta.author)
-      ? meta.author.map((a: { given?: string; family?: string }) =>
-          [a.given, a.family].filter(Boolean).join(" ")).filter(Boolean)
-      : [];
+    const data = (await res.json()) as { message?: { items?: CrossrefItem[] } };
+    const items = data.message?.items ?? [];
+    const wanted = titleTokens(title);
+
+    let best: CrossrefItem | null = null;
+    let bestScore = 0;
+    for (const item of items) {
+      const score = jaccard(wanted, titleTokens(firstString(item.title) || ""));
+      if (score > bestScore) {
+        bestScore = score;
+        best = item;
+      }
+    }
+    if (!best || bestScore < 0.7) return null;
+
+    const confidence = bestScore >= 0.85 ? "high" : "medium";
     return {
-      verified: true,
-      doi: meta.DOI || clean,
-      title: Array.isArray(meta.title) ? meta.title[0] : meta.title,
-      authors,
-      year: meta.issued?.["date-parts"]?.[0]?.[0] ?? meta.published?.["date-parts"]?.[0]?.[0],
-      journal: Array.isArray(meta["container-title"])
-        ? meta["container-title"][0]
-        : meta["container-title"] || meta.publisher,
-      source: "DOI.org",
-      confidence: "high",
-      message: `Verified via DOI.org (${meta.DOI || clean})`,
+      score: Number(bestScore.toFixed(2)),
+      result: {
+        verified: true,
+        doi: best.DOI,
+        title: firstString(best.title),
+        authors: extractAuthors(best.author),
+        year: extractYear(best),
+        journal: firstString(best["container-title"]) || best.publisher,
+        source: "Crossref",
+        confidence,
+        score: Number(bestScore.toFixed(2)),
+        message: `Matched title in Crossref (similarity ${Math.round(bestScore * 100)}%)`,
+      },
     };
   } catch {
     return null;
   }
 }
 
-/** Verify all citations: doi-mcp when present, doi.org fallback otherwise. */
-async function verifyViaDoiMcp(citations: Array<Record<string, unknown>>): Promise<DoiMcpResponse> {
-  const batchVerifyCitations = await loadDoiMcp();
-  if (batchVerifyCitations) {
-    return batchVerifyCitations({ citations });
-  }
-  // Fallback: resolve each supplied DOI directly via doi.org.
-  const results = await Promise.all(
-    citations.map(async (c, i) => {
-      const id = (c.id as string) || `paper-${i}`;
-      const doi = typeof c.doi === "string" ? c.doi : "";
-      if (doi && doi.trim().length > 5) {
-        const hit = await resolveViaDoiOrg(doi);
-        if (hit) {
-          return { id, verified: true, paper: hit, source: "DOI.org", confidence: "high" as const, message: hit.message };
-        }
-        return {
-          id,
-          verified: false,
-          paper: { title: c.title },
-          source: "DOI.org",
-          confidence: "high" as const,
-          message: "Supplied DOI does not resolve",
-        };
-      }
-      return {
-        id,
-        verified: false,
-        paper: { title: c.title },
-        source: "doi-mcp-unavailable",
-        confidence: "low" as const,
-        message: "Title-only verification unavailable (doi-mcp not installed)",
-      };
-    })
-  );
-  return {
-    isError: false,
-    content: [{ text: JSON.stringify({ results }) }],
-  };
-}
-
 export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: corsHeaders(),
-  });
+  return new NextResponse(null, { status: 204, headers: corsHeaders() });
 }
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const papers: Paper[] = body.papers || [];
+    const body = (await request.json()) as { papers?: Paper[] };
+    const papers = body.papers ?? [];
 
-    if (!papers.length) {
+    if (papers.length === 0) {
       return NextResponse.json(
         { error: "No papers provided" },
-        { status: 400, headers: corsHeaders() }
+        { status: 400, headers: corsHeaders() },
       );
     }
 
-    const citations = papers.map((p, idx) => ({
-      id: `paper-${idx}`,
-      title: p.title,
-      authors: p.authors ? p.authors.split(",").map((a) => a.trim()).filter(Boolean) : undefined,
-      year: p.year,
-      doi: p.doi,
-      journal: p.journal,
-    }));
+    const results: VerificationResult[] = await Promise.all(
+      papers.map(async (paper): Promise<VerificationResult> => {
+        const suppliedDoi = (paper.doi || "").trim();
 
-    const response = await verifyViaDoiMcp(citations);
-
-    if (response.isError) {
-      return NextResponse.json(
-        { error: "Verification failed", details: response.content[0]?.text },
-        { status: 500, headers: corsHeaders() }
-      );
-    }
-
-    // doi-mcp returns { summary, results } — NOT a bare array. Previous code
-    // checked Array.isArray(parsed) first, so results were silently dropped
-    // and every paper came back unverified with empty metadata.
-    //
-    // Guard: when the caller supplies a DOI, the returned record must resolve
-    // to that SAME DOI. doi-mcp's fuzzy path can return verified:true with a
-    // different DOI (e.g. bogus input "10.9999/..." matched to "10.2307/...")
-    // or verified:true from Crossref title search while doi.org resolution
-    // failed. Both are false positives, so force verified=false there.
-    const results: VerificationResult[] = [];
-    try {
-      const parsed = JSON.parse(response.content[0].text);
-      const arr = Array.isArray(parsed) ? parsed : parsed.results;
-      if (Array.isArray(arr)) {
-        for (let i = 0; i < arr.length; i++) {
-          const r = arr[i];
-          const paper = r.paper || {};
-          const suppliedDoi = (papers[i]?.doi || "").trim().toLowerCase();
-          const resolvedDoi = (paper.doi || paper.DOI || "").toLowerCase();
-          const doiMismatch =
-            suppliedDoi.length > 5 &&
-            (!resolvedDoi || resolvedDoi !== suppliedDoi);
-          const verified = (r.verified || false) && !doiMismatch;
-          results.push({
-            id: r.id,
-            verified,
-            doi: paper.doi || paper.DOI,
+        // Path A: a DOI was supplied — it must resolve to that same DOI.
+        if (suppliedDoi.length > 5) {
+          const resolved = await resolveDoi(suppliedDoi);
+          if (resolved) return resolved;
+          return {
+            verified: false,
+            doi: suppliedDoi,
             title: paper.title,
-            authors: paper.authors,
-            year: paper.year,
-            journal: paper.journal,
-            source: r.source,
-            confidence: r.confidence,
-            message: doiMismatch
-              ? `Supplied DOI does not resolve${resolvedDoi ? ` (closest record: ${resolvedDoi})` : ""}`
-              : r.message
-                || (verified ? `Verified via ${r.source || "DOI.org"}` : "Not verified"),
-          } as VerificationResult & { id?: string });
+            source: "DOI.org",
+            confidence: "high",
+            message: "Supplied DOI does not resolve",
+          };
         }
-      }
-    } catch (parseErr) {
-      console.error("[doi-verification] Failed to parse response:", response.content[0].text);
-      return NextResponse.json(
-        { error: "Failed to parse verification results" },
-        { status: 500, headers: corsHeaders() }
-      );
-    }
+
+        // Path B: title-only — fuzzy Crossref match with a similarity gate.
+        const match = await searchByTitle(paper.title, paper.authors);
+        if (match) return match.result;
+        return {
+          verified: false,
+          title: paper.title,
+          source: "Crossref",
+          confidence: "low",
+          message: "No confident title match found",
+        };
+      }),
+    );
 
     const mappedResults = papers.map((paper, idx) => {
-      const result = results[idx] || results.find((r: any) => r.id === `paper-${idx}`);
+      const result = results[idx];
       return {
         doi: paper.doi || result?.doi || "",
         title: result?.title || paper.title,
@@ -233,7 +288,8 @@ export async function POST(request: Request) {
         verified_year: result?.year,
         verified_journal: result?.journal,
         source: result?.source,
-        confidence: (result as VerificationResult)?.confidence,
+        confidence: result?.confidence,
+        score: result?.score,
         message: result?.message || "Not verified",
       };
     });
@@ -244,13 +300,11 @@ export async function POST(request: Request) {
         total: mappedResults.length,
         valid_count: mappedResults.filter((r) => r.valid).length,
       },
-      { headers: corsHeaders() }
+      { headers: corsHeaders() },
     );
-  } catch (err: any) {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Internal server error";
     console.error("[doi-verification] Error:", err);
-    return NextResponse.json(
-      { error: err.message || "Internal server error" },
-      { status: 500, headers: corsHeaders() }
-    );
+    return NextResponse.json({ error: message }, { status: 500, headers: corsHeaders() });
   }
 }

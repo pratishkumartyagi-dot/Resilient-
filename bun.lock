@@ -8,7 +8,6 @@
         "@huggingface/transformers": "^4.2.0",
         "cheerio": "^1.2.0",
         "docx": "^9.7.1",
-        "doi-mcp": "github:tfscharff/doi-mcp",
         "exceljs": "^4.4.0",
         "lucide-react": "^1.21.0",
         "mammoth": "^1.12.0",
@@ -595,8 +594,6 @@
     "doctrine": ["doctrine@2.1.0", "", { "dependencies": { "esutils": "^2.0.2" } }, "sha512-35mSku4ZXK0vfCuHEDAwt55dg2jNajHZ1odvF+8SSr82EsZY4QmXfuWso8oEd8zRhVObSN18aM0CjSdoBX7zIw=="],
 
     "docx": ["docx@9.7.1", "", { "dependencies": { "@types/node": "^25.2.3", "hash.js": "^1.1.7", "jszip": "^3.10.1", "nanoid": "^5.1.3", "xml": "^1.0.1", "xml-js": "^1.6.8" } }, "sha512-ilXFf9Moz47ABjFpDiA5s1w9lpb4EFSp7+5iiJSbfyYDM+bpZdAgLlSr7fW4aXhVe/E+F6QCv0EvRVFEd5CsWg=="],
-
-    "doi-mcp": ["doi-mcp@github:tfscharff/doi-mcp#cbf94c2", { "dependencies": { "@modelcontextprotocol/sdk": "^1.0.4", "zod": "^3.23.8" }, "bin": { "doi-mcp": "dist/index.js" } }, "tfscharff-doi-mcp-cbf94c2", "sha512-+nIuPtA7NtuWcq9e3zZLDk+O1UKSASgQZaIcXt8INP8N25GcIvx3NRcdVNu7GjKP5PSCQhrTK/cXRJheawWCSQ=="],
 
     "dom-serializer": ["dom-serializer@2.0.0", "", { "dependencies": { "domelementtype": "^2.3.0", "domhandler": "^5.0.2", "entities": "^4.2.0" } }, "sha512-wIkAryiqt/nV5EQKqQpo3SToSOV9J0DnbJqwK7Wv/Trc92zIAYZ4FlMu+JPFW1DfGFt81ZTCGgDEabffXeLyJg=="],
 
