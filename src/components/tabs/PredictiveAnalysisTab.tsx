@@ -8,7 +8,14 @@ import {
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
-import { downloadMarkdownAsWord, downloadMarkdownAsPDF } from "@/lib/exporters";
+
+// Lazy-load heavy doc exporters on demand so docx stays out of the initial
+// preview bundle.
+async function exportPredictiveDoc(kind: "word" | "pdf", content: string, filename: string) {
+  const mod = await import("@/lib/exporters");
+  if (kind === "word") await mod.downloadMarkdownAsWord(content, filename);
+  else mod.downloadMarkdownAsPDF(content, filename);
+}
 
 const renderMarkdown = (text: string): string => {
   let html = text;
@@ -837,13 +844,13 @@ export default function PredictiveAnalysisTab() {
             {(aiOutput || state.predictionReport) && (
               <div className="flex flex-wrap gap-2 mt-2">
                 <button
-                  onClick={() => downloadMarkdownAsWord(state.predictionReport || aiOutput, "predictive-report.docx")}
+                  onClick={() => exportPredictiveDoc("word", state.predictionReport || aiOutput, "predictive-report.docx")}
                   className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1.5 rounded text-xs flex items-center gap-1"
                 >
                   <Download size={12} /> Download Word
                 </button>
                 <button
-                  onClick={() => downloadMarkdownAsPDF(state.predictionReport || aiOutput, "predictive-report.pdf")}
+                  onClick={() => exportPredictiveDoc("pdf", state.predictionReport || aiOutput, "predictive-report.pdf")}
                   className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1.5 rounded text-xs flex items-center gap-1"
                 >
                   <Download size={12} /> Download PDF
@@ -922,13 +929,13 @@ export default function PredictiveAnalysisTab() {
                 {relationshipResults && (
                   <div className="flex flex-wrap gap-2 mt-2">
                     <button
-                      onClick={() => downloadMarkdownAsWord(relationshipResults, "relationship-prediction.docx")}
+                      onClick={() => exportPredictiveDoc("word", relationshipResults, "relationship-prediction.docx")}
                       className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1.5 rounded text-xs flex items-center gap-1"
                     >
                       <Download size={12} /> Download Word
                     </button>
                     <button
-                      onClick={() => downloadMarkdownAsPDF(relationshipResults, "relationship-prediction.pdf")}
+                      onClick={() => exportPredictiveDoc("pdf", relationshipResults, "relationship-prediction.pdf")}
                       className="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1.5 rounded text-xs flex items-center gap-1"
                     >
                       <Download size={12} /> Download PDF

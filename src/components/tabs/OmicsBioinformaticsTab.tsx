@@ -2,10 +2,15 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Send, User, Bot, Trash2, FlaskConical, Paperclip, X, Download, FileText, Loader2, Dna, BarChart3, Network, Shield, Search, GitBranch, Bug, Table2, FileJson, FileType2, Printer, ChevronRight, ChevronDown, FolderOpen, BookOpen, Microscope, Database, Workflow, FlaskRound, Atom, Stethoscope, HeartPulse, type LucideIcon } from "lucide-react";
-import { parseOmicsDataFile, ALLOWED_OMICS_TYPES } from "@/lib/document-parser";
-import { getSkillsByCategory, getSkillsBySubcategory, getAllCategories, getSkillById, MEDICAL_SKILLS_REGISTRY } from "@/lib/medical-skills/skills-registry";
+import { v4 as uuidv4 } from "uuid";
 import { useApp } from "@/context/AppContext";
 import { callDeepSeek } from "@/lib/ai";
+import { getSkillsByCategory, getSkillsBySubcategory, getAllCategories, getSkillById, MEDICAL_SKILLS_REGISTRY } from "@/lib/medical-skills/skills-registry";
+
+// Acceptable omics upload extensions. Inlined (instead of importing from
+// document-parser) so mammoth/pdfjs stay out of the initial preview bundle;
+// the parser module is lazy-loaded in handleFileUpload below.
+const ALLOWED_OMICS_TYPES = [".csv", ".tsv", ".txt", ".md", ".docx", ".doc", ".pdf"];
 
 const CATEGORY_ICONS: Record<string, LucideIcon> = {
   "scientific-databases": Database,
@@ -168,7 +173,7 @@ export default function OmicsBioinformaticsTab() {
     if (!input.trim() && !uploadedFile) return;
 
     const userMsg: Message = {
-      id: `user-${Date.now()}`,
+      id: `user-${uuidv4()}`,
       role: "user",
       content: input.trim() || (uploadedFile ? `[Uploaded file: ${uploadedFile.name}]\nPlease analyze this omics data file.` : ""),
       timestamp: new Date(),
@@ -207,7 +212,7 @@ export default function OmicsBioinformaticsTab() {
       }
 
       const assistantMsg: Message = {
-        id: `assistant-${Date.now()}`,
+        id: `assistant-${uuidv4()}`,
         role: "assistant",
         content: responseContent,
         timestamp: new Date(),
@@ -216,7 +221,7 @@ export default function OmicsBioinformaticsTab() {
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (err) {
       const errorMsg: Message = {
-        id: `error-${Date.now()}`,
+        id: `error-${uuidv4()}`,
         role: "assistant",
         content: `Error: ${err instanceof Error ? err.message : "Unknown error"}. Please check your API keys in Settings.`,
         timestamp: new Date(),
@@ -236,6 +241,8 @@ export default function OmicsBioinformaticsTab() {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
+      // Lazy-load the parser (mammoth/pdfjs) only when a file is uploaded.
+      const { parseOmicsDataFile } = await import("@/lib/document-parser");
       const parsed = await parseOmicsDataFile(file);
       setUploadedFile({ name: parsed.name, content: parsed.content, type: parsed.type });
     } catch (err) {
@@ -249,7 +256,7 @@ export default function OmicsBioinformaticsTab() {
     const skill = getSkillById(skillId);
     if (skill) {
       const welcomeMsg: Message = {
-        id: `skill-welcome-${Date.now()}`,
+        id: `skill-welcome-${uuidv4()}`,
         role: "assistant",
         content: `**${skill.name}** selected.\n\n${skill.description}\n\nSource: ${skill.sourceRepo}/${skill.skillPath}\n\nAsk me anything about this skill's domain. I can help with workflows, tool selection, data analysis steps, and interpretation.`,
         timestamp: new Date(),

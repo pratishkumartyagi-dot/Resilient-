@@ -1,5 +1,4 @@
 import { getSkillById, MEDICAL_SKILLS_REGISTRY } from "./medical-skills/skills-registry";
-import * as cheerio from "cheerio";
 
 export interface Paper {
   id: string;
@@ -437,14 +436,14 @@ export async function fetchDoaj(query: string, yearFrom?: string, yearTo?: strin
   return filtered;
 }
 
-const API_BASE =
-  typeof window !== "undefined"
-    ? window.location.origin
-    : "http://localhost:3000";
-
 export async function fetchPaperSearchMcp(query: string, source: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   try {
-    const res = await fetch(`${API_BASE}/api/paper-search-mcp`, {
+    // NOTE: Relative URL so this follows the actual preview host/port instead
+    // of a hardcoded "http://localhost:3000" (breaks preview on any other port).
+    // When called server-side (no window), fall back to same-origin localhost.
+    const base =
+      typeof window !== "undefined" ? "" : process.env.PORT ? `http://localhost:${process.env.PORT}` : "http://localhost:3000";
+    const res = await fetch(`${base}/api/paper-search-mcp`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query, source, maxResults: 200, yearFrom, yearTo, studyType }),

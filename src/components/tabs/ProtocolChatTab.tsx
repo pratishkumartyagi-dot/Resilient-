@@ -19,7 +19,10 @@ import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
 import { buildStep10Prompt } from "@/lib/research-skills";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
-import { parseUploadedDocument, ALLOWED_DOCUMENT_TYPES } from "@/lib/document-parser";
+
+// Inlined (instead of importing from document-parser) so mammoth/pdfjs stay
+// out of the initial preview bundle; parser is lazy-loaded on file upload.
+const ALLOWED_DOCUMENT_TYPES = [".docx", ".doc", ".pdf", ".txt", ".md"];
 
 interface Message {
   id: string;
@@ -115,6 +118,8 @@ export default function ProtocolChatTab() {
     setIsUploading(true);
 
     try {
+      // Lazy-load the parser (mammoth/pdfjs) only when a file is uploaded.
+      const { parseUploadedDocument } = await import("@/lib/document-parser");
       const parsed = await parseUploadedDocument(file);
       setDocumentContent(parsed.content);
       setUploadedFileName(parsed.name);

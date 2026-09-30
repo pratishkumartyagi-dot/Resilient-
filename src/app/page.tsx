@@ -1,13 +1,18 @@
 "use client";
 
 import { lazy, Suspense } from "react";
+import dynamic from "next/dynamic";
 import { AppProvider, useApp } from "@/context/AppContext";
 import Header from "@/components/Header";
 import TopTabs from "@/components/TopTabs";
 import StepNavigator from "@/components/StepNavigator";
 import TabLoadingSkeleton from "@/components/TabLoadingSkeleton";
-import SettingsModal from "@/components/SettingsModal";
-import ModelLoadingIndicator from "@/components/ModelLoadingIndicator";
+
+// SettingsModal and ModelLoadingIndicator are NOT part of the first paint:
+// they subscribe to events / model progress only. Loaded client-side after
+// hydration so they (and their transitive deps) never block the preview.
+const SettingsModal = dynamic(() => import("@/components/SettingsModal"), { ssr: false });
+const ModelLoadingIndicator = dynamic(() => import("@/components/ModelLoadingIndicator"), { ssr: false });
 
 const Step1Search = lazy(() => import("@/components/steps/Step1Search"));
 const Step2Results = lazy(() => import("@/components/steps/Step2Results"));

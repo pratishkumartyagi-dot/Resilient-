@@ -22,10 +22,10 @@ function findPaperSearchMcpBinary(): string | null {
     if (!candidate) continue;
     try {
       if (candidate.endsWith(".js")) {
-        if (fs.existsSync(candidate)) return candidate;
+        if (fs.existsSync(/*turbopackIgnore: true*/ candidate)) return candidate;
         continue;
       }
-      fs.accessSync(candidate, fs.constants.X_OK);
+      fs.accessSync(/*turbopackIgnore: true*/ candidate, fs.constants.X_OK);
       return candidate;
     } catch {
       continue;
@@ -113,7 +113,7 @@ export async function POST(request: Request) {
       }, { status: 500, headers: corsHeaders() });
     }
 
-    const proc = spawn(MCP_BINARY, [], {
+    const proc = spawn(/*turbopackIgnore: true*/ MCP_BINARY, [], {
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env },
     });

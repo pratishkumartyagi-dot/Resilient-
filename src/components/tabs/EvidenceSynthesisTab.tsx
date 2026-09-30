@@ -13,7 +13,6 @@ import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai
 import { fetchRealPapers, generateMockLegacy, webSearchPapers, type Paper } from "@/lib/database-apis";
 import { generateLocalLiteratureReview, generateLitLLMSynthesis } from "@/lib/local-synthesis";
 import { extractPICOForPapers, type ExtractedPICO } from "@/lib/pico-extractor";
-import { downloadLiteratureReviewPDF, downloadLiteratureReviewWord, downloadMarkdownAsPDF, downloadMarkdownAsWord, downloadMarkdownAsLaTeX } from "@/lib/exporters";
 import { marked } from "marked";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
 import {
@@ -326,6 +325,17 @@ export default function EvidenceSynthesisTab() {
   const [effectSizes, setEffectSizes] = useState<{ study: string; effect: string; ci: string; weight: string }[]>([]);
   const [reviewType, setReviewType] = useState("Systematic Review & Meta-analysis");
   const [reviewRequirements, setReviewRequirements] = useState("");
+
+  // Lazy-load heavy doc exporters (docx/exceljs/pptxgenjs) on demand so they
+  // never enter the initial preview bundle. They load on first export click.
+  const exportDoc = async (kind: "pdf" | "word" | "latex", content: string, filename: string) => {
+    const mod = await import("@/lib/exporters");
+    if (kind === "pdf") mod.downloadMarkdownAsPDF(content, filename);
+    else if (kind === "word") await mod.downloadMarkdownAsWord(content, filename);
+    else mod.downloadMarkdownAsLaTeX(content, filename);
+  };
+
+  const manuscriptSlug = () => `${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}`;
   const [yearFrom, setYearFrom] = useState("");
   const [yearTo, setYearTo] = useState("");
   const [searchLogic, setSearchLogic] = useState("AND");
@@ -601,7 +611,7 @@ export default function EvidenceSynthesisTab() {
     }
   };
 
-  const autoAssessRob = () => {
+  const autoAssessRob = React.useCallback(() => {
     if (extractedData.length === 0) return;
     const template = getRobToolTemplate();
     if (!template) return;
@@ -615,16 +625,18 @@ export default function EvidenceSynthesisTab() {
       });
       return next;
     });
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [extractedData, robTool]);
 
   useEffect(() => {
     if (pipelineStep === 3 && extractedData.length > 0) {
-      autoAssessRob();
+      queueMicrotask(() => autoAssessRob());
     }
-    // autoAssessRob uses robTool and pipelineStep
-    // extractedData is not a dep to avoid firing on every state update during editing
+    // Runs only when the step or tool changes by design: it seeds default
+    // judgments for the papers already extracted in Step 2. extractedData is
+    // intentionally not a dep so edits during Step 3 don't reseed judgments.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [robTool, pipelineStep]);
+  }, [autoAssessRob, pipelineStep]);
 
   const updateRobDomain = (paperId: string, domainId: string, judgment: string) => {
     setRobAssessments((prev) => {
@@ -3406,21 +3418,21 @@ ${stormReview}
                       <div className="flex flex-wrap items-center gap-3">
                         <span className="text-xs text-blue-300 mr-auto">Export format:</span>
                         <button
-                          onClick={() => downloadMarkdownAsPDF(finalManuscript || manuscript, `academic-writing-agents-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pdf`)}
+                          onClick={() => exportDoc("pdf", finalManuscript || manuscript, `academic-writing-agents-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pdf`)}
                           className="flex items-center gap-1.5 bg-emerald-900/50 text-emerald-300 px-4 py-2 rounded-lg hover:bg-emerald-800/70 text-sm"
                         >
                           <Download size={14} />
                           Export PDF
                         </button>
                         <button
-                          onClick={() => downloadMarkdownAsWord(finalManuscript || manuscript, `academic-writing-agents-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.docx`)}
+                          onClick={() => exportDoc("word", finalManuscript || manuscript, `academic-writing-agents-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.docx`)}
                           className="flex items-center gap-1.5 bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg hover:bg-blue-800/70 text-sm"
                         >
                           <Download size={14} />
                           Export Word
                         </button>
                         <button
-                          onClick={() => downloadMarkdownAsLaTeX(finalManuscript || manuscript, `academic-writing-agents-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.tex`)}
+                          onClick={() => exportDoc("latex", finalManuscript || manuscript, `academic-writing-agents-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.tex`)}
                           className="flex items-center gap-1.5 bg-purple-900/50 text-purple-200 px-4 py-2 rounded-lg hover:bg-purple-800/70 text-sm"
                         >
                           <FileCode size={14} />
@@ -3495,21 +3507,21 @@ ${stormReview}
                           <div className="flex flex-wrap items-center gap-3 mt-3">
                             <span className="text-xs text-green-300 mr-auto">Export final manuscript:</span>
                             <button
-                              onClick={() => downloadMarkdownAsPDF(finalManuscript, `academic-writing-agents-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pdf`)}
+                              onClick={() => exportDoc("pdf", finalManuscript, `academic-writing-agents-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pdf`)}
                               className="flex items-center gap-1.5 bg-emerald-900/50 text-emerald-300 px-4 py-2 rounded-lg hover:bg-emerald-800/70 text-sm"
                             >
                               <Download size={14} />
                               Export PDF
                             </button>
                             <button
-                              onClick={() => downloadMarkdownAsWord(finalManuscript, `academic-writing-agents-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.docx`)}
+                              onClick={() => exportDoc("word", finalManuscript, `academic-writing-agents-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.docx`)}
                               className="flex items-center gap-1.5 bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg hover:bg-blue-800/70 text-sm"
                             >
                               <Download size={14} />
                               Export Word
                             </button>
                             <button
-                              onClick={() => downloadMarkdownAsLaTeX(finalManuscript, `academic-writing-agents-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.tex`)}
+                              onClick={() => exportDoc("latex", finalManuscript, `academic-writing-agents-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.tex`)}
                               className="flex items-center gap-1.5 bg-purple-900/50 text-purple-200 px-4 py-2 rounded-lg hover:bg-purple-800/70 text-sm"
                             >
                               <FileCode size={14} />
@@ -3589,21 +3601,21 @@ ${stormReview}
                       <div className="flex flex-wrap items-center gap-3">
                         <span className="text-xs text-blue-300 mr-auto">Export format:</span>
                         <button
-                          onClick={() => downloadMarkdownAsPDF(stormFinal || stormDraft, `storm-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pdf`)}
+                          onClick={() => exportDoc("pdf", stormFinal || stormDraft, `storm-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pdf`)}
                           className="flex items-center gap-1.5 bg-emerald-900/50 text-emerald-300 px-4 py-2 rounded-lg hover:bg-emerald-800/70 text-sm"
                         >
                           <Download size={14} />
                           Export PDF
                         </button>
                         <button
-                          onClick={() => downloadMarkdownAsWord(stormFinal || stormDraft, `storm-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.docx`)}
+                          onClick={() => exportDoc("word", stormFinal || stormDraft, `storm-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.docx`)}
                           className="flex items-center gap-1.5 bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg hover:bg-blue-800/70 text-sm"
                         >
                           <Download size={14} />
                           Export Word
                         </button>
                         <button
-                          onClick={() => downloadMarkdownAsLaTeX(stormFinal || stormDraft, `storm-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.tex`)}
+                          onClick={() => exportDoc("latex", stormFinal || stormDraft, `storm-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.tex`)}
                           className="flex items-center gap-1.5 bg-purple-900/50 text-purple-200 px-4 py-2 rounded-lg hover:bg-purple-800/70 text-sm"
                         >
                           <FileCode size={14} />
@@ -3678,21 +3690,21 @@ ${stormReview}
                           <div className="flex flex-wrap items-center gap-3 mt-3">
                             <span className="text-xs text-green-300 mr-auto">Export final draft:</span>
                             <button
-                              onClick={() => downloadMarkdownAsPDF(stormFinal, `storm-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pdf`)}
+                              onClick={() => exportDoc("pdf", stormFinal, `storm-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pdf`)}
                               className="flex items-center gap-1.5 bg-emerald-900/50 text-emerald-300 px-4 py-2 rounded-lg hover:bg-emerald-800/70 text-sm"
                             >
                               <Download size={14} />
                               Export PDF
                             </button>
                             <button
-                              onClick={() => downloadMarkdownAsWord(stormFinal, `storm-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.docx`)}
+                              onClick={() => exportDoc("word", stormFinal, `storm-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.docx`)}
                               className="flex items-center gap-1.5 bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg hover:bg-blue-800/70 text-sm"
                             >
                               <Download size={14} />
                               Export Word
                             </button>
                             <button
-                              onClick={() => downloadMarkdownAsLaTeX(stormFinal, `storm-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.tex`)}
+                              onClick={() => exportDoc("latex", stormFinal, `storm-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.tex`)}
                               className="flex items-center gap-1.5 bg-purple-900/50 text-purple-200 px-4 py-2 rounded-lg hover:bg-purple-800/70 text-sm"
                             >
                               <FileCode size={14} />

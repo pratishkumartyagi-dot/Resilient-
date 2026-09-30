@@ -4,7 +4,6 @@ import React, { useState, useRef } from "react";
 import { Download, FileUp, Sparkles, Trash2, ChevronDown, FileText, AlertCircle, Loader2 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
-import { downloadCSV, downloadExcel, downloadPDF, downloadWord, parseCSVText } from "@/lib/exporters";
 import { buildStep3Prompt, type Paper } from "@/lib/research-skills";
 import { generateLocalSynthesis, type SynthesisRow } from "@/lib/local-synthesis";
 import type { AICallOptions } from "@/lib/ai";
@@ -115,6 +114,9 @@ export default function Step3Synthesis() {
       if (file.type === "text/csv" || file.name.toLowerCase().endsWith(".csv")) {
         try {
           const text = await file.text();
+          // Lazy-load exporters so docx/exceljs/pptxgenjs stay out of the
+          // initial preview bundle; they load on first download/parse use.
+          const { parseCSVText } = await import("@/lib/exporters");
           const parsed = parseCSVText(text);
           const preview = parsed.slice(0, 6).map((r) => r.join(" | ")).join("\n");
           parts.push(`CSV Preview:\n${preview}`);
@@ -151,11 +153,14 @@ export default function Step3Synthesis() {
     dispatch({ type: "SET_UPLOADED_DOCS", payload: updated });
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (localSynthesis.length === 0) {
       alert("No synthesis table to download. Generate the table first.");
       return;
     }
+    // Lazy-load exporters on demand so heavy doc libs don't bloat the
+    // initial preview bundle.
+    const { downloadCSV, downloadExcel, downloadPDF, downloadWord } = await import("@/lib/exporters");
     switch (downloadFormat) {
       case "csv":
         downloadCSV(localSynthesis);

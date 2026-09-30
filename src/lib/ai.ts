@@ -1,5 +1,3 @@
-import { generateLocal, isModelLoaded, loadModel } from "./local-llm";
-
 const CHAT_TIMEOUT_MS = 60_000;
 
 async function withTimeout<T>(promise: Promise<T>): Promise<T> {
@@ -12,13 +10,13 @@ export interface AICallOptions {
   searchEnabled?: boolean;
 }
 
-const API_BASE =
-  typeof window !== "undefined"
-    ? window.location.origin
-    : "http://localhost:3000";
+// NOTE: Always use a relative URL so API calls follow whatever host/port the
+// preview is actually served on (3000, custom --port, LAN IP, hosted preview
+// URL). A hardcoded "http://localhost:3000" breaks the preview whenever the
+// dev/prod server runs on any other port.
 
 async function postChat(provider: "gemini" | "groq", apiKey: string, prompt: string, options?: AICallOptions): Promise<{ content: string; searchPerformed: boolean }> {
-  const res = await withTimeout(fetch(`${API_BASE}/api/chat`, {
+  const res = await withTimeout(fetch(`/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ provider, prompt, apiKey, searchQuery: options?.searchQuery, searchEnabled: options?.searchEnabled }),
@@ -43,6 +41,9 @@ export async function callGroq(apiKey: string, prompt: string, options?: AICallO
 }
 
 export async function callDeepSeek(prompt: string, options?: AICallOptions): Promise<string> {
+  // Lazy-load the in-browser model only when this fallback is actually used,
+  // so @huggingface/transformers never enters the initial preview bundle.
+  const { generateLocal, isModelLoaded, loadModel } = await import("./local-llm");
   if (!isModelLoaded()) {
     await loadModel();
   }
@@ -73,6 +74,7 @@ export async function testGroqKey(apiKey: string): Promise<{ ok: boolean; error?
 
 export async function testDeepSeekKey(): Promise<{ ok: boolean; error?: string }> {
   try {
+    const { generateLocal, loadModel } = await import("./local-llm");
     await loadModel();
     await generateLocal("Hello, this is a test message. Please respond with OK.", { maxTokens: 50 });
     return { ok: true };

@@ -1,8 +1,9 @@
-import mammoth from "mammoth";
-
 export async function parseWordDocument(file: File): Promise<string> {
   try {
     const arrayBuffer = await file.arrayBuffer();
+    // Lazy-load mammoth only when a Word file is actually parsed, so the
+    // initial preview bundle stays lean.
+    const { default: mammoth } = await import("mammoth");
     const result = await mammoth.extractRawText({ arrayBuffer });
     return result.value;
   } catch (err) {

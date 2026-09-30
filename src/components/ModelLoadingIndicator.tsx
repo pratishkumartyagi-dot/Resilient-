@@ -2,7 +2,6 @@
 
 import React, { useEffect, useState } from "react";
 import { Cpu, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
-import { onModelProgress } from "@/lib/local-llm";
 
 export default function ModelLoadingIndicator() {
   const [progress, setProgress] = useState(0);
@@ -10,12 +9,22 @@ export default function ModelLoadingIndicator() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    const unsub = onModelProgress((p, s) => {
-      setProgress(p);
-      setStatus(s);
-      setVisible(true);
+    // Lazy-load the local-LLM module (which pulls in @huggingface/transformers)
+    // only when this indicator mounts, keeping it out of the initial bundle.
+    let unsub: (() => void) | undefined;
+    let cancelled = false;
+    import("@/lib/local-llm").then((mod) => {
+      if (cancelled) return;
+      unsub = mod.onModelProgress((p, s) => {
+        setProgress(p);
+        setStatus(s);
+        setVisible(true);
+      });
     });
-    return unsub;
+    return () => {
+      cancelled = true;
+      unsub?.();
+    };
   }, []);
 
   // Auto-hide shortly after the model is ready.

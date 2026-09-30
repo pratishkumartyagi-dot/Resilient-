@@ -4,40 +4,51 @@ import React, { useState } from "react";
 import { X, Settings as SettingsIcon, Key, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { testGeminiKey, testGroqKey } from "@/lib/ai";
-import { LOCAL_MODEL_LABEL } from "@/lib/local-llm";
+
+// Keep in sync with LOCAL_MODEL_LABEL in src/lib/local-llm.ts. Inlined here
+// (instead of importing) so this modal doesn't drag @huggingface/transformers
+// into the initial preview bundle.
+const LOCAL_MODEL_LABEL = "Qwen2.5 0.5B Instruct (in-browser)";
 
 export default function SettingsModal() {
   const { state, dispatch } = useApp();
   const [isOpen, setIsOpen] = useState(false);
-  const [geminiKey, setGeminiKey] = useState("");
-  const [groqKey, setGroqKey] = useState("");
-  const [loadedFromStorage, setLoadedFromStorage] = useState(false);
+  const [geminiKey, setGeminiKey] = useState(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      return localStorage.getItem("resilient_gemini_api_key") || "";
+    } catch {
+      return "";
+    }
+  });
+  const [groqKey, setGroqKey] = useState(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      return localStorage.getItem("resilient_groq_api_key") || "";
+    } catch {
+      return "";
+    }
+  });
   const [testingGemini, setTestingGemini] = useState(false);
   const [testingGroq, setTestingGroq] = useState(false);
   const [geminiResult, setGeminiResult] = useState<{ ok: boolean; error?: string } | null>(null);
   const [groqResult, setGroqResult] = useState<{ ok: boolean; error?: string } | null>(null);
 
+  // Push any keys persisted from a previous session into the global context once,
+  // on mount only — no cascading renders from setState-in-effect.
   React.useEffect(() => {
-    if (typeof window !== "undefined" && !loadedFromStorage) {
-    try {
-      const savedGemini = localStorage.getItem("resilient_gemini_api_key") || "";
-      const savedGroq = localStorage.getItem("resilient_groq_api_key") || "";
-      setGeminiKey(savedGemini);
-      setGroqKey(savedGroq);
-      if (savedGemini || savedGroq) {
-        dispatch({ type: "SET_GEMINI_KEY", payload: savedGemini });
-        dispatch({ type: "SET_GROQ_KEY", payload: savedGroq });
-      }
-      } catch {
-        // Storage unavailable
-      }
-      setLoadedFromStorage(true);
+    if (geminiKey || groqKey) {
+      dispatch({ type: "SET_GEMINI_KEY", payload: geminiKey });
+      dispatch({ type: "SET_GROQ_KEY", payload: groqKey });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
+  React.useEffect(() => {
     const handler = () => setIsOpen(true);
     window.addEventListener("open-settings", handler);
     return () => window.removeEventListener("open-settings", handler);
-  }, [dispatch, loadedFromStorage]);
+  }, []);
 
   const handleSave = () => {
     dispatch({ type: "SET_GEMINI_KEY", payload: geminiKey });
