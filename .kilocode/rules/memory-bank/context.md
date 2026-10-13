@@ -44,6 +44,13 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
 ### Runtime verification
 - `GET /` → 200; `/api/literature-search` returns real records (PubMed authors populated); `/api/doi-verification` resolves DOIs via Crossref; `/api/web-search` arXiv year fixed; `/api/chat` 400 without key.
 
+## Final Version Published to GitHub (2026-10-13)
+
+- [x] `main` fast-forwarded to the fixes commit and pushed — the GitHub **default branch** now serves the final version (setup docs + all pipeline fixes), so a fresh clone or "Download ZIP" is runnable.
+- [x] Fresh-download flow verified: `bun install` → `bun dev` → http://localhost:3000 (or `npm install` → `npm run dev`). No API keys required.
+- [x] Run instructions + optional config (Gemini/Groq keys, `TAVILY_API_KEY`, port) documented in `README.md` and `.env.example`.
+- Note: memory-bank/doc commits are fast-forwarded to `main` as well, so GitHub downloads stay current.
+
 ## Recently Completed
 
 - [x] Base Next.js 16 setup with App Router
