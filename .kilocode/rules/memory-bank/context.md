@@ -8,6 +8,15 @@
 **Description**: AI-powered research intelligence platform for systematic reviews, evidence synthesis, and academic writing.
 **Tech Stack**: Next.js 16, React 19, TypeScript, Tailwind CSS 4, Lucide React, Recharts
 
+## Local Setup & Runnable-on-Clone Docs (2026-10-13)
+
+- [x] Added `README.md` with requirements, clone/install/run steps (Bun + npm), scripts table, optional AI/env configuration, project structure, and troubleshooting
+- [x] Added `.env.example` documenting optional `TAVILY_API_KEY`, `PORT`, `PAPER_SEARCH_MCP_BIN`, `PAPER_SEARCH_BIN`
+- [x] Updated `.gitignore` with `!.env.example` so the example env file is committed while `.env*` stays ignored
+- [x] Verified clean install (`bun install`), `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅
+- [x] Verified production server boots (`bun start`) and serves `/` with HTTP 200 and the correct title; `/api/chat` returns 400 on missing key as expected
+- [x] No API keys required: app runs out of the box with the in-browser Qwen2.5 0.5B fallback and direct scholarly APIs
+
 ## Recently Completed
 
 - [x] Base Next.js 16 setup with App Router
