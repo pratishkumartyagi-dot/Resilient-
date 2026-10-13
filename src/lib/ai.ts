@@ -1,10 +1,5 @@
 const CHAT_TIMEOUT_MS = 60_000;
 
-async function withTimeout<T>(promise: Promise<T>): Promise<T> {
-  const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("AI request timed out")), CHAT_TIMEOUT_MS));
-  return Promise.race([promise, timeout]);
-}
-
 export interface AICallOptions {
   searchQuery?: string;
   searchEnabled?: boolean;
@@ -16,11 +11,22 @@ export interface AICallOptions {
 // dev/prod server runs on any other port.
 
 async function postChat(provider: "gemini" | "groq", apiKey: string, prompt: string, options?: AICallOptions): Promise<{ content: string; searchPerformed: boolean }> {
-  const res = await withTimeout(fetch(`/api/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ provider, prompt, apiKey, searchQuery: options?.searchQuery, searchEnabled: options?.searchEnabled }),
-  }));
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), CHAT_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider, prompt, apiKey, searchQuery: options?.searchQuery, searchEnabled: options?.searchEnabled }),
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (controller.signal.aborted) throw new Error("AI request timed out");
+    throw e;
+  } finally {
+    clearTimeout(timeout);
+  }
   if (!res.ok) {
     let message = `AI request failed: ${res.status}`;
     try { const data = await res.json(); message = data?.error || message; } catch { /* ignore parse errors */ }

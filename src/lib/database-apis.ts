@@ -157,13 +157,24 @@ function normalizeOpenAlexWork(work: any): Paper {
   const year = work.publication_year || work.publication_date?.slice(0, 4) || new Date().getFullYear();
   const doi = work.doi || "";
   const abstract = work.abstract_inverted_index
-    ? Object.entries(work.abstract_inverted_index)
-        .sort(([a], [b]) => parseInt(a) - parseInt(b))
-        .map(([, positions]) => (Array.isArray(positions) ? positions[0] : positions))
-        .join(" ")
-        : work.abstract_inverted_index
-        ? work.abstract_inverted_index
-        : work.abstract || "No abstract available.";
+    ? (() => {
+        const idx = work.abstract_inverted_index as Record<string, number[]>;
+        const entries = Object.entries(idx);
+        const maxPos = entries.reduce((max, [, positions]) => {
+          const arr = Array.isArray(positions) ? positions : [positions];
+          return Math.max(max, ...arr);
+        }, -1);
+        if (maxPos < 0) return "No abstract available.";
+        const words: string[] = new Array(maxPos + 1).fill("");
+        for (const [word, positions] of entries) {
+          const arr = Array.isArray(positions) ? positions : [positions];
+          for (const pos of arr) {
+            if (pos >= 0 && pos <= maxPos) words[pos] = word;
+          }
+        }
+        return words.filter(Boolean).join(" ").trim() || "No abstract available.";
+      })()
+    : work.abstract || "No abstract available.";
 
   return {
     id: work.id || `oa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -194,8 +205,8 @@ export async function fetchOpenAlex(
   options?: OpenAlexOptions
 ): Promise<Paper[]> {
   const filterParts: string[] = [];
-  if (yearFrom) filterParts.push(`publication_year:>${yearFrom}`);
-  if (yearTo) filterParts.push(`publication_year:<${yearTo}`);
+  if (yearFrom) filterParts.push(`from_publication_date:${yearFrom}-01-01`);
+  if (yearTo) filterParts.push(`to_publication_date:${yearTo}-12-31`);
   if (options?.filter) filterParts.push(options.filter);
   const filterStr = filterParts.length ? `&filter=${filterParts.join(",")}` : "";
 
@@ -378,12 +389,7 @@ export async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: 
 export async function fetchDoaj(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const papers: Paper[] = [];
   for (let page = 1; page <= 100; page++) {
-    const qs = new URLSearchParams({
-      search: query,
-      pageSize: "100",
-      page: String(page),
-    });
-    const url = `https://doaj.org/api/v2/search/articles/${qs.toString()}`;
+    const url = `https://doaj.org/api/v2/search/articles/${encodeURIComponent(query)}?pageSize=100&page=${page}`;
     const res = await fetchWithTimeout(url);
     if (!res.ok) {
       if (page === 1) throw new Error(`DOAJ error: ${res.status}`);
@@ -535,17 +541,17 @@ export async function fetchBioRxiv(query: string, yearFrom?: string, yearTo?: st
   const baseUrl = `https://api.biorxiv.org/details/biorxiv/${from}/${to}`;
   const queryTerms = query.toLowerCase().split(/\s+/).filter(Boolean);
   const papers: Paper[] = [];
-  for (let page = 1; page <= 20; page++) {
-    const url = `${baseUrl}/${page}`;
+  let bioCursor = 0;
+  for (let page = 0; page < 20; page++) {
+    const url = `${baseUrl}/${bioCursor}`;
     const res = await fetchWithTimeout(url);
     if (!res.ok) {
-      if (page === 1) throw new Error(`bioRxiv error: ${res.status}`);
+      if (page === 0) throw new Error(`bioRxiv error: ${res.status}`);
       break;
     }
     const data = await res.json();
     const results = data.collection || [];
     if (results.length === 0) break;
-    let pageMatches = 0;
     for (const r of results) {
       const authors = (r.authors || "").split(";").map((a: string) => a.trim()).filter(Boolean).join(", ");
       const title = r.title || "Untitled";
@@ -556,7 +562,6 @@ export async function fetchBioRxiv(query: string, yearFrom?: string, yearTo?: st
         const text = `${title} ${abstract}`.toLowerCase();
         if (!queryTerms.some((t) => text.includes(t))) continue;
       }
-      pageMatches++;
       papers.push({
         id: `biorxiv-${r.doi || r.journal || Math.random().toString(36).slice(2, 8)}`,
         title,
@@ -573,10 +578,10 @@ export async function fetchBioRxiv(query: string, yearFrom?: string, yearTo?: st
         sources: ["bioRxiv"],
       });
     }
-    if (pageMatches === 0 && page > 1) break;
     const meta = data.messages?.[0] || {};
-    const totalPages = Math.ceil((parseInt(meta.total || "0") || 0) / (parseInt(meta.count || "100") || 100));
-    if (page >= totalPages) break;
+    const total = parseInt(meta.total || "0") || 0;
+    bioCursor += results.length;
+    if (total && bioCursor >= total) break;
   }
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
@@ -596,17 +601,17 @@ export async function fetchMedRxiv(query: string, yearFrom?: string, yearTo?: st
   const baseUrl = `https://api.medrxiv.org/details/medrxiv/${from}/${to}`;
   const queryTerms = query.toLowerCase().split(/\s+/).filter(Boolean);
   const papers: Paper[] = [];
-  for (let page = 1; page <= 20; page++) {
-    const url = `${baseUrl}/${page}`;
+  let medCursor = 0;
+  for (let page = 0; page < 20; page++) {
+    const url = `${baseUrl}/${medCursor}`;
     const res = await fetchWithTimeout(url);
     if (!res.ok) {
-      if (page === 1) throw new Error(`medRxiv error: ${res.status}`);
+      if (page === 0) throw new Error(`medRxiv error: ${res.status}`);
       break;
     }
     const data = await res.json();
     const results = data.collection || [];
     if (results.length === 0) break;
-    let pageMatches = 0;
     for (const r of results) {
       const authors = (r.authors || "").split(";").map((a: string) => a.trim()).filter(Boolean).join(", ");
       const title = r.title || "Untitled";
@@ -617,7 +622,6 @@ export async function fetchMedRxiv(query: string, yearFrom?: string, yearTo?: st
         const text = `${title} ${abstract}`.toLowerCase();
         if (!queryTerms.some((t) => text.includes(t))) continue;
       }
-      pageMatches++;
       papers.push({
         id: `medrxiv-${r.doi || r.journal || Math.random().toString(36).slice(2, 8)}`,
         title,
@@ -634,10 +638,10 @@ export async function fetchMedRxiv(query: string, yearFrom?: string, yearTo?: st
         sources: ["medRxiv"],
       });
     }
-    if (pageMatches === 0 && page > 1) break;
     const meta = data.messages?.[0] || {};
-    const totalPages = Math.ceil((parseInt(meta.total || "0") || 0) / (parseInt(meta.count || "100") || 100));
-    if (page >= totalPages) break;
+    const total = parseInt(meta.total || "0") || 0;
+    medCursor += results.length;
+    if (total && medCursor >= total) break;
   }
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
@@ -648,24 +652,26 @@ export async function fetchMedRxiv(query: string, yearFrom?: string, yearTo?: st
 }
 
 export async function fetchZenodo(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const qs = new URLSearchParams({ q: query, size: "100", sort: "mostrecent" });
-  const url = `https://zenodo.org/api/records?${qs.toString()}`;
-  const res = await fetchWithTimeout(url, 25000);
-  if (!res.ok) {
-    if (res.status === 400) {
-      const qs2 = new URLSearchParams({ q: query, size: "100", sort: "version" });
-      const url2 = `https://zenodo.org/api/records?${qs2.toString()}`;
-      const res2 = await fetchWithTimeout(url2, 25000);
-      if (!res2.ok) throw new Error(`Zenodo error: ${res2.status}`);
-      const data = await res2.json();
-      const results = data.hits?.hits || [];
-      return buildZenodoPapers(results, yearFrom, yearTo, studyType);
+  const allResults: any[] = [];
+  for (let page = 1; page <= 10; page++) {
+    const qs = new URLSearchParams({ q: query, size: "100", sort: "mostrecent", page: String(page) });
+    let res = await fetchWithTimeout(`https://zenodo.org/api/records?${qs.toString()}`, 25000);
+    if (!res.ok && res.status === 400) {
+      const qs2 = new URLSearchParams({ q: query, size: "100", sort: "version", page: String(page) });
+      res = await fetchWithTimeout(`https://zenodo.org/api/records?${qs2.toString()}`, 25000);
     }
-    throw new Error(`Zenodo error: ${res.status}`);
+    if (!res.ok) {
+      if (page === 1) throw new Error(`Zenodo error: ${res.status}`);
+      break;
+    }
+    const data = await res.json();
+    const results = data.hits?.hits || [];
+    if (results.length === 0) break;
+    allResults.push(...results);
+    if (results.length < 100) break;
+    await sleep(200);
   }
-  const data = await res.json();
-  const results = data.hits?.hits || [];
-  return buildZenodoPapers(results, yearFrom, yearTo, studyType);
+  return buildZenodoPapers(allResults, yearFrom, yearTo, studyType);
 }
 
 function buildZenodoPapers(results: any[], yearFrom?: string, yearTo?: string, studyType?: string): Paper[] {
@@ -708,15 +714,10 @@ function buildZenodoPapers(results: any[], yearFrom?: string, yearTo?: string, s
 }
 
 export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const qs = new URLSearchParams({ query: query, rows: "100", sort: "relevance" });
-  if (yearFrom) qs.set("filter", `from-pub-date:${yearFrom}`);
-  if (yearTo) qs.set("filter", `until-pub-date:${yearTo}`);
-  const url = `https://api.crossref.org/works?${qs.toString()}`;
-  const res = await fetchWithRetry(url, 3, 2000);
-  if (!res.ok) throw new Error(`Crossref error: ${res.status}`);
-  const data = await res.json();
-  const results = data.message?.items || [];
-  const papers: Paper[] = results.map((w: any) => {
+  const filters: string[] = [];
+  if (yearFrom) filters.push(`from-pub-date:${yearFrom}`);
+  if (yearTo) filters.push(`until-pub-date:${yearTo}`);
+  const paperFromWork = (w: any): Paper => {
     const title = w.title?.[0] || "Untitled";
     const authors = (w.author || []).slice(0, 8).map((a: any) => `${a.given || ""} ${a.family || ""}`.trim()).filter(Boolean).join(", ") || "Unknown authors";
     const year = w.published?.["date-parts"]?.[0]?.[0] || w.created?.["date-parts"]?.[0]?.[0] || new Date().getFullYear();
@@ -737,7 +738,28 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
       sourceBackend: "Crossref API",
       sources: ["Crossref"],
     };
-  });
+  };
+
+  const papers: Paper[] = [];
+  let cursor = "*";
+  for (let page = 0; page < 50; page++) {
+    const qs = new URLSearchParams({ query, rows: "100", cursor, sort: "relevance" });
+    if (filters.length) qs.set("filter", filters.join(","));
+    const url = `https://api.crossref.org/works?${qs.toString()}`;
+    const res = await fetchWithRetry(url, 3, 2000);
+    if (!res.ok) {
+      if (page === 0) throw new Error(`Crossref error: ${res.status}`);
+      break;
+    }
+    const data = await res.json();
+    const results = data.message?.items || [];
+    if (results.length === 0) break;
+    papers.push(...results.map(paperFromWork));
+    const next = data.message?.["next-cursor"];
+    if (!next || next === cursor || results.length < 100) break;
+    cursor = next;
+  }
+
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
     const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
@@ -748,19 +770,23 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
 
 export async function fetchOpenAIRE(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   try {
+    const papers: Paper[] = [];
+    for (let apiPage = 1; apiPage <= 10; apiPage++) {
     const qs = new URLSearchParams({ 
       query: query, 
       format: "json", 
       size: "100",
-      page: "1"
+      page: String(apiPage)
     });
     const url = `https://api.openaire.eu/search/publications?${qs.toString()}`;
     const res = await fetchWithRetry(url, 3, 2000);
-    if (!res.ok) throw new Error(`OpenAIRE error: ${res.status}`);
+    if (!res.ok) {
+      if (apiPage === 1) throw new Error(`OpenAIRE error: ${res.status}`);
+      break;
+    }
     const data = await res.json();
     const results = data.response?.results?.result || [];
-    
-    const papers: Paper[] = [];
+    if (results.length === 0) break;
     for (const r of results) {
       try {
         const meta = r.metadata || {};
@@ -799,6 +825,9 @@ export async function fetchOpenAIRE(query: string, yearFrom?: string, yearTo?: s
         console.warn("[OpenAIRE] Failed to parse result:", err);
         continue;
       }
+    }
+    if (results.length < 100) break;
+    await sleep(300);
     }
     
     if (studyType && studyType !== "All Study Types") {
@@ -857,6 +886,7 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
   const allPapers: Paper[] = [];
   const failedDbs: string[] = [];
   const succeededDbs: string[] = [];
+  let completedDbs = 0;
 
   const apiDatabases: Record<string, () => Promise<Paper[]>> = {
     "PubMed": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
@@ -884,6 +914,7 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
         const fetchFn = apiDatabases[db];
         if (!fetchFn) return;
         const papers = await fetchFn();
+        completedDbs += 1;
         if (papers.length > 0) succeededDbs.push(db);
         else console.warn(`[fetchRealPapers] ${db}: returned 0 results for query "${query}"`);
         papers.forEach((p) => {
@@ -910,7 +941,9 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
 
   const enriched = await enrichPapersWithDois(deduped);
 
-  if (enriched.length === 0) {
+  // Only substitute simulated papers when every selected database failed.
+  // A genuine zero-result search (all databases responded) must stay empty.
+  if (enriched.length === 0 && completedDbs === 0) {
     const mockPapers = generateMockLegacy(query, databases);
     const mockEnriched = mockPapers.map((p) => ({
       ...p,
@@ -930,6 +963,7 @@ export interface FetchRealPapersResult {
 
 export async function fetchRealPapersWithCounts(query: string, databases: string[], yearFrom?: string, yearTo?: string, studyType?: string): Promise<FetchRealPapersResult> {
   const allPapers: Paper[] = [];
+  let completedDbs = 0;
 
   const apiDatabases: Record<string, () => Promise<Paper[]>> = {
     "PubMed": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
@@ -957,6 +991,7 @@ export async function fetchRealPapersWithCounts(query: string, databases: string
         const fetchFn = apiDatabases[db];
         if (!fetchFn) return;
         const papers = await fetchFn();
+        completedDbs += 1;
         papers.forEach((p) => {
           if (!p.database) p.database = db;
           p.sourceBackend = getDatabaseBackend(db);
@@ -975,7 +1010,8 @@ export async function fetchRealPapersWithCounts(query: string, databases: string
 
   const enriched = await enrichPapersWithDois(deduped);
 
-  if (enriched.length === 0) {
+  // Only substitute simulated papers when every selected database failed.
+  if (enriched.length === 0 && completedDbs === 0) {
     const mockPapers = generateMockLegacy(query, databases);
     return { papers: mockPapers, dedupedCount: 0 };
   }
@@ -1168,47 +1204,58 @@ export async function quickSearch(query: string, maxResults: number = 8): Promis
 }
 
 export async function fetchClinicalTrialsGov(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const qs = new URLSearchParams({
-    "query.term": query,
-    format: "json",
-    pageSize: "100",
-  });
-  const url = `https://clinicaltrials.gov/api/v2/studies?${qs.toString()}`;
-  const res = await fetchWithTimeout(url);
-  if (!res.ok) throw new Error(`ClinicalTrials.gov error: ${res.status}`);
-  const data = await res.json();
-  const studies = data.studies || [];
-  const papers: Paper[] = studies.map((s: any) => {
-    const ps = s.protocolSection || {};
-    const idModule = ps.identificationModule || {};
-    const descModule = ps.descriptionModule || {};
-    const sponsorModule = ps.sponsorCollaboratorsModule || {};
-    const designModule = ps.designModule || {};
-    const statusModule = ps.statusModule || {};
-    const title = idModule.briefTitle || idModule.officialTitle || "Untitled";
-    const nctId = idModule.nctId || "";
-    const authors = sponsorModule.leadSponsor?.name || "Unknown sponsor";
-    const abstract = descModule.briefSummary || descModule.detailedDescription || "No abstract available.";
-    const year = parseInt(statusModule.lastUpdatePostDateStruct?.date || statusModule.lastKnownPhase?.date || new Date().getFullYear().toString()) || new Date().getFullYear();
-    const phase = (designModule.phases || []).join(", ") || "Not specified";
-    const studyType = designModule.studyType || "Clinical Trial";
-    return {
-      id: `ctg-${nctId || Math.random().toString(36).slice(2, 8)}`,
-      title,
-      authors,
-      journal: "ClinicalTrials.gov",
-      year,
-      doi: "",
-      abstract: abstract.substring(0, 3000),
-      database: "ClinicalTrials.gov",
-      studyType: studyType === "Clinical Trial" ? classifyStudyType(title, abstract) : studyType,
-      selected: false,
-      url: nctId ? `https://clinicaltrials.gov/study/${nctId}` : `https://clinicaltrials.gov/expert-search?query=${encodeURIComponent(query)}`,
-      sourceBackend: "ClinicalTrials.gov API v2",
-      sources: ["ClinicalTrials.gov"],
-      pmid: nctId,
-    };
-  });
+  const papers: Paper[] = [];
+  let pageToken: string | undefined;
+  for (let page = 0; page < 20; page++) {
+    const qs = new URLSearchParams({
+      "query.term": query,
+      format: "json",
+      pageSize: "100",
+    });
+    if (pageToken) qs.set("pageToken", pageToken);
+    const url = `https://clinicaltrials.gov/api/v2/studies?${qs.toString()}`;
+    const res = await fetchWithTimeout(url);
+    if (!res.ok) {
+      if (page === 0) throw new Error(`ClinicalTrials.gov error: ${res.status}`);
+      break;
+    }
+    const data = await res.json();
+    const studies = data.studies || [];
+    if (studies.length === 0) break;
+    for (const s of studies) {
+      const ps = s.protocolSection || {};
+      const idModule = ps.identificationModule || {};
+      const descModule = ps.descriptionModule || {};
+      const sponsorModule = ps.sponsorCollaboratorsModule || {};
+      const designModule = ps.designModule || {};
+      const statusModule = ps.statusModule || {};
+      const title = idModule.briefTitle || idModule.officialTitle || "Untitled";
+      const nctId = idModule.nctId || "";
+      const authors = sponsorModule.leadSponsor?.name || "Unknown sponsor";
+      const abstract = descModule.briefSummary || descModule.detailedDescription || "No abstract available.";
+      const year = parseInt(statusModule.lastUpdatePostDateStruct?.date || statusModule.lastKnownPhase?.date || new Date().getFullYear().toString()) || new Date().getFullYear();
+      const studyTypeValue = designModule.studyType || "Clinical Trial";
+      papers.push({
+        id: `ctg-${nctId || Math.random().toString(36).slice(2, 8)}`,
+        title,
+        authors,
+        journal: "ClinicalTrials.gov",
+        year,
+        doi: "",
+        abstract: abstract.substring(0, 3000),
+        database: "ClinicalTrials.gov",
+        studyType: studyTypeValue === "Clinical Trial" ? classifyStudyType(title, abstract) : studyTypeValue,
+        selected: false,
+        url: nctId ? `https://clinicaltrials.gov/study/${nctId}` : `https://clinicaltrials.gov/expert-search?query=${encodeURIComponent(query)}`,
+        sourceBackend: "ClinicalTrials.gov API v2",
+        sources: ["ClinicalTrials.gov"],
+        pmid: nctId,
+      });
+    }
+    pageToken = data.nextPageToken;
+    if (!pageToken) break;
+    await sleep(200);
+  }
 
   if (studyType && studyType !== "All Study Types") {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
@@ -1273,27 +1320,36 @@ export async function fetchCochraneLibrary(query: string, yearFrom?: string, yea
 
 export async function fetchPubMedBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   try {
-    const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=500&term=${encodeURIComponent(query)}`;
-    const searchRes = await fetchWithTimeout(searchUrl);
-    const searchText = await searchRes.text();
-    const idMatches = searchText.match(/<Id>(\d+)<\/Id>/g) || [];
-    const pmids = idMatches.map((m) => m.replace(/<Id>|<\/Id>/g, "").trim()).filter(Boolean);
+    let pmids: string[] = [];
+    const PAGE = 500;
+    const MAX_RESULTS = 10000;
+    for (let start = 0; start < MAX_RESULTS; start += PAGE) {
+      const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=${PAGE}&retstart=${start}&sort=relevance&term=${encodeURIComponent(query)}`;
+      const searchRes = await fetchWithTimeout(searchUrl);
+      const searchText = await searchRes.text();
+      const idMatches = searchText.match(/<Id>(\d+)<\/Id>/g) || [];
+      const batch = idMatches.map((m) => m.replace(/<Id>|<\/Id>/g, "").trim()).filter(Boolean);
+      pmids.push(...batch);
+      if (batch.length < PAGE) break;
+      await sleep(350);
+    }
 
     if (pmids.length === 0) {
       // Try with broader search - remove advanced query syntax
-      const broadSearchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=500&term=${encodeURIComponent(query.split("(")[0].split(")")[0].trim() || query)}`;
+      const broadQuery = query.split("(")[0].split(")")[0].trim() || query;
+      const broadSearchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=500&term=${encodeURIComponent(broadQuery)}`;
       try {
         const broadSearchRes = await fetchWithTimeout(broadSearchUrl);
         const broadSearchText = await broadSearchRes.text();
         const broadIdMatches = broadSearchText.match(/<Id>(\d+)<\/Id>/g) || [];
-        const broadPmids = broadIdMatches.map((m) => m.replace(/<Id>|<\/Id>/g, "").trim()).filter(Boolean);
-        if (broadPmids.length === 0) return [];
+        pmids = broadIdMatches.map((m) => m.replace(/<Id>|<\/Id>/g, "").trim()).filter(Boolean);
+        if (pmids.length === 0) return [];
       } catch {
         return [];
       }
     }
 
-    const chunkSize = 10;
+    const chunkSize = 200;
     const papers: Paper[] = [];
 
     for (let i = 0; i < pmids.length; i += chunkSize) {
@@ -1308,7 +1364,7 @@ export async function fetchPubMedBrowserless(query: string, yearFrom?: string, y
         const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, "").trim() : "";
         const abstractMatch = entry.match(/<AbstractText[^>]*>([\s\S]*?)<\/AbstractText>/);
         const abstract = abstractMatch ? abstractMatch[1].replace(/<[^>]+>/g, "").trim() : "No abstract available.";
-        const authorsMatch = entry.match(/<AuthorList>([\s\S]*?)<\/AuthorList>/);
+        const authorsMatch = entry.match(/<AuthorList[^>]*>([\s\S]*?)<\/AuthorList>/);
         let authors = "Unknown authors";
         if (authorsMatch) {
           const lastNameMatches = authorsMatch[1].matchAll(/<LastName>([^<]+)<\/LastName>/g);
@@ -1412,10 +1468,14 @@ export async function fetchGoogleScholarBrowserless(query: string, yearFrom?: st
 
 export async function fetchSemanticScholarBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   try {
-    const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=title,authors,year,abstract,externalIds,venue,publicationDate&limit=100`;
+    const papers: Paper[] = [];
+    for (let offset = 0; offset < 1000; offset += 100) {
+    const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=title,authors,year,abstract,externalIds,venue,publicationDate&limit=100&offset=${offset}`;
     const res = await fetchWithRetry(url, 3, 2000);
     const data = await res.json();
-    const papers: Paper[] = (data.data || [])
+    const batch: any[] = data.data || [];
+    if (batch.length === 0) break;
+    papers.push(...batch
       .filter((p: any) => p.title && p.title.length > 5)
       .map((p: any) => {
         const authors = (p.authors || []).map((a: any) => a.name).filter(Boolean).join(", ") || "Unknown authors";
@@ -1436,7 +1496,10 @@ export async function fetchSemanticScholarBrowserless(query: string, yearFrom?: 
           sourceBackend: "Semantic Scholar Graph API",
           sources: ["Semantic Scholar"],
         };
-      });
+      }));
+    if (batch.length < 100) break;
+    await sleep(300);
+    }
 
     if (papers.length === 0) {
       const fallbackUrl = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=title,authors,year,abstract,externalIds,venue&limit=50`;

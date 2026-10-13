@@ -5,6 +5,51 @@ import { ChevronRight, ChevronLeft, FileText, Save, Sparkles } from "lucide-reac
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
 import { buildStep10Prompt } from "@/lib/research-skills";
+import { downloadMarkdownAsWord } from "@/lib/exporters";
+
+interface ParsedProtocol {
+  background: string;
+  objectives: string;
+  methods: string;
+  expectedOutcomes: string;
+}
+
+const OBJECTIVE_RE = /objective|aim|intent|question|goal|hypothes/i;
+const OUTCOME_RE = /outcome|impact|significan|dissemination|limitation|strength|conclusion|future|expected|implication/i;
+const METHOD_RE = /design|cohort|population|method|data|analysis|sample|measurement|variable|bias|exposure|comparator|setting|procedure|statistic/i;
+
+// Split an A–L style protocol into its `## X. Title` sections and map them onto
+// the four editable fields by heading semantics, appending anything unclassified
+// to Methods so no generated content is lost.
+function parseProtocolSections(markdown: string): ParsedProtocol {
+  const result: ParsedProtocol = { background: "", objectives: "", methods: "", expectedOutcomes: "" };
+  const matches = Array.from(markdown.matchAll(/^#{1,3}\s*([A-L])\.\s*(.+)$/gim));
+  if (matches.length === 0) {
+    result.background = markdown.trim();
+    return result;
+  }
+  const extras: string[] = [];
+  matches.forEach((m, i) => {
+    const start = m.index ?? 0;
+    const end = i + 1 < matches.length ? matches[i + 1].index ?? markdown.length : markdown.length;
+    const body = markdown.slice(start, end).trim();
+    if (OBJECTIVE_RE.test(m[2])) {
+      result.objectives += (result.objectives ? "\n\n" : "") + body;
+    } else if (OUTCOME_RE.test(m[2])) {
+      result.expectedOutcomes += (result.expectedOutcomes ? "\n\n" : "") + body;
+    } else if (METHOD_RE.test(m[2])) {
+      result.methods += (result.methods ? "\n\n" : "") + body;
+    } else if (!result.background) {
+      result.background = body;
+    } else {
+      extras.push(body);
+    }
+  });
+  if (extras.length) {
+    result.methods += (result.methods ? "\n\n" : "") + extras.join("\n\n");
+  }
+  return result;
+}
 
 export default function Step10Protocol() {
   const { state, dispatch } = useApp();
@@ -18,8 +63,7 @@ export default function Step10Protocol() {
   const [isGenerating, setIsGenerating] = useState(false);
 
   const updateSection = (section: string, val: string) => {
-    const updated = { ...localProtocol, [section]: val };
-    setLocalProtocol(updated);
+    setLocalProtocol((prev) => ({ ...prev, [section]: val }));
     dispatch({ type: "SET_PROTOCOL", payload: { [section]: val } });
   };
 
@@ -49,19 +93,9 @@ export default function Step10Protocol() {
       const cleaned = responseText.replace(/```markdown/g, "").replace(/```/g, "").trim();
       setGeneratedProtocol(cleaned);
 
-      const sectionPatterns: Record<string, RegExp> = {
-        background: /## A\.\s*Study Intent Summary[\s\S]*?(?=## B\.|$)/,
-        objectives: /## B\.\s*Why Cohort Design Fits[\s\S]*?(?=## C\.|$)/,
-        methods: /## C\.\s*Recommended Cohort Type[\s\S]*?(?=## D\.|$)/,
-        expectedOutcomes: /## D\.\s*Source Population[\s\S]*?(?=## E\.|$)/,
-      };
-
-      for (const [key, pattern] of Object.entries(sectionPatterns)) {
-        const match = cleaned.match(pattern);
-        if (match) {
-          updateSection(key, match[0].replace(/^##\s*[A-Z]\.\s*[^\n]+\n*/i, "").trim());
-        }
-      }
+      const parsed = parseProtocolSections(cleaned);
+      setLocalProtocol((prev) => ({ ...prev, ...parsed }));
+      dispatch({ type: "SET_PROTOCOL", payload: parsed });
     } catch (err: any) {
       console.error("Protocol generation failed:", err);
       alert(err.message || "Failed to generate protocol. Please try again.");
@@ -140,16 +174,13 @@ Significance: The study will provide Nigeria's Ministry of Health and WHO AFRO w
   };
 
   const handleExport = () => {
-    const protocolText = sections
+    const sectionMarkdown = sections
       .map((s) => `## ${s.label}\n\n${localProtocol[s.key as keyof typeof localProtocol]}`)
       .join("\n\n---\n\n");
-    const blob = new Blob([protocolText], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "protocol-draft.txt";
-    a.click();
-    URL.revokeObjectURL(url);
+    const fullMarkdown = generatedProtocol
+      ? `# Research Protocol\n\n## Full Generated Protocol\n\n${generatedProtocol}\n\n---\n\n# Structured Sections\n\n${sectionMarkdown}`
+      : `# Research Protocol\n\n${sectionMarkdown}`;
+    downloadMarkdownAsWord(fullMarkdown, "research-protocol.docx");
   };
 
   return (

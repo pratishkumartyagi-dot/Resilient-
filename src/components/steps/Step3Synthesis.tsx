@@ -3,10 +3,21 @@
 import React, { useState, useRef } from "react";
 import { Download, FileUp, Sparkles, Trash2, ChevronDown, FileText, AlertCircle, Loader2 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
-import { buildStep3Prompt, type Paper } from "@/lib/research-skills";
+import { callGemini, callGroq } from "@/lib/ai";
+import { buildStep3Prompt } from "@/lib/research-skills";
 import { generateLocalSynthesis, type SynthesisRow } from "@/lib/local-synthesis";
 import type { AICallOptions } from "@/lib/ai";
+
+const MAX_EXTRACT_CHARS = 8000;
+
+const truncateExtract = (text: string): string => {
+  const trimmed = text.trim();
+  if (trimmed.length <= MAX_EXTRACT_CHARS) return trimmed;
+  return `${trimmed.slice(0, MAX_EXTRACT_CHARS)}\n[...extracted text truncated]`;
+};
+
+const fileKey = (file: File) => `${file.name}::${file.size}::${file.lastModified}`;
+
 
 export default function Step3Synthesis() {
   const { state, dispatch } = useApp();
@@ -15,6 +26,7 @@ export default function Step3Synthesis() {
   const [error, setError] = useState("");
   const [uploadedText, setUploadedText] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileTextRef = useRef<Map<string, string>>(new Map());
   const [localSynthesis, setLocalSynthesis] = useState<any[]>(state.synthesisTable);
 
   const getFilteredPapers = () => {
@@ -58,10 +70,8 @@ export default function Step3Synthesis() {
           let responseText = "";
           if (state.geminiApiKey) {
             responseText = await callGemini(state.geminiApiKey, prompt, searchOptions);
-          } else if (state.groqApiKey) {
-            responseText = await callGroq(state.groqApiKey, prompt, searchOptions);
           } else {
-            responseText = await callDeepSeek(prompt, searchOptions);
+            responseText = await callGroq(state.groqApiKey, prompt, searchOptions);
           }
           const cleaned = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
           synthesis = JSON.parse(cleaned);
@@ -108,10 +118,10 @@ export default function Step3Synthesis() {
     const combinedFiles = [...state.uploadedDocuments, ...files].slice(0, 5);
     dispatch({ type: "SET_UPLOADED_DOCS", payload: combinedFiles });
 
-    const parts: string[] = [];
     for (const file of files) {
-      parts.push(`[File: ${file.name} (${(file.size / 1024).toFixed(1)} KB)]`);
-      if (file.type === "text/csv" || file.name.toLowerCase().endsWith(".csv")) {
+      let part = `[File: ${file.name} (${(file.size / 1024).toFixed(1)} KB)]`;
+      const lowerName = file.name.toLowerCase();
+      if (file.type === "text/csv" || lowerName.endsWith(".csv")) {
         try {
           const text = await file.text();
           // Lazy-load exporters so docx/exceljs/pptxgenjs stay out of the
@@ -119,38 +129,79 @@ export default function Step3Synthesis() {
           const { parseCSVText } = await import("@/lib/exporters");
           const parsed = parseCSVText(text);
           const preview = parsed.slice(0, 6).map((r) => r.join(" | ")).join("\n");
-          parts.push(`CSV Preview:\n${preview}`);
+          part += `\nCSV Preview:\n${preview}`;
         } catch {
-          parts.push("[CSV parsing failed]");
+          part += "\n[CSV parsing failed]";
         }
-      } else if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-        parts.push("[PDF document — metadata available for AI context]");
+      } else if (file.type === "application/pdf" || lowerName.endsWith(".pdf")) {
+        try {
+          const { parseUploadedDocument } = await import("@/lib/document-parser");
+          const { content } = await parseUploadedDocument(file);
+          part += content.trim()
+            ? `\nPDF Text:\n${truncateExtract(content)}`
+            : "\n[PDF document — no extractable text found]";
+        } catch {
+          part += "\n[PDF document — metadata available for AI context]";
+        }
       } else if (
         file.type === "application/msword" ||
         file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-        file.name.toLowerCase().endsWith(".doc") ||
-        file.name.toLowerCase().endsWith(".docx")
+        lowerName.endsWith(".doc") ||
+        lowerName.endsWith(".docx")
       ) {
-        parts.push("[Word document — metadata available for AI context]");
+        try {
+          const { parseUploadedDocument } = await import("@/lib/document-parser");
+          const { content } = await parseUploadedDocument(file);
+          part += content.trim()
+            ? `\nWord Text:\n${truncateExtract(content)}`
+            : "\n[Word document — no extractable text found]";
+        } catch {
+          part += "\n[Word document — metadata available for AI context]";
+        }
       } else if (
         file.type === "application/vnd.ms-excel" ||
         file.type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-        file.name.toLowerCase().endsWith(".xls") ||
-        file.name.toLowerCase().endsWith(".xlsx")
+        lowerName.endsWith(".xls") ||
+        lowerName.endsWith(".xlsx")
       ) {
-        parts.push("[Excel workbook — metadata available for AI context]");
+        try {
+          const XLSX = await import("xlsx");
+          const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+          const sheets = workbook.SheetNames.map((name) => {
+            const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[name]);
+            return `Sheet "${name}":\n${csv}`;
+          }).join("\n");
+          part += sheets.trim()
+            ? `\nExcel Text:\n${truncateExtract(sheets)}`
+            : "\n[Excel workbook — no extractable data found]";
+        } catch {
+          part += "\n[Excel workbook — metadata available for AI context]";
+        }
       } else {
-        parts.push("[Document uploaded for AI context]");
+        part += "\n[Document uploaded for AI context]";
       }
+      fileTextRef.current.set(fileKey(file), part);
     }
-    if (parts.length) {
-      setUploadedText((prev) => (prev ? prev + "\n\n" : "") + parts.join("\n"));
-    }
+
+    setUploadedText(
+      combinedFiles
+        .map((f) => fileTextRef.current.get(fileKey(f)))
+        .filter((t): t is string => Boolean(t))
+        .join("\n\n")
+    );
   };
 
   const removeDoc = (index: number) => {
+    const removed = state.uploadedDocuments[index];
+    if (removed) fileTextRef.current.delete(fileKey(removed));
     const updated = state.uploadedDocuments.filter((_, i) => i !== index);
     dispatch({ type: "SET_UPLOADED_DOCS", payload: updated });
+    setUploadedText(
+      updated
+        .map((f) => fileTextRef.current.get(fileKey(f)))
+        .filter((t): t is string => Boolean(t))
+        .join("\n\n")
+    );
   };
 
   const handleDownload = async () => {

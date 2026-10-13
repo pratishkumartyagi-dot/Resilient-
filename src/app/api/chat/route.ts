@@ -3,6 +3,18 @@ import { quickSearch } from "@/lib/database-apis";
 
 export const runtime = "nodejs";
 
+const UPSTREAM_TIMEOUT_MS = 60_000;
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = UPSTREAM_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function performSearch(query: string): Promise<string> {
   const tavilyKey = process.env.TAVILY_API_KEY;
   const results: string[] = [];
@@ -77,7 +89,7 @@ export async function POST(request: NextRequest) {
 
     if (provider === "gemini") {
        const url = `https://generativelanguage.googleapis.com/v1/models/gemini-3.1-flash-lite:generateContent?key=${encodeURIComponent(apiKey)}`;
-       const res = await fetch(url, {
+       const res = await fetchWithTimeout(url, {
          method: "POST",
          headers: { "Content-Type": "application/json" },
          body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: finalPrompt }] }] }),
@@ -98,7 +110,7 @@ export async function POST(request: NextRequest) {
 
     if (provider === "groq") {
       const groqModel = "llama-3.3-70b-versatile";
-      const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      const groqRes = await fetchWithTimeout("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

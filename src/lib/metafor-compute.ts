@@ -52,7 +52,7 @@ export function parseEffectSizeRow(study: string, effectStr: string, ciStr: stri
   let ciUpper: number | null = null;
 
   if (ciStr.trim()) {
-    const m = ciStr.match(/([0-9]+(?:\.[0-9]+)?)\s*[-–to(, ]+\s*([0-9]+(?:\.[0-9]+)?)/);
+    const m = ciStr.match(/(-?[0-9]+(?:\.[0-9]+)?)\s*[-–to(, ]+\s*(-?[0-9]+(?:\.[0-9]+)?)/);
     if (m) {
       ciLower = parseFloat(m[1]);
       ciUpper = parseFloat(m[2]);
@@ -76,7 +76,8 @@ export function parseEffectSizeRow(study: string, effectStr: string, ciStr: stri
     ciUpper = effect;
   }
 
-  const variance = Math.max((ciUpper - ciLower) / (2 * 1.96), 1e-8);
+  const se = (ciUpper - ciLower) / (2 * 1.96);
+  const variance = Math.max(se * se, 1e-8);
   const weight = parseNumber(weightStr) || 0;
 
   return { study, effect, ciLower, ciUpper, weight, variance };

@@ -81,7 +81,7 @@ export default function Step6ResearchQuestions() {
     setQuestions([]);
 
     try {
-      const prompt = buildStep6Prompt(state.papers, state.themes, state.searchQuery);
+      const prompt = buildStep6Prompt(state.papers, state.themes, state.searchQuery, questionType);
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: state.searchQuery };
 
       let responseText: string = "";

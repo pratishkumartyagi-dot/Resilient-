@@ -10,7 +10,6 @@ import {
   X,
   Download,
   FileText,
-  ChevronDown,
   Loader2,
   Brain,
   FileCheck2,
@@ -19,6 +18,7 @@ import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
 import { buildStep10Prompt } from "@/lib/research-skills";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
+import { downloadMarkdownAsWord } from "@/lib/exporters";
 
 // Inlined (instead of importing from document-parser) so mammoth/pdfjs stay
 // out of the initial preview bundle; parser is lazy-loaded on file upload.
@@ -74,6 +74,50 @@ ${userMessage}
 
 Now perform your Long CoT reasoning and respond with a well-structured, citation-aware answer. If the user asks for the protocol, generate it in AIPOCH Clinical Cohort Protocol Designer format (Sections A–L).`;
 };
+
+const DEFAULT_PROTOCOL_SYSTEM_PROMPT = `You are an expert clinical, academic, and public health research protocol assistant. Help the user refine their research idea and design a rigorous, feasible study. If the user asks for a protocol, produce a complete AIPOCH-structured protocol (Sections A–L) in markdown. Flag any uncertain detail as "[AUTHOR TO SPECIFY]" rather than inventing it.`;
+
+const buildDefaultPrompt = (userMessage: string, documentContent: string, chatHistory: { role: string; content: string }[]) => {
+  const historyText = chatHistory
+    .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+    .join("\n");
+
+  return `${DEFAULT_PROTOCOL_SYSTEM_PROMPT}
+
+${documentContent ? `## UPLOADED DOCUMENT CONTENT:\n${documentContent.substring(0, 15000)}\n` : ""}
+
+## CONVERSATION HISTORY:
+${historyText}
+
+## CURRENT USER REQUEST:
+${userMessage}`;
+};
+
+async function callAIChat(prompt: string, options: AICallOptions, geminiKey: string, groqKey: string): Promise<string> {
+  let responseText: string;
+  if (geminiKey) {
+    responseText = await callGemini(geminiKey, prompt, options);
+  } else if (groqKey) {
+    responseText = await callGroq(groqKey, prompt, options);
+  } else {
+    responseText = await callDeepSeek(prompt, options);
+  }
+  if (!responseText.trim()) {
+    throw new Error("The AI model returned an empty response");
+  }
+  return responseText;
+}
+
+function buildDocumentSources(documentContent: string, uploadedFileName: string): Message["sources"] {
+  if (!documentContent) return undefined;
+  const excerpt = documentContent.substring(0, 160).trim();
+  return [
+    {
+      label: uploadedFileName || "Uploaded document",
+      excerpt: documentContent.length > 160 ? `${excerpt}...` : excerpt,
+    },
+  ];
+}
 
 export default function ProtocolChatTab() {
   const { state } = useApp();
@@ -170,27 +214,23 @@ export default function ProtocolChatTab() {
     setInput("");
     setIsLoading(true);
 
-    try {
-      let responseText: string;
-      const historyForPrompt = messages
-        .filter((m) => m.id !== "welcome")
-        .map((m) => ({ role: m.role, content: m.content }));
+    const historyForPrompt = messages
+      .filter((m) => m.id !== "welcome")
+      .map((m) => ({ role: m.role, content: m.content }));
 
-      if (isDeepReasoning || documentContent) {
-        const prompt = buildDeepReasoningPrompt(currentInput, documentContent, historyForPrompt);
-        const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: currentInput };
-        if (state.geminiApiKey) {
-          responseText = await callGemini(
-            state.geminiApiKey,
-            `[SYSTEM]\n${DEEP_REASONING_SYSTEM_PROMPT}\n\n[USER]\n${currentInput}\n\n${documentContent ? `[DOCUMENT CONTEXT]\n${documentContent.substring(0, 15000)}` : ""}`,
-            searchOptions
-          );
-        } else if (state.groqApiKey) {
-          responseText = await callGroq(state.groqApiKey, prompt, searchOptions);
-        } else {
-          responseText = await callDeepSeek(prompt, searchOptions);
-        }
-      } else {
+    try {
+      let responseText = "";
+      let usedFallback = false;
+      const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: currentInput };
+      const prompt =
+        isDeepReasoning || documentContent
+          ? buildDeepReasoningPrompt(currentInput, documentContent, historyForPrompt)
+          : buildDefaultPrompt(currentInput, documentContent, historyForPrompt);
+
+      try {
+        responseText = await callAIChat(prompt, searchOptions, state.geminiApiKey, state.groqApiKey);
+      } catch {
+        usedFallback = true;
         responseText = generateProtocolResponse(currentInput, documentContent);
       }
 
@@ -199,10 +239,15 @@ export default function ProtocolChatTab() {
         role: "assistant",
         content: responseText,
         timestamp: new Date(),
+        sources: usedFallback ? undefined : buildDocumentSources(documentContent, uploadedFileName),
       };
       setMessages((prev) => [...prev, assistantMsg]);
 
-      if (currentInput.toLowerCase().includes("generate protocol") || currentInput.toLowerCase().includes("create protocol")) {
+      if (
+        !usedFallback &&
+        (currentInput.toLowerCase().includes("generate protocol") ||
+          currentInput.toLowerCase().includes("create protocol"))
+      ) {
         setGeneratedProtocol(responseText);
         setProtocolStatus("ready");
         setShowDownload(true);
@@ -226,38 +271,34 @@ export default function ProtocolChatTab() {
     setIsLoading(true);
     setProtocolStatus("generating");
 
-    try {
-      const prompt = buildStep10Prompt(
-        {
-          aim: documentContent ? "Based on uploaded document" : "To be defined",
-          primaryObjective: documentContent ? "From uploaded document analysis" : "To be defined",
-          secondaryObjectives: [],
-          userEdited: false,
-        },
-        [],
-        "Study type from document",
-        []
-      );
+    const idea = input.trim();
 
-       let responseText: string;
-      const genSearchOptions: AICallOptions = { searchEnabled: true, searchQuery: input.trim() };
-      if (state.geminiApiKey) {
-        responseText = await callGemini(
-          state.geminiApiKey,
-          `${DEEP_REASONING_SYSTEM_PROMPT}\n\n${documentContent ? `## UPLOADED DOCUMENT:\n${documentContent.substring(0, 20000)}\n\n` : ""}TASK: Generate a complete AIPOCH-structured research protocol (Sections A–L) in markdown format based on the uploaded document.${!documentContent ? "\n\nNote: No document uploaded. Generate a template protocol structure." : ""}`,
-          genSearchOptions
-        );
-      } else if (state.groqApiKey) {
-        responseText = await callGroq(
-          state.groqApiKey,
-          `${DEEP_REASONING_SYSTEM_PROMPT}\n\n${documentContent ? `Uploaded document:\n${documentContent.substring(0, 20000)}\n\n` : ""}Generate a complete AIPOCH-structured research protocol (Sections A–L) in markdown format.${!documentContent ? " Use a generic clinical research protocol template." : ""}`,
-          genSearchOptions
-        );
-      } else {
-        responseText = await callDeepSeek(
-          `${DEEP_REASONING_SYSTEM_PROMPT}\n\n${documentContent ? `Uploaded document:\n${documentContent.substring(0, 20000)}\n\n` : ""}Generate a complete AIPOCH-structured research protocol (Sections A–L) in markdown format.${!documentContent ? " Use a generic clinical research protocol template." : ""}`,
-          genSearchOptions
-        );
+    try {
+      const aimObjectives = {
+        aim: idea || (documentContent ? "Based on uploaded document" : "To be defined"),
+        primaryObjective: idea
+          ? "Refined from the user's stated research idea"
+          : documentContent
+            ? "From uploaded document analysis"
+            : "To be defined",
+        secondaryObjectives: [] as string[],
+        userEdited: false,
+      };
+      const step10Prompt = buildStep10Prompt(aimObjectives, [], "Study type from document", []);
+      const documentBlock = documentContent ? `## UPLOADED DOCUMENT:\n${documentContent.substring(0, 20000)}\n\n` : "";
+      const ideaBlock = idea ? `## RESEARCH IDEA (from user input):\n${idea}\n\n` : "";
+      const genPrompt = `${DEEP_REASONING_SYSTEM_PROMPT}\n\n${step10Prompt}\n\n${documentBlock}${ideaBlock}TASK: Generate a complete AIPOCH-structured research protocol (Sections A–L) in markdown format, grounded in the research idea${documentContent ? " and the uploaded document" : ""}.${!idea && !documentContent ? " No idea or document was provided, so use a generic clinical research protocol template structure." : ""}`;
+      const genSearchOptions: AICallOptions = idea ? { searchEnabled: true, searchQuery: idea } : { searchEnabled: true };
+
+      let responseText = "";
+      let usedFallback = false;
+      let failureReason = "";
+      try {
+        responseText = await callAIChat(genPrompt, genSearchOptions, state.geminiApiKey, state.groqApiKey);
+      } catch (aiErr) {
+        usedFallback = true;
+        failureReason = aiErr instanceof Error ? aiErr.message : "AI providers unavailable";
+        responseText = generateDefaultProtocol(documentContent, idea);
       }
 
       const cleaned = responseText.replace(/```markdown/g, "").replace(/```/g, "").trim();
@@ -270,8 +311,11 @@ export default function ProtocolChatTab() {
         {
           id: `protocol-${Date.now()}`,
           role: "assistant",
-          content: `✅ **Protocol Generated Successfully**\n\nI've generated a complete AIPOCH-structured protocol with Sections A–L covering:\n• Study intent and cohort design rationale\n• Source population and enrollment logic\n• Follow-up architecture and endpoint definitions\n• Variable collection and statistical analysis plan\n• Bias audit and feasibility check\n\nClick the **Download Word** button below to get your protocol document.`,
+          content: usedFallback
+            ? `⚠️ ${failureReason}. I generated a deterministic AIPOCH-structured protocol from the built-in cohort template, tailored to your research idea. You can download it below, or add an API key to regenerate it with AI.`
+            : `✅ **Protocol Generated Successfully**\n\nI've generated a complete AIPOCH-structured protocol with Sections A–L covering:\n• Study intent and cohort design rationale\n• Source population and enrollment logic\n• Follow-up architecture and endpoint definitions\n• Variable collection and statistical analysis plan\n• Bias audit and feasibility check\n\nClick the **Download Word** button below to get your protocol document.`,
           timestamp: new Date(),
+          sources: usedFallback ? undefined : buildDocumentSources(documentContent, uploadedFileName),
         },
       ]);
     } catch (err: any) {
@@ -292,49 +336,11 @@ export default function ProtocolChatTab() {
   };
 
   const handleDownloadWord = () => {
-    if (!generatedProtocol) return;
-
-    const protocolText = generatedProtocol;
-    const html = `
-      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
-        <head>
-          <meta charset="utf-8">
-          <title>Research Protocol</title>
-          <style>
-            body { font-family: "Times New Roman", Times, serif; font-size: 12pt; line-height: 1.6; color: #000; max-width: 800px; margin: 0 auto; padding: 40px; }
-            h1 { font-size: 18pt; font-weight: bold; text-align: center; margin-bottom: 8px; }
-            h2 { font-size: 14pt; font-weight: bold; margin-top: 24px; margin-bottom: 8px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
-            h3 { font-size: 12pt; font-weight: bold; margin-top: 16px; }
-            p { margin: 8px 0; text-align: justify; }
-            table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 11pt; }
-            th { background: #1e3a8a; color: #fff; padding: 8px; border: 1px solid #000; text-align: left; }
-            td { padding: 8px; border: 1px solid #000; vertical-align: top; }
-            ul { margin: 8px 0; padding-left: 24px; }
-            li { margin: 4px 0; }
-            .meta { text-align: center; margin-bottom: 32px; font-size: 11pt; color: #444; }
-            @media print { body { padding: 20px; } }
-          </style>
-        </head>
-        <body>
-          <div class="meta">
-            <p>Generated by Resilient Research App — Protocol Generator</p>
-            <p>Date: ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</p>
-            ${documentContent ? `<p>Source: ${uploadedFileName}</p>` : ""}
-          </div>
-          ${formatMarkdownToWord(protocolText)}
-        </body>
-      </html>
-    `;
-
-    const blob = new Blob([html], { type: "application/msword;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `research-protocol-${new Date().toISOString().split("T")[0]}.doc`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    if (!generatedProtocol || protocolStatus !== "ready") return;
+    downloadMarkdownAsWord(generatedProtocol, "protocol.docx").catch((err) => {
+      console.error("Protocol download failed:", err);
+      alert(`Failed to generate Word document: ${err instanceof Error ? err.message : "Unknown error"}`);
+    });
   };
 
   return (
@@ -433,7 +439,7 @@ export default function ProtocolChatTab() {
               className="text-xs bg-green-700 text-white px-3 py-1 rounded hover:bg-green-600 flex items-center gap-1"
             >
               <Download size={12} />
-              Download Word (.doc)
+              Download Word (.docx)
             </button>
           </div>
         )}
@@ -592,14 +598,15 @@ You can:
 What would you like to do?`;
 }
 
-function generateDefaultProtocol(documentContent: string): string {
-  const contextNote = documentContent ? `\n\nBased on the uploaded document content:\n${documentContent.substring(0, 5000)}` : "\n\n(No document uploaded — using generic clinical research protocol template)";
+function generateDefaultProtocol(documentContent: string, idea: string): string {
+  const researchQuestion = idea.trim() || "[AUTHOR TO SPECIFY: state the research question]";
+  const contextNote = documentContent ? `\n\nBased on the uploaded document content:\n${documentContent.substring(0, 5000)}` : "\n\n(No document uploaded — using a generic clinical research protocol template)";
   const skillNote = CLINICAL_TRIAL_PROTOCOL_SKILL
     ? `\n\n*Methodology informed by: ${CLINICAL_TRIAL_PROTOCOL_SKILL.name} — ${CLINICAL_TRIAL_PROTOCOL_SKILL.description}*`
     : "";
 
   return `## A. Study Intent Summary
-This protocol establishes a structured clinical cohort study designed to investigate the research question informed by uploaded documents and AI-assisted deep reasoning analysis.${contextNote}${skillNote}
+This protocol establishes a structured clinical cohort study designed to investigate the following research question: **${researchQuestion}**.${contextNote}${skillNote}
 
 ## B. Why Cohort Design Fits
 A cohort design is appropriate for this research question because it allows for prospective or retrospective follow-up of exposed and unexposed populations, enabling the assessment of temporal relationships and incidence-based outcomes.${contextNote}
@@ -691,31 +698,4 @@ ${CLINICAL_TRIAL_PROTOCOL_SKILL ? `\n\n*Regulatory Note:* Before proceeding with
 
 ---
 *Protocol generated by Resilient Research App Protocol Generator using AIPOCH Long CoT methodology.*${skillNote}`;
-}
-
-function formatMarkdownToWord(md: string): string {
-  return md
-    .split("\n")
-    .map((line) => {
-      if (line.startsWith("# ")) return `<h1>${line.slice(2)}</h1>`;
-      if (line.startsWith("## ")) return `<h2>${line.slice(3)}</h2>`;
-      if (line.startsWith("### ")) return `<h3>${line.slice(4)}</h3>`;
-      if (line.startsWith("- ")) return `<li>${line.slice(2)}</li>`;
-      if (line.startsWith("| ")) return line;
-      if (line.trim() === "") return "<p>&nbsp;</p>";
-      return `<p>${escapeHtml(line)}</p>`;
-    })
-    .join("\n")
-    .replace(/(<li>.*?<\/li>\n?)+/g, (match) => `<ul>${match}</ul>`);
-}
-
-function escapeHtml(text: string): string {
-  const map: Record<string, string> = {
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#039;",
-  };
-  return text.replace(/[&<>"']/g, (m) => map[m] || m);
 }

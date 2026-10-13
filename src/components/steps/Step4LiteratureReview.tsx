@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { Sparkles, BookOpen, RotateCcw } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
@@ -14,6 +14,7 @@ const generateMockLiteratureReview = (): string => {
 export default function Step4LiteratureReview() {
   const { state, dispatch } = useApp();
   const [reviewText, setReviewText] = useState(state.literatureReview || "");
+  const lastGeneratedRef = useRef(state.literatureReview || "");
 
   const handleGenerateReview = async () => {
     const selected = state.papers.filter((p) => p.selected);
@@ -43,24 +44,9 @@ export default function Step4LiteratureReview() {
         const prompt = buildStep4Prompt(selected, "") + synthesisContext;
         review = await callDeepSeek(prompt, { searchEnabled: true, searchQuery: state.searchQuery });
       }
-      if (false) {
-        review = generateLocalLiteratureReview(
-          selected.map((p) => ({
-            authors: p.authors,
-            year: p.year,
-            title: p.title,
-            journal: p.journal,
-            abstract: p.abstract,
-            doi: p.doi,
-            studyType: p.studyType,
-            database: p.database,
-          })),
-          state.searchQuery,
-          { enableRobustReview: true }
-        );
-      }
 
       review = review.replace(/```markdown/g, "").replace(/```/g, "").trim();
+      lastGeneratedRef.current = review;
       setReviewText(review);
       dispatch({ type: "SET_LITERATURE_REVIEW", payload: review });
     } catch (err: any) {
@@ -82,10 +68,13 @@ export default function Step4LiteratureReview() {
           { enableRobustReview: true }
         );
         setReviewText(fallback);
+        lastGeneratedRef.current = fallback;
         dispatch({ type: "SET_LITERATURE_REVIEW", payload: fallback });
       } else {
-        setReviewText(generateMockLiteratureReview());
-        dispatch({ type: "SET_LITERATURE_REVIEW", payload: generateMockLiteratureReview() });
+        const mock = generateMockLiteratureReview();
+        setReviewText(mock);
+        lastGeneratedRef.current = mock;
+        dispatch({ type: "SET_LITERATURE_REVIEW", payload: mock });
       }
     } finally {
       dispatch({ type: "SET_LOADING", payload: false });
@@ -100,7 +89,8 @@ export default function Step4LiteratureReview() {
 
   const handleReset = () => {
     if (confirm("Reset literature review to original AI-generated version?")) {
-      handleGenerateReview();
+      setReviewText(lastGeneratedRef.current);
+      dispatch({ type: "SET_LITERATURE_REVIEW", payload: lastGeneratedRef.current });
     }
   };
 

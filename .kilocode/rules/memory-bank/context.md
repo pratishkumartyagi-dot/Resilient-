@@ -17,6 +17,33 @@
 - [x] Verified production server boots (`bun start`) and serves `/` with HTTP 200 and the correct title; `/api/chat` returns 400 on missing key as expected
 - [x] No API keys required: app runs out of the box with the in-browser Qwen2.5 0.5B fallback and direct scholarly APIs
 
+## All-Pipelines Functionality Audit & Fixes (2026-10-13)
+
+Full audit of every pipeline found several were mock/alert-only or had defects. All fixed and verified (`bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅).
+
+### Mock → functional (AI with deterministic no-key fallback)
+- **Sample Size**: α/power now drive the z-scores (Acklam `normInv`); input validation removes `Infinity`/`NaN`; added Word export.
+- **Statistical Analysis**: parses the editable data table (`label: mean=.., SD=.., n=..`, `label: value`, `label,value`), builds deterministic charts (fixed invalid Density/Scatter charts via `AreaChart`/`ComposedChart`), PNG export via SVG→canvas, Word export via `downloadMarkdownAsWord`.
+- **Paper Writer**: controlled journal selector; prompt from mode/journal/input; AI + echo-skeleton fallback; heuristic rubric; real DOCX/PDF exports.
+- **Grant Writing**: funder passed to generator; budget table and overview total now consistent; working Auto-Import (inline summary, no `alert`); real DOCX/PDF exports.
+- **Step 11 Impact**: AI + fallback using pipeline state; real Word download; clipboard share; real Complete action.
+
+### Defects fixed
+- **Predictive Analysis**: every step now injects its inputs into the prompt; real Riley binary sample-size calc (step 6); decision-curve net-benefit calc (step 11); RFC-4180 CSV parser; step-14 no-op/state-loss fixed; stale output cleared on step change; zombie state removed.
+- **Omics**: full multi-column CSV export (was 100-char truncation), real DOCX/PDF exports, skill-name search.
+- **Protocol Generator**: default chat uses AI (canned reply only as fallback), Generate includes the typed idea, real DOCX download, sources populated.
+- **Evidence Synthesis**: `metafor-compute` pooled fixed/random-effects analysis now wired (variance = SE² bug fixed); PRISMA counts corrected; no-key writing falls back to `generateLocalLiteratureReview`; RoB re-entry no longer overwrites manual edits; removed `|| true` AI condition.
+- **Research Steps**: Step 2 dedupe/effect stabilized (`useMemo` + ref guard); Step 3 real PDF/Word/Excel extraction + stale-text fix; Step 4 dead branch removed + Reset restores; Step 6 methodology passed to prompt; Step 7 always-editable title; Step 9 real sample-size formula, methodology-derived questionnaire, seeded outcomes; Step 10 functional `updateSection`, A–L parsing, full export; AppContext `SELECT_ALL_PAPERS` stale-array fix.
+
+### Security & data layer
+- **Security**: `/api/paper-search` now uses `execFile` (array args) — shell injection removed; verified `test; touch /tmp/pwned` creates no file.
+- **database-apis**: DOAJ URL moved params to query string; bioRxiv/medRxiv cursor pagination corrected; PubMed pagination + working broad-query fallback + authors regex; OpenAlex abstract inverted-index reconstruction; Crossref merged year filter + cursor pagination; Zenodo/OpenAIRE/Semantic Scholar/ClinicalTrials.gov pagination added; simulated papers now returned only when every selected database fails.
+- **exporters**: DOCX uses browser `Packer.toBlob`; LaTeX tables are grouped and closed.
+- **Timeouts**: `/api/chat`, `/api/web-search`, `ai.ts` use real `AbortController` aborts.
+
+### Runtime verification
+- `GET /` → 200; `/api/literature-search` returns real records (PubMed authors populated); `/api/doi-verification` resolves DOIs via Crossref; `/api/web-search` arXiv year fixed; `/api/chat` 400 without key.
+
 ## Recently Completed
 
 - [x] Base Next.js 16 setup with App Router

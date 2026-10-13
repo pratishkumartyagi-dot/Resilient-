@@ -319,12 +319,14 @@ function appReducer(state: AppState, action: Action): AppState {
           p.id === action.payload ? { ...p, selected: !p.selected } : p
         ).filter((p) => p.selected),
       };
-    case "SELECT_ALL_PAPERS":
+    case "SELECT_ALL_PAPERS": {
+      const papers = state.papers.map((p) => ({ ...p, selected: action.payload }));
       return {
         ...state,
-        papers: state.papers.map((p) => ({ ...p, selected: action.payload })),
-        selectedPapers: action.payload ? [...state.papers] : [],
+        papers,
+        selectedPapers: papers.filter((p) => p.selected),
       };
+    }
     case "SET_SYNTHESIS":
       return { ...state, synthesisTable: action.payload };
     case "SET_LITERATURE_REVIEW":

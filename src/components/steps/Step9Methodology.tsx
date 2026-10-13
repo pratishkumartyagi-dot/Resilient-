@@ -1,15 +1,57 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { ChevronRight, Plus, Trash2, Calculator, FlaskConical, ExternalLink, Sparkles } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
 import { buildStep9Prompt } from "@/lib/research-skills";
 
+const DEFAULT_OUTCOMES = ["LTBI conversion rate (IGRA pos/neg)", "Completion rate of IPT regimen", "Cost per QALY gained", "HCW satisfaction score (0–100 Likert scale)"];
+
+// Acklam inverse-normal (quantile) approximation.
+function normInv(p: number): number {
+  if (p <= 0 || p >= 1) return NaN;
+  const a = [-3.969683028665376e1, 2.209460984245205e2, -2.759285104469687e2, 1.38357751867269e2, -3.066479806614716e1, 2.506628277459239];
+  const b = [-5.447609879822406e1, 1.615858368580409e2, -1.556989798598866e2, 6.680131188771972e1, -1.328068155288572e1];
+  const c = [-7.784894002430293e-3, -3.223964580411365e-1, -2.400758277161838, -2.549732539343734, 4.374664141464968, 2.938163982698783];
+  const d = [7.784695709041462e-3, 3.224671290700398e-1, 2.445134137142996, 3.754408661907416];
+  const plow = 0.02425;
+  const phigh = 1 - plow;
+  if (p < plow) {
+    const q = Math.sqrt(-2 * Math.log(p));
+    return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
+  }
+  if (p > phigh) {
+    const q = Math.sqrt(-2 * Math.log(1 - p));
+    return -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
+  }
+  const q = p - 0.5;
+  const r = q * q;
+  return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
+}
+
+function computeSampleSize(alpha: string, power: string, effect: string, alloc: string): { perArm: number; total: number; note: string; error?: string } {
+  const a = parseFloat(alpha);
+  const p = parseFloat(power);
+  const es = parseFloat(effect);
+  const parts = alloc.split(":").map((n) => parseFloat(n));
+  const ratio = parts.length === 2 && parts[0] > 0 && parts[1] > 0 ? parts[1] / parts[0] : NaN;
+  if (!(a > 0 && a < 1) || !(p > 0 && p < 1) || !(es > 0) || !(ratio > 0)) {
+    return { perArm: 0, total: 0, note: "", error: "Enter valid α (0–1), power (0–1), positive effect size, and a ratio like 1:1." };
+  }
+  const zAlpha = normInv(1 - a / 2);
+  const zBeta = normInv(p);
+  const ratioFactor = (1 + 1 / ratio) / 2;
+  const perArm = Math.max(2, Math.ceil((((zAlpha + zBeta) ** 2) * ratioFactor) / (es ** 2)));
+  const total = Math.round(perArm * (1 + ratio));
+  return { perArm, total, note: `α=${a} | power=${p} | ES=${es} | allocation ${alloc}` };
+}
+
 export default function Step9Methodology() {
   const { state, dispatch } = useApp();
   const [outcomeText, setOutcomeText] = useState("");
-  const [outcomes, setOutcomes] = useState<string[]>(state.methodology.outcomes.length ? [...state.methodology.outcomes] : ["LTBI conversion rate (IGRA pos/neg)", "Completion rate of IPT regimen", "Cost per QALY gained", "HCW satisfaction score (0–100 Likert scale)"]);
+  const [outcomes, setOutcomes] = useState<string[]>(state.methodology.outcomes.length ? [...state.methodology.outcomes] : [...DEFAULT_OUTCOMES]);
+  const seededDefaults = useRef(false);
   const [localMethod, setLocalMethod] = useState({
     studySite: state.methodology.studySite || "",
     setting: state.methodology.setting || "",
@@ -25,6 +67,20 @@ export default function Step9Methodology() {
   const [samplePower, setSamplePower] = useState("0.80");
   const [sampleEffect, setSampleEffect] = useState("0.30");
   const [sampleAlloc, setSampleAlloc] = useState("1:1");
+
+  useEffect(() => {
+    if (seededDefaults.current) return;
+    seededDefaults.current = true;
+    if (state.methodology.outcomes.length === 0) {
+      DEFAULT_OUTCOMES.forEach((o) => dispatch({ type: "ADD_OUTCOME", payload: o }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const sampleResult = useMemo(
+    () => computeSampleSize(sampleAlpha, samplePower, sampleEffect, sampleAlloc),
+    [sampleAlpha, samplePower, sampleEffect, sampleAlloc]
+  );
 
   const updateField = (field: string, val: string) => {
     const updated = { ...localMethod, [field]: val };
@@ -79,22 +135,35 @@ export default function Step9Methodology() {
     }
   };
 
-  const generateMockQuestionnaire = async () => {
+  const generateQuestionnaire = async () => {
     dispatch({ type: "SET_LOADING", payload: true });
     setTimeout(() => {
-      const mockQ = [
-        { id: `q-${Date.now()}-1`, question: "How many years have you worked in healthcare?", type: "Demographic (continuous)", options: [] },
-        { id: `q-${Date.now()}-2`, question: "Which department do you primarily work in?", type: "Categorical", options: ["Emergency", "ICU", "Pediatrics", "Surgery", "Outpatient", "Laboratory", "Administration", "Other"] },
-        { id: `q-${Date.now()}-3`, question: "Have you ever been diagnosed with latent TB or active TB?", type: "Dichotomous", options: ["Yes", "No"] },
-        { id: `q-${Date.now()}-4`, question: "How easy is it to take time off for screening appointments?", type: "Likert 5-point", options: ["Very Easy", "Easy", "Neutral", "Difficult", "Very Difficult"] },
-        { id: `q-${Date.now()}-5`, question: "Do you feel stigmatized after a positive TB test in the workplace?", type: "Likert 5-point", options: ["Strongly Agree", "Agree", "Neutral", "Disagree", "Strongly Disagree"] },
-        { id: `q-${Date.now()}-6`, question: "On average, how many patients do you see per shift?", type: "Demographic (continuous)", options: [] },
-        { id: `q-${Date.now()}-7`, question: "What is your highest professional qualification?", type: "Categorical", options: ["Nursing Officer", "Medical Officer", "Lab Technician", "Auxiliary Nurse", "Specialist Physician", "Other"] },
-      ];
-      setQuestionnaire(mockQ);
-      dispatch({ type: "SET_QUESTIONNAIRE", payload: mockQ });
+      const population = localMethod.population.trim();
+      const items: typeof state.questionnaire = [];
+      const now = Date.now();
+      let n = 0;
+      const push = (question: string, type: string, options: string[] = []) => {
+        n += 1;
+        items.push({ id: `q-${now}-${n}`, question, type, options });
+      };
+
+      push("How many years have you worked in your current role?", "Demographic (continuous)");
+      push("What is your primary work setting / department?", "Categorical", ["Emergency", "ICU", "Pediatrics", "Surgery", "Outpatient", "Laboratory", "Administration", "Other"]);
+      if (population) {
+        push(`Do you meet the following study population criterion: ${population}?`, "Dichotomous", ["Yes", "No", "Unsure"]);
+      }
+      outcomes.slice(0, 6).forEach((o) => {
+        push(`How would you rate your current experience related to "${o}"?`, "Likert 5-point", ["Very Low", "Low", "Neutral", "High", "Very High"]);
+      });
+      push("How feasible is it to participate in the proposed study procedures?", "Likert 5-point", ["Very Difficult", "Difficult", "Neutral", "Easy", "Very Easy"]);
+      if (localMethod.hypothesis.trim()) {
+        push(`Do you agree with the study hypothesis: "${localMethod.hypothesis.trim()}"?`, "Likert 5-point", ["Strongly Disagree", "Disagree", "Neutral", "Agree", "Strongly Agree"]);
+      }
+
+      setQuestionnaire(items);
+      dispatch({ type: "SET_QUESTIONNAIRE", payload: items });
       dispatch({ type: "SET_LOADING", payload: false });
-    }, 1500);
+    }, 1200);
   };
 
   const handleProceed = () => {
@@ -243,7 +312,7 @@ export default function Step9Methodology() {
           </button>
           {showSampleCalc && (
             <div className="mt-4 bg-blue-950/50 border border-blue-900 rounded-lg p-5">
-              <h4 className="text-sm font-semibold text-white mb-4">Sample Size Calculator (Mock)</h4>
+              <h4 className="text-sm font-semibold text-white mb-4">Sample Size Calculator</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
                 <div>
                   <label className="block text-xs text-blue-300 mb-1">Alpha (α)</label>
@@ -265,8 +334,15 @@ export default function Step9Methodology() {
               <div className="flex items-center gap-3">
                 <div className="bg-blue-900/40 border border-blue-800 rounded-lg px-4 py-3 text-center">
                   <p className="text-xs text-blue-300 mb-1">Estimated Sample Size</p>
-                  <p className="text-lg font-bold text-yellow-300">n = 384 per arm</p>
-                  <p className="text-xs text-blue-400">Total: 768 (±5% loss to follow-up)</p>
+                  {sampleResult.error ? (
+                    <p className="text-sm font-bold text-red-300">{sampleResult.error}</p>
+                  ) : (
+                    <>
+                      <p className="text-lg font-bold text-yellow-300">n = {sampleResult.perArm} per arm</p>
+                      <p className="text-xs text-blue-400">Total: {sampleResult.total} (±5% loss to follow-up)</p>
+                      <p className="text-[10px] text-blue-400 mt-1">{sampleResult.note}</p>
+                    </>
+                  )}
                 </div>
                 <div className="flex flex-col gap-2">
                   <a href="https://riskcalc.org" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-300 hover:text-yellow-400 flex items-center gap-1">
@@ -283,7 +359,7 @@ export default function Step9Methodology() {
 
         <div className="mt-6">
           <button
-            onClick={generateMockQuestionnaire}
+            onClick={generateQuestionnaire}
             disabled={state.isLoading}
             className="bg-blue-800 hover:bg-blue-700 text-white font-bold px-5 py-2.5 rounded-lg disabled:opacity-50 flex items-center gap-2"
           >

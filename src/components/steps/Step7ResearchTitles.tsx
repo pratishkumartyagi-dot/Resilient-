@@ -146,8 +146,6 @@ export default function Step7ResearchTitles() {
     dispatch({ type: "SET_STEP", payload: 8 });
   };
 
-  const selectedTitle = titles.find((t) => t.selected);
-
   return (
     <div className="space-y-6">
       <div className="bg-[#0d1b3e] border border-blue-900/50 rounded-lg p-6 shadow">
@@ -184,18 +182,19 @@ export default function Step7ResearchTitles() {
           </div>
         )}
 
-        {selectedTitle && (
-          <div className="mb-6 bg-yellow-900/20 border border-yellow-600/50 rounded-lg p-4">
-            <label className="block text-sm font-medium text-yellow-200 mb-2">Selected / Edit Title</label>
-            <input
-              type="text"
-              value={selectedTitleText}
-              onChange={handleTitleEdit}
-              placeholder="Select a title or type your own..."
-              className="w-full bg-[#0a1a3a] border border-yellow-600/50 text-white rounded-lg px-4 py-2.5 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-            />
-          </div>
-        )}
+        <div className="mb-6 bg-yellow-900/20 border border-yellow-600/50 rounded-lg p-4">
+          <label className="block text-sm font-medium text-yellow-200 mb-2">Selected / Edit Title</label>
+          <input
+            type="text"
+            value={selectedTitleText}
+            onChange={handleTitleEdit}
+            placeholder="Select a generated title or type your own..."
+            className="w-full bg-[#0a1a3a] border border-yellow-600/50 text-white rounded-lg px-4 py-2.5 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+          />
+          {titles.some((t) => t.selected) && (
+            <p className="text-xs text-yellow-300/80 mt-2">Selected from generated candidates — edit above or type a new title.</p>
+          )}
+        </div>
 
         {titles.length > 0 && (
           <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">

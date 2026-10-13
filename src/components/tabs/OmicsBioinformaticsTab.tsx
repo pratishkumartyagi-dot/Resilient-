@@ -4,8 +4,9 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { Send, User, Bot, Trash2, FlaskConical, Paperclip, X, Download, FileText, Loader2, Dna, BarChart3, Network, Shield, Search, GitBranch, Bug, Table2, FileJson, FileType2, Printer, ChevronRight, ChevronDown, FolderOpen, BookOpen, Microscope, Database, Workflow, FlaskRound, Atom, Stethoscope, HeartPulse, type LucideIcon } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 import { useApp } from "@/context/AppContext";
-import { callDeepSeek } from "@/lib/ai";
-import { getSkillsByCategory, getSkillsBySubcategory, getAllCategories, getSkillById, MEDICAL_SKILLS_REGISTRY } from "@/lib/medical-skills/skills-registry";
+import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
+import { downloadMarkdownAsWord, downloadMarkdownAsPDF } from "@/lib/exporters";
+import { getSkillsBySubcategory, getAllCategories, getSkillById, MEDICAL_SKILLS_REGISTRY, type MedicalSkill } from "@/lib/medical-skills/skills-registry";
 
 // Acceptable omics upload extensions. Inlined (instead of importing from
 // document-parser) so mammoth/pdfjs stay out of the initial preview bundle;
@@ -28,11 +29,6 @@ interface Message {
   skillId?: string;
 }
 
-interface TableData {
-  header: string[];
-  rows: string[][];
-}
-
 function downloadBlob(content: string, filename: string, mime: string) {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -46,7 +42,7 @@ function downloadBlob(content: string, filename: string, mime: string) {
 }
 
 function escapeCsvField(value: string): string {
-  if (value.includes('"') || value.includes(",") || value.includes("\n")) {
+  if (value.includes('"') || value.includes(",") || value.includes("\n") || value.includes("\r")) {
     return `"${value.replace(/"/g, '""')}"`;
   }
   return value;
@@ -57,29 +53,6 @@ function buildSkillContext(skillId?: string): string {
   const skill = getSkillById(skillId);
   if (!skill) return "";
   return `[Active Skill Context]\nSkill: ${skill.name}\nCategory: ${skill.subcategory}\nDescription: ${skill.description}\nSource: ${skill.sourceRepo}/${skill.skillPath}\n\nUse this skill's methodology when responding. If the skill involves specific tools, databases, or workflows, reference them explicitly.`;
-}
-
-async function callAI(provider: "gemini" | "groq" | "local", apiKey: string, prompt: string, skillId?: string): Promise<string> {
-  const skillContext = buildSkillContext(skillId);
-  const finalPrompt = skillContext ? `${skillContext}\n\n[User Request]\n${prompt}` : prompt;
-
-  if (provider === "local") {
-    return await callDeepSeek(finalPrompt);
-  }
-
-  const res = await fetch("/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ provider, prompt: finalPrompt, apiKey }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`AI API error: ${res.status} — ${text}`);
-  }
-
-  const data = await res.json();
-  return data.content || "No response generated.";
 }
 
 function generateLocalResponse(userMessage: string, skillId?: string): string {
@@ -131,7 +104,6 @@ export default function OmicsBioinformaticsTab() {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [expandedSubcategories, setExpandedSubcategories] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
@@ -192,23 +164,21 @@ export default function OmicsBioinformaticsTab() {
       if (currentFile) {
         prompt += `\n\n[Uploaded File: ${currentFile.name}]\n${currentFile.content.substring(0, 5000)}`;
       }
-      if (selectedSkill) {
-        const skill = getSkillById(selectedSkill);
-        if (skill) {
-          prompt = `[Skill: ${skill.name}]\n${skill.description}\n\nUser request: ${prompt}`;
-        }
+      const skillContext = buildSkillContext(selectedSkill || undefined);
+      if (skillContext) {
+        prompt = `${skillContext}\n\n[User Request]\n${prompt}`;
       }
 
-      const geminiKey = state.geminiApiKey;
-      const groqKey = state.groqApiKey;
-
-      let responseContent = "";
-      if (geminiKey) {
-        responseContent = await callAI("gemini", geminiKey, prompt, selectedSkill || undefined);
-      } else if (groqKey) {
-        responseContent = await callAI("groq", groqKey, prompt, selectedSkill || undefined);
+      let responseContent: string;
+      if (state.geminiApiKey) {
+        responseContent = await callGemini(state.geminiApiKey, prompt);
+      } else if (state.groqApiKey) {
+        responseContent = await callGroq(state.groqApiKey, prompt);
       } else {
-        responseContent = await callAI("local", "", prompt, selectedSkill || undefined);
+        responseContent = await callDeepSeek(prompt);
+      }
+      if (!responseContent.trim()) {
+        throw new Error("The AI model returned an empty response");
       }
 
       const assistantMsg: Message = {
@@ -220,13 +190,15 @@ export default function OmicsBioinformaticsTab() {
       };
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (err) {
-      const errorMsg: Message = {
-        id: `error-${uuidv4()}`,
+      const reason = err instanceof Error ? err.message : "Unknown error";
+      const fallbackMsg: Message = {
+        id: `assistant-${uuidv4()}`,
         role: "assistant",
-        content: `Error: ${err instanceof Error ? err.message : "Unknown error"}. Please check your API keys in Settings.`,
+        content: `⚠️ AI request failed (${reason}). Showing the built-in offline guide instead.\n\n${generateLocalResponse(currentInput, selectedSkill || undefined)}`,
         timestamp: new Date(),
+        skillId: selectedSkill || undefined,
       };
-      setMessages((prev) => [...prev, errorMsg]);
+      setMessages((prev) => [...prev, fallbackMsg]);
     } finally {
       setIsTyping(false);
     }
@@ -266,24 +238,42 @@ export default function OmicsBioinformaticsTab() {
     }
   };
 
-  const handleDownloadCSV = (data: TableData, filename: string) => {
-    const csv = [data.header.join(","), ...data.rows.map(row => row.map(escapeCsvField).join(","))].join("\n");
-    downloadBlob(csv, filename, "text/csv");
+  const buildAnalysisMarkdown = (): string => {
+    const skill = selectedSkill ? getSkillById(selectedSkill) : null;
+    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && m.id.startsWith("assistant-"));
+    return [
+      "# Omics & Bioinformatics Analysis",
+      `**Generated:** ${new Date().toLocaleString()}`,
+      `**AI provider:** ${state.geminiApiKey ? "Gemini" : state.groqApiKey ? "Groq" : "Local model"}`,
+      uploadedFile ? `**Source data:** ${uploadedFile.name} (${uploadedFile.type})` : "",
+      skill ? `**Skill:** ${skill.name} - ${skill.category} / ${skill.subcategory}\n\n${skill.description}` : "",
+      lastUser ? `## User Prompt\n\n${lastUser.content}` : "",
+      lastAssistant ? `## Assistant Response\n\n${lastAssistant.content}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
   };
 
-  const handleDownloadWord = (content: string, filename: string) => {
-    const html = `<html><body><pre style="font-family: monospace; white-space: pre-wrap;">${content.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre></body></html>`;
-    downloadBlob(html, filename, "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+  const handleDownloadCSV = () => {
+    if (!uploadedFile) return;
+    const delimiter = uploadedFile.type === "tsv" ? "\t" : ",";
+    const csv = uploadedFile.content
+      .split(/\r\n|\r|\n/)
+      .map((line) => line.split(delimiter).map(escapeCsvField).join(","))
+      .join("\n");
+    const baseName = uploadedFile.name.replace(/\.[^.]+$/, "");
+    downloadBlob(csv, `${baseName}.csv`, "text/csv;charset=utf-8;");
   };
 
-  const handleDownloadPDF = (content: string, filename: string) => {
-    const html = `<html><head><title>${filename}</title><style>body { font-family: Arial, sans-serif; margin: 40px; } pre { white-space: pre-wrap; font-family: monospace; }</style></head><body><pre>${content.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre></body></html>`;
-    const printWin = window.open("", "_blank");
-    if (printWin) {
-      printWin.document.write(html);
-      printWin.document.close();
-      printWin.print();
-    }
+  const handleDownloadWord = () => {
+    downloadMarkdownAsWord(buildAnalysisMarkdown(), "omics-analysis.docx").catch((err) => {
+      alert(`Failed to generate Word document: ${err instanceof Error ? err.message : "Unknown error"}`);
+    });
+  };
+
+  const handleDownloadPDF = () => {
+    downloadMarkdownAsPDF(buildAnalysisMarkdown(), "omics-analysis.pdf");
   };
 
   const renderMessage = (msg: Message) => {
@@ -318,6 +308,13 @@ export default function OmicsBioinformaticsTab() {
 
   const renderSidebar = () => {
     if (!sidebarOpen) return null;
+    const searchTerm = searchQuery.trim().toLowerCase();
+    const skillMatches = (skill: MedicalSkill): boolean =>
+      !searchTerm ||
+      skill.name.toLowerCase().includes(searchTerm) ||
+      skill.description.toLowerCase().includes(searchTerm) ||
+      skill.category.toLowerCase().includes(searchTerm) ||
+      skill.subcategory.toLowerCase().includes(searchTerm);
     return (
       <div className="w-72 bg-[#0a1628] border-r border-blue-900/50 overflow-y-auto" style={{ maxHeight: "calc(100vh - 220px)" }}>
         <div className="p-3 border-b border-blue-900/50">
@@ -342,14 +339,23 @@ export default function OmicsBioinformaticsTab() {
         </div>
         <div className="px-2 pb-2 space-y-1">
           {categories
-            .filter(cat => !searchQuery || cat.category.toLowerCase().includes(searchQuery.toLowerCase()))
+            .filter((cat) => {
+              if (!searchTerm) return true;
+              if (cat.category.toLowerCase().includes(searchTerm)) return true;
+              return cat.subsections.some(
+                (sub) => sub.toLowerCase().includes(searchTerm) || getSkillsBySubcategory(cat.category, sub).some(skillMatches)
+              );
+            })
             .map(({ category, subsections }) => {
               const Icon = CATEGORY_ICONS[category] || FolderOpen;
-              const isExpanded = expandedCategories.has(category);
-              const filteredSubs = searchQuery
-                ? subsections.filter(sub => sub.toLowerCase().includes(searchQuery.toLowerCase()))
-                : subsections;
-              if (filteredSubs.length === 0 && searchQuery) return null;
+              const isExpanded = searchTerm ? true : expandedCategories.has(category);
+              const categoryMatches = !searchTerm || category.toLowerCase().includes(searchTerm);
+              const filteredSubs = categoryMatches
+                ? subsections
+                : subsections.filter(
+                    (sub) => sub.toLowerCase().includes(searchTerm) || getSkillsBySubcategory(category, sub).some(skillMatches)
+                  );
+              if (filteredSubs.length === 0) return null;
               return (
                 <div key={category} className="mb-1">
                   <button
@@ -363,9 +369,12 @@ export default function OmicsBioinformaticsTab() {
                   {isExpanded && (
                     <div className="ml-4 mt-0.5 space-y-0.5">
                       {filteredSubs.map(sub => {
-                        const skills = getSkillsBySubcategory(category as any, sub);
-                        if (skills.length === 0 && searchQuery) return null;
-                        const subExpanded = expandedSubcategories.has(sub);
+                        const allSkills = getSkillsBySubcategory(category, sub);
+                        const skills = categoryMatches || sub.toLowerCase().includes(searchTerm)
+                          ? allSkills
+                          : allSkills.filter(skillMatches);
+                        if (skills.length === 0) return null;
+                        const subExpanded = searchTerm ? true : expandedSubcategories.has(sub);
                         return (
                           <div key={sub}>
                             <button
@@ -499,13 +508,13 @@ export default function OmicsBioinformaticsTab() {
                 <span className="text-yellow-500">({uploadedFile.type})</span>
               </div>
               <div className="flex gap-2">
-                <button onClick={() => handleDownloadCSV({ header: ["Column"], rows: [[uploadedFile.content.substring(0, 100)]] }, `${uploadedFile.name}.csv`)} className="text-[10px] bg-blue-900/60 text-blue-200 px-2 py-1 rounded hover:bg-blue-800/60">
+                <button onClick={handleDownloadCSV} className="text-[10px] bg-blue-900/60 text-blue-200 px-2 py-1 rounded hover:bg-blue-800/60">
                   CSV
                 </button>
-                <button onClick={() => handleDownloadWord(uploadedFile.content, `${uploadedFile.name}.doc`)} className="text-[10px] bg-purple-900/60 text-purple-200 px-2 py-1 rounded hover:bg-purple-800/60">
+                <button onClick={handleDownloadWord} className="text-[10px] bg-purple-900/60 text-purple-200 px-2 py-1 rounded hover:bg-purple-800/60">
                   Word
                 </button>
-                <button onClick={() => handleDownloadPDF(uploadedFile.content, `${uploadedFile.name}.pdf`)} className="text-[10px] bg-red-900/60 text-red-200 px-2 py-1 rounded hover:bg-red-800/60">
+                <button onClick={handleDownloadPDF} className="text-[10px] bg-red-900/60 text-red-200 px-2 py-1 rounded hover:bg-red-800/60">
                   PDF
                 </button>
               </div>

@@ -335,11 +335,15 @@ SYNTHESIS TABLE CONTEXT:
 ${synthesisTable.length > 0 ? synthesisTable.map((r, i) => `${i + 1}. [${r.reference}] Key findings: ${r.keyFindings}`).join("\n") : "No synthesis data available."}`;
 }
 
-export function buildStep6Prompt(papers: Paper[], themes: Theme[] | null, researchTopic: string): string {
+export function buildStep6Prompt(papers: Paper[], themes: Theme[] | null, researchTopic: string, methodology?: string): string {
   const selectedPapers = papers.filter((p) => p.selected);
+  const methodologyFocus = methodology && methodology.trim() ? methodology.trim() : "not specified";
   return `You are an expert clinical and biomedical research question-framing planner following the AIPOCH Clinical Question Clarifier methodology, extended with **robust-lit-review** claim-decomposition and evidence-gap detection (github.com/htlin222/robust-lit-review).
 
 TASK: Clarify the research idea into a structured, bounded, searchable, researchable, and testable question definition based on the selected papers and themes. Use claim decomposition to extract PICO(P) elements and align questions with evidence gaps.
+
+METHODOLOGY FOCUS (user-selected): ${methodologyFocus}
+Align every clarified question version with this methodology focus. If it is qualitative, emphasize experience, perception, meaning, and process questions; if quantitative, emphasize measurable, testable, and estimable questions.
 
 WORKFLOW:
 1. Interpret the user's actual intent from the research topic and selected papers
@@ -349,6 +353,7 @@ WORKFLOW:
 5. Generate at least three clarified versions: plain-language, research-ready, and searchable for literature retrieval
 6. Assess whether the question is searchable, researchable, and testable
 7. Recommend the best downstream next step
+8. Ensure the final clarified questions are consistent with the selected methodology focus (${methodologyFocus})
 
 ## Robust-Lit-Review Guidance
 - **Claim decomposition:** Decompose the core research idea into PICO(P) elements explicitly in the output (Population, Intervention/Exposure, Comparator, Outcome, Timeframe).

@@ -1,8 +1,10 @@
 "use client";
 
 import React, { useState } from "react";
-import { Sparkles, Trophy, Users, Globe, Download, Share2, ArrowLeft } from "lucide-react";
+import { Sparkles, Trophy, Download, Share2, ArrowLeft, CheckCircle, Info } from "lucide-react";
 import { useApp } from "@/context/AppContext";
+import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
+import { downloadMarkdownAsWord } from "@/lib/exporters";
 
 const generateMockImpactAssessment = (): string => {
   return `IMPACT ASSESSMENT: AI-DRIVEN RESEARCH IMPACT ANALYSIS
@@ -103,15 +105,54 @@ export default function Step11Impact() {
   const { state, dispatch } = useApp();
   const [impactText, setImpactText] = useState(state.impactAssessment);
   const [isEditing, setIsEditing] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [completed, setCompleted] = useState(false);
+  const [notice, setNotice] = useState("");
+
+  const buildImpactPrompt = (): string => {
+    const selectedTitle = state.researchTitles.find((t) => t.selected)?.title || state.userTitleInput || "";
+    const selectedThemes = state.themes.filter((t) => t.selected).map((t) => t.title);
+    const themeList = selectedThemes.length ? selectedThemes : state.themes.map((t) => t.title);
+    return (
+      `You are a research impact analyst. Write a structured research impact assessment for the study below.\n\n` +
+      `Include these sections with markdown headings:\n` +
+      `## Scientific Impact\n## Policy & Health System Impact\n## Social Impact\n## Capacity Building\n` +
+      `## Economic Impact\n## Risk Assessment\n## Sustainability\n## Overall Impact Score\n\n` +
+      `End with an overall impact score table (domains scored 0–100 and a composite score).\n\n` +
+      `STUDY DATA:\n` +
+      `Title: ${selectedTitle || "(not provided)"}\n` +
+      `Aim: ${state.aimObjectives.aim || "(not provided)"}\n` +
+      `Primary objective: ${state.aimObjectives.primaryObjective || "(not provided)"}\n` +
+      `Secondary objectives: ${state.aimObjectives.secondaryObjectives.join("; ") || "(not provided)"}\n` +
+      `Study site: ${state.methodology.studySite || "(not provided)"}\n` +
+      `Setting: ${state.methodology.setting || "(not provided)"}\n` +
+      `Population: ${state.methodology.population || "(not provided)"}\n` +
+      `Outcomes: ${state.methodology.outcomes.join("; ") || "(not provided)"}\n` +
+      `Protocol background: ${state.protocol.background || "(not provided)"}\n` +
+      `Protocol methods: ${state.protocol.methods || "(not provided)"}\n` +
+      `Themes: ${themeList.join("; ") || "(not provided)"}\n`
+    );
+  };
 
   const handleGenerateImpact = async () => {
     dispatch({ type: "SET_LOADING", payload: true });
-    setTimeout(() => {
-      const mockImpact = generateMockImpactAssessment();
-      setImpactText(mockImpact);
-      dispatch({ type: "SET_IMPACT", payload: mockImpact });
-      dispatch({ type: "SET_LOADING", payload: false });
-    }, 2500);
+    setCompleted(false);
+    setNotice("");
+
+    const prompt = buildImpactPrompt();
+    let text = "";
+    try {
+      if (state.geminiApiKey) text = await callGemini(state.geminiApiKey, prompt);
+      else if (state.groqApiKey) text = await callGroq(state.groqApiKey, prompt);
+      else text = await callDeepSeek(prompt);
+    } catch {
+      text = "";
+    }
+    if (!text.trim()) text = generateMockImpactAssessment();
+
+    setImpactText(text);
+    dispatch({ type: "SET_IMPACT", payload: text });
+    dispatch({ type: "SET_LOADING", payload: false });
   };
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -120,13 +161,24 @@ export default function Step11Impact() {
   };
 
   const handleExport = () => {
-    const blob = new Blob([impactText], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "impact-assessment.txt";
-    a.click();
-    URL.revokeObjectURL(url);
+    void downloadMarkdownAsWord(impactText, "impact-assessment.docx");
+  };
+
+  const handleShare = async () => {
+    try {
+      await navigator.clipboard.writeText(impactText);
+      setCopied(true);
+      setNotice("");
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setNotice("Clipboard unavailable — copy the assessment manually from Edit Mode.");
+      setTimeout(() => setNotice(""), 4000);
+    }
+  };
+
+  const handleComplete = () => {
+    setCompleted(true);
+    dispatch({ type: "SET_IMPACT", payload: impactText });
   };
 
   return (
@@ -177,11 +229,11 @@ export default function Step11Impact() {
                   Export
                 </button>
                 <button
-                  onClick={() => alert("Share link copied to clipboard (mock)")}
+                  onClick={handleShare}
                   className="text-xs bg-purple-900/50 text-purple-300 px-3 py-1.5 rounded hover:bg-purple-900/70 flex items-center gap-1"
                 >
-                  <Share2 size={12} />
-                  Share
+                  {copied ? <CheckCircle size={12} /> : <Share2 size={12} />}
+                  {copied ? "Copied" : "Share"}
                 </button>
               </div>
               <div className="flex items-center gap-3 text-xs">
@@ -213,6 +265,20 @@ export default function Step11Impact() {
           </div>
         )}
 
+        {notice && (
+          <div className="mt-4 flex items-center gap-2 text-sm text-yellow-300 bg-yellow-950/30 border border-yellow-800/50 rounded-lg px-3 py-2">
+            <Info size={14} />
+            {notice}
+          </div>
+        )}
+
+        {completed && (
+          <div className="mt-4 flex items-center gap-2 text-sm text-green-300 bg-green-950/40 border border-green-800/50 rounded-lg px-3 py-2">
+            <CheckCircle size={14} />
+            Research pipeline complete. Your impact assessment is saved — export individual step outputs as needed.
+          </div>
+        )}
+
         <div className="mt-6 flex justify-between">
           <button
             onClick={() => dispatch({ type: "SET_STEP", payload: 10 })}
@@ -222,8 +288,9 @@ export default function Step11Impact() {
             Back to Protocol
           </button>
           <button
-            onClick={() => alert("Congratulations! Research pipeline complete. You can export your full project from individual steps.")}
-            className="bg-green-600 hover:bg-green-700 text-white font-bold px-6 py-2.5 rounded-lg flex items-center gap-2"
+            onClick={handleComplete}
+            disabled={!impactText}
+            className="bg-green-600 hover:bg-green-700 text-white font-bold px-6 py-2.5 rounded-lg flex items-center gap-2 disabled:opacity-50"
           >
             <Trophy size={16} />
             Complete Research Pipeline

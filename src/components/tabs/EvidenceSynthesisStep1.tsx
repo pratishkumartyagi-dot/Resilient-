@@ -78,7 +78,7 @@ export default function EvidenceSynthesisStep1({
       if (yearFrom && y < parseInt(yearFrom, 10)) return false;
       if (yearTo && y > parseInt(yearTo, 10)) return false;
       if (studyTypeFilter !== "All Study Types" && p.studyType !== studyTypeFilter) return false;
-      if (showVerifiedOnly && p.citationStatus !== "verified") return false;
+      if (showVerifiedOnly && !p.doi) return false;
       return true;
     });
   };
@@ -197,7 +197,7 @@ export default function EvidenceSynthesisStep1({
                   : "bg-blue-900/50 text-blue-200 border-blue-800 hover:bg-blue-900/70"
               }`}
             >
-              {showVerifiedOnly ? "Showing verified only" : "Show verified citations only"}
+              {showVerifiedOnly ? "Showing records with DOI only" : "Show records with DOI only"}
               {!showVerifiedOnly && citationValidationCounts.verified > 0 && (
                 <span className="ml-1 text-[10px] text-green-300">({citationValidationCounts.verified})</span>
               )}

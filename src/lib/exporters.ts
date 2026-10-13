@@ -419,10 +419,7 @@ export async function downloadWord(synthesis: any[], fileName = "synthesis-table
     ],
   });
 
-  const buffer = await Packer.toBuffer(doc);
-  const blob = new Blob([new Uint8Array(buffer)], {
-    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document;charset=utf-8;",
-  });
+  const blob = await Packer.toBlob(doc);
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -552,10 +549,7 @@ export function downloadLiteratureReviewPDF(sections: Record<string, string>, ti
 
 export async function downloadLiteratureReviewWord(sections: Record<string, string>, fileName = "literature-review.docx") {
   const doc = buildLiteratureReviewDocx(sections, "Literature Review");
-  const buffer = await Packer.toBuffer(doc);
-  const blob = new Blob([new Uint8Array(buffer)], {
-    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document;charset=utf-8;",
-  });
+  const blob = await Packer.toBlob(doc);
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -591,10 +585,7 @@ export async function downloadMarkdownAsWord(markdown: string, filename = "docum
     ],
   });
 
-  const buffer = await Packer.toBuffer(doc);
-  const blob = new Blob([new Uint8Array(buffer)], {
-    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document;charset=utf-8;",
-  });
+  const blob = await Packer.toBlob(doc);
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -821,6 +812,8 @@ export function downloadMarkdownAsLaTeX(markdown: string, filename = "document.t
   const latex: string[] = [];
   let inList = false;
   let listType: "itemize" | "enumerate" | null = null;
+  let inTable = false;
+  let tableRows: string[][] = [];
 
   latex.push("\\documentclass[11pt,a4paper]{article}");
   latex.push("\\usepackage[utf8]{inputenc}");
@@ -843,8 +836,28 @@ export function downloadMarkdownAsLaTeX(markdown: string, filename = "document.t
     }
   };
 
+  const closeTable = () => {
+    if (!inTable) return;
+    const cols = tableRows[0]?.length || 1;
+    latex.push("\\begin{table}[h]");
+    latex.push("\\centering");
+    latex.push("\\begin{tabular}{" + Array.from({ length: cols }, () => "l").join("") + "}");
+    latex.push("\\toprule");
+    tableRows.forEach((cells, idx) => {
+      latex.push(cells.map((c) => escapeLatex(c)).join(" & ") + " \\\\");
+      if (idx === 0 && tableRows.length > 1) latex.push("\\midrule");
+    });
+    latex.push("\\bottomrule");
+    latex.push("\\end{tabular}");
+    latex.push("\\end{table}");
+    latex.push("");
+    inTable = false;
+    tableRows = [];
+  };
+
   for (const rawLine of lines) {
     const line = rawLine.trim();
+    if (inTable && !line.startsWith("|")) closeTable();
 
     if (line.startsWith("# ")) {
       closeList();
@@ -888,13 +901,10 @@ export function downloadMarkdownAsLaTeX(markdown: string, filename = "document.t
     if (line.startsWith("|")) {
       closeList();
       const cells = line.split("|").filter((c, i, arr) => i !== 0 && i !== arr.length - 1).map((c) => c.trim());
-      if (cells.length > 0 && cells.every((c) => /^[-:]+$/.test(c))) continue;
-      latex.push("\\begin{table}[h]");
-      latex.push("\\centering");
-      latex.push("\\begin{tabular}{" + cells.map(() => "l").join("") + "}");
-      latex.push("\\toprule");
-      latex.push(cells.map((c) => escapeLatex(c)).join(" & ") + " \\\\");
-      latex.push("\\midrule");
+      if (cells.length === 0) continue;
+      if (cells.every((c) => /^[-:\s]+$/.test(c))) continue;
+      inTable = true;
+      tableRows.push(cells);
       continue;
     }
 
@@ -908,6 +918,7 @@ export function downloadMarkdownAsLaTeX(markdown: string, filename = "document.t
     latex.push(escapeLatex(line));
   }
 
+  closeTable();
   closeList();
   latex.push("");
   latex.push("\\end{document}");

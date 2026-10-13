@@ -1,13 +1,27 @@
 "use client";
 
 import React, { useState } from "react";
-import { PenLine, ChevronRight, Download, Sparkles, Gauge, CheckCircle, XCircle } from "lucide-react";
+import { ChevronRight, Download, Sparkles, Gauge, CheckCircle, XCircle } from "lucide-react";
+import { useApp } from "@/context/AppContext";
+import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
+import { downloadMarkdownAsWord, downloadMarkdownAsPDF } from "@/lib/exporters";
 
 interface Agent {
   id: string;
   name: string;
   role: string;
   status: "idle" | "running" | "done" | "error";
+}
+
+interface RubricItem {
+  criterion: string;
+  score: number;
+  note: string;
+}
+
+interface Analysis {
+  agents: Agent[];
+  rubric: RubricItem[];
 }
 
 const AGENTS: Agent[] = [
@@ -25,56 +39,216 @@ const AGENTS: Agent[] = [
   { id: "excellence", name: "Excellence Auditor", role: "Final grading, assignability check, sign-off", status: "idle" },
 ];
 
-const generateMockAnalysis = (): { agents: Agent[]; rubric: { criterion: string; score: number; note: string }[] } => {
-  const statuses: Agent["status"][] = ["done", "done", "done", "done", "done", "done", "done", "done", "done", "done", "done", "done"];
-  return {
-    agents: AGENTS.map((a, i) => ({ ...a, status: statuses[i] })),
-    rubric: [
-      { criterion: "Abstract accuracy & completeness", score: 88, note: "Well structured: Background, Methods, Results, Conclusions. Minor word limit concern." },
-      { criterion: "Introduction — gap articulation", score: 85, note: "Clear research gap identified. Could strengthen hypothesis statement in final paragraph." },
-      { criterion: "Methods — reproducibility", score: 82, note: "Inclusion/exclusion criteria complete. Missing: recruitment timeline flowchart detail." },
-      { criterion: "Statistical analysis rigour", score: 90, note: "Appropriate mixed-effects regression. Effect sizes with CIs provided. DAG absent." },
-      { criterion: "Results presentation", score: 87, note: "Tables clear. CONSORT flow diagram suggested. Forest plot not present (meta-analysis present)." },
-      { criterion: "Discussion — limitations", score: 78, note: "Limitations section brief. Funding & competing interests statements present." },
-      { criterion: "Citation accuracy (reference check)", score: 92, note: "Vancouver style consistent across 47 references. 3 missing DOIs flagged." },
-      { criterion: "Grammar, flow, readability", score: 91, note: "Flesch-Kincaid Grade Level 11.3 — suitable for BMC Medicine audience." },
-      { criterion: "Ethical compliance (ICMJE)", score: 95, note: "IRB approval, consent statement, trial registration included." },
-      { criterion: "Journal match & keyword optimization", score: 80, note: "Best fit: IJTLD, PLOS Medicine. Title length acceptable. Abstract word count 285/300 limit." },
-    ],
-  };
+const JOURNALS = [
+  "BMC Medicine",
+  "IJTLD",
+  "PLOS Medicine",
+  "The Lancet Global Health",
+  "BMJ Open",
+];
+
+const clamp = (n: number) => Math.max(20, Math.min(100, Math.round(n)));
+
+const buildAcademicPrompt = (journal: string, input: string) =>
+  `You are an expert academic writing assistant. Write a complete, submission-ready manuscript suitable for ${journal}, based on the content, notes, aim, objectives, or outline provided below.\n\n` +
+  `Use markdown headings for each of the following sections, in order:\n` +
+  `# Title\n## Abstract\n## Introduction\n## Methods\n## Results\n## Discussion\n## Conclusion\n## References\n\n` +
+  `Ground every section in the provided content. Do not invent specific numeric results; where data is missing, state clearly what is required. Include plausible in-text citations and a corresponding reference list.\n\n` +
+  `CONTENT / TOPIC:\n${input}\n`;
+
+const buildReviewerPrompt = (journal: string, input: string) =>
+  `You are an experienced peer reviewer for ${journal}. Produce a rigorous, structured peer-review report for the manuscript pasted below.\n\n` +
+  `Use markdown headings for each section, in order:\n` +
+  `## Summary\n## Strengths\n## Weaknesses\n## Methodological concerns\n## Statistical concerns\n## Ethical concerns\n## Recommendation\n## Required revisions\n\n` +
+  `Base every point on the actual manuscript text. Be specific, cite sections/lines where possible, and give an overall recommendation (accept / minor revision / major revision / reject) with justification.\n\n` +
+  `MANUSCRIPT:\n${input}\n`;
+
+const buildFallbackDraft = (mode: "academic" | "reviewer", journal: string, input: string): string => {
+  const trimmed = input.trim();
+  const firstLine = trimmed.split("\n").map((l) => l.trim()).find(Boolean) || "Untitled Research";
+  const title = firstLine.length > 120 ? `${firstLine.slice(0, 117)}...` : firstLine;
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  const abstractSeed = words.slice(0, 60).join(" ");
+
+  if (mode === "reviewer") {
+    return `# Peer Review Report
+Target journal: ${journal}
+
+## Summary
+${abstractSeed}${words.length > 60 ? "..." : ""}
+
+## Strengths
+- The manuscript addresses a recognisable gap and states a clear research aim.
+- Structure and reporting appear to follow standard conventions.
+
+## Weaknesses
+- Methodological detail is limited; key procedures are under-specified.
+- The link between the stated objectives and reported outcomes needs strengthening.
+
+## Methodological concerns
+- Study design, sampling, and recruitment flow require full documentation.
+- Reproducibility is limited without a detailed analysis plan.
+
+## Statistical concerns
+- Justify sample size and the choice of statistical tests.
+- Report effect sizes with confidence intervals alongside p-values.
+
+## Ethical concerns
+- Confirm ethics/IRB approval, informed consent, and any trial registration.
+- Declare funding, conflicts of interest, and data availability.
+
+## Recommendation
+Major revision — the study is potentially publishable for ${journal} once the above concerns are addressed.
+
+## Required revisions
+1. Expand the methods to a reproducible level of detail.
+2. Add effect sizes with confidence intervals and a limitations subsection.
+3. Provide ethics approval, consent, registration, and data availability statements.
+4. Supply a point-by-point response to each concern above.
+
+---
+
+## Reviewed Manuscript (verbatim)
+${trimmed}`;
+  }
+
+  return `# ${title}
+Target journal: ${journal}
+
+## Abstract
+${abstractSeed}${words.length > 60 ? "..." : ""}
+
+This is a structured skeleton generated without an AI provider. All sections below are scaffolded from your provided content and should be expanded into a full manuscript.
+
+## Introduction
+${trimmed}
+
+## Methods
+Study design, setting, population, inclusion/exclusion criteria, intervention, comparators, outcomes, sample size, and statistical analysis to be expanded from the source content above.
+
+## Results
+Present the primary and secondary outcomes here. Insert tables and figures referenced in the Methods. No numeric results were supplied, so no values are reported.
+
+## Discussion
+Interpret the findings against the existing literature, state the principal findings, compare with prior work, and address limitations and generalisability.
+
+## Conclusion
+Summarise the main contribution and its implications for ${journal}'s readership.
+
+## References
+[1] To be completed — add in-text citations and a matching reference list in the journal's required style.
+
+---
+
+## Source Content (verbatim)
+${trimmed}`;
+};
+
+const computeRubric = (text: string, mode: "academic" | "reviewer"): RubricItem[] => {
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  const headings = (text.match(/^#{1,4}\s+.+$/gm) || []).length;
+  const has = (re: RegExp) => re.test(text);
+
+  const lengthScore = clamp(35 + words / 12);
+  const headingScore = clamp(40 + headings * 5);
+  const base = clamp(lengthScore * 0.5 + headingScore * 0.5);
+
+  const hasAbstract = has(/^#+\s*abstract/im) || has(/\babstract\b/i);
+  const hasIntro = has(/^#+\s*introduction/im) || has(/\bintroduction\b/i);
+  const hasMethods = has(/^#+\s*method/im) || has(/\bmethod/i);
+  const hasResults = has(/^#+\s*results?/im) || has(/\bresults?\b/i);
+  const hasDiscussion = has(/^#+\s*discussion/im) || has(/\bdiscussion\b/i);
+  const hasConclusion = has(/^#+\s*conclusion/im) || has(/\bconclusion\b/i);
+  const hasReferences = has(/^#+\s*references/im) || has(/\breferences?\b/i);
+  const hasStats = has(/\b(regression|confidence interval|p-value|odds ratio|hazard ratio|statistic|significance|effect size)\b/i);
+  const hasEthics = has(/\b(ethic|consent|institutional review|irb|approval)\b/i);
+  const hasLimitations = has(/\blimitation/i);
+  const hasCitations = has(/\[\d+\]|\(\w+[^)]*\d{4}\)/) || hasReferences;
+  const longEnough = words > 250;
+
+  const bonus = longEnough ? 6 : 0;
+
+  if (mode === "reviewer") {
+    return [
+      { criterion: "Summary completeness", score: clamp(base + (hasAbstract || hasIntro ? 8 : -10)), note: "Measures how clearly the report summarises the reviewed manuscript." },
+      { criterion: "Strengths identified", score: clamp(base + (has(/strength/i) ? 10 : -12)), note: "Presence of an explicit strengths section." },
+      { criterion: "Weaknesses identified", score: clamp(base + (has(/weakness/i) ? 10 : -12)), note: "Presence of an explicit weaknesses section." },
+      { criterion: "Methodological concerns", score: clamp(base + (hasMethods ? 8 : -8) + bonus), note: "Depth of methodological critique." },
+      { criterion: "Statistical concerns", score: clamp(base + (hasStats ? 12 : -10)), note: "Whether statistical issues are raised." },
+      { criterion: "Ethical concerns", score: clamp(base + (hasEthics ? 10 : -8)), note: "Coverage of ethics, consent, and registration." },
+      { criterion: "Recommendation clarity", score: clamp(base + (has(/recommendation|accept|reject|revision/i) ? 10 : -12)), note: "Presence of an explicit editorial recommendation." },
+      { criterion: "Required revisions specificity", score: clamp(base + (has(/required revision|revision/i) ? 8 : -10)), note: "Actionable, itemised revision requests." },
+      { criterion: "Evidence & citation grounding", score: clamp(base + (hasCitations ? 9 : -8)), note: "Extent to which critique is anchored to the text." },
+      { criterion: "Overall report structure", score: clamp(base + (headings >= 6 ? 10 : -6) + bonus), note: "Organisation into clearly labelled report sections." },
+    ];
+  }
+
+  return [
+    { criterion: "Abstract accuracy & completeness", score: clamp(base + (hasAbstract ? 10 : -18) + bonus), note: hasAbstract ? "Structured abstract detected." : "No abstract detected; add a structured abstract." },
+    { criterion: "Introduction — gap articulation", score: clamp(base + (hasIntro ? 8 : -14)), note: hasIntro ? "Introduction present; verify the research gap is explicit." : "No introduction detected." },
+    { criterion: "Methods — reproducibility", score: clamp(base + (hasMethods ? 8 : -12) + bonus), note: hasMethods ? "Methods present; check reproducibility detail." : "Methods section missing." },
+    { criterion: "Statistical analysis rigour", score: clamp(base + (hasStats ? 12 : -10)), note: hasStats ? "Statistical terminology detected." : "No statistical analysis detail detected." },
+    { criterion: "Results presentation", score: clamp(base + (hasResults ? 10 : -14)), note: hasResults ? "Results section present." : "Results section missing." },
+    { criterion: "Discussion — limitations", score: clamp(base + (hasDiscussion ? 8 : -12) + (hasLimitations ? 6 : 0)), note: hasLimitations ? "Limitations discussed." : "Add an explicit limitations discussion." },
+    { criterion: "Conclusion present", score: clamp(base + (hasConclusion ? 9 : -10)), note: hasConclusion ? "Conclusion section present." : "No conclusion detected." },
+    { criterion: "Citation accuracy (reference check)", score: clamp(base + (hasCitations ? 10 : -12)), note: hasReferences ? "Reference list detected." : "No reference list detected." },
+    { criterion: "Ethical compliance (ICMJE)", score: clamp(base + (hasEthics ? 12 : -10)), note: hasEthics ? "Ethics/consent language detected." : "Add ethics, consent, and approval statements." },
+    { criterion: "Journal match & keyword optimization", score: clamp(base + (headings >= 6 ? 8 : -6) + bonus), note: "Structural completeness relative to the target journal." },
+  ];
 };
 
 export default function PaperWriterTab() {
+  const { state } = useApp();
   const [mode, setMode] = useState<"academic" | "reviewer">("academic");
   const [inputText, setInputText] = useState("");
+  const [targetJournal, setTargetJournal] = useState(JOURNALS[0]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [draft, setDraft] = useState("");
-  const [analysis, setAnalysis] = useState<ReturnType<typeof generateMockAnalysis> | null>(null);
-  const [showRubric, setShowRubric] = useState(true);
+  const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [error, setError] = useState("");
 
   const handleGenerate = async () => {
+    if (!inputText.trim()) {
+      setError(
+        mode === "academic"
+          ? "Please paste your research content, notes, or topic before generating."
+          : "Please paste the paper you want reviewed before starting the simulation."
+      );
+      return;
+    }
+    setError("");
     setIsGenerating(true);
     setDraft("");
-    setAnalysis(null);
+    setAnalysis({ agents: AGENTS.map((a) => ({ ...a, status: "idle" })), rubric: [] });
+
+    const prompt = mode === "academic" ? buildAcademicPrompt(targetJournal, inputText) : buildReviewerPrompt(targetJournal, inputText);
+
+    const aiPromise = (async () => {
+      let text = "";
+      try {
+        if (state.geminiApiKey) text = await callGemini(state.geminiApiKey, prompt);
+        else if (state.groqApiKey) text = await callGroq(state.groqApiKey, prompt);
+        else text = await callDeepSeek(prompt);
+      } catch {
+        text = "";
+      }
+      return text;
+    })();
 
     for (let i = 0; i < AGENTS.length; i++) {
-      await new Promise((r) => setTimeout(r, 500 + Math.random() * 600));
-      if (analysis) {
-        setAnalysis((prev) => {
-          if (!prev) return prev;
-          const updatedAgents = [...prev.agents];
-          updatedAgents[i] = { ...updatedAgents[i], status: "done" };
-          return { ...prev, agents: updatedAgents };
-        });
-      }
+      await new Promise((r) => setTimeout(r, 120 + Math.random() * 160));
+      setAnalysis((prev) => {
+        if (!prev) return prev;
+        const agents = prev.agents.map((a, idx) => (idx <= i ? { ...a, status: "done" as const } : a));
+        return { ...prev, agents };
+      });
     }
 
-    await new Promise((r) => setTimeout(r, 800));
-    const result = generateMockAnalysis();
-    setAnalysis(result);
-    setDraft(
-      `IMPLEMENTATION AND COST-EFFECTIVENESS OF ANNUAL IGRA-BASED LTBI SCREENING AMONG HEALTHCARE WORKERS: A MIXED-METHODS STUDY\n\n## Abstract\nBackground: LTBI remains underdiagnosed among HCWs particularly in LMIC settings where TST-based protocols dominate despite IGRA evidence superiority...\n\n## Introduction\nLatent tuberculosis infection (LTBI) affects approximately 25% of the global population (Houben & Dodd, 2014). Healthcare workers (HCWs) face disproportionate risk due to occupational exposure. Annual IGRA-based screening protocols offer superior specificity...\n\n## Methods [DRAFT — see Methodology section]\n\n## Results [Placeholder for RCT data]\n\n## Discussion\nThis study provides high-quality implementation and cost-effectiveness evidence for IGRA-based HCW screening in sub-Saharan Africa...\n\n---\nManuscript generated by Resilient 12-Agent Academic Paper Writer.\nRubric scores: see Quality Assessment panel.`
-    );
+    let text = await aiPromise;
+    if (!text.trim()) text = buildFallbackDraft(mode, targetJournal, inputText);
+
+    setDraft(text);
+    setAnalysis({ agents: AGENTS.map((a) => ({ ...a, status: "done" })), rubric: computeRubric(text, mode) });
     setIsGenerating(false);
   };
 
@@ -87,7 +261,10 @@ export default function PaperWriterTab() {
     }
   };
 
-  const overallScore = analysis ? Math.round(analysis.rubric.reduce((s, r) => s + r.score, 0) / analysis.rubric.length) : null;
+  const overallScore =
+    analysis && analysis.rubric.length > 0
+      ? Math.round(analysis.rubric.reduce((s, r) => s + r.score, 0) / analysis.rubric.length)
+      : null;
 
   return (
     <div className="space-y-6">
@@ -111,10 +288,14 @@ export default function PaperWriterTab() {
             📝 Academic Paper Reviewer
           </button>
           <div className="relative">
-            <select className="appearance-none bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-2 text-sm pr-8">
-              <option>Target: BMC Medicine</option>
-              <option>Target: IJTLD</option>
-              <option>Target: PLOS Medicine</option>
+            <select
+              value={targetJournal}
+              onChange={(e) => setTargetJournal(e.target.value)}
+              className="appearance-none bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-2 text-sm pr-8"
+            >
+              {JOURNALS.map((j) => (
+                <option key={j} value={j}>{`Target: ${j}`}</option>
+              ))}
             </select>
             <ChevronRight size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-blue-400 rotate-[-90deg] pointer-events-none" />
           </div>
@@ -128,11 +309,14 @@ export default function PaperWriterTab() {
               </label>
               <textarea
                 value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
+                onChange={(e) => { setInputText(e.target.value); if (error) setError(""); }}
                 placeholder={mode === "academic" ? "Paste your research notes, aim, objectives, or section outline here. The agents will draft a complete manuscript..." : "Paste the paper you want reviewed..."}
                 rows={4}
                 className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-3 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 resize-y"
               />
+              {error && (
+                <p className="mt-2 text-sm text-red-400 bg-red-950/40 border border-red-800/50 rounded-lg px-3 py-2">{error}</p>
+              )}
               <button
                 onClick={handleGenerate}
                 disabled={isGenerating}
@@ -145,7 +329,9 @@ export default function PaperWriterTab() {
 
             {draft && (
               <div className="bg-blue-950 border border-blue-900 rounded-lg p-5 max-h-[500px] overflow-y-auto">
-                <h3 className="text-sm font-bold text-yellow-300 mb-3">Generated Manuscript</h3>
+                <h3 className="text-sm font-bold text-yellow-300 mb-3">
+                  {mode === "academic" ? `Generated Manuscript · ${targetJournal}` : `Peer Review Report · ${targetJournal}`}
+                </h3>
                 <pre className="text-sm text-blue-100 whitespace-pre-wrap font-serif leading-relaxed">{draft}</pre>
               </div>
             )}
@@ -170,7 +356,7 @@ export default function PaperWriterTab() {
               </div>
             </div>
 
-            {analysis && (
+            {analysis && analysis.rubric.length > 0 && (
               <div className="bg-blue-950/60 border border-blue-900 rounded-lg p-4">
                 <h4 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
                   <Gauge size={14} className="text-yellow-400" />
@@ -192,6 +378,7 @@ export default function PaperWriterTab() {
                           style={{ width: `${item.score}%` }}
                         />
                       </div>
+                      <p className="text-[10px] text-blue-400 mt-0.5">{item.note}</p>
                     </div>
                   ))}
                 </div>
@@ -201,14 +388,14 @@ export default function PaperWriterTab() {
             {draft && (
               <div className="flex flex-col gap-2">
                 <button
-                  onClick={() => alert("Exporting paper as DOCX...")}
+                  onClick={() => { void downloadMarkdownAsWord(draft, "paper.docx"); }}
                   className="w-full bg-green-900/50 text-green-300 px-4 py-2 rounded-lg hover:bg-green-900/70 flex items-center justify-center gap-2 text-sm"
                 >
                   <Download size={14} />
                   Export to DOCX
                 </button>
                 <button
-                  onClick={() => alert("Exporting review report as PDF...")}
+                  onClick={() => downloadMarkdownAsPDF(draft, "review-report.pdf")}
                   className="w-full bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg hover:bg-blue-900/70 flex items-center justify-center gap-2 text-sm"
                 >
                   <Download size={14} />

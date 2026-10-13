@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { promisify } from "util";
-import { exec as _exec } from "child_process";
+import { execFile as _execFile } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 
-const execAsync = promisify(_exec);
+const execFileAsync = promisify(_execFile);
 
 export const runtime = "nodejs";
 
@@ -79,8 +79,9 @@ export async function POST(request: Request) {
       args.push("-y", year);
     }
 
-    const command = `${binary} ${args.map(a => `"${a.replace(/"/g, '\\"')}"`).join(" ")}`;
-    const { stdout, stderr } = await execAsync(command, { maxBuffer: 10 * 1024 * 1024 });
+    // execFile passes arguments as an array (no shell), preventing command
+    // injection from user-controlled query/year/sources values.
+    const { stdout, stderr } = await execFileAsync(binary, args, { maxBuffer: 10 * 1024 * 1024 });
 
     if (stderr && !stderr.includes("No CORE API key") && !stderr.includes("No DOAJ API key") && !stderr.includes("UNPAYWALL_EMAIL")) {
       console.warn("[paper-search API route stderr]:", stderr);

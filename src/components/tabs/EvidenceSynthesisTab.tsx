@@ -12,6 +12,12 @@ import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
 import { fetchRealPapers, generateMockLegacy, webSearchPapers, type Paper } from "@/lib/database-apis";
 import { generateLocalLiteratureReview, generateLitLLMSynthesis } from "@/lib/local-synthesis";
+import {
+  fixedEffectsMetaAnalysis,
+  randomEffectsMetaAnalysis,
+  parseEffectSizeRow,
+  type EffectSizeRow,
+} from "@/lib/metafor-compute";
 import { extractPICOForPapers, type ExtractedPICO } from "@/lib/pico-extractor";
 import { marked } from "marked";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
@@ -272,6 +278,17 @@ const PROBAST_COLOR_MAP: Record<string, string> = {
 
 const getProbastColor = (judgment: string): string => PROBAST_COLOR_MAP[judgment] || "#E2DF07";
 
+function applySearchLogic(rawQuery: string, logic: string): string {
+  const q = rawQuery.trim();
+  if (!q) return q;
+  if (/\b(and|or|not)\b/i.test(q)) return q;
+  const terms = q.split(/\s+/).filter(Boolean);
+  if (terms.length <= 1) return q;
+  if (logic === "OR") return terms.join(" OR ");
+  if (logic === "NOT") return `${terms[0]} NOT ${terms.slice(1).join(" AND ")}`;
+  return terms.join(" AND ");
+}
+
 export default function EvidenceSynthesisTab() {
   const { state } = useApp();
   const [pipelineStep, setPipelineStep] = useState(1);
@@ -370,27 +387,49 @@ export default function EvidenceSynthesisTab() {
     setPerDatabaseResults([]);
     try {
       const dbs = selectedDbs.length > 0 ? selectedDbs : ["OpenAlex", "Semantic Scholar", "Crossref", "PubMed"];
+      const effectiveQuery = applySearchLogic(query, searchLogic);
       const res = await fetch("/api/literature-search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          query,
+          query: effectiveQuery,
           databases: dbs,
           yearFrom: yearFrom || undefined,
           yearTo: yearTo || undefined,
           studyType: studyTypeFilter === "All Study Types" ? undefined : studyTypeFilter,
+          searchLogic,
         }),
       });
+
+      if (!res.ok) {
+        let message = `Search request failed (${res.status})`;
+        try {
+          const errData = await res.json();
+          message = errData?.error || message;
+        } catch {
+          /* ignore parse errors */
+        }
+        const mock = generateMockLegacy(query, selectedDbs);
+        setPapers(mock);
+        setTotalIdentified(mock.length);
+        setDedupedCount(mock.length);
+        setSearchError(`${message}. Showing ${mock.length} simulated results.`);
+        return;
+      }
+
       const data = await res.json();
 
       // Handle both success and error responses - data.papers may contain mock data
       const apiPapers = data.papers || [];
+      const uniqueCount = apiPapers.length;
       setPapers(apiPapers);
       setDbSearchStatus(data.sourceBreakdown || {});
       setFailedDatabases(data.failedDatabases || []);
       setPerDatabaseResults(data.perDatabaseResults || []);
-      setTotalIdentified(data.totalBeforeDedup ?? (data.papers?.length || 0));
-      setDedupedCount(data.dedupedCount ?? (data.papers?.length || 0));
+      setTotalIdentified(data.totalBeforeDedup || data.total || uniqueCount);
+      // `dedupedCount` from the route is the number of duplicates REMOVED; store the
+      // records remaining after deduplication instead so PRISMA math is correct.
+      setDedupedCount(uniqueCount);
       setCitationValidationResults(data.citationValidation?.results || {});
 
       // Show warnings if APIs failed but we have mock/simulated results
@@ -442,7 +481,7 @@ export default function EvidenceSynthesisTab() {
       if (yearFrom && y < parseInt(yearFrom, 10)) return false;
       if (yearTo && y > parseInt(yearTo, 10)) return false;
       if (studyTypeFilter !== "All Study Types" && p.studyType !== studyTypeFilter) return false;
-      if (showVerifiedOnly && p.citationStatus !== "verified") return false;
+      if (showVerifiedOnly && !p.doi) return false;
       return true;
     });
     if (dbPapers.length === 0) return;
@@ -489,12 +528,71 @@ export default function EvidenceSynthesisTab() {
       if (yearFrom && y < parseInt(yearFrom, 10)) return false;
       if (yearTo && y > parseInt(yearTo, 10)) return false;
       if (studyTypeFilter !== "All Study Types" && p.studyType !== studyTypeFilter) return false;
-      if (showVerifiedOnly && p.citationStatus !== "verified") return false;
+      if (showVerifiedOnly && !p.doi) return false;
       return true;
     });
   };
 
   const displayPapers = getFilteredPapers();
+
+  // PRISMA 2020 flow counts. "deduped" is the unique record set remaining after
+  // duplicate removal (the search route reports duplicates *removed*, while
+  // papers.length is the deduplicated set). Screening/exclusion are derived from
+  // the searched/unique set rather than the selected/extracted subset.
+  const prismaCounts = {
+    identification: totalIdentified || papers.length,
+    deduped: dedupedCount || papers.length,
+    screened: dedupedCount || papers.length,
+    excluded: Math.max(0, (dedupedCount || papers.length) - (selectedPaperIds.size || extractedData.length)),
+    assessed: selectedPaperIds.size || extractedData.length,
+    included: extractedData.length || effectSizes.length,
+  };
+
+  // Quantitative meta-analysis via the inverse-variance helpers in metafor-compute.
+  // Runs only for meta-analysis review types; falls back to narrative synthesis
+  // when fewer than one study yields a usable effect size with a 95% CI / SE.
+  const metaAnalysis = useMemo(() => {
+    const isMetaReview = reviewType.includes("Meta");
+    if (!isMetaReview) {
+      return { isMeta: false as const, available: false as const, k: 0, rows: [] as EffectSizeRow[], fixed: null, random: null };
+    }
+    const parseRows = (candidates: Array<{ study: string; effect: string; ci: string; weight: string }>) =>
+      candidates
+        .map((c) => parseEffectSizeRow(c.study, c.effect, c.ci, c.weight))
+        .filter(
+          (r): r is EffectSizeRow =>
+            r !== null && Number.isFinite(r.variance) && r.variance > 1e-7 && r.ciUpper > r.ciLower
+        );
+
+    const fromTable = parseRows(
+      effectSizes.map((r) => ({ study: r.study || "Study", effect: r.effect || "", ci: r.ci || "", weight: r.weight || "" }))
+    );
+    const fromExtracted = parseRows(
+      extractedData.map((p, i) => ({
+        study: p.authors || p.title || `Study ${i + 1}`,
+        effect: String(p.effectEstimate ?? ""),
+        ci: p.ciLower && p.ciUpper ? `${p.ciLower} - ${p.ciUpper}` : "",
+        weight: "",
+      }))
+    );
+    const rows = fromTable.length > 0 ? fromTable : fromExtracted;
+    if (rows.length === 0) {
+      return { isMeta: true as const, available: false as const, k: 0, rows, fixed: null, random: null };
+    }
+    const fixed = fixedEffectsMetaAnalysis(rows);
+    const random = randomEffectsMetaAnalysis(rows);
+    if (!fixed || !random) {
+      return { isMeta: true as const, available: false as const, k: rows.length, rows, fixed: null, random: null };
+    }
+    return {
+      isMeta: true as const,
+      available: true as const,
+      k: rows.length,
+      rows,
+      fixed,
+      random,
+    };
+  }, [reviewType, effectSizes, extractedData]);
 
   const getRobToolTemplate = (): RobToolTemplate | undefined => {
     return ROB_TOOL_TEMPLATES.find((t) => t.id === robTool);
@@ -611,7 +709,7 @@ export default function EvidenceSynthesisTab() {
     }
   };
 
-  const autoAssessRob = React.useCallback(() => {
+  const autoAssessRob = React.useCallback((force = false) => {
     if (extractedData.length === 0) return;
     const template = getRobToolTemplate();
     if (!template) return;
@@ -619,6 +717,12 @@ export default function EvidenceSynthesisTab() {
       const next: Record<string, RobAssessment> = {};
       extractedData.forEach((row) => {
         const existing = prev[row.id];
+        // Guard: never overwrite an existing (possibly manual) judgment unless the
+        // user explicitly triggers a re-assessment.
+        if (existing && !force) {
+          next[row.id] = existing;
+          return;
+        }
         const base = existing ? { ...existing, tool: robTool, domains: { ...existing.domains } } : initRobAssessment(row.id, { studyType: row.studyType, year: row.year, title: row.title });
         applyRobHeuristic(base, { studyType: row.studyType, year: row.year, title: row.title }, template);
         next[row.id] = base;
@@ -732,35 +836,42 @@ export default function EvidenceSynthesisTab() {
     applicability: Object.fromEntries(PROBAST_APPLICABILITY_DOMAINS.map((d) => [d.id, { judgment: "Unclear" }])),
   });
 
-  const autoAssessProbast = () => {
-    if (extractedData.length === 0) return;
-    setProbastAssessments((prev) => {
-      const next: Record<string, ProbastAssessment> = {};
-      extractedData.forEach((row) => {
-        const existing = prev[row.id];
-        const base = existing || initProbastAssessment();
-        const isAI = /(ai|artificial intelligence|machine learning|deep learning|neural|prediction model|algorithm)/i.test(`${row.title} ${row.studyType || ""}`);
-        const robDefaults: Record<string, string> = {
-          D1: "Low risk of bias",
-          D2: isAI ? "Unclear" : "Low risk of bias",
-          D3: "Low risk of bias",
-          D4: isAI ? "High risk of bias" : "Unclear",
-        };
-        const appDefaults: Record<string, string> = {
-          A1: "Low concern",
-          A2: isAI ? "High concern" : "Low concern",
-          A3: "Low concern",
-        };
-        const domains: Record<string, ProbastDomainJudgment> = {};
-        PROBAST_ROB_DOMAINS.forEach((d) => { domains[d.id] = { judgment: robDefaults[d.id] || "Unclear" }; });
-        const applicability: Record<string, ProbastDomainJudgment> = {};
-        PROBAST_APPLICABILITY_DOMAINS.forEach((d) => { applicability[d.id] = { judgment: appDefaults[d.id] || "Unclear" }; });
-        const overallRob = Object.values(robDefaults).includes("High risk of bias") ? "High risk of bias" : "Low risk of bias";
-        const overallApp = Object.values(appDefaults).includes("High concern") ? "High concern" : "Low concern";
-        next[row.id] = { ...base, domains, applicability, overallRob, overallApplicability: overallApp };
-      });
-      return next;
+  const computeProbastAssessments = (prev: Record<string, ProbastAssessment>, force: boolean): Record<string, ProbastAssessment> => {
+    const next: Record<string, ProbastAssessment> = {};
+    extractedData.forEach((row) => {
+      const existing = prev[row.id];
+      // Guard: preserve existing (possibly manual) judgments unless explicitly re-assessed.
+      if (existing && !force) {
+        next[row.id] = existing;
+        return;
+      }
+      const base = existing || initProbastAssessment();
+      const isAI = /(ai|artificial intelligence|machine learning|deep learning|neural|prediction model|algorithm)/i.test(`${row.title} ${row.studyType || ""}`);
+      const robDefaults: Record<string, string> = {
+        D1: "Low risk of bias",
+        D2: isAI ? "Unclear" : "Low risk of bias",
+        D3: "Low risk of bias",
+        D4: isAI ? "High risk of bias" : "Unclear",
+      };
+      const appDefaults: Record<string, string> = {
+        A1: "Low concern",
+        A2: isAI ? "High concern" : "Low concern",
+        A3: "Low concern",
+      };
+      const domains: Record<string, ProbastDomainJudgment> = {};
+      PROBAST_ROB_DOMAINS.forEach((d) => { domains[d.id] = { judgment: robDefaults[d.id] || "Unclear" }; });
+      const applicability: Record<string, ProbastDomainJudgment> = {};
+      PROBAST_APPLICABILITY_DOMAINS.forEach((d) => { applicability[d.id] = { judgment: appDefaults[d.id] || "Unclear" }; });
+      const overallRob = Object.values(robDefaults).includes("High risk of bias") ? "High risk of bias" : "Low risk of bias";
+      const overallApp = Object.values(appDefaults).includes("High concern") ? "High concern" : "Low concern";
+      next[row.id] = { ...base, domains, applicability, overallRob, overallApplicability: overallApp };
     });
+    return next;
+  };
+
+  const autoAssessProbast = (force = false) => {
+    if (extractedData.length === 0) return;
+    setProbastAssessments((prev) => computeProbastAssessments(prev, force));
   };
 
   const updateProbastDomain = (paperId: string, domainId: string, judgment: string) => {
@@ -825,8 +936,10 @@ export default function EvidenceSynthesisTab() {
     }
     setProbastAiLoading(true);
     try {
-      autoAssessProbast();
-      if (state.geminiApiKey || state.groqApiKey || true) {
+      // Seed/refresh heuristic judgments while preserving any manual edits.
+      const updatedAssessments = computeProbastAssessments(probastAssessments, false);
+      setProbastAssessments(updatedAssessments);
+      if (state.geminiApiKey || state.groqApiKey) {
         try {
           const studyList = extractedData
             .map((p, i) => `${i + 1}. ${p.title} (${p.authors || "Unknown"}, ${p.year || "n/d"}) — type: ${p.studyType || "prediction model study"}${p.doi ? `; DOI: ${p.doi}` : ""}`)
@@ -837,7 +950,7 @@ Studies:
 ${studyList}
 
 Return a concise markdown report with a "## PROBAST+AI Assessment" heading and a per-study bullet list.`;
-          const content = state.geminiApiKey ? await callGemini(state.geminiApiKey, prompt) : state.groqApiKey ? await callGroq(state.groqApiKey!, prompt) : await callDeepSeek(prompt);
+          const content = state.geminiApiKey ? await callGemini(state.geminiApiKey, prompt) : await callGroq(state.groqApiKey!, prompt);
           if (content) {
             setProbastAnalysis(content);
             return;
@@ -846,8 +959,8 @@ Return a concise markdown report with a "## PROBAST+AI Assessment" heading and a
           /* fall through to local summary */
         }
       }
-      const highRob = extractedData.filter((p) => probastAssessments[p.id]?.overallRob === "High risk of bias").length;
-      const highApp = extractedData.filter((p) => probastAssessments[p.id]?.overallApplicability === "High concern").length;
+      const highRob = extractedData.filter((p) => updatedAssessments[p.id]?.overallRob === "High risk of bias").length;
+      const highApp = extractedData.filter((p) => updatedAssessments[p.id]?.overallApplicability === "High concern").length;
       setProbastAnalysis(
         `## PROBAST+AI Assessment\n\n**Studies assessed:** ${extractedData.length}\n**High risk of bias:** ${highRob}\n**High concern applicability:** ${highApp}\n\nDomains evaluated per study: Risk of bias — Participants, Predictors, Outcome, Analysis; Applicability — Participants, Predictors, Outcome. For AI/ML studies, pay special attention to domain D4 (Analysis): data source/splitting, preprocessing, model architecture, and external validation.\n\n> Generated locally using the PROBAST+AI methodology (probast.org/probast_ai). Configure an API key in Settings for AI-assisted narrative assessment.`
       );
@@ -1821,6 +1934,21 @@ ${isNarrative ? `## Evidence Synthesis
     setManuscript("");
     setReviewReport("");
     setFinalManuscript("");
+    const buildLocalReview = () => {
+      const selectedLocal = papers.filter((p) => selectedPaperIds.has(p.id));
+      const source = selectedLocal.length > 0 ? selectedLocal : papers.length > 0 ? papers : [];
+      const localPapers = (source.length > 0 ? source : extractedData).map((p: any) => ({
+        authors: p.authors || "Unknown authors",
+        year: typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || new Date().getFullYear(),
+        title: p.title || "Untitled",
+        journal: p.journal || "Unknown journal",
+        abstract: p.abstract || "",
+        doi: p.doi || undefined,
+        studyType: p.studyType || "Observational Study",
+        database: p.database || "Unknown",
+      }));
+      return generateLocalLiteratureReview(localPapers, query, { enableRobustReview: true });
+    };
     try {
       const papersForSynthesis = extractedData.filter((p) => selectedPaperIds.has(p.id));
       const prompt = buildAcademicWritingManuscriptPrompt({
@@ -1844,21 +1972,14 @@ ${isNarrative ? `## Evidence Synthesis
         robMode,
         reviewRequirements,
         synthesisInstructions,
-        prismaCounts: {
-          identification: totalIdentified || papers.length,
-          deduped: dedupedCount || papers.length,
-          screened: selectedPaperIds.size,
-          excluded: Math.max(0, selectedPaperIds.size - extractedData.length),
-          assessed: extractedData.length,
-          included: extractedData.length || effectSizes.length,
-        },
+        prismaCounts,
         selectedDbs,
         query,
       });
 
       const apiKey = state.geminiApiKey || state.groqApiKey;
       if (!apiKey) {
-        setManuscript(`# ${reviewType}: ${query || "the research topic"}\n\n## Abstract\n\nNo API key configured. Please add your Gemini or Groq API key in Settings to generate the AI-powered manuscript using the Academic Writing Agents methodology.\n\n## References\n\n1. Page MJ, McKenzie JE, Bossuyt PM, et al. The PRISMA 2020 statement. BMJ. 2021;372:n71.\n`);
+        setManuscript(buildLocalReview());
          setManuscriptLoading(false);
          return;
        }
@@ -1876,7 +1997,8 @@ ${isNarrative ? `## Evidence Synthesis
       const cleaned = text.replace(/```/g, "").trim();
       setManuscript(cleaned);
     } catch (err: any) {
-      setManuscript(`# Error\n\n**Failed to generate manuscript:** ${err.message || "Unknown error"}\n\nPlease complete Steps 1–5 and try again.`);
+      const fallback = buildLocalReview();
+      setManuscript(`> AI manuscript generation failed (${err?.message || "Unknown error"}). Showing the deterministic local literature review instead.\n\n${fallback}`);
     } finally {
       setManuscriptLoading(false);
     }
@@ -1986,14 +2108,7 @@ ${isNarrative ? `## Evidence Synthesis
         synthesisOutput,
         effectSizes,
         robAssessments,
-        prismaCounts: {
-          identification: totalIdentified || papers.length,
-          deduped: dedupedCount || papers.length,
-          screened: selectedPaperIds.size,
-          excluded: Math.max(0, selectedPaperIds.size - extractedData.length),
-          assessed: extractedData.length,
-          included: extractedData.length || effectSizes.length,
-        },
+        prismaCounts,
         query,
       });
 
@@ -2119,15 +2234,6 @@ ${stormReview}
     URL.revokeObjectURL(url);
   };
 
-  const prismaCounts = {
-    identification: totalIdentified || papers.length,
-    deduped: dedupedCount || papers.length,
-    screened: selectedPaperIds.size,
-    excluded: Math.max(0, selectedPaperIds.size - extractedData.length),
-    assessed: extractedData.length,
-    included: extractedData.length || effectSizes.length,
-  };
-
   const downloadPrismaCsv = () => {
     const template = getRobToolTemplate();
     const rows = [
@@ -2138,7 +2244,7 @@ ${stormReview}
       ["Screening (Records screened)", prismaCounts.screened, selectedDbs.join("; "), "Title/abstract screening"],
       ["Excluded (Records excluded after screening)", prismaCounts.excluded, "—", `Reason: not meeting inclusion criteria (${prismaCounts.excluded})`],
       ["Reports assessed for eligibility", prismaCounts.assessed, "—", "Full-text assessment"],
-      ["Excluded (Reports excluded after eligibility)", Math.max(0, prismaCounts.assessed - effectSizes.length), "—", "Not meeting final inclusion criteria"],
+      ["Excluded (Reports excluded after eligibility)", Math.max(0, prismaCounts.assessed - prismaCounts.included), "—", "Not meeting final inclusion criteria"],
       ["Studies included in qualitative synthesis (" + reviewType + ")", prismaCounts.included, "—", extractedData.length + " studies"],
       ...(reviewType.includes("Meta-analysis") || reviewType.includes("Meta")
         ? [["Studies included in quantitative synthesis (meta-analysis)", effectSizes.length || extractedData.length, "—", `Tool: metafor / meta / forestplot`]]
@@ -2328,9 +2434,9 @@ ${stormReview}
             showVerifiedOnly={showVerifiedOnly}
              onShowVerifiedOnlyChange={setShowVerifiedOnly}
              citationValidationCounts={{
-               verified: papers.filter((p) => p.citationStatus === "verified").length,
-               unverified: papers.filter((p) => p.citationStatus === "unverified").length,
-               noDoi: papers.filter((p) => p.citationStatus === "no-doi").length,
+               verified: papers.filter((p) => !!p.doi).length,
+               unverified: papers.filter((p) => !!p.doi && p.citationStatus !== "verified").length,
+               noDoi: papers.filter((p) => !p.doi).length,
              }}
            />
         )}
@@ -2436,7 +2542,7 @@ ${stormReview}
 
                <div className="mb-3 flex flex-wrap items-center gap-2">
                  <button
-                   onClick={autoAssessRob}
+                   onClick={() => autoAssessRob(true)}
                    className="flex items-center gap-1.5 text-[11px] bg-emerald-900/50 text-emerald-200 px-3 py-1.5 rounded-lg hover:bg-emerald-800/60 border border-emerald-700/50"
                  >
                    <Sparkles size={12} /> Re-assess with robvis template
@@ -2613,7 +2719,7 @@ ${stormReview}
 
                   <div className="mb-3 flex flex-wrap items-center gap-2">
                     <button
-                      onClick={autoAssessProbast}
+                      onClick={() => autoAssessProbast(true)}
                       className="flex items-center gap-1.5 text-[11px] bg-emerald-900/50 text-emerald-200 px-3 py-1.5 rounded-lg hover:bg-emerald-800/60 border border-emerald-700/50"
                     >
                       <Sparkles size={12} /> Auto-assess (PROBAST heuristic)
@@ -2878,6 +2984,74 @@ ${stormReview}
                     </table>
                   </div>
                   <p className="text-[10px] text-blue-400 mt-2">Editable — tune values before exporting to metafor / meta / OpenMEE / JASP</p>
+                </div>
+              )}
+
+              {metaAnalysis.isMeta && (
+                <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4 mb-4">
+                  <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+                    <BarChart3 size={14} className="text-yellow-400" />
+                    Quantitative Meta-analysis
+                  </h4>
+                  {metaAnalysis.available ? (
+                    <>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                        <div className="bg-blue-900/40 border border-blue-800 rounded p-2">
+                          <div className="text-[10px] text-blue-400">Pooled effect (random-effects)</div>
+                          <div className="text-white font-bold text-sm">{metaAnalysis.random.pooledEstimate.toFixed(3)}</div>
+                        </div>
+                        <div className="bg-blue-900/40 border border-blue-800 rounded p-2">
+                          <div className="text-[10px] text-blue-400">95% CI</div>
+                          <div className="text-white font-bold text-sm">
+                            [{metaAnalysis.random.ciLower.toFixed(3)}, {metaAnalysis.random.ciUpper.toFixed(3)}]
+                          </div>
+                        </div>
+                        <div className="bg-blue-900/40 border border-blue-800 rounded p-2">
+                          <div className="text-[10px] text-blue-400">I²</div>
+                          <div className="text-white font-bold text-sm">{metaAnalysis.random.I2.toFixed(1)}%</div>
+                        </div>
+                        <div className="bg-blue-900/40 border border-blue-800 rounded p-2">
+                          <div className="text-[10px] text-blue-400">τ²</div>
+                          <div className="text-white font-bold text-sm">{metaAnalysis.random.tau2.toFixed(4)}</div>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-blue-300 mb-3">
+                        k = {metaAnalysis.k} studies · Q = {metaAnalysis.random.Q.toFixed(2)} (p = {metaAnalysis.random.Qp.toFixed(3)}) ·
+                        fixed-effects estimate {metaAnalysis.fixed.pooledEstimate.toFixed(3)} [{metaAnalysis.fixed.ciLower.toFixed(3)}, {metaAnalysis.fixed.ciUpper.toFixed(3)}]
+                        {metaAnalysis.k < 2 ? " · single study: pooled estimate equals the study estimate; interpret with caution." : ""}
+                      </p>
+                      <div className="overflow-x-auto">
+                        <table className="w-full border-collapse text-xs">
+                          <thead>
+                            <tr className="bg-blue-900/60 text-left">
+                              <th className="border border-blue-800 px-2 py-1.5 text-yellow-200">Study</th>
+                              <th className="border border-blue-800 px-2 py-1.5 text-yellow-200">Effect</th>
+                              <th className="border border-blue-800 px-2 py-1.5 text-yellow-200">95% CI</th>
+                              <th className="border border-blue-800 px-2 py-1.5 text-yellow-200">Weight (%)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {metaAnalysis.random.forestData.map((row, idx) => (
+                              <tr key={idx} className={row.isPooled ? "bg-yellow-900/20 font-bold" : "hover:bg-blue-900/20"}>
+                                <td className="border border-blue-800 px-2 py-1 text-blue-100">{row.study}</td>
+                                <td className="border border-blue-800 px-2 py-1 text-blue-100">{row.effect.toFixed(3)}</td>
+                                <td className="border border-blue-800 px-2 py-1 text-blue-100">
+                                  [{row.ciLower.toFixed(3)}, {row.ciUpper.toFixed(3)}]
+                                </td>
+                                <td className="border border-blue-800 px-2 py-1 text-blue-100">{row.weightPercent.toFixed(1)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-xs text-blue-300">
+                      Insufficient quantitative data: no study provides a numeric effect estimate with a 95% CI or SE that can be pooled
+                      by inverse-variance weighting. Only a narrative synthesis is available for this review type — add effect estimates
+                      and confidence intervals in the extraction step (or the editable effect-size table above) to enable meta-analysis.
+                    </p>
+                  )}
                 </div>
               )}
 

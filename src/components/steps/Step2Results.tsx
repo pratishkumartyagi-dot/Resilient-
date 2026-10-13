@@ -1,59 +1,70 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { CheckSquare, Square, Trash2, FileText, Search, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
-import { useApp } from "@/context/AppContext";
+import { useApp, type Paper } from "@/context/AppContext";
+
+const deduplicatePapers = (papers: Paper[]): Paper[] => {
+  const seen = new Map<string, Paper>();
+  papers.forEach((p) => {
+    const doiKey = p.doi?.toLowerCase().trim();
+    const titleKey = p.title.toLowerCase().trim().slice(0, 80);
+    const key = doiKey || titleKey;
+
+    if (!key) {
+      seen.set(`${p.id}-${p.database}`, p);
+      return;
+    }
+
+    if (seen.has(key)) {
+      const existing = seen.get(key)!;
+      if (!existing.doi && p.doi) existing.doi = p.doi;
+      if (!existing.abstract && p.abstract) existing.abstract = p.abstract;
+      if (!existing.url && p.url) existing.url = p.url;
+    } else {
+      seen.set(key, { ...p });
+    }
+  });
+  return Array.from(seen.values());
+};
 
 export default function Step2Results() {
   const { state, dispatch } = useApp();
   const [searchFilter, setSearchFilter] = useState("");
-  const [validating, setValidating] = useState(false);
-
-  const papers = state.papers.filter((p) =>
-    p.title.toLowerCase().includes(searchFilter.toLowerCase()) ||
-    p.authors.toLowerCase().includes(searchFilter.toLowerCase())
-  );
+  const validationStartedRef = useRef(false);
 
   const selectedCount = state.papers.filter((p) => p.selected).length;
-  
-  const deduplicatePapers = (papers: typeof state.papers) => {
-    const seen = new Map<string, typeof state.papers[0]>();
-    papers.forEach((p) => {
-      const doiKey = p.doi?.toLowerCase().trim();
-      const titleKey = p.title.toLowerCase().trim().slice(0, 80);
-      const key = doiKey || titleKey;
-      
-      if (!key) {
-        seen.set(`${p.id}-${p.database}`, p);
-        return;
-      }
-      
-      if (seen.has(key)) {
-        const existing = seen.get(key)!;
-        if (!existing.doi && p.doi) existing.doi = p.doi;
-        if (!existing.abstract && p.abstract) existing.abstract = p.abstract;
-        if (!existing.url && p.url) existing.url = p.url;
-      } else {
-        seen.set(key, { ...p });
-      }
-    });
-    return Array.from(seen.values());
-  };
-  
-  const uniquePapers = deduplicatePapers(papers);
-  
-  const papersByDatabase = uniquePapers.reduce((acc, paper) => {
-    const db = paper.database || "Unknown";
-    if (!acc[db]) acc[db] = [];
-    acc[db].push(paper);
-    return acc;
-  }, {} as Record<string, typeof uniquePapers>);
+
+  const uniquePapers = useMemo(() => deduplicatePapers(state.papers), [state.papers]);
+
+  const filteredPapers = useMemo(
+    () =>
+      uniquePapers.filter(
+        (p) =>
+          p.title.toLowerCase().includes(searchFilter.toLowerCase()) ||
+          p.authors.toLowerCase().includes(searchFilter.toLowerCase())
+      ),
+    [uniquePapers, searchFilter]
+  );
+
+  const papersByDatabase = useMemo(
+    () =>
+      filteredPapers.reduce((acc, paper) => {
+        const db = paper.database || "Unknown";
+        if (!acc[db]) acc[db] = [];
+        acc[db].push(paper);
+        return acc;
+      }, {} as Record<string, Paper[]>),
+    [filteredPapers]
+  );
 
   useEffect(() => {
     const validateCitations = async () => {
-      if (state.papers.length === 0 || state.citationValidationStatus === "done") return;
+      if (state.papers.length === 0) return;
+      if (state.citationValidationStatus === "running" || state.citationValidationStatus === "done") return;
+      if (validationStartedRef.current) return;
+      validationStartedRef.current = true;
 
-      setValidating(true);
       dispatch({ type: "SET_CITATION_STATUS", payload: "running" });
 
       try {
@@ -96,8 +107,6 @@ export default function Step2Results() {
       } catch (err: any) {
         console.warn("[Step2Results] DOI verification failed:", err?.message);
         dispatch({ type: "SET_CITATION_STATUS", payload: "done" });
-      } finally {
-        setValidating(false);
       }
     };
 

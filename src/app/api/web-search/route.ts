@@ -3,6 +3,18 @@ import * as cheerio from "cheerio";
 
 export const runtime = "nodejs";
 
+const UPSTREAM_TIMEOUT_MS = 20_000;
+
+async function fetchWithTimeout(url: string, init?: RequestInit, timeoutMs = UPSTREAM_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 interface WebSearchResult {
   id: string;
   title: string;
@@ -81,7 +93,7 @@ export async function POST(request: Request) {
     if (tavilyKey) {
       try {
         const searchQuery = `${query} academic paper research study`;
-        const resp = await fetch("https://api.tavily.com/search", {
+        const resp = await fetchWithTimeout("https://api.tavily.com/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -130,7 +142,7 @@ export async function POST(request: Request) {
 
     const arxivQuery = encodeURIComponent(`all:${query}`);
     const arxivUrl = `https://export.arxiv.org/api/query?search_query=${arxivQuery}&start=0&max_results=${Math.min(maxResults, 20)}`;
-    const arxivResp = await fetch(arxivUrl, { headers: { Accept: "application/xml" } });
+    const arxivResp = await fetchWithTimeout(arxivUrl, { headers: { Accept: "application/xml" } });
     if (!arxivResp.ok) {
       return NextResponse.json({ error: `arXiv search failed: ${arxivResp.status}` }, { status: 502 });
     }
@@ -149,7 +161,8 @@ export async function POST(request: Request) {
           .get()
           .filter(Boolean)
           .join(", ");
-        const year = extractYear(summary);
+        const publishedText = entry.find("published").first().text().trim();
+        const year = publishedText ? parseInt(publishedText.slice(0, 4), 10) || extractYear(summary) : extractYear(summary);
         const id = entry.find("id").first().text().trim() || `arxiv-${Date.now()}-${i}`;
         const doiMatch = summary.match(/10\.\d{4,}\/[^?#\s]+/) || title.match(/10\.\d{4,}\/[^?#\s]+/);
         const doi = doiMatch ? doiMatch[0] : "";
