@@ -4,9 +4,11 @@ const http = require("http");
 const net = require("net");
 const fs = require("fs");
 const { spawn } = require("child_process");
+const { parse } = require("url");
 
 let mainWindow = null;
 let serverProcess = null;
+let inProcessServer = null;
 let serverPort = 0;
 
 // The packaged app files live next to this "electron" folder (resources/app),
@@ -51,22 +53,30 @@ function pingServer(port) {
   });
 }
 
-async function waitForServer(port, timeoutMs) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await pingServer(port)) return true;
-    await new Promise((r) => setTimeout(r, 400));
-  }
-  return false;
-}
-
 async function startServer() {
   const port = await getFreePort();
   serverPort = port;
 
-  const nextBin = require.resolve("next/dist/bin/next", { paths: [appDir] });
-  log(`Starting Next server: ${nextBin} on 127.0.0.1:${port}`);
+  let nextBin;
+  try {
+    nextBin = require.resolve("next/dist/bin/next", { paths: [appDir] });
+  } catch (e) {
+    throw new Error("Could not locate the Next.js server inside the app.\n" + ((e && e.message) || e));
+  }
 
+  const logPath = path.join(app.getPath("userData"), "startup.log");
+  const output = [];
+  const record = (text) => {
+    const s = String(text).trim();
+    if (!s) return;
+    for (const line of s.split(/\r?\n/)) {
+      output.push(line);
+      if (output.length > 80) output.shift();
+    }
+    log(`[next] ${s}`);
+  };
+
+  log(`Starting Next server: ${nextBin} on 127.0.0.1:${port}`);
   serverProcess = spawn(
     process.execPath,
     [nextBin, "start", "-H", "127.0.0.1", "-p", String(port)],
@@ -82,19 +92,55 @@ async function startServer() {
     }
   );
 
-  serverProcess.stdout.on("data", (d) => log(`[next] ${String(d).trim()}`));
-  serverProcess.stderr.on("data", (d) => log(`[next:err] ${String(d).trim()}`));
-  serverProcess.on("error", (err) => log(`Next process error: ${err && err.message ? err.message : String(err)}`));
-  serverProcess.on("exit", (code) => log(`Next process exited with code ${code}`));
+  let exitCode = null;
+  let spawnError = null;
+  serverProcess.stdout.on("data", record);
+  serverProcess.stderr.on("data", record);
+  serverProcess.on("error", (err) => {
+    spawnError = err;
+    record(`spawn error: ${(err && err.message) || err}`);
+  });
+  serverProcess.on("exit", (code) => {
+    exitCode = code;
+    record(`process exited with code ${code}`);
+  });
 
-  const ready = await waitForServer(port, 60000);
-  if (!ready) {
-    throw new Error(
-      "The app's internal server did not start within 60s. See the startup log for details:\n" +
-        path.join(app.getPath("userData"), "startup.log")
-    );
+  const tail = () => output.slice(-30).join("\n");
+  const deadline = Date.now() + 90000;
+  while (Date.now() < deadline) {
+    if (spawnError) {
+      throw new Error(`Failed to launch the app's internal server: ${spawnError.message}\n\nLog: ${logPath}\n\n${tail()}`);
+    }
+    if (exitCode !== null) {
+      throw new Error(`The app's internal server exited before it was ready (code ${exitCode}).\n\nLog: ${logPath}\n\n${tail()}`);
+    }
+    if (await pingServer(port)) {
+      log("Next server is ready");
+      return port;
+    }
+    await new Promise((r) => setTimeout(r, 400));
   }
-  log("Next server is ready");
+
+  throw new Error(`The app's internal server did not start within 90s.\n\nLog: ${logPath}\n\n${tail()}`);
+}
+
+// Fallback: run the Next server inside this process (used only if the child
+// process cannot start). next.config is plain JS so no native SWC is required.
+async function startServerInProcess() {
+  log("Starting Next server in-process (fallback)");
+  const mod = await import("next");
+  const next = mod.default || mod;
+  const port = await getFreePort();
+  serverPort = port;
+  const nextApp = next({ dev: false, dir: appDir, hostname: "127.0.0.1", port });
+  const handle = nextApp.getRequestHandler();
+  await nextApp.prepare();
+  inProcessServer = http.createServer((req, res) => handle(req, res, parse(req.url || "/", true)));
+  await new Promise((resolve, reject) => {
+    inProcessServer.once("error", reject);
+    inProcessServer.listen(port, "127.0.0.1", resolve);
+  });
+  log("Next server (in-process) is ready");
   return port;
 }
 
@@ -153,6 +199,14 @@ function shutdownServer() {
     }
     serverProcess = null;
   }
+  if (inProcessServer) {
+    try {
+      inProcessServer.close();
+    } catch {
+      // ignore
+    }
+    inProcessServer = null;
+  }
 }
 
 process.on("uncaughtException", (err) => {
@@ -182,7 +236,13 @@ if (!gotLock) {
   app.whenReady().then(async () => {
     createWindow();
     try {
-      const port = await startServer();
+      let port;
+      try {
+        port = await startServer();
+      } catch (childErr) {
+        log(`Child server failed: ${(childErr && childErr.stack) || childErr}`);
+        port = await startServerInProcess();
+      }
       if (mainWindow) {
         await mainWindow.loadURL(`http://127.0.0.1:${port}/`);
       }
