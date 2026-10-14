@@ -888,7 +888,7 @@ export function generateLitLLMSynthesis(
 
   let resultsSynthesis = "";
   if (plan.hasMeta) {
-    resultsSynthesis = `### Synthesis of Results\n\nA thematic synthesis of ${n} studies was conducted to explore converging and diverging findings across the evidence base.\n\n${themeSection}\n\n### Meta-analysis\n\nEffect sizes were extracted for quantitative pooling. $\n\n${buildEffectSizeTable(attributed.slice(0, 10))}\n\nA random-effects meta-analysis is recommended using 'meta' / 'metafor' (R) to generate pooled estimates and heterogeneity statistics (I², τ²).`;
+    resultsSynthesis = `### Synthesis of Results\n\nA thematic synthesis of ${n} studies was conducted to explore converging and diverging findings across the evidence base.\n\n${themeSection}\n\n### Meta-analysis\n\nEffect sizes were extracted for quantitative pooling.\n\n${buildEffectSizeTable(attributed.slice(0, 10))}\n\nA random-effects meta-analysis is recommended using 'meta' / 'metafor' (R) to generate pooled estimates and heterogeneity statistics (I², τ²).`;
   } else if (plan.hasDta) {
     resultsSynthesis = `### Diagnostic Accuracy Synthesis\n\n${themeSection}\n\n| Study | Sensitivity | Specificity | AUC |\n|-------|------------|-------------|-----|\n${attributed.slice(0, 10).map(p => `| ${cite(p)} | — | — | — |`).join("\n")}\n\nPooling via hierarchical bivariate models ('meta4diag', 'mada', or 'MetaDTA') is recommended for joint sensitivity–specificity estimation and SROC curve generation.`;
   } else {

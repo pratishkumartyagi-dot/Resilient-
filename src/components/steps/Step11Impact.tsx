@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Sparkles, Trophy, Download, Share2, ArrowLeft, CheckCircle, Info } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
@@ -109,6 +109,14 @@ export default function Step11Impact() {
   const [completed, setCompleted] = useState(false);
   const [notice, setNotice] = useState("");
 
+  const compositeScore = useMemo(() => {
+    if (!impactText) return null;
+    const labelled = impactText.match(/(?:composite|overall)[^\d%]{0,40}(\d{1,3}(?:\.\d+)?)\s*(?:\/|out of)\s*100/i);
+    if (labelled) return labelled[1];
+    const ratio = impactText.match(/(\d{1,3}(?:\.\d+)?)\s*\/\s*100/);
+    return ratio ? ratio[1] : null;
+  }, [impactText]);
+
   const buildImpactPrompt = (): string => {
     const selectedTitle = state.researchTitles.find((t) => t.selected)?.title || state.userTitleInput || "";
     const selectedThemes = state.themes.filter((t) => t.selected).map((t) => t.title);
@@ -148,7 +156,7 @@ export default function Step11Impact() {
     } catch {
       text = "";
     }
-    if (!text.trim()) text = generateMockImpactAssessment();
+    if (!text.trim()) text = "> ⚠️ Simulated fallback (AI unavailable) — verify all figures before use.\n\n" + generateMockImpactAssessment();
 
     setImpactText(text);
     dispatch({ type: "SET_IMPACT", payload: text });
@@ -238,7 +246,7 @@ export default function Step11Impact() {
               </div>
               <div className="flex items-center gap-3 text-xs">
                 <span className="flex items-center gap-1 text-yellow-300 bg-yellow-900/20 border border-yellow-700/50 rounded px-2 py-1">
-                  <Trophy size={12} /> Composite Score: 76.5 / 100
+                  <Trophy size={12} /> Composite Score: {compositeScore ? `${compositeScore} / 100` : "—"}
                 </span>
                 <span className="text-blue-400">FI-RECOM FINAL STEP</span>
               </div>
