@@ -13,11 +13,11 @@
     "typecheck": "tsc --noEmit",
     "electron": "next build && electron .",
     "electron:run": "electron .",
-    "dist": "next build && electron-builder",
-    "dist:win": "next build && electron-builder --win",
-    "dist:mac": "next build && electron-builder --mac",
-    "dist:linux": "next build && electron-builder --linux",
-    "dist:dir": "next build && electron-builder --dir"
+    "dist": "next build && electron-builder --publish never",
+    "dist:win": "next build && electron-builder --win --publish never",
+    "dist:mac": "next build && electron-builder --mac --publish never",
+    "dist:linux": "next build && electron-builder --linux --publish never",
+    "dist:dir": "next build && electron-builder --dir --publish never"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
