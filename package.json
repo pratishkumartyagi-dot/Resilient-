@@ -1,13 +1,23 @@
 {
-  "name": "nextjs-template",
+  "name": "resilient-research-app",
   "version": "0.1.0",
   "private": true,
+  "description": "AI-powered research intelligence platform for systematic reviews, evidence synthesis, and academic writing.",
+  "author": "Resilient Research App",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "electron": "next build && electron .",
+    "electron:run": "electron .",
+    "dist": "next build && electron-builder",
+    "dist:win": "next build && electron-builder --win",
+    "dist:mac": "next build && electron-builder --mac",
+    "dist:linux": "next build && electron-builder --linux",
+    "dist:dir": "next build && electron-builder --dir"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
@@ -34,9 +44,44 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "babel-plugin-react-compiler": "^1.0.0",
+    "electron": "^44.7.2",
+    "electron-builder": "^26.15.3",
     "eslint": "^9.39.1",
     "eslint-config-next": "^16.0.0",
     "tailwindcss": "^4.1.17",
     "typescript": "^5.9.3"
+  },
+  "build": {
+    "appId": "com.resilient.researchapp",
+    "productName": "Resilient Research App",
+    "asar": false,
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "**/*",
+      "!**/.next/cache/**",
+      "!dist-electron/**",
+      "!.git/**",
+      "!.kilocode/**"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Science"
+    }
   }
 }

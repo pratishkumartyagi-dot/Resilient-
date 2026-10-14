@@ -20,6 +20,10 @@
 # production
 /build
 
+# electron desktop packaging output
+/dist-electron/
+/dist/
+
 # misc
 .DS_Store
 *.pem

@@ -51,6 +51,17 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
 - [x] Run instructions + optional config (Gemini/Groq keys, `TAVILY_API_KEY`, port) documented in `README.md` and `.env.example`.
 - Note: memory-bank/doc commits are fast-forwarded to `main` as well, so GitHub downloads stay current.
 
+## Desktop App Packaging (Electron) (2026-10-14)
+
+- [x] Added `electron/main.js`: starts the Next.js production server programmatically on a free 127.0.0.1 port (`import('next')` → `next({dev:false})` → `app.prepare()` → `http` server with `getRequestHandler`), then loads it in a native `BrowserWindow`. Single-instance lock, external links open in the OS browser, server closed on quit.
+- [x] `package.json`: `main` → `electron/main.js`; scripts `electron`, `electron:run`, `dist`, `dist:win`, `dist:mac`, `dist:linux`, `dist:dir`; `build` (electron-builder) config with `asar:false`, `appId`, `productName`, output `dist-electron/`, targets nsis/dmg/AppImage.
+- [x] Added `electron` + `electron-builder` as devDependencies; `.gitignore` ignores `dist-electron/` and `dist/`.
+- [x] Verified: Next programmatic-server logic returns HTTP 200 with correct title using the exact main-process path; `electron-builder --dir --linux` packaged successfully and `resources/app` contains `electron/main.js`, `.next`, `node_modules/next`, `public`.
+- [x] README documents the desktop build steps. Note: `bun install` now also pulls Electron, so the base install is larger.
+- [x] Verified Windows packaging: `electron-builder --win` produced `dist-electron/win-unpacked/Resilient Research App.exe` (complete Windows app). The NSIS installer step only failed in this Linux sandbox because `wine` is absent (`spawn wine ENOENT`) — it succeeds on a real Windows runner.
+- [x] Windows `win.target` = `["nsis", "portable"]` (installer + portable single-file exe).
+- [x] Added `.github/workflows/build-desktop.yml`: builds Windows `.exe`, macOS `.dmg`, and Linux `.AppImage` on native runners via `workflow_dispatch` or `v*` tags, uploading artifacts (and attaching them to the release on tags) — so a Windows installer can be downloaded from GitHub with no local toolchain.
+
 ## Recently Completed
 
 - [x] Base Next.js 16 setup with App Router

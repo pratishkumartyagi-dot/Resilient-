@@ -61,6 +61,53 @@ The `npm` equivalents (`npm run dev`, `npm run build`, etc.) work the same way.
 
 ---
 
+## Desktop app (Electron) — build a real `.exe` / `.dmg` / `.AppImage`
+
+This repo can be packaged as a standalone desktop application, so end users double-click an icon and get a native window — no browser and no terminal.
+
+Requirements: Node.js 20+ (or Bun) and ~1–2 GB free disk for the build.
+
+```bash
+bun install          # or: npm install   (also installs Electron + electron-builder)
+
+# Build the installer for the OS you are on:
+bun run dist:win     # Windows → dist-electron/…Setup….exe
+bun run dist:mac     # macOS   → dist-electron/….dmg
+bun run dist:linux   # Linux   → dist-electron/….AppImage
+```
+
+- **Try it without building an installer:** `bun run electron` (builds the app, then opens the native window).
+- **Run a pre-built desktop app:** `bun run electron:run` (assumes `bun run build` has been done).
+- **Build on the OS you target** — a Windows `.exe` on Windows, a `.dmg` on macOS, an `.AppImage` on Linux. Cross-building is possible but not recommended.
+- Output goes to `dist-electron/` (git-ignored). Share that installer file; the recipient needs no Node, no terminal, and no browser.
+
+### Windows install (easiest — no tools required on your PC)
+
+1. On GitHub open the repo → **Actions** tab → **Build Desktop App** → **Run workflow**.
+2. When it finishes, open the completed run and download the **windows-installer** artifact.
+3. Unzip it and double-click **`Resilient Research App Setup 0.1.0.exe`**, click through the installer, then launch **Resilient Research App** from the Start menu.
+   - The installer is unsigned, so Windows SmartScreen may warn: click **More info → Run anyway**.
+   - The same artifact also contains a **portable** `.exe` you can run directly without installing.
+
+### Windows build from source (optional)
+
+On a Windows PC with Node.js 20+:
+
+```powershell
+bun install        # or: npm install
+bun run dist:win   # or: npm run dist:win
+```
+
+Installers appear in `dist-electron\`. (Cross-building the Windows installer from Linux/macOS requires `wine`; building on Windows or via the GitHub Action above avoids that.)
+
+How it works: `electron/main.js` starts the app's own Next.js production server on a free local port and loads it in a native `BrowserWindow`. All AI/search features work exactly as in the browser version.
+
+Notes:
+- The desktop build bundles Electron, so installers are large (~150–250 MB).
+- Locally built installers are **unsigned**, so Windows SmartScreen ("More info → Run anyway") or macOS Gatekeeper (right-click → Open) may warn on first launch. That is expected.
+
+---
+
 ## Configuration (optional)
 
 All settings are optional. The app works out of the box with no configuration.
