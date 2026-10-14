@@ -169,6 +169,16 @@ A full description of the current state and features is maintained in `.kilocode
 - **AI generation is slow** — you are using the in-browser local model. Add a Gemini or Groq key in Settings for much faster, higher-quality output.
 - **Search returns few results** — a free `TAVILY_API_KEY` and/or `paper-search` binary extend coverage; otherwise the app uses public scholarly APIs only.
 
+### Desktop app won't open
+
+The desktop app shows a loading screen and, if its internal server fails, an **error page with details**. It also writes a startup log:
+
+- Windows: `%APPDATA%\Resilient Research App\startup.log`
+- macOS: `~/Library/Application Support/Resilient Research App/startup.log`
+- Linux: `~/.config/Resilient Research App/startup.log`
+
+Open that file for the exact reason. Common causes: Windows SmartScreen blocked an unsigned build (right-click the installer → **Properties → Unblock**, or **More info → Run anyway**), or antivirus quarantined the app.
+
 ---
 
 ## License

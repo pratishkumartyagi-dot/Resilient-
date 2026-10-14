@@ -77,6 +77,15 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
 - [x] Fixed: Step 11 composite score is now parsed from the generated assessment (`Step11Impact.tsx`) instead of hardcoded `76.5/100`; the simulated fallback is now banner-labelled; removed a stray `$` in `local-synthesis.ts`.
 - Residual (non-blocking, documented): topic-specific mock fallbacks (Step5/6/7/11, GrantWriting) remain as last-resort outputs when AI *and* the local model both fail; dead code in `EvidenceSynthesisTab`; `ResilientChatTab` keeps a reachable-only-AI path (`apiKey || true`).
 
+## Desktop launch fix — server as child process (2026-10-14, v0.1.1)
+
+- Problem: the first Windows installer (`v0.1.0`) could fail to run because the Next server was started **inside** Electron's main process (`import('next')` + `getRequestHandler`). That pattern can behave differently under Electron's runtime on Windows.
+- Fix (`electron/main.js` rewritten): the app now **spawns `next start` as a separate child process** using Electron's bundled Node (`process.execPath` with `ELECTRON_RUN_AS_NODE=1`), waits for readiness by polling `http://127.0.0.1:<port>`, then loads the window. This is the standard, robust Electron+Next pattern.
+- Added diagnostics: a `startup.log` written to the app's `userData` dir, child stdout/stderr piped into it, `uncaughtException`/`unhandledRejection` handlers, and a **visible error page + dialog** if the server fails to start (instead of a blank window/nothing).
+- Validated the exact child command locally: `node node_modules/next/dist/bin/next start -H 127.0.0.1 -p 3212` → HTTP 200, correct title. `node --check electron/main.js`, `bun typecheck`, `bun lint`, `bun run build` all pass.
+- Published release `v0.1.1` (new Windows installer + portable, macOS dmg, Linux AppImage).
+- Startup log location for troubleshooting: Windows `%APPDATA%\Resilient Research App\startup.log`, macOS `~/Library/Application Support/Resilient Research App/startup.log`, Linux `~/.config/Resilient Research App/startup.log`.
+
 ## Recently Completed
 
 - [x] Base Next.js 16 setup with App Router
