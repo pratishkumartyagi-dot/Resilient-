@@ -62,6 +62,20 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
 - [x] Windows `win.target` = `["nsis", "portable"]` (installer + portable single-file exe).
 - [x] Added `.github/workflows/build-desktop.yml`: builds Windows `.exe`, macOS `.dmg`, and Linux `.AppImage` on native runners via `workflow_dispatch` or `v*` tags, uploading artifacts (and attaching them to the release on tags) — so a Windows installer can be downloaded from GitHub with no local toolchain.
 
+## Desktop CI, Windows Installer & Pre-Delivery Audit (2026-10-14)
+
+### CI fixes (desktop build now succeeds on all platforms)
+- [x] Root cause of first CI failure: electron-builder auto-detected CI and attempted to **publish to GitHub Releases** ("GitHub Personal Access Token is not set"). Fix: every `dist*` script passes `--publish never`; the workflow's `softprops/action-gh-release` step handles releases on tags.
+- [x] `tsconfig.json` and `eslint.config.mjs` now exclude `dist-electron/`, `dist/`, `out/` so typecheck/lint don't scan packaged output.
+- [x] Verified via GitHub Actions: `windows-latest`, `macos-latest`, `ubuntu-latest` all **success**. Artifacts: `windows-installer` (~612 MB), `macos-dmg` (~327 MB), `linux-appimage` (~392 MB).
+- [x] Windows artifact contains both `Resilient Research App Setup 0.1.0.exe` (NSIS installer) and `Resilient Research App 0.1.0.exe` (portable). Installers are unsigned → expect SmartScreen "More info → Run anyway".
+
+### Pre-delivery pipeline audit (read-only) — result
+- [x] All user-facing pipelines are FUNCTIONAL/FUNCTIONAL-WITH-FALLBACK. **No `alert`-only exports remain**; every export calls a real `src/lib/exporters.ts` function. **No shell injection** (`/api/paper-search` uses `execFile`, no shell).
+- [x] `database-apis.ts`: simulated papers only when *every* selected database fails; genuine zero-result searches stay empty.
+- [x] Fixed: Step 11 composite score is now parsed from the generated assessment (`Step11Impact.tsx`) instead of hardcoded `76.5/100`; the simulated fallback is now banner-labelled; removed a stray `$` in `local-synthesis.ts`.
+- Residual (non-blocking, documented): topic-specific mock fallbacks (Step5/6/7/11, GrantWriting) remain as last-resort outputs when AI *and* the local model both fail; dead code in `EvidenceSynthesisTab`; `ResilientChatTab` keeps a reachable-only-AI path (`apiKey || true`).
+
 ## Recently Completed
 
 - [x] Base Next.js 16 setup with App Router
