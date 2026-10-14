@@ -84,6 +84,7 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
 - Added diagnostics: a `startup.log` written to the app's `userData` dir, child stdout/stderr piped into it, `uncaughtException`/`unhandledRejection` handlers, and a **visible error page + dialog** if the server fails to start (instead of a blank window/nothing).
 - Validated the exact child command locally: `node node_modules/next/dist/bin/next start -H 127.0.0.1 -p 3212` → HTTP 200, correct title. `node --check electron/main.js`, `bun typecheck`, `bun lint`, `bun run build` all pass.
 - Published release `v0.1.1` (new Windows installer + portable, macOS dmg, Linux AppImage).
+- Version bump: `package.json` version → `0.1.1` (electron-builder names artifacts from the package version, not the tag). Final assets on release `v0.1.1`: `Resilient.Research.App.Setup.0.1.1.exe`, `Resilient.Research.App.0.1.1.exe`, `Resilient.Research.App-0.1.1-arm64.dmg`, `Resilient.Research.App-0.1.1.AppImage`. Old `v0.1.0`/`v0.1.1`(misnamed) releases deleted to avoid confusion.
 - Startup log location for troubleshooting: Windows `%APPDATA%\Resilient Research App\startup.log`, macOS `~/Library/Application Support/Resilient Research App/startup.log`, Linux `~/.config/Resilient Research App/startup.log`.
 
 ## Recently Completed
