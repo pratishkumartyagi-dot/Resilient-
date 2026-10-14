@@ -87,6 +87,14 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
 - Version bump: `package.json` version → `0.1.1` (electron-builder names artifacts from the package version, not the tag). Final assets on release `v0.1.1`: `Resilient.Research.App.Setup.0.1.1.exe`, `Resilient.Research.App.0.1.1.exe`, `Resilient.Research.App-0.1.1-arm64.dmg`, `Resilient.Research.App-0.1.1.AppImage`. Old `v0.1.0`/`v0.1.1`(misnamed) releases deleted to avoid confusion.
 - Startup log location for troubleshooting: Windows `%APPDATA%\Resilient Research App\startup.log`, macOS `~/Library/Application Support/Resilient Research App/startup.log`, Linux `~/.config/Resilient Research App/startup.log`.
 
+## Desktop startup fixed — plain JS config + fallback (2026-10-14, v0.1.2)
+
+- Symptom (Windows, v0.1.1): error page "The app's internal server did not start within 60s".
+- Diagnosis: the packaged app's `next start` runs under **Electron's Node**. Loading `next.config.ts` at startup pulls in Next's TypeScript-config path, which uses the native `@next/swc-<platform>` binary — built for the standard Node ABI and prone to failing under Electron's Node. Reproduced that the packaged `resources/app` itself is complete (`.next`, `node_modules/next`, config) and its `next start` works under system Node, isolating the fault to runtime config loading under Electron.
+- Fix: converted `next.config.ts` → **`next.config.mjs`** (plain JS, no transpile/native module at runtime).
+- Hardening: `electron/main.js` now captures the child's stdout/stderr (last 80 lines) into `startup.log`, **fails fast** if the child exits or fails to spawn, extends the wait to 90s, shows the captured output in the error page, and has an **in-process server fallback** (`startServerInProcess`) if the child process cannot start.
+- Verified: `node --check electron/main.js`, `bun lint`, `bun run build`, and `next start` with the `.mjs` config (HTTP 200) all pass. Published release `v0.1.2`.
+
 ## Recently Completed
 
 - [x] Base Next.js 16 setup with App Router
