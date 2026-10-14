@@ -69,6 +69,7 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
 - [x] `tsconfig.json` and `eslint.config.mjs` now exclude `dist-electron/`, `dist/`, `out/` so typecheck/lint don't scan packaged output.
 - [x] Verified via GitHub Actions: `windows-latest`, `macos-latest`, `ubuntu-latest` all **success**. Artifacts: `windows-installer` (~612 MB), `macos-dmg` (~327 MB), `linux-appimage` (~392 MB).
 - [x] Windows artifact contains both `Resilient Research App Setup 0.1.0.exe` (NSIS installer) and `Resilient Research App 0.1.0.exe` (portable). Installers are unsigned → expect SmartScreen "More info → Run anyway".
+- [x] **Published Release `v0.1.0`** (tag push → workflow attaches installers): https://github.com/pratishkumartyagi-dot/Resilient-/releases/tag/v0.1.0. Assets: `Resilient.Research.App.Setup.0.1.0.exe`, `Resilient.Research.App.0.1.0.exe`, `Resilient.Research.App-0.1.0-arm64.dmg`, `Resilient.Research.App-0.1.0.AppImage`. NOTE: GitHub replaces spaces with dots in release asset names, which is why the spaced filename is not present there.
 
 ### Pre-delivery pipeline audit (read-only) — result
 - [x] All user-facing pipelines are FUNCTIONAL/FUNCTIONAL-WITH-FALLBACK. **No `alert`-only exports remain**; every export calls a real `src/lib/exporters.ts` function. **No shell injection** (`/api/paper-search` uses `execFile`, no shell).
