@@ -1706,3 +1706,25 @@ Both Step 1 components (Research Pipeline and Evidence Synthesis & Meta-analysis
 - **UI**: `ThesisGenerator.tsx` now renders a "Chapter Files & Argument Audit" panel — per chapter: word count, citation count, logical-flow score bar, citation-coverage bar, claims, evidence gaps, recommendations, and expandable chapter prose.
 - **Pipeline stage attribution**: added a stage-flow strip (Stage 1 OpenDraft → Stage 2 ThesisGenerator → Stage 3 ScholarCopilot → Stage 4 Humaniser) with live status dots and links to the source repos (federicodeponte/opendraft, ekontoTURBO/thesis-generator, TIGER-AI-Lab/ScholarCopilot), making the referenced tools explicit in the pipeline.
 - Validation: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
+
+## Database Search Audit & Fixes — both pipelines (2026-10-17)
+
+Both pipelines share `/api/literature-search` (main research module `Step1Search.tsx`; systematic review via `EvidenceSynthesisTab.handleSearch` + `EvidenceSynthesisStep1.tsx`). Audited all 14 databases via the live production server.
+
+### Fixes in `src/lib/database-apis.ts`
+- `fetchWithTimeout` now sends a `User-Agent` and accepts custom headers; `fetchWithRetry` rewritten with jittered exponential backoff, more attempts, and retries on HTTP 429/503/504 and network errors.
+- **PubMed**: switched esearch/efetch to `fetchWithRetry`; now preserves partial results instead of discarding everything on a late error. (Was returning 0 under load; now 655+ in combined search, 5333 alone.)
+- **arXiv**: `fetchWithRetry` (was failing on transient 429); capped `max_results` to 1000. Now 1000 results.
+- **Zenodo**: page size must be ≤25 (100 → HTTP 400); now paginates 25/page. Now 1000 results.
+- **OpenAIRE**: correct param is `keywords=` (not `query=`, which 400s); rewrote the parser for OpenAIRE's typed-array schema (`title`/`creator`/`pid`/`description` are arrays of `{@classid,$}` objects). Was producing all-`Untitled` rows that deduped to 1; now 979 results.
+- **OpenAlex**: `fetchWithRetry`, valid mailto, optional `OPENALEX_API_KEY` env. Free shared-IP budget is currently exhausted (429 "Insufficient budget") — resets daily.
+- **Semantic Scholar** & **Google Scholar**: `fetchWithRetry` with stronger backoff; optional `S2_API_KEY` env; keep partial results; reduced to a single page. SS's shared unauthenticated pool is globally rate-limited (429) intermittently; works otherwise.
+- **dblp**: gracefully reports its anti-bot HTML challenge instead of a JSON parse crash. dblp is permanently behind an Anubis JS proof-of-work challenge — no server-side workaround.
+- **Crossref / OpenAlex pagination**: capped to 10 pages (1000 results) to cut response size and rate-limiting.
+- Route: staggered parallel database requests (idx × 400ms) so shared rate limits (NCBI, Semantic Scholar) are not all hit at once.
+
+### Status
+- Working: PubMed, Europe PMC, DOAJ, bioRxiv, medRxiv, Crossref, arXiv, OpenAIRE, Zenodo, ClinicalTrials.gov, Google Scholar, Semantic Scholar (when not globally rate-limited).
+- Externally constrained: OpenAlex (daily shared budget; use `OPENALEX_API_KEY`), dblp (permanent JS bot challenge), Semantic Scholar (shared rate limit; use `S2_API_KEY`).
+
+- Validation: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅, live API tests ✅.

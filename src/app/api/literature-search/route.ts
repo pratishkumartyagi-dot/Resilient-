@@ -118,7 +118,10 @@ export async function POST(request: Request) {
     }
 
     const results = await Promise.allSettled(
-      selectedApis.map(async (db): Promise<PerDatabaseResult & { papers?: any[] }> => {
+      selectedApis.map(async (db, idx): Promise<PerDatabaseResult & { papers?: any[] }> => {
+        // Stagger requests so many databases sharing a provider (or a per-IP
+        // rate limit like NCBI/Semantic Scholar) are not all hit at once.
+        if (idx > 0) await new Promise((r) => setTimeout(r, Math.min(idx, 8) * 400));
         const fetchFn = apiMap[db];
         if (!fetchFn) {
           return { database: db, status: "failed", count: 0, error: "No fetcher mapped" };

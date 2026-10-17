@@ -211,17 +211,19 @@ export async function fetchOpenAlex(
   const filterStr = filterParts.length ? `&filter=${filterParts.join(",")}` : "";
 
   const sortStr = options?.sort ? `&sort=${options.sort}` : "";
-  const baseUrl = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=100&mailto=research@example.com${filterStr}${sortStr}`;
+  const mailto = process.env.OPENALEX_MAILTO || "research@resilient.app";
+  const apiKeyParam = process.env.OPENALEX_API_KEY ? `&api_key=${encodeURIComponent(process.env.OPENALEX_API_KEY)}` : "";
+  const baseUrl = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=100&mailto=${encodeURIComponent(mailto)}${apiKeyParam}${filterStr}${sortStr}`;
   const papers: Paper[] = [];
   let cursor = "*";
   let cursorUrl = `${baseUrl}&cursor=${cursor}`;
 
-  const MAX_PAGES = 200;
+  const MAX_PAGES = 10;
   for (let page = 0; page < MAX_PAGES; page++) {
     if (page > 0) await sleep(200);
     let res: Response;
     try {
-      res = await fetchWithTimeout(cursorUrl);
+      res = await fetchWithRetry(cursorUrl, 3, 1500);
     } catch (err: any) {
       if (page === 0 && papers.length === 0) throw new Error(`OpenAlex fetch failed: ${err?.message || String(err)}`);
       break;
@@ -263,11 +265,14 @@ export async function fetchOpenAlex(
 // Re-export STUDY_TYPES for backward compatibility
 export const STUDY_TYPES = Object.keys(STUDY_TYPE_KEYWORDS);
 
-async function fetchWithTimeout(url: string, ms = 30000): Promise<Response> {
+async function fetchWithTimeout(url: string, ms = 30000, headers?: Record<string, string>): Promise<Response> {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), ms);
   try {
-    const res = await fetch(url, { signal: controller.signal });
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { "User-Agent": "ResilientResearchApp/1.0 (mailto:research@resilient.app)", ...(headers || {}) },
+    });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
     }
@@ -287,17 +292,23 @@ async function fetchWithTimeout(url: string, ms = 30000): Promise<Response> {
   }
 }
 
-async function fetchWithRetry(url: string, maxRetries = 3, baseDelay = 1000): Promise<Response> {
+async function fetchWithRetry(
+  url: string,
+  maxRetries = 4,
+  baseDelay = 1500,
+  headers?: Record<string, string>,
+): Promise<Response> {
   let lastError: Error | null = null;
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const res = await fetchWithTimeout(url);
-      return res;
+      return await fetchWithTimeout(url, 30000, headers);
     } catch (err: any) {
       lastError = err;
-      const status = err?.message?.match(/HTTP (\d+)/)?.[1];
-      if (status === "429" || status === "503" || status === "504") {
-        const delay = baseDelay * Math.pow(2, attempt);
+      const status = Number(err?.message?.match(/HTTP (\d+)/)?.[1] || 0);
+      const retriable = status === 429 || status === 503 || status === 504 || status === 0;
+      if (retriable && attempt < maxRetries - 1) {
+        // Exponential backoff with jitter; 429s from shared IPs need breathing room.
+        const delay = baseDelay * Math.pow(2, attempt) + Math.floor(Math.random() * 500);
         await sleep(delay);
         continue;
       }
@@ -482,8 +493,8 @@ export async function fetchPaperSearchMcp(query: string, source: string, yearFro
 
 export async function fetcharXiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const searchQuery = encodeURIComponent(`all:${query}`);
-  const url = `https://export.arxiv.org/api/query?search_query=${searchQuery}&start=0&max_results=5000&sortBy=relevance`;
-  const res = await fetchWithTimeout(url);
+  const url = `https://export.arxiv.org/api/query?search_query=${searchQuery}&start=0&max_results=1000&sortBy=relevance`;
+  const res = await fetchWithRetry(url, 4, 2000);
   const text = await res.text();
   if (!text) return [];
   const papers: Paper[] = [];
@@ -653,12 +664,13 @@ export async function fetchMedRxiv(query: string, yearFrom?: string, yearTo?: st
 
 export async function fetchZenodo(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const allResults: any[] = [];
-  for (let page = 1; page <= 10; page++) {
-    const qs = new URLSearchParams({ q: query, size: "100", sort: "mostrecent", page: String(page) });
-    let res = await fetchWithTimeout(`https://zenodo.org/api/records?${qs.toString()}`, 25000);
+  const PAGE_SIZE = 25; // Zenodo caps the page size at 25 (larger values return HTTP 400)
+  for (let page = 1; page <= 40; page++) {
+    const qs = new URLSearchParams({ q: query, size: String(PAGE_SIZE), sort: "mostrecent", page: String(page) });
+    let res = await fetchWithRetry(`https://zenodo.org/api/records?${qs.toString()}`, 3, 1500);
     if (!res.ok && res.status === 400) {
-      const qs2 = new URLSearchParams({ q: query, size: "100", sort: "version", page: String(page) });
-      res = await fetchWithTimeout(`https://zenodo.org/api/records?${qs2.toString()}`, 25000);
+      const qs2 = new URLSearchParams({ q: query, size: String(PAGE_SIZE), sort: "version", page: String(page) });
+      res = await fetchWithRetry(`https://zenodo.org/api/records?${qs2.toString()}`, 3, 1500);
     }
     if (!res.ok) {
       if (page === 1) throw new Error(`Zenodo error: ${res.status}`);
@@ -668,7 +680,7 @@ export async function fetchZenodo(query: string, yearFrom?: string, yearTo?: str
     const results = data.hits?.hits || [];
     if (results.length === 0) break;
     allResults.push(...results);
-    if (results.length < 100) break;
+    if (results.length < PAGE_SIZE) break;
     await sleep(200);
   }
   return buildZenodoPapers(allResults, yearFrom, yearTo, studyType);
@@ -742,7 +754,7 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
 
   const papers: Paper[] = [];
   let cursor = "*";
-  for (let page = 0; page < 50; page++) {
+  for (let page = 0; page < 10; page++) {
     const qs = new URLSearchParams({ query, rows: "100", cursor, sort: "relevance" });
     if (filters.length) qs.set("filter", filters.join(","));
     const url = `https://api.crossref.org/works?${qs.toString()}`;
@@ -773,7 +785,7 @@ export async function fetchOpenAIRE(query: string, yearFrom?: string, yearTo?: s
     const papers: Paper[] = [];
     for (let apiPage = 1; apiPage <= 10; apiPage++) {
     const qs = new URLSearchParams({ 
-      query: query, 
+      keywords: query, 
       format: "json", 
       size: "100",
       page: String(apiPage)
@@ -785,37 +797,55 @@ export async function fetchOpenAIRE(query: string, yearFrom?: string, yearTo?: s
       break;
     }
     const data = await res.json();
-    const results = data.response?.results?.result || [];
+    const rawResults = data.response?.results?.result || [];
+    const results = Array.isArray(rawResults) ? rawResults : (rawResults ? [rawResults] : []);
     if (results.length === 0) break;
     for (const r of results) {
       try {
         const meta = r.metadata || {};
         const entity = meta["oaf:entity"] || {};
         const result = entity["oaf:result"] || {};
-        
-        const title = result.resulttitle?.$ || result.resulttitle || "Untitled";
+
+        // OpenAIRE returns typed values: strings, {$: "..."} objects, or arrays
+        // of {@classid, $} objects (e.g. title, creator, pid).
+        const pickOafText = (v: any): string => {
+          if (v == null) return "";
+          if (typeof v === "string") return v;
+          if (typeof v === "number") return String(v);
+          if (Array.isArray(v)) {
+            const main = v.find((x) => x && typeof x === "object" && typeof x.$ === "string" && (x["@classid"] === "main title" || x["@classid"] === "doi")) || v[0];
+            return pickOafText(main);
+          }
+          if (typeof v === "object") return pickOafText(v.$ ?? v.content ?? v.name ?? "");
+          return "";
+        };
+
+        const title = pickOafText(result.title) || pickOafText(result.resulttitle) || "Untitled";
         const creatorList = Array.isArray(result.creator) ? result.creator : (result.creator ? [result.creator] : []);
-        const authors = creatorList.map((c: any) => c["$"] || c.content || c.name || "").filter(Boolean).join(", ").substring(0, 300) || "Unknown authors";
-        
-        const yearStr = result.dateofacceptance?.$ || result.dateofacceptance || result.dateofcollection?.$ || result.dateofcollection || "";
+        const authors = creatorList.map((c: any) => pickOafText(c)).filter(Boolean).join(", ").substring(0, 300) || "Unknown authors";
+
+        const yearStr = pickOafText(result.dateofacceptance) || pickOafText(result.dateofcollection) || "";
         const year = parseInt(yearStr.slice(0, 4)) || new Date().getFullYear();
-        
-        const doi = (result.doi?.$ || result.doi || "").replace("https://doi.org/", "");
-        const abstract = result.description?.$ || result.description || result.abstract?.$ || result.abstract || "No abstract available.";
-        
+
+        const doiFromPid = Array.isArray(result.pid)
+          ? pickOafText(result.pid.find((p: any) => p && p["@classid"] === "doi"))
+          : "";
+        const doi = (pickOafText(result.doi) || doiFromPid).replace("https://doi.org/", "").trim();
+        const abstract = pickOafText(result.description) || pickOafText(result.abstract) || "No abstract available.";
+
         if (yearFrom && year < parseInt(yearFrom)) continue;
         if (yearTo && year > parseInt(yearTo)) continue;
-        
+
         papers.push({
-          id: `openaire-${doi || Math.random().toString(36).slice(2, 8)}`,
-          title: typeof title === "string" ? title : "Untitled",
+          id: `openaire-${doi || pickOafText(result.originalId) || Math.random().toString(36).slice(2, 8)}`,
+          title: title || "Untitled",
           authors: authors || "Unknown authors",
-          journal: result.journal?.$ || result.journal || "Unknown Journal",
+          journal: pickOafText(result.journal) || "Unknown Journal",
           year,
           doi,
-          abstract: (typeof abstract === "string" ? abstract : "No abstract available.").substring(0, 3000),
+          abstract: (abstract || "No abstract available.").substring(0, 3000),
           database: "OpenAIRE",
-          studyType: classifyStudyType(typeof title === "string" ? title : "", typeof abstract === "string" ? abstract : ""),
+          studyType: classifyStudyType(title || "", abstract || ""),
           selected: false,
           url: doi ? `https://doi.org/${doi}` : "",
           sourceBackend: "OpenAIRE API",
@@ -845,9 +875,16 @@ export async function fetchOpenAIRE(query: string, yearFrom?: string, yearTo?: s
 export async function fetchDblp(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const qs = new URLSearchParams({ q: query, format: "json", h: "100", f: "0" });
   const url = `https://dblp.org/search/publ/api?${qs.toString()}`;
-  const res = await fetchWithTimeout(url);
+  const res = await fetchWithRetry(url, 3, 1500, { Accept: "application/json" });
   if (!res.ok) throw new Error(`DBLP error: ${res.status}`);
-  const data = await res.json();
+  const raw = await res.text();
+  let data: any;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    // dblp periodically serves an anti-bot HTML challenge instead of JSON.
+    throw new Error("dblp returned a non-JSON response (bot protection)");
+  }
   const hits = data.result?.hits?.hit || [];
   const papers: Paper[] = hits.map((h: any) => {
     const info = h.info || {};
@@ -1319,13 +1356,14 @@ export async function fetchCochraneLibrary(query: string, yearFrom?: string, yea
 }
 
 export async function fetchPubMedBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+  const papers: Paper[] = [];
   try {
     let pmids: string[] = [];
     const PAGE = 500;
     const MAX_RESULTS = 10000;
     for (let start = 0; start < MAX_RESULTS; start += PAGE) {
       const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=${PAGE}&retstart=${start}&sort=relevance&term=${encodeURIComponent(query)}`;
-      const searchRes = await fetchWithTimeout(searchUrl);
+      const searchRes = await fetchWithRetry(searchUrl, 3, 1500);
       const searchText = await searchRes.text();
       const idMatches = searchText.match(/<Id>(\d+)<\/Id>/g) || [];
       const batch = idMatches.map((m) => m.replace(/<Id>|<\/Id>/g, "").trim()).filter(Boolean);
@@ -1339,7 +1377,7 @@ export async function fetchPubMedBrowserless(query: string, yearFrom?: string, y
       const broadQuery = query.split("(")[0].split(")")[0].trim() || query;
       const broadSearchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=500&term=${encodeURIComponent(broadQuery)}`;
       try {
-        const broadSearchRes = await fetchWithTimeout(broadSearchUrl);
+        const broadSearchRes = await fetchWithRetry(broadSearchUrl, 3, 1500);
         const broadSearchText = await broadSearchRes.text();
         const broadIdMatches = broadSearchText.match(/<Id>(\d+)<\/Id>/g) || [];
         pmids = broadIdMatches.map((m) => m.replace(/<Id>|<\/Id>/g, "").trim()).filter(Boolean);
@@ -1350,13 +1388,19 @@ export async function fetchPubMedBrowserless(query: string, yearFrom?: string, y
     }
 
     const chunkSize = 200;
-    const papers: Paper[] = [];
 
     for (let i = 0; i < pmids.length; i += chunkSize) {
       if (i > 0) await sleep(500);
       const chunk = pmids.slice(i, i + chunkSize).join(",");
       const fetchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=${chunk}&rettype=abstract`;
-      const res = await fetchWithTimeout(fetchUrl);
+      let res: Response;
+      try {
+        res = await fetchWithRetry(fetchUrl, 4, 1500);
+      } catch (err) {
+        // Keep whatever we have already fetched rather than discarding everything.
+        if (papers.length > 0) break;
+        throw err;
+      }
       const xml = await res.text();
       const entries = xml.split("<PubmedArticle>").slice(1);
       for (const entry of entries) {
@@ -1415,15 +1459,16 @@ export async function fetchPubMedBrowserless(query: string, yearFrom?: string, y
     // Return papers even if empty (caller handles fallback)
     return papers;
   } catch (err: any) {
-    // Return empty array to let caller handle fallback gracefully
-    return [];
+    // Return partial results if any, otherwise empty to let caller handle fallback.
+    return papers;
   }
 }
 
 export async function fetchGoogleScholarBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   try {
+    const s2Headers = process.env.S2_API_KEY ? { "x-api-key": process.env.S2_API_KEY } : undefined;
     const searchUrl = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=title,authors,year,abstract,externalIds,venue,citationCount&limit=100`;
-    const res = await fetchWithRetry(searchUrl, 3, 2000);
+    const res = await fetchWithRetry(searchUrl, 4, 2500, s2Headers);
     const data = await res.json();
     const papers: Paper[] = (data.data || [])
       .filter((p: any) => p.title && p.title.length > 5)
@@ -1468,10 +1513,18 @@ export async function fetchGoogleScholarBrowserless(query: string, yearFrom?: st
 
 export async function fetchSemanticScholarBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   try {
+    const s2Headers = process.env.S2_API_KEY ? { "x-api-key": process.env.S2_API_KEY } : undefined;
     const papers: Paper[] = [];
-    for (let offset = 0; offset < 1000; offset += 100) {
+    for (let offset = 0; offset < 100; offset += 100) {
     const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=title,authors,year,abstract,externalIds,venue,publicationDate&limit=100&offset=${offset}`;
-    const res = await fetchWithRetry(url, 3, 2000);
+    let res: Response;
+    try {
+      res = await fetchWithRetry(url, 4, 2500, s2Headers);
+    } catch (err) {
+      // Keep any results already collected from earlier pages.
+      if (papers.length > 0) break;
+      throw err;
+    }
     const data = await res.json();
     const batch: any[] = data.data || [];
     if (batch.length === 0) break;
@@ -1504,7 +1557,7 @@ export async function fetchSemanticScholarBrowserless(query: string, yearFrom?: 
     if (papers.length === 0) {
       const fallbackUrl = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=title,authors,year,abstract,externalIds,venue&limit=50`;
       try {
-        const fallbackRes = await fetchWithRetry(fallbackUrl, 2, 2000);
+        const fallbackRes = await fetchWithRetry(fallbackUrl, 3, 2500, s2Headers);
         const fallbackData = await fallbackRes.json();
         const fallbackPapers: Paper[] = (fallbackData.data || [])
           .filter((p: any) => p.title && p.title.length > 5)
