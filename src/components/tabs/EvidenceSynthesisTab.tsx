@@ -356,6 +356,7 @@ export default function EvidenceSynthesisTab() {
   const [yearFrom, setYearFrom] = useState("");
   const [yearTo, setYearTo] = useState("");
   const [searchLogic, setSearchLogic] = useState("AND");
+  const [semanticSearch, setSemanticSearch] = useState(false);
   const [studyTypeFilter, setStudyTypeFilter] = useState("All Study Types");
   const [perDatabaseResults, setPerDatabaseResults] = useState<Array<{ database: string; status: string; count: number; error?: string }>>([]);
   const [citationValidationResults, setCitationValidationResults] = useState<Record<string, { valid: boolean; title?: string; message: string }>>({});
@@ -398,6 +399,7 @@ export default function EvidenceSynthesisTab() {
           yearTo: yearTo || undefined,
           studyType: studyTypeFilter === "All Study Types" ? undefined : studyTypeFilter,
           searchLogic,
+          semanticSearch: semanticSearch || false,
         }),
       });
 
@@ -1476,13 +1478,25 @@ ${methodsBlock}\n\n---
       ? papers.filter((p) => robSelectedPaperIds.has(p.id))
       : papers.filter((p) => selectedPaperIds.has(p.id));
 
-    if (reviewPapers.length === 0 && extractedData.length === 0) {
+    // Prefer the evidence synthesis table (extractedData) when available — it carries
+    // Vancouver references + deep-reasoned research gaps from Step 2 extraction.
+    const synthRows = extractedData.filter((r) =>
+      reviewPapers.some((p) => p.id === r.id) || selectedPaperIds.has(r.id)
+    );
+    const sourcePapers = synthRows.length > 0 ? synthRows : reviewPapers;
+
+    if (sourcePapers.length === 0) {
       alert("Please select papers in Risk of Bias Assessment first.");
       return;
     }
-    const selectedPapers = reviewPapers;
-    const references = selectedPapers
-      .map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || p.database}.${p.doi ? ` doi:${p.doi}` : ""}`)
+
+    // References (section 6) auto-populated from the evidence synthesis table's
+    // Vancouver reference column, with verified DOI links.
+    const references = sourcePapers
+      .map((p, i) => {
+        const ref = p.vancouverReference || `${p.authors || "Unknown"}. ${p.title || "Untitled"}. ${p.journal || p.database || "Unknown journal"}. ${p.year || new Date().getFullYear()}.${p.doi ? ` doi:${p.doi}` : ""}`;
+        return `${i + 1}. ${ref}`;
+      })
       .join("\n");
 
     setLiteratureReviewLoading(true);
@@ -1492,50 +1506,62 @@ ${methodsBlock}\n\n---
       gaps: "",
       futureAdvice: "",
       summary: "",
-      references: "",
+      references,
     });
     try {
-      const numberedRefs = selectedPapers
-        .map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || p.database}.${p.doi ? ` doi:${p.doi}` : ""}`)
-        .join("\n");
+      // Rich evidence-synthesis table context for per-section AI writing.
+      const evidenceTable = sourcePapers
+        .map((p, i) => {
+          const doiLink = p.doi ? `https://doi.org/${p.doi}` : "";
+          return `${i + 1}. [${p.title || "Untitled"}] (${p.authors || "Unknown"}, ${p.year || "n.d."})
+   - Type: ${p.studyType || "Not specified"} | Level: ${p.evidenceLevel || "Not specified"}
+   - Vancouver: ${p.vancouverReference || `${p.authors || "Unknown"}. ${p.title || "Untitled"}. ${p.journal || p.database || "Unknown journal"}. ${p.year || new Date().getFullYear()}.${p.doi ? ` doi:${p.doi}` : ""}`}
+   - DOI: ${doiLink || "—"}
+   - Population: ${p.population || "Not specified"}
+   - Intervention: ${p.intervention || "Not specified"}
+   - Comparison: ${p.comparison || "Not specified"}
+   - Outcome: ${p.outcome || "Not specified"}
+   - Sample size: ${p.sampleSize || "Not specified"} | Effect: ${p.effectEstimate || "Not reported"} (95% CI: ${p.ciLower || "—"}–${p.ciUpper || "—"})
+   - ROB: ${p.ROB || "Pending"}
+   - Research gaps (deep reasoning): ${p.researchGaps || "Limitations: Not specified; Exclusions: Not specified; Gaps: Not specified"}`;
+        })
+        .join("\n\n");
 
-      const prompt = `You are an expert academic writer using deep reasoning methodology. Write a comprehensive, publication-ready narrative literature review based ONLY on the selected studies provided below.
+      const prompt = `You are an expert academic writer using deep reasoning methodology. Write a comprehensive, publication-ready narrative literature review based ONLY on the evidence synthesis table below (extracted from the selected studies).
 
-Follow this exact structure and headings:
-- Introduction / Background
-- Problem Statement (with subsections: Global, South-East Asia, India)
-- Research Gaps
-- Future Studies to Be Carried Out
-- Conclusion
-- References
+Follow this exact structure and headings (6 sections):
+1. Introduction — Broad overview of the research field
+2. Global & Indian Situations — Burden data, national programmes
+3. Research Gaps / Limitations — Populations & settings not studied
+4. Authors' Advice for Future Research — Recommendations from journals
+5. Summary of All Studies — Thematic synthesis of findings
+6. References — All Vancouver-style citations (only here)
 
 CITATION RULES:
 - Cite papers inline using author-year in parentheses, e.g. (Smith 2020), (Jones et al 2022).
-- The author-year MUST match one of the numbered references below.
+- The author-year MUST match one of the numbered references in section 6.
 - Aim for 2-4 inline citations per paragraph.
+- Every inline citation must trace back to a paper in the evidence synthesis table.
 
-REFERENCES (use these exact author-year strings in your inline citations):
-${selectedPapers.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || p.database}.${p.doi ? ` doi:${p.doi}` : ""}`).join("\n")}
-
-SELECTED STUDIES:
-${selectedPapers.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. Type: ${p.studyType || "Not specified"}. Database: ${p.database}.${p.doi ? ` DOI: ${p.doi}` : ""}`).join("\n\n")}
-
-EXTRACTED DATA:
-${extractedData.filter((p) => selectedPapers.some((sp) => sp.id === p.id)).map((p) => `- ${p.title}: ${p.outcome || "Outcome not specified"}`).join("\n")}
+EVIDENCE SYNTHESIS TABLE (source of truth — use these facts):
+${evidenceTable}
 
 DEEP REASONING RULES:
 1. Think step-by-step before drafting each section.
-2. Explicitly acknowledge conflicting or limited evidence.
-3. Ensure global, South-East Asia, and India perspectives are all addressed where relevant.
-4. Use ONLY author-year inline citations (Author Year). Include a complete References section at the end.
+2. For Research Gaps / Limitations, write a narrative after deep reasoning about each paper's limitations, exclusions, and unanswered questions (draw on the "Research gaps (deep reasoning)" column).
+3. For Authors' Advice for Future Research, give concrete recommendations grounded in the identified gaps.
+4. For Summary of All Studies, provide a thematic synthesis across studies.
+5. Ensure global, South-East Asia, and India perspectives are addressed where relevant.
+6. Use ONLY author-year inline citations (Author Year).
+7. Section 6 (References) must list ALL papers in Vancouver style, matching the table's Vancouver column, with verified DOI links where available.
 
 OUTPUT FORMAT:
 Use plain text with these exact headings on their own lines:
-Introduction / Background
-Problem Statement (Global, South-East Asia, India)
-Research Gaps
-Future Studies to Be Carried Out
-Conclusion
+Introduction
+Global & Indian Situations
+Research Gaps / Limitations
+Authors' Advice for Future Research
+Summary of All Studies
 References
 
 At the end, include a References section with all papers in Vancouver style:
@@ -1549,11 +1575,11 @@ At the end, include a References section with all papers in Vancouver style:
           gaps: "",
           futureAdvice: "",
           summary: "",
-          references: references,
+          references,
         });
-         setLiteratureReviewLoading(false);
-         return;
-       }
+        setLiteratureReviewLoading(false);
+        return;
+      }
 
       let text: string;
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
@@ -1582,7 +1608,7 @@ At the end, include a References section with all papers in Vancouver style:
         gaps: "",
         futureAdvice: "",
         summary: "",
-        references: references,
+        references,
       });
     } finally {
       setLiteratureReviewLoading(false);
@@ -2422,6 +2448,8 @@ ${stormReview}
             studyTypeFilter={studyTypeFilter}
             onStudyTypeFilterChange={setStudyTypeFilter}
             onSearch={handleSearch}
+            semanticSearch={semanticSearch}
+            onSemanticSearchChange={setSemanticSearch}
             onProceed={() => {
               if (selectedPaperIds.size === 0) {
                 setSearchError("Select at least one paper before proceeding to extraction.");

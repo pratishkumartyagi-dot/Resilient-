@@ -27,6 +27,8 @@ interface LiteratureSearchRequestBody {
   yearFrom?: string;
   yearTo?: string;
   studyType?: string;
+  searchLogic?: string;
+  semanticSearch?: boolean;
 }
 
 function corsHeaders() {

@@ -1,8 +1,9 @@
 "use client";
 
 import React from "react";
-import { Search, Database, ChevronRight, CheckSquare, Square, ExternalLink } from "lucide-react";
+import { Search, Database, ChevronRight, CheckSquare, Square, ExternalLink, Zap } from "lucide-react";
 import { type Paper } from "@/lib/database-apis";
+import { formatVancouverReference } from "@/lib/references";
 
 export interface EvidenceSynthesisStep1Props {
   databases: string[];
@@ -36,6 +37,8 @@ export interface EvidenceSynthesisStep1Props {
   showVerifiedOnly: boolean;
   onShowVerifiedOnlyChange: (value: boolean) => void;
   citationValidationCounts?: { verified: number; unverified: number; noDoi: number };
+  semanticSearch: boolean;
+  onSemanticSearchChange: (value: boolean) => void;
 }
 
 export default function EvidenceSynthesisStep1({
@@ -70,6 +73,8 @@ export default function EvidenceSynthesisStep1({
   showVerifiedOnly,
   onShowVerifiedOnlyChange,
   citationValidationCounts,
+  semanticSearch,
+  onSemanticSearchChange,
 }: EvidenceSynthesisStep1Props) {
   const getFilteredPapers = () => {
     return papers.filter((p) => {
@@ -143,6 +148,16 @@ export default function EvidenceSynthesisStep1({
               </button>
             ))}
           </div>
+          <label className="flex items-center gap-2 text-xs cursor-pointer select-none group">
+            <input
+              type="checkbox"
+              checked={semanticSearch}
+              onChange={(e) => onSemanticSearchChange(e.target.checked)}
+              className="w-3 h-3 rounded border-blue-600 text-yellow-500 focus:ring-yellow-500 bg-blue-950"
+            />
+            <span className="text-blue-300 group-hover:text-blue-200">Semantic search (meaning-based)</span>
+            <Zap size={12} className="text-yellow-500/70 group-hover:text-yellow-400" />
+          </label>
           <span className="text-xs text-blue-300 ml-2">Year:</span>
           <input
             type="number"
