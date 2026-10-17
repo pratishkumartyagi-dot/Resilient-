@@ -1751,3 +1751,25 @@ Converted the app to Windows executables using the existing Electron + electron-
 - Procedure: bump `package.json` version → commit → push → `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag triggers the workflow (`permissions: contents: write`, `softprops/action-gh-release`).
 - Published: release **v0.1.3** (public repo `pratishkumartyagi-dot/Resilient-`) with `Resilient.Research.App.Setup.0.1.3.exe` (installer), `Resilient.Research.App.0.1.3.exe` (portable), plus macOS dmg and Linux AppImage.
 - Windows installer URL: https://github.com/pratishkumartyagi-dot/Resilient-/releases/download/v0.1.3/Resilient.Research.App.Setup.0.1.3.exe
+
+## Thesis humaniser fix, per-section literature review & auto-analyst report (2026-10-17)
+
+### Thesis Generator crash fixed
+- Root cause of `object is not iterable` at ~95% (Stage 4 humaniser): `src/lib/humaniser/index.ts` had a stray object `{"delve":"look"}` inside the `AI_TYPICAL_PHRASES: Array<[string,string]>` array, so `for (const [find, repl] of ...)` destructuring threw. Also `humanise()` returned the original `fullThesis` instead of the humanised text.
+- Rewrote `src/lib/humaniser/index.ts` to the **academic-humanizer** skill (AIScientists-Dev/academic-humanizer, MIT): Layer 1/2 AI-tell replacement catalog (delve/underscore/tapestry/leverage/…, significance hype, empty intensifiers, novelty padding, formulaic openers, connective overuse), em-dash removal, overlong-sentence splitting, and a per-chapter AI rewrite using the claim↔evidence + preserve-citations/numbers rules. The AI rewrite is accepted only if it preserves citations/numbers (`preservesCitations`), else the deterministic pass is kept (also the graceful fallback on quota failure). Now returns the humanised `fullThesis`.
+
+### Thesis Generator finalise + download
+- `ThesisGenerator.tsx`: added a finalise flow — the thesis is shown in an editable textarea, then **Finalise Thesis** unlocks Word / PDF / LaTeX downloads (Edit re-opens it). Editing resets finalisation.
+
+### Research pipeline Step 4 literature review
+- `Step4LiteratureReview.tsx`: each of the 6 sections is always rendered as its own card with a per-section **Generate/Regenerate** button so sections can be generated one at a time (avoids exhausting the daily API quota). Added a tip in the structure panel. Section 6 (References) stays auto-filled from the evidence-synthesis Vancouver column.
+
+### Statistical Analysis auto-report
+- New `src/lib/data-profiling/index.ts` (fg-data-profiling concept): column profiles (n, missing, mean, SD, median, min/max, IQR, 1.5×IQR outliers), group stats with 95% CI, completeness and quality flags.
+- New `src/lib/auto-analyst/index.ts` (Auto-Analyst + notebooklm-py concept): builds a notebook-style markdown report (Dataset Overview; Data Profiling & Quality; Distribution & Outliers; Group Comparisons; Key Findings; Limitations & Recommendations; optional AI Analytical Narrative).
+- `StatisticalAnalysisTab.tsx`: **Auto-Analyst Report** panel — Generate Report (AI if a key is set, deterministic otherwise), editable notebook-style textarea, **Finalise**, then export Word/PDF.
+
+### Note on the referenced repos
+The requested repos (academic-humanizer, fg-data-profiling, Auto-Analyst, notebooklm-py) are external Python/skill projects that cannot be installed in this Next.js app; their methodologies were implemented natively in the modules above.
+
+- Validation: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.

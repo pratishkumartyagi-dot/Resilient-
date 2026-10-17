@@ -3,7 +3,7 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   Sparkles, Save, RotateCcw, Download, FileText, BookOpen, ChevronRight,
-  Loader2, CircleHelp, X, Copy, Edit2,
+  Loader2, CircleHelp, X, Copy, Edit2, Check, CheckCircle2,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { runThesisPipeline, buildDefaultConfig } from "@/lib/thesis-pipeline";
@@ -87,6 +87,7 @@ export default function ThesisGenerator() {
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [fullThesis, setFullThesis] = useState("");
+  const [finalized, setFinalized] = useState(false);
   const generatingRef = useRef(false);
 
   // Load saved session on mount
@@ -137,6 +138,7 @@ export default function ThesisGenerator() {
     setError(null);
     setResult(null);
     setFullThesis("");
+    setFinalized(false);
     generatingRef.current = true;
 
     try {
@@ -179,6 +181,7 @@ export default function ThesisGenerator() {
     setProgress(0);
     setResult(null);
     setFullThesis("");
+    setFinalized(false);
     setError(null);
     setConfig(initialConfig());
     try { localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
@@ -186,11 +189,16 @@ export default function ThesisGenerator() {
 
   const handleThesisChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setFullThesis(e.target.value);
+    setFinalized(false);
     if (result) setResult({ ...result, fullThesis: e.target.value });
   };
 
   const handleExport = (kind: "pdf" | "word" | "latex") => {
     if (!fullThesis) return;
+    if (!finalized) {
+      setError("Please finalise the thesis before downloading. Review the text, then click “Finalise Thesis”.");
+      return;
+    }
     const base = `thesis-${config.topic.replace(/\s+/g, "-").slice(0, 40)}-${new Date().toISOString().split("T")[0]}`;
     if (kind === "pdf") downloadMarkdownAsPDF(fullThesis, `${base}.pdf`);
     else if (kind === "word") downloadMarkdownAsWord(fullThesis, `${base}.docx`);
@@ -463,19 +471,37 @@ export default function ThesisGenerator() {
         </div>
 
         {result && (
-          <div className="flex gap-2">
-            <button onClick={() => handleExport("word")} className="text-xs bg-blue-900/50 text-blue-200 px-3 py-1.5 rounded hover:bg-blue-800/60">
-              <Download size={12} /> Word
-            </button>
-            <button onClick={() => handleExport("pdf")} className="text-xs bg-emerald-900/50 text-emerald-300 px-3 py-1.5 rounded hover:bg-emerald-800/60">
-              <Download size={12} /> PDF
-            </button>
-            <button onClick={() => handleExport("latex")} className="text-xs bg-purple-900/50 text-purple-200 px-3 py-1.5 rounded hover:bg-purple-800/60">
-              <Download size={12} /> LaTeX
-            </button>
+          <div className="flex gap-2 items-center flex-wrap">
             <button onClick={handleCopy} className="text-xs bg-blue-900/50 text-blue-200 px-3 py-1.5 rounded hover:bg-blue-800/60">
               <Copy size={12} /> Copy
             </button>
+            {!finalized ? (
+              <button
+                onClick={() => setFinalized(true)}
+                disabled={!fullThesis.trim()}
+                className="text-xs bg-yellow-500 text-[#0a1a3a] font-bold px-3 py-1.5 rounded hover:bg-yellow-600 disabled:opacity-50 flex items-center gap-1"
+              >
+                <Check size={12} /> Finalise Thesis
+              </button>
+            ) : (
+              <>
+                <span className="text-[10px] text-emerald-300 flex items-center gap-1">
+                  <CheckCircle2 size={12} /> Finalised
+                </span>
+                <button onClick={() => setFinalized(false)} className="text-xs bg-blue-900/50 text-blue-200 px-3 py-1.5 rounded hover:bg-blue-800/60">
+                  <Edit2 size={12} /> Edit
+                </button>
+                <button onClick={() => handleExport("word")} className="text-xs bg-blue-900/50 text-blue-200 px-3 py-1.5 rounded hover:bg-blue-800/60">
+                  <Download size={12} /> Word
+                </button>
+                <button onClick={() => handleExport("pdf")} className="text-xs bg-emerald-900/50 text-emerald-300 px-3 py-1.5 rounded hover:bg-emerald-800/60">
+                  <Download size={12} /> PDF
+                </button>
+                <button onClick={() => handleExport("latex")} className="text-xs bg-purple-900/50 text-purple-200 px-3 py-1.5 rounded hover:bg-purple-800/60">
+                  <Download size={12} /> LaTeX
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -506,6 +532,16 @@ export default function ThesisGenerator() {
           </div>
 
           <div className="bg-blue-950 border border-blue-800 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+              <span className="text-[11px] text-blue-300">
+                Review and edit the thesis below, then click <span className="text-yellow-300 font-semibold">Finalise Thesis</span> to enable Word / PDF / LaTeX downloads.
+              </span>
+              {finalized && (
+                <span className="text-[11px] text-emerald-300 flex items-center gap-1">
+                  <CheckCircle2 size={12} /> Finalised — ready to download
+                </span>
+              )}
+            </div>
             <textarea
               value={fullThesis}
               onChange={handleThesisChange}

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useCallback, useMemo } from "react";
-import { Sparkles, BookOpen, RotateCcw, Loader2, Copy, Check, RefreshCw } from "lucide-react";
+import { Sparkles, BookOpen, RotateCcw, Loader2, Copy, Check } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
 import { generateLocalLiteratureReview } from "@/lib/local-synthesis";
@@ -296,6 +296,10 @@ export default function Step4LiteratureReview() {
             </li>
           ))}
         </ol>
+        <p className="text-[11px] text-emerald-200/80 mt-3">
+          Tip: generate each section on its own (the <span className="font-semibold">Generate</span> button on every
+          section below) to conserve API quota — generating all sections at once can exhaust your daily limit.
+        </p>
       </div>
 
       {loading && !hasContent && (
@@ -307,10 +311,9 @@ export default function Step4LiteratureReview() {
         </div>
       )}
 
-      {/* Rendered sections */}
-      {(hasContent || sections.references) && (
-        <div className="space-y-4">
-          {REVIEW_STRUCTURE.map((meta) => {
+      {/* Rendered sections — each can be generated independently to conserve API quota */}
+      <div className="space-y-4">
+        {REVIEW_STRUCTURE.map((meta) => {
             const content = meta.key === "references" ? referencesText : sections[meta.key];
             const isRef = meta.key === "references";
             return (
@@ -326,8 +329,8 @@ export default function Step4LiteratureReview() {
                       disabled={sectionLoading === meta.key || loading}
                       className="flex items-center gap-1 text-[11px] bg-blue-900/50 text-blue-200 px-2 py-1 rounded hover:bg-blue-800/60 disabled:opacity-50"
                     >
-                      {sectionLoading === meta.key ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-                      Regenerate
+                      {sectionLoading === meta.key ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                      {content ? "Regenerate" : "Generate"}
                     </button>
                   )}
                   {isRef && (
@@ -352,9 +355,8 @@ export default function Step4LiteratureReview() {
                 )}
               </div>
             );
-          })}
-        </div>
-      )}
+        })}
+      </div>
     </div>
   );
 }
