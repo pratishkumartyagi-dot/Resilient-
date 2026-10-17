@@ -1739,3 +1739,7 @@ Converted the app to Windows executables using the existing Electron + electron-
 - **Cross-building Windows targets on Linux requires wine with 32-bit support.** Installed via `apt-get`: `apt-get install -y --no-install-recommends wine64` then `dpkg --add-architecture i386 && apt-get update && apt-get install -y --no-install-recommends wine32:i386`; linked `/usr/bin/wine` → `/usr/lib/wine/wine`. Without wine the NSIS step fails with `wine process failed ENOENT`.
 - Set `build.win.signAndEditExecutable: false` so exe resource editing/signing is skipped (no custom `.ico` present; default Electron icon used). Signing/code-signing still not configured.
 - `dist-electron/` is a build artifact; do not commit the ~670 MB of .exe files.
+
+### Windows exe build gotcha (2026-10-17)
+- When building the Windows installer on Linux, the wine prefix matters. The default prefix created by a 64-bit-only wine fails with `wine: could not load kernel32.dll, status c0000135`. Build succeeded using a fresh 32-bit-capable prefix: `WINEDEBUG=-all WINEPREFIX=/tmp/kilo/wineprefix ./node_modules/.bin/electron-builder --win --publish never` (run after `next build`). Use the `dist:win` script only with that WINEPREFIX exported.
+- Freshly built installers: `dist-electron/Resilient Research App Setup 0.1.2.exe` (NSIS installer) and `dist-electron/Resilient Research App 0.1.2.exe` (portable), each ~335 MB.
