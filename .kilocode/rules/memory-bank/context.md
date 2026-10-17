@@ -1743,3 +1743,11 @@ Converted the app to Windows executables using the existing Electron + electron-
 ### Windows exe build gotcha (2026-10-17)
 - When building the Windows installer on Linux, the wine prefix matters. The default prefix created by a 64-bit-only wine fails with `wine: could not load kernel32.dll, status c0000135`. Build succeeded using a fresh 32-bit-capable prefix: `WINEDEBUG=-all WINEPREFIX=/tmp/kilo/wineprefix ./node_modules/.bin/electron-builder --win --publish never` (run after `next build`). Use the `dist:win` script only with that WINEPREFIX exported.
 - Freshly built installers: `dist-electron/Resilient Research App Setup 0.1.2.exe` (NSIS installer) and `dist-electron/Resilient Research App 0.1.2.exe` (portable), each ~335 MB.
+
+## Windows installer published via GitHub release (2026-10-17)
+
+- Direct upload of the ~335 MB .exe via `gh release upload` fails with `413 Payload Too Large` — the sandbox egress caps request bodies at ~100 MB (90 MB OK, 110 MB fails).
+- Solution: publish through the existing `.github/workflows/build-desktop.yml` workflow, which builds on GitHub's own runners (native `windows-latest`, no wine) and attaches installers to the release.
+- Procedure: bump `package.json` version → commit → push → `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag triggers the workflow (`permissions: contents: write`, `softprops/action-gh-release`).
+- Published: release **v0.1.3** (public repo `pratishkumartyagi-dot/Resilient-`) with `Resilient.Research.App.Setup.0.1.3.exe` (installer), `Resilient.Research.App.0.1.3.exe` (portable), plus macOS dmg and Linux AppImage.
+- Windows installer URL: https://github.com/pratishkumartyagi-dot/Resilient-/releases/download/v0.1.3/Resilient.Research.App.Setup.0.1.3.exe
