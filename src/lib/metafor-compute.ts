@@ -1,4 +1,5 @@
 import { type Paper } from "./database-apis";
+import { descriptiveStatistics, weightedMean, weightedVariance, weightedStandardDeviation, formatStat } from "./statistics";
 
 export interface EffectSizeRow {
   study: string;
@@ -25,6 +26,7 @@ export interface MetaforResult {
   weights: number[];
   rows: EffectSizeRow[];
   forestData: ForestRow[];
+  descriptiveStats: DescriptiveStats | null;
 }
 
 export interface ForestRow {
@@ -35,6 +37,20 @@ export interface ForestRow {
   weight: number;
   weightPercent: number;
   isPooled?: boolean;
+}
+
+export interface DescriptiveStats {
+  n: number;
+  mean: number;
+  median: number;
+  variance: number;
+  standardDeviation: number;
+  min: number;
+  max: number;
+  range: number;
+  iqr: number;
+  skewness: number;
+  kurtosis: number;
 }
 
 function parseNumber(s: string): number | null {
@@ -90,8 +106,8 @@ export function fixedEffectsMetaAnalysis(rows: EffectSizeRow[]): MetaforResult |
   const k = valid.length;
   const wStar = valid.map((r) => 1 / r.variance);
   const sumWStar = wStar.reduce((a, b) => a + b, 0);
-  const wy = valid.reduce((acc, r, i) => acc + wStar[i] * r.effect, 0);
-  const pooledEstimate = wy / sumWStar;
+  const effects = valid.map((r) => r.effect);
+  const pooledEstimate = weightedMean(effects, wStar);
   const se = Math.sqrt(1 / sumWStar);
   const z = 1.96;
   const ciLower = pooledEstimate - z * se;
@@ -118,6 +134,7 @@ export function fixedEffectsMetaAnalysis(rows: EffectSizeRow[]): MetaforResult |
     weights: wStar,
     rows: valid,
     forestData: buildForestData(valid, pooledEstimate, ciLower, ciUpper, se, wStar, "Fixed", k),
+    descriptiveStats: buildDescriptiveStats(valid),
   };
 }
 
@@ -143,7 +160,8 @@ export function randomEffectsMetaAnalysis(rows: EffectSizeRow[]): MetaforResult 
 
   const wRandom = valid.map((r) => 1 / (r.variance + tau2));
   const sumWRandom = wRandom.reduce((a, b) => a + b, 0);
-  const pooledEstimate = valid.reduce((acc, r, i) => acc + wRandom[i] * r.effect, 0) / sumWRandom;
+  const effects = valid.map((r) => r.effect);
+  const pooledEstimate = weightedMean(effects, wRandom);
   const se = Math.sqrt(1 / sumWRandom);
   const z = 1.96;
   const ciLower = pooledEstimate - z * se;
@@ -169,6 +187,24 @@ export function randomEffectsMetaAnalysis(rows: EffectSizeRow[]): MetaforResult 
     weights: wRandom,
     rows: valid,
     forestData: buildForestData(valid, pooledEstimate, ciLower, ciUpper, se, wRandom, "Random", k),
+    descriptiveStats: buildDescriptiveStats(valid),
+  };
+}
+
+function buildDescriptiveStats(rows: EffectSizeRow[]): DescriptiveStats {
+  const stats = descriptiveStatistics(rows.map((r) => r.effect));
+  return {
+    n: stats.n,
+    mean: stats.mean,
+    median: stats.median,
+    variance: stats.variance,
+    standardDeviation: stats.standardDeviation,
+    min: stats.min,
+    max: stats.max,
+    range: stats.range,
+    iqr: stats.iqr,
+    skewness: stats.skewness,
+    kurtosis: stats.kurtosis,
   };
 }
 

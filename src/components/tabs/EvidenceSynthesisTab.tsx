@@ -18,6 +18,14 @@ import {
   parseEffectSizeRow,
   type EffectSizeRow,
 } from "@/lib/metafor-compute";
+import {
+  generateSynthesisReport,
+  downloadSynthesisReport,
+  downloadNotebookLMSourcePack,
+  downloadNotebookLMKit,
+  type SynthesisReportOptions,
+} from "@/lib/synthesis-report-generator";
+import { openNotebookLM } from "@/lib/notebooklm";
 import { extractPICOForPapers, type ExtractedPICO } from "@/lib/pico-extractor";
 import { marked } from "marked";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
@@ -817,6 +825,60 @@ export default function EvidenceSynthesisTab() {
         return [d.id, counts];
       })) },
     ];
+  };
+
+  const buildSynthesisReportOptions = (): SynthesisReportOptions => {
+    const sourceRows = extractedData.filter((p) => selectedPaperIds.size === 0 || selectedPaperIds.has(p.id));
+    const rows = sourceRows.length > 0 ? sourceRows : extractedData;
+    const studyYears = rows.map((p) => Number(p.year)).filter((y) => Number.isFinite(y) && y > 0);
+    const yearMin = studyYears.length ? Math.min(...studyYears) : parseInt(yearFrom) || new Date().getFullYear();
+    const yearMax = studyYears.length ? Math.max(...studyYears) : parseInt(yearTo) || new Date().getFullYear();
+    const studyTypes = Array.from(new Set(rows.map((p) => p.studyType).filter(Boolean))) as string[];
+    const robSummary = rows.reduce(
+      (acc, p) => {
+        const rob = (robMode === "probast" ? probastAssessments[p.id]?.overallRob : robAssessments[p.id]?.overall) || p.ROB || "Pending";
+        const j = String(rob).toLowerCase();
+        if (j.includes("low") && !j.includes("high")) acc.low += 1;
+        else if (j.includes("some") || j.includes("moderate") || j.includes("unclear") || j.includes("serious")) acc.some += 1;
+        else if (j.includes("high") || j.includes("critical") || j.includes("very high")) acc.high += 1;
+        else acc.pending += 1;
+        return acc;
+      },
+      { low: 0, some: 0, high: 0, pending: 0 }
+    );
+    return {
+      reviewType,
+      query,
+      totalRecords: prismaCounts.identification,
+      deduped: prismaCounts.deduped,
+      screened: prismaCounts.screened,
+      excluded: prismaCounts.excluded,
+      included: prismaCounts.included,
+      databases: selectedDbs,
+      yearMin,
+      yearMax,
+      yearFrom,
+      yearTo,
+      studyTypes,
+      papersForSynthesis: rows.map((p) => ({
+        id: p.id,
+        title: p.title,
+        authors: p.authors,
+        year: Number(p.year) || yearMin,
+        studyType: p.studyType,
+        outcome: p.outcome,
+        intervention: p.intervention,
+        population: p.population,
+        robOverall: (robMode === "probast" ? probastAssessments[p.id]?.overallRob : robAssessments[p.id]?.overall) || p.ROB,
+      })),
+      robSummary,
+      robToolName: robMode === "probast" ? "PROBAST + AI" : (getRobToolTemplate()?.label || robTool),
+      effectSizes,
+      metaforResult: metaAnalysis.available ? metaAnalysis.random : null,
+      synthesisExcerpt: synthesisOutput,
+      generatedDate: new Date().toISOString().split("T")[0],
+      totalRecordsRaw: prismaCounts.identification,
+    };
   };
 
   const saveRobAssessments = () => {
@@ -2234,6 +2296,32 @@ ${stormReview}
     URL.revokeObjectURL(url);
   };
 
+  const handleDownloadFullReport = () => {
+    try {
+      const opts = buildSynthesisReportOptions();
+      const report = generateSynthesisReport(opts);
+      downloadSynthesisReport(report, reviewType);
+    } catch (err: any) {
+      alert("Failed to generate report: " + (err?.message || String(err)));
+    }
+  };
+
+  const handleDownloadNotebookLMSource = () => {
+    try {
+      downloadNotebookLMSourcePack(buildSynthesisReportOptions());
+    } catch (err: any) {
+      alert("Failed to generate NotebookLM source pack: " + (err?.message || String(err)));
+    }
+  };
+
+  const handleDownloadNotebookLMKit = () => {
+    try {
+      downloadNotebookLMKit(buildSynthesisReportOptions());
+    } catch (err: any) {
+      alert("Failed to generate NotebookLM kit: " + (err?.message || String(err)));
+    }
+  };
+
   const downloadPrismaCsv = () => {
     const template = getRobToolTemplate();
     const rows = [
@@ -3461,6 +3549,32 @@ ${stormReview}
                   </div>
                 </div>
               )}
+            </div>
+            <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
+              <div className="flex items-center gap-2 mb-1">
+                <BookOpen size={16} className="text-yellow-400" />
+                <h3 className="text-lg font-bold text-white">Manuscript Report &amp; NotebookLM</h3>
+              </div>
+              <p className="text-xs text-blue-400 mb-3">
+                Generate the full PRISMA-compliant manuscript with APA-style statistical reporting (jmvReport) and a NotebookLM-ready research notebook (source pack, briefing doc, study guide, FAQ, timeline, audio-overview script).
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={handleDownloadFullReport} className="flex items-center gap-1 text-xs bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-3 py-2 rounded-lg">
+                  <FileText size={12} /> Download Full Report (MD)
+                </button>
+                <button onClick={handleDownloadNotebookLMSource} className="flex items-center gap-1 text-xs bg-blue-900/50 text-blue-200 px-3 py-2 rounded-lg hover:bg-blue-800/60">
+                  <BookOpen size={12} /> NotebookLM Source Pack
+                </button>
+                <button onClick={handleDownloadNotebookLMKit} className="flex items-center gap-1 text-xs bg-purple-900/50 text-purple-200 px-3 py-2 rounded-lg hover:bg-purple-800/60">
+                  <Bot size={12} /> NotebookLM Notebook Kit
+                </button>
+                <button onClick={openNotebookLM} className="flex items-center gap-1 text-xs bg-emerald-900/50 text-emerald-200 px-3 py-2 rounded-lg hover:bg-emerald-800/60">
+                  <ExternalLink size={12} /> Open NotebookLM
+                </button>
+              </div>
+              <p className="mt-2 text-[10px] text-blue-500">
+                NotebookLM has no public API. The Source Pack is uploaded as a source; the Notebook Kit mirrors NotebookLM&apos;s briefing, study guide, FAQ, timeline, and audio-overview formats.
+              </p>
             </div>
             <div className="flex justify-end gap-3">
               <button onClick={() => setPipelineStep(6)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">

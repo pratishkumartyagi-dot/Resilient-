@@ -1,13 +1,23 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, Scatter, PieChart, Pie, Cell, ComposedChart,
   AreaChart, Area, Legend
 } from "recharts";
-import { Download, Play, RefreshCw, Type } from "lucide-react";
+import { Download, Play, RefreshCw, Type, Calculator, TrendingUp, Sigma } from "lucide-react";
 import { downloadMarkdownAsWord } from "@/lib/exporters";
+import {
+  descriptiveStatistics,
+  linearRegression,
+  correlation,
+  tTestOneSample,
+  tTestTwoSample,
+  wilcoxonRankSum,
+  formatStat,
+  type DescriptiveStats,
+} from "@/lib/statistics";
 
 const CHART_TYPES = [
   "Histogram", "Density Plot", "Bar Chart", "Pie Chart",
@@ -31,6 +41,13 @@ interface ParsedRow {
   n?: number;
 }
 
+interface AnalysisInput {
+  groupA: number[];
+  groupB: number[];
+  x: number[];
+  y: number[];
+}
+
 const COLORS = ["#facc15", "#60a5fa", "#f87171", "#34d399", "#a78bfa", "#fb923c", "#f472b6", "#22d3ee"];
 
 const DEFAULT_DATA_INPUT = [
@@ -38,6 +55,16 @@ const DEFAULT_DATA_INPUT = [
   "IGRA only: mean=65.2, SD=14.1, n=148",
   "TST (Control): mean=52.8, SD=18.4, n=170",
   "No Screening: mean=34.1, SD=21.7, n=152",
+].join("\n");
+
+const DEFAULT_ANALYSIS_INPUT = [
+  "# Raw samples for two-sample t-test / Wilcoxon rank-sum",
+  "Group A: 78, 82, 75, 80, 79, 84, 77, 81, 76, 83",
+  "Group B: 65, 68, 62, 70, 64, 66, 63, 69, 61, 67",
+  "",
+  "# Paired x/y data for linear regression & correlation",
+  "x: 1, 2, 3, 4, 5, 6, 7, 8",
+  "y: 2.1, 4.2, 6.1, 7.9, 10.2, 11.8, 14.1, 15.9",
 ].join("\n");
 
 function parseDataInput(text: string): ParsedRow[] {
@@ -80,6 +107,38 @@ function parseDataInput(text: string): ParsedRow[] {
     }
   }
   return rows;
+}
+
+function parseNumberList(text: string): number[] {
+  return text
+    .split(/[,\s;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => parseFloat(s))
+    .filter((n) => Number.isFinite(n));
+}
+
+function parseAnalysisInput(text: string): AnalysisInput {
+  const result: AnalysisInput = { groupA: [], groupB: [], x: [], y: [] };
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const kv = line.match(/^([^:]+):\s*(.+)$/);
+    if (!kv) continue;
+    const key = kv[1].trim().toLowerCase();
+    const values = parseNumberList(kv[2]);
+    if (values.length === 0) continue;
+    if (key === "a" || key === "group a" || key === "groupa" || key === "treatment" || key === "intervention") {
+      result.groupA.push(...values);
+    } else if (key === "b" || key === "group b" || key === "groupb" || key === "control" || key === "comparator") {
+      result.groupB.push(...values);
+    } else if (key === "x" || key === "independent" || key === "predictor") {
+      result.x.push(...values);
+    } else if (key === "y" || key === "dependent" || key === "outcome") {
+      result.y.push(...values);
+    }
+  }
+  return result;
 }
 
 function buildHistogram(values: number[], binCount = 10): ChartDatum[] {
@@ -150,11 +209,24 @@ function deriveChartData(type: string, rows: ParsedRow[]): ChartDatum[] {
   }
 }
 
+function pct(n: number): string {
+  return Number.isFinite(n) ? `${(n * 100).toFixed(1)}%` : "—";
+}
+
+function pValueLabel(p: number): string {
+  if (!Number.isFinite(p)) return "—";
+  if (p < 0.001) return "< .001";
+  return `= ${p.toFixed(3).replace(/^0/, "")}`;
+}
+
 export default function StatisticalAnalysisTab() {
   const [chartType, setChartType] = useState("Bar Chart");
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>(() => parseDataInput(DEFAULT_DATA_INPUT));
   const [chartData, setChartData] = useState<ChartDatum[]>(() => deriveChartData("Bar Chart", parseDataInput(DEFAULT_DATA_INPUT)));
   const [dataInput, setDataInput] = useState(DEFAULT_DATA_INPUT);
+  const [analysisInput, setAnalysisInput] = useState(DEFAULT_ANALYSIS_INPUT);
+  const [analysisData, setAnalysisData] = useState<AnalysisInput>(() => parseAnalysisInput(DEFAULT_ANALYSIS_INPUT));
+  const [testMu, setTestMu] = useState("0");
   const chartRef = useRef<HTMLDivElement>(null);
 
   const applyData = (type: string, text: string) => {
@@ -165,7 +237,44 @@ export default function StatisticalAnalysisTab() {
 
   const handleGenerate = () => {
     applyData(chartType, dataInput);
+    setAnalysisData(parseAnalysisInput(analysisInput));
   };
+
+  const stats = useMemo<DescriptiveStats>(() => {
+    const values = [
+      ...analysisData.groupA,
+      ...analysisData.groupB,
+      ...analysisData.x,
+      ...analysisData.y,
+    ];
+    return descriptiveStatistics(values);
+  }, [analysisData]);
+
+  const regression = useMemo(() => {
+    if (analysisData.x.length < 2 || analysisData.y.length < 2) return null;
+    return linearRegression(analysisData.x, analysisData.y);
+  }, [analysisData]);
+
+  const corr = useMemo(() => {
+    if (analysisData.x.length < 2 || analysisData.y.length < 2) return null;
+    return correlation(analysisData.x, analysisData.y);
+  }, [analysisData]);
+
+  const tTwo = useMemo(() => {
+    if (analysisData.groupA.length < 2 || analysisData.groupB.length < 2) return null;
+    return tTestTwoSample(analysisData.groupA, analysisData.groupB);
+  }, [analysisData]);
+
+  const wilcoxon = useMemo(() => {
+    if (analysisData.groupA.length < 1 || analysisData.groupB.length < 1) return null;
+    return wilcoxonRankSum(analysisData.groupA, analysisData.groupB);
+  }, [analysisData]);
+
+  const tOne = useMemo(() => {
+    const mu = parseFloat(testMu);
+    if (analysisData.groupA.length < 2 || !Number.isFinite(mu)) return null;
+    return tTestOneSample(analysisData.groupA, mu);
+  }, [analysisData, testMu]);
 
   const downloadUrl = (url: string, filename: string) => {
     const link = document.createElement("a");
@@ -240,6 +349,49 @@ export default function StatisticalAnalysisTab() {
     const parsedValues = parsedRows.map(
       (r) => `- ${r.label}: value=${r.value}${r.sd !== undefined ? `, SD=${r.sd}` : ""}${r.n !== undefined ? `, n=${r.n}` : ""}`
     );
+
+    const descriptiveRows = [
+      ["N", String(stats.n)],
+      ["Mean", formatStat(stats.mean)],
+      ["Median", formatStat(stats.median)],
+      ["Standard deviation", formatStat(stats.standardDeviation)],
+      ["Variance", formatStat(stats.variance)],
+      ["Minimum", formatStat(stats.min)],
+      ["Maximum", formatStat(stats.max)],
+      ["Range", formatStat(stats.range)],
+      ["Interquartile range", formatStat(stats.iqr)],
+      ["Coefficient of variation", `${formatStat(stats.coefficientOfVariation)}%`],
+      ["Skewness", formatStat(stats.skewness)],
+      ["Kurtosis", formatStat(stats.kurtosis)],
+    ].map(([k, v]) => `| ${k} | ${v} |`);
+
+    const inference: string[] = [];
+    if (tTwo) {
+      inference.push(
+        `**Independent-samples t-test:** t(${tTwo.df}) = ${formatStat(tTwo.t, 2)}, p ${pValueLabel(tTwo.pValue)}, mean difference = ${formatStat(tTwo.meanDifference)}${tTwo.cohenD !== null ? `, Cohen's d = ${formatStat(tTwo.cohenD, 2)}` : ""}.`
+      );
+    }
+    if (wilcoxon) {
+      inference.push(
+        `**Wilcoxon rank-sum test:** W = ${formatStat(wilcoxon.statistic, 1)}, p ${wilcoxon.pValue !== null ? pValueLabel(wilcoxon.pValue) : "—"}.`
+      );
+    }
+    if (tOne) {
+      inference.push(
+        `**One-sample t-test (μ₀ = ${testMu}):** t(${tOne.df}) = ${formatStat(tOne.t, 2)}, p ${pValueLabel(tOne.pValue)}, mean difference = ${formatStat(tOne.meanDifference)}.`
+      );
+    }
+    if (regression) {
+      inference.push(
+        `**Linear regression:** ${regression.equation}, R² = ${pct(regression.rSquared)}, r = ${formatStat(regression.r)}.`
+      );
+    }
+    if (corr) {
+      inference.push(
+        `**Correlation:** Pearson r = ${formatStat(corr.pearson)}${corr.spearman !== null ? `, Spearman ρ = ${formatStat(corr.spearman)}` : ""}.`
+      );
+    }
+
     const md = [
       `# Statistical Analysis — ${chartType}`,
       "",
@@ -252,6 +404,18 @@ export default function StatisticalAnalysisTab() {
       "## Parsed Values",
       "",
       ...(parsedValues.length > 0 ? parsedValues : ["- No valid data rows parsed."]),
+      "",
+      "## Descriptive Statistics",
+      "",
+      "Computed with simple-statistics.",
+      "",
+      "| Statistic | Value |",
+      "| --- | --- |",
+      ...descriptiveRows,
+      "",
+      "## Inferential Statistics",
+      "",
+      ...(inference.length > 0 ? inference.map((i) => `- ${i}`) : ["- Provide two groups or x/y pairs in the Analysis Data input."]),
       "",
     ].join("\n");
     await downloadMarkdownAsWord(md, "statistical-analysis.docx");
@@ -300,18 +464,25 @@ export default function StatisticalAnalysisTab() {
             <Tooltip contentStyle={{ backgroundColor: "#0d1b3e", border: "1px solid #1e3a5f" }} />
           </PieChart>
         );
-      case "Scatter + Line":
+      case "Scatter + Line": {
+        const regressionPoints = analysisData.x.map((x, i) => ({
+          x,
+          y: analysisData.y[i],
+          fitted: regression ? regression.line(x) : undefined,
+        })).filter((p) => Number.isFinite(p.y));
+        const scatterData = regressionPoints.length > 0 ? regressionPoints : chartData;
         return (
-          <ComposedChart data={chartData as any}>
+          <ComposedChart data={scatterData as any}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e3a5f" />
             <XAxis dataKey="x" type="number" stroke="#60a5fa" />
             <YAxis dataKey="y" type="number" stroke="#60a5fa" />
             <Tooltip contentStyle={{ backgroundColor: "#0d1b3e", border: "1px solid #1e3a5f" }} />
             <Scatter dataKey="y" name="Value" fill="#facc15" />
-            <Line type="monotone" dataKey="trend" name="Trend" stroke="#60a5fa" strokeWidth={2} dot={false} />
+            {regression && <Line type="monotone" dataKey="fitted" name="Fitted" stroke="#60a5fa" strokeWidth={2} dot={false} />}
             <Legend />
           </ComposedChart>
         );
+      }
       case "Kaplan-Meier":
         return (
           <LineChart data={chartData as any}>
@@ -347,12 +518,26 @@ export default function StatisticalAnalysisTab() {
     }
   };
 
+  const statRows: [string, string][] = [
+    ["N", String(stats.n)],
+    ["Mean", formatStat(stats.mean)],
+    ["Median", formatStat(stats.median)],
+    ["SD", formatStat(stats.standardDeviation)],
+    ["Variance", formatStat(stats.variance)],
+    ["Min", formatStat(stats.min)],
+    ["Max", formatStat(stats.max)],
+    ["IQR", formatStat(stats.iqr)],
+    ["CV", `${formatStat(stats.coefficientOfVariation)}%`],
+    ["Skewness", formatStat(stats.skewness)],
+    ["Kurtosis", formatStat(stats.kurtosis)],
+  ];
+
   return (
     <div className="space-y-6">
       <div className="bg-[#0d1b3e] border border-blue-900/50 rounded-lg p-6 shadow">
         <h2 className="text-xl font-bold text-white mb-1">Statistical Analysis</h2>
         <p className="text-sm text-blue-300 mb-6">
-          Visualize and analyze your research data with interactive statistical charts.
+          Visualize and analyze your research data with interactive statistical charts. Descriptive and inferential statistics are computed with <span className="font-mono text-yellow-300">simple-statistics</span>.
         </p>
 
         <div className="flex flex-wrap items-center gap-3 mb-6">
@@ -376,8 +561,9 @@ export default function StatisticalAnalysisTab() {
             Generate Chart
           </button>
           <button
-            onClick={() => applyData(chartType, dataInput)}
+            onClick={() => { applyData(chartType, dataInput); setAnalysisData(parseAnalysisInput(analysisInput)); }}
             className="bg-blue-900/50 text-blue-200 px-4 py-2.5 rounded-lg hover:bg-blue-900/70"
+            title="Recompute"
           >
             <RefreshCw size={16} />
           </button>
@@ -417,6 +603,117 @@ export default function StatisticalAnalysisTab() {
             One row per line: <span className="font-mono">Label: mean=78.5, SD=12.3, n=165</span>,{" "}
             <span className="font-mono">Label: 42</span>, or <span className="font-mono">Label,42</span>. Lines starting with # are ignored.
           </p>
+        </div>
+      </div>
+
+      <div className="bg-[#0d1b3e] border border-blue-900/50 rounded-lg p-6 shadow">
+        <div className="flex items-center gap-2 mb-1">
+          <Calculator size={18} className="text-yellow-400" />
+          <h3 className="text-lg font-bold text-white">Statistician Workbench</h3>
+        </div>
+        <p className="text-sm text-blue-300 mb-5">
+          Enter raw samples or paired data to run descriptive statistics, t-tests, Wilcoxon rank-sum, linear regression, and correlation.
+        </p>
+
+        <label className="block text-sm font-medium text-blue-200 mb-2">Analysis Data (editable)</label>
+        <textarea
+          value={analysisInput}
+          onChange={(e) => setAnalysisInput(e.target.value)}
+          rows={8}
+          className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-3 text-sm font-mono placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 resize-y"
+        />
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <p className="text-xs text-blue-400">
+            Use <span className="font-mono">Group A:</span> / <span className="font-mono">Group B:</span> for two-sample tests, or{" "}
+            <span className="font-mono">x:</span> / <span className="font-mono">y:</span> for regression and correlation. Comma- or space-separated numbers.
+          </p>
+          <label className="ml-auto text-xs text-blue-300 flex items-center gap-2">
+            One-sample μ₀
+            <input
+              value={testMu}
+              onChange={(e) => setTestMu(e.target.value)}
+              className="w-20 bg-blue-950 border border-blue-800 text-white rounded px-2 py-1 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-yellow-500"
+            />
+          </label>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-2 mt-6">
+          <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Sigma size={16} className="text-yellow-400" />
+              <h4 className="text-sm font-semibold text-white">Descriptive Statistics</h4>
+            </div>
+            <table className="w-full text-sm">
+              <tbody>
+                {statRows.map(([k, v]) => (
+                  <tr key={k} className="border-b border-blue-900/60 last:border-0">
+                    <td className="py-1.5 text-blue-300">{k}</td>
+                    <td className="py-1.5 text-right font-mono text-white">{v}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <TrendingUp size={16} className="text-yellow-400" />
+              <h4 className="text-sm font-semibold text-white">Inferential Statistics</h4>
+            </div>
+            <div className="space-y-3 text-sm">
+              {!tTwo && !wilcoxon && !tOne && !regression && !corr && (
+                <p className="text-blue-400">Add two groups or x/y pairs above to compute inferential statistics.</p>
+              )}
+              {tTwo && (
+                <div className="border-b border-blue-900/60 pb-2">
+                  <p className="text-blue-300 text-xs uppercase tracking-wide">Independent-samples t-test</p>
+                  <p className="font-mono text-white">
+                    t({tTwo.df}) = {formatStat(tTwo.t, 2)}, p {pValueLabel(tTwo.pValue)}
+                  </p>
+                  <p className="text-xs text-blue-400">
+                    Mean difference = {formatStat(tTwo.meanDifference)}
+                    {tTwo.cohenD !== null ? `, Cohen's d = ${formatStat(tTwo.cohenD, 2)}` : ""}
+                  </p>
+                </div>
+              )}
+              {wilcoxon && (
+                <div className="border-b border-blue-900/60 pb-2">
+                  <p className="text-blue-300 text-xs uppercase tracking-wide">Wilcoxon rank-sum</p>
+                  <p className="font-mono text-white">
+                    W = {formatStat(wilcoxon.statistic, 1)}
+                    {wilcoxon.pValue !== null ? `, p ${pValueLabel(wilcoxon.pValue)}` : ""}
+                  </p>
+                </div>
+              )}
+              {tOne && (
+                <div className="border-b border-blue-900/60 pb-2">
+                  <p className="text-blue-300 text-xs uppercase tracking-wide">One-sample t-test (μ₀ = {testMu})</p>
+                  <p className="font-mono text-white">
+                    t({tOne.df}) = {formatStat(tOne.t, 2)}, p {pValueLabel(tOne.pValue)}
+                  </p>
+                  <p className="text-xs text-blue-400">Mean difference = {formatStat(tOne.meanDifference)}</p>
+                </div>
+              )}
+              {regression && (
+                <div className="border-b border-blue-900/60 pb-2">
+                  <p className="text-blue-300 text-xs uppercase tracking-wide">Linear regression</p>
+                  <p className="font-mono text-white">{regression.equation}</p>
+                  <p className="text-xs text-blue-400">
+                    R² = {formatStat(regression.rSquared)} ({pct(regression.rSquared)}), r = {formatStat(regression.r)}
+                  </p>
+                </div>
+              )}
+              {corr && (
+                <div>
+                  <p className="text-blue-300 text-xs uppercase tracking-wide">Correlation</p>
+                  <p className="font-mono text-white">
+                    Pearson r = {formatStat(corr.pearson)}
+                    {corr.spearman !== null ? `, Spearman ρ = ${formatStat(corr.spearman)}` : ""}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
