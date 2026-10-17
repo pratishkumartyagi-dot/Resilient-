@@ -1684,3 +1684,18 @@ Both Step 1 components (Research Pipeline and Evidence Synthesis & Meta-analysis
 ### Validation
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes (0 errors; only pre-existing not-found.tsx warning)
+
+## Semantic Search, Vancouver/DOI & Literature Review Placement (2026-10-17)
+
+### Semantic search — both pipelines
+- `/api/literature-search/route.ts`: added `semanticSearch` handling. When enabled, boolean operators (AND/OR/NOT) are stripped so retrieval matches on meaning across the broad area of research, and "Semantic Scholar" is always included (true meaning-based retrieval).
+- Systematic Review pipeline (`EvidenceSynthesisTab.tsx` + `EvidenceSynthesisStep1.tsx`): added a "Semantic search (meaning-based)" toggle; `handleSearch` sends the raw query (skips `applySearchLogic`) when enabled.
+- 11-step Research Module (`Step1Search.tsx`): replaced the static "Semantic Search Active" badge with a real toggle (default on) and passes `semanticSearch` to the API.
+
+### Literature review belongs to the 11-step module (correction)
+- Removed the dead literature-review code from `EvidenceSynthesisTab.tsx` (systematic review): `literatureReviewSections`/`literatureReviewLoading` state plus the unused `generateLiteratureReview` and `parseLiteratureReview` functions were declared but never rendered. Literature review now lives only in the 11-step Research Module.
+- `src/components/steps/Step4LiteratureReview.tsx`: rewritten. Generates the 6 screenshot sections (Introduction; Global & Indian Situations; Research Gaps / Limitations; Authors' Advice for Future Research; Summary of All Studies; References) individually via AI, using the evidence synthesis table (`state.synthesisTable`) as the single source of truth. Section 6 (References) is **auto-populated from the synthesis table's Vancouver reference column** (with DOI), with a fallback to Vancouver-formatted selected papers. Per-section Regenerate buttons; full review persisted to `state.literatureReview`.
+- Research gaps remain deep-reasoned narratives in the synthesis table (`research-skills.ts` Step 3 prompt; `pico-extractor.ts` `extractResearchGaps`).
+
+### Validation
+- `bun typecheck` ✅, `bun lint` ✅

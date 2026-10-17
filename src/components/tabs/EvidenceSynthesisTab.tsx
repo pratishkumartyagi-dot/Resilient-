@@ -330,15 +330,6 @@ export default function EvidenceSynthesisTab() {
   const [stormReviewLoading, setStormReviewLoading] = useState(false);
   const [stormFinal, setStormFinal] = useState("");
   const [stormFinalLoading, setStormFinalLoading] = useState(false);
-  const [literatureReviewSections, setLiteratureReviewSections] = useState({
-    introduction: "",
-    globalIndian: "",
-    gaps: "",
-    futureAdvice: "",
-    summary: "",
-    references: "",
-  });
-  const [literatureReviewLoading, setLiteratureReviewLoading] = useState(false);
   const [effectSizes, setEffectSizes] = useState<{ study: string; effect: string; ci: string; weight: string }[]>([]);
   const [reviewType, setReviewType] = useState("Systematic Review & Meta-analysis");
   const [reviewRequirements, setReviewRequirements] = useState("");
@@ -388,7 +379,9 @@ export default function EvidenceSynthesisTab() {
     setPerDatabaseResults([]);
     try {
       const dbs = selectedDbs.length > 0 ? selectedDbs : ["OpenAlex", "Semantic Scholar", "Crossref", "PubMed"];
-      const effectiveQuery = applySearchLogic(query, searchLogic);
+      // In semantic mode, pass the raw query so retrieval matches on meaning across
+      // the broad area of research instead of exact boolean keyword co-occurrence.
+      const effectiveQuery = semanticSearch ? query : applySearchLogic(query, searchLogic);
       const res = await fetch("/api/literature-search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1425,194 +1418,6 @@ ${methodsBlock}\n\n---
 ### Effect Size Summary\n\n| Study | Effect Estimate | 95% CI | Weight |\n|-------|----------------|--------|--------|\n${effectTable}\n\n---
 
 ### Risk of Bias Commentary\n\nUsing **${robLabel}** (${isProbast ? "PROBAST+AI" : "robvis"}), the overall distribution of risk-of-bias judgments across ${papersForSynthesis.length} studies is: Low ${robSummary.low}, Some/Moderate concerns ${robSummary.some}, High/Critical ${robSummary.high}, Pending ${robSummary.pending}. ${robSummary.high > 0 ? "Studies at high risk of bias may overestimate effects; sensitivity analysis excluding these studies is recommended." : "No studies were rated at high risk of bias."} ${isProbast ? "Domain-level PROBAST+AI traffic-light plots (D1–D4 + applicability A1–A3) are available in the reporting step." : "Domain-level traffic-light plots are available in the reporting step."}\n\n---\n\n### Gaps and Future Directions\n\n- Unpublished or grey literature not searched in this run.\n- Subgroup analyses and meta-regression should be explored if heterogeneity is high.\n- Certainty of evidence (GRADE) should be formally assessed prior to guideline submission.\n- Sensitivity analysis excluding high-RoB studies recommended for robustness.\n\n> Generated locally using awesome-evidence-synthesis open-source workflow standards. For meta-analysis statistics, export the effect table to **R (metafor/meta)**, **JASP**, or **OpenMEE**.\n`;
-  };
-
-  const parseLiteratureReview = (text: string): Record<string, string> => {
-    const sections: Record<string, string> = {
-      introduction: "",
-      globalIndian: "",
-      gaps: "",
-      futureAdvice: "",
-      summary: "",
-      references: "",
-    };
-
-    const lines = text.split("\n");
-    let currentKey: string | null = null;
-    let buffer: string[] = [];
-
-    const assign = () => {
-      if (!currentKey) return;
-      const content = buffer.join("\n").trim();
-      if (content && currentKey) {
-        sections[currentKey] = content;
-      }
-      buffer = [];
-    };
-
-    for (const line of lines) {
-      const trimmed = line.trim().toLowerCase();
-      let matched: string | null = null;
-
-      if (/^(1\.\s*introduction|introduction|background|introduction\s*\/\s*background)$/i.test(trimmed)) matched = "introduction";
-      else if (/^(2\.\s*global\s*&\s*indian\s*situation|global\s*&\s*indian\s*situation|global\s*indian|global\s+situation)$/i.test(trimmed)) matched = "globalIndian";
-      else if (/^(3\.\s*research\s*gaps|research\s*gaps\s*\/\s*limitations|research\s*gaps|gaps\s*\/\s*limitations|gaps|limitations)$/i.test(trimmed)) matched = "gaps";
-      else if (/^(4\.\s*advice\s*for\s*future\s*research|advice\s*for\s*future\s*research|future\s*research\s*advice|future\s*advice)$/i.test(trimmed)) matched = "futureAdvice";
-      else if (/^(5\.\s*summary|summary|summary\s*of\s*all\s*studies)$/i.test(trimmed)) matched = "summary";
-      else if (/^(6\.\s*references|references|bibliography)$/i.test(trimmed)) matched = "references";
-
-      if (matched) {
-        assign();
-        currentKey = matched;
-      } else {
-        buffer.push(line);
-      }
-    }
-
-    assign();
-    return sections;
-  };
-
-  const generateLiteratureReview = async () => {
-    const reviewPapers = robSelectedPaperIds.size > 0
-      ? papers.filter((p) => robSelectedPaperIds.has(p.id))
-      : papers.filter((p) => selectedPaperIds.has(p.id));
-
-    // Prefer the evidence synthesis table (extractedData) when available — it carries
-    // Vancouver references + deep-reasoned research gaps from Step 2 extraction.
-    const synthRows = extractedData.filter((r) =>
-      reviewPapers.some((p) => p.id === r.id) || selectedPaperIds.has(r.id)
-    );
-    const sourcePapers = synthRows.length > 0 ? synthRows : reviewPapers;
-
-    if (sourcePapers.length === 0) {
-      alert("Please select papers in Risk of Bias Assessment first.");
-      return;
-    }
-
-    // References (section 6) auto-populated from the evidence synthesis table's
-    // Vancouver reference column, with verified DOI links.
-    const references = sourcePapers
-      .map((p, i) => {
-        const ref = p.vancouverReference || `${p.authors || "Unknown"}. ${p.title || "Untitled"}. ${p.journal || p.database || "Unknown journal"}. ${p.year || new Date().getFullYear()}.${p.doi ? ` doi:${p.doi}` : ""}`;
-        return `${i + 1}. ${ref}`;
-      })
-      .join("\n");
-
-    setLiteratureReviewLoading(true);
-    setLiteratureReviewSections({
-      introduction: "",
-      globalIndian: "",
-      gaps: "",
-      futureAdvice: "",
-      summary: "",
-      references,
-    });
-    try {
-      // Rich evidence-synthesis table context for per-section AI writing.
-      const evidenceTable = sourcePapers
-        .map((p, i) => {
-          const doiLink = p.doi ? `https://doi.org/${p.doi}` : "";
-          return `${i + 1}. [${p.title || "Untitled"}] (${p.authors || "Unknown"}, ${p.year || "n.d."})
-   - Type: ${p.studyType || "Not specified"} | Level: ${p.evidenceLevel || "Not specified"}
-   - Vancouver: ${p.vancouverReference || `${p.authors || "Unknown"}. ${p.title || "Untitled"}. ${p.journal || p.database || "Unknown journal"}. ${p.year || new Date().getFullYear()}.${p.doi ? ` doi:${p.doi}` : ""}`}
-   - DOI: ${doiLink || "—"}
-   - Population: ${p.population || "Not specified"}
-   - Intervention: ${p.intervention || "Not specified"}
-   - Comparison: ${p.comparison || "Not specified"}
-   - Outcome: ${p.outcome || "Not specified"}
-   - Sample size: ${p.sampleSize || "Not specified"} | Effect: ${p.effectEstimate || "Not reported"} (95% CI: ${p.ciLower || "—"}–${p.ciUpper || "—"})
-   - ROB: ${p.ROB || "Pending"}
-   - Research gaps (deep reasoning): ${p.researchGaps || "Limitations: Not specified; Exclusions: Not specified; Gaps: Not specified"}`;
-        })
-        .join("\n\n");
-
-      const prompt = `You are an expert academic writer using deep reasoning methodology. Write a comprehensive, publication-ready narrative literature review based ONLY on the evidence synthesis table below (extracted from the selected studies).
-
-Follow this exact structure and headings (6 sections):
-1. Introduction — Broad overview of the research field
-2. Global & Indian Situations — Burden data, national programmes
-3. Research Gaps / Limitations — Populations & settings not studied
-4. Authors' Advice for Future Research — Recommendations from journals
-5. Summary of All Studies — Thematic synthesis of findings
-6. References — All Vancouver-style citations (only here)
-
-CITATION RULES:
-- Cite papers inline using author-year in parentheses, e.g. (Smith 2020), (Jones et al 2022).
-- The author-year MUST match one of the numbered references in section 6.
-- Aim for 2-4 inline citations per paragraph.
-- Every inline citation must trace back to a paper in the evidence synthesis table.
-
-EVIDENCE SYNTHESIS TABLE (source of truth — use these facts):
-${evidenceTable}
-
-DEEP REASONING RULES:
-1. Think step-by-step before drafting each section.
-2. For Research Gaps / Limitations, write a narrative after deep reasoning about each paper's limitations, exclusions, and unanswered questions (draw on the "Research gaps (deep reasoning)" column).
-3. For Authors' Advice for Future Research, give concrete recommendations grounded in the identified gaps.
-4. For Summary of All Studies, provide a thematic synthesis across studies.
-5. Ensure global, South-East Asia, and India perspectives are addressed where relevant.
-6. Use ONLY author-year inline citations (Author Year).
-7. Section 6 (References) must list ALL papers in Vancouver style, matching the table's Vancouver column, with verified DOI links where available.
-
-OUTPUT FORMAT:
-Use plain text with these exact headings on their own lines:
-Introduction
-Global & Indian Situations
-Research Gaps / Limitations
-Authors' Advice for Future Research
-Summary of All Studies
-References
-
-At the end, include a References section with all papers in Vancouver style:
-1. Author(s) (Year). Title. Journal. doi:DOI`;
-
-      const apiKey = state.geminiApiKey || state.groqApiKey;
-      if (!apiKey) {
-        setLiteratureReviewSections({
-          introduction: "No API key configured. Please add your Gemini or Groq API key in Settings to generate the literature review.",
-          globalIndian: "",
-          gaps: "",
-          futureAdvice: "",
-          summary: "",
-          references,
-        });
-        setLiteratureReviewLoading(false);
-        return;
-      }
-
-      let text: string;
-      const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
-      if (state.geminiApiKey) {
-        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
-      } else if (state.groqApiKey) {
-        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
-      } else {
-        throw new Error("No API key configured. Please open Settings (gear icon).");
-      }
-
-      const cleaned = text.replace(/```/g, "").trim();
-      const parsed = parseLiteratureReview(cleaned);
-      setLiteratureReviewSections({
-        introduction: parsed.introduction || "",
-        globalIndian: parsed.globalIndian || "",
-        gaps: parsed.gaps || "",
-        futureAdvice: parsed.futureAdvice || "",
-        summary: parsed.summary || "",
-        references: parsed.references || references,
-      });
-    } catch (err: any) {
-      setLiteratureReviewSections({
-        introduction: `Error generating review: ${err.message || "Unknown error"}. Please ensure your API key is valid and try again.`,
-        globalIndian: "",
-        gaps: "",
-        futureAdvice: "",
-        summary: "",
-        references,
-      });
-    } finally {
-      setLiteratureReviewLoading(false);
-    }
   };
 
   const generateSynthesis = async () => {
