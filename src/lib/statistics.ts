@@ -163,23 +163,32 @@ export function descriptiveStatistics(values: number[]): DescriptiveStats {
   const mode = ss.mode(xs);
   const variance = ss.variance(xs);
   const sd = ss.standardDeviation(xs);
-  const sampleVariance = ss.sampleVariance(xs);
-  const sampleSD = ss.sampleStandardDeviation(xs);
+  const sampleVariance = n >= 2 ? ss.sampleVariance(xs) : 0;
+  const sampleSD = n >= 2 ? ss.sampleStandardDeviation(xs) : 0;
   const min = ss.min(xs);
   const max = ss.max(xs);
   const range = max - min;
-  const iqr = ss.interquartileRange(xs);
+  const iqr = n >= 2 ? ss.interquartileRange(xs) : 0;
   const cv = mean === 0 ? 0 : (sd / Math.abs(mean)) * 100;
   const geom = ss.geometricMean(xs);
   const harm = ss.harmonicMean(xs);
   const mad = ss.medianAbsoluteDeviation(xs);
+  const safe = (fn: () => number, fallback = 0): number => {
+    try {
+      const value = fn();
+      return Number.isFinite(value) ? value : fallback;
+    } catch {
+      return fallback;
+    }
+  };
 
   return {
     n, sum: ss.sum(xs), mean, median,
     mode: mode === undefined ? null : (Array.isArray(mode) ? mode[0] : mode),
     variance, standardDeviation: sd, sampleVariance, sampleStandardDeviation: sampleSD,
     min, max, range, iqr, coefficientOfVariation: cv,
-    skewness: ss.sampleSkewness(xs), kurtosis: ss.sampleKurtosis(xs),
+    skewness: n >= 3 ? safe(() => ss.sampleSkewness(xs)) : 0,
+    kurtosis: n >= 4 ? safe(() => ss.sampleKurtosis(xs)) : 0,
     geometricMean: geom === -Infinity || !Number.isFinite(geom) ? null : geom,
     harmonicMean: harm === -Infinity || !Number.isFinite(harm) ? null : harm,
     mad: mad === -Infinity || !Number.isFinite(mad) ? null : mad,

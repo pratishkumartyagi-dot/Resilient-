@@ -1684,3 +1684,23 @@ Both Step 1 components (Research Pipeline and Evidence Synthesis & Meta-analysis
 ### Validation
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes (0 errors; only pre-existing not-found.tsx warning)
+
+## Statistical Pipeline & Report Upgrade (2026-10-17)
+
+**Goal**: Upgrade the statistical analysis pipeline with `simple-statistics` and the report writer with `jmvReport`-style APA reporting plus NotebookLM.
+
+### Added
+- `src/lib/statistics.ts` — statistics service wrapping `simple-statistics` (v7.12.1): descriptive statistics (mean, median, mode, variance/SD, IQR, CV, skewness, kurtosis, geometric/harmonic means, MAD), linear regression (slope/intercept/R²/r), Pearson + Spearman correlation, one- and two-sample t-tests with exact two-tailed p-values via an incomplete-beta t CDF, Wilcoxon rank-sum (normal approximation with `erf`), and weighted meta-analysis helpers. Small-sample guards prevent `sampleKurtosis`/`sampleSkewness` from throwing.
+- `src/lib/jmv-report.ts` — jmvReport-inspired APA 7th edition reporting: `buildApaMetaAnalysisReport`, `apaTTestReport`, `apaCorrelationReport`, `apaRegressionReport`, `renderApaReportMarkdown`, APA table renderer, and `formatPValue` (`< .001`, `= .03`).
+- `src/lib/notebooklm.ts` — NotebookLM integration (no public API): builds a Source Pack plus Briefing Doc, Study Guide, FAQ, Timeline, and Audio Overview Script, and exposes `NOTEBOOKLM_URL` / `openNotebookLM()`. `renderNotebookLMKitMarkdown` packages the kit.
+
+### Changed
+- `src/lib/metafor-compute.ts` — pooled fixed/random effects now use `weightedMean` from `simple-statistics`; `MetaforResult` gains `descriptiveStats` (n, mean, median, variance, SD, min/max/range, IQR, skewness, kurtosis).
+- `src/components/tabs/StatisticalAnalysisTab.tsx` — added a "Statistician Workbench": editable raw-data input (`Group A/B` for two-sample tests, `x/y` for regression/correlation), descriptive statistics table, inferential statistics (independent t-test, Wilcoxon, one-sample t-test with configurable μ₀, linear regression, correlation), and APA results in the Word export. Scatter + Line now plots real x/y pairs with a fitted regression line.
+- `src/lib/synthesis-report-generator.ts` — embeds an APA-style statistical section (jmvReport) after the meta-analysis results and appends a NotebookLM research notebook (source pack + kit). `Buffer`-based SVG encoding replaced with a browser-safe `toBase64` fallback (`btoa`). Added `generateNotebookLMKitForReport`, `generateNotebookLMSourcePackForReport`, `downloadNotebookLMSourcePack`, `downloadNotebookLMKit`.
+- `src/components/tabs/EvidenceSynthesisTab.tsx` — reporting step now builds `SynthesisReportOptions` from live pipeline state and exposes buttons for the full report, NotebookLM source pack, NotebookLM notebook kit, and opening NotebookLM.
+
+### Validation
+- `bun typecheck` ✅
+- `bun lint` ✅ (no warnings)
+- Runtime checks: descriptive/regression/correlation/t-test/Wilcoxon/weighted-meta outputs verified; `generateSynthesisReport` emits APA and NotebookLM sections; NotebookLM kit keys verified.

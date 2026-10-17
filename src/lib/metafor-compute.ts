@@ -1,5 +1,4 @@
-import { type Paper } from "./database-apis";
-import { descriptiveStatistics, weightedMean, weightedVariance, weightedStandardDeviation, formatStat } from "./statistics";
+import { descriptiveStatistics, weightedMean } from "./statistics";
 
 export interface EffectSizeRow {
   study: string;
