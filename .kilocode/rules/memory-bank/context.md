@@ -1728,3 +1728,14 @@ Both pipelines share `/api/literature-search` (main research module `Step1Search
 - Externally constrained: OpenAlex (daily shared budget; use `OPENALEX_API_KEY`), dblp (permanent JS bot challenge), Semantic Scholar (shared rate limit; use `S2_API_KEY`).
 
 - Validation: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅, live API tests ✅.
+
+## Windows .exe packaging (2026-10-17)
+
+Converted the app to Windows executables using the existing Electron + electron-builder setup (`electron/main.js`, `main` field, `build` config in package.json).
+
+- Build command: `bun run dist:win` (= `next build && electron-builder --win --publish never`). Output dir: `dist-electron/`.
+- Produced: `Resilient Research App Setup 0.1.2.exe` (NSIS one-click installer) and `Resilient Research App 0.1.2.exe` (portable single-file), both valid PE (`MZ`) ~335 MB, plus `win-unpacked/` (unpacked app, ~1.4 GB).
+- The packaged `resources/app` contains `.next`, `electron/main.js`, `public`, and production `node_modules` (next/react/docx/exceljs/xlsx/etc.); `main.js` spawns `next start` on a free port and loads it in a BrowserWindow.
+- **Cross-building Windows targets on Linux requires wine with 32-bit support.** Installed via `apt-get`: `apt-get install -y --no-install-recommends wine64` then `dpkg --add-architecture i386 && apt-get update && apt-get install -y --no-install-recommends wine32:i386`; linked `/usr/bin/wine` → `/usr/lib/wine/wine`. Without wine the NSIS step fails with `wine process failed ENOENT`.
+- Set `build.win.signAndEditExecutable: false` so exe resource editing/signing is skipped (no custom `.ico` present; default Electron icon used). Signing/code-signing still not configured.
+- `dist-electron/` is a build artifact; do not commit the ~670 MB of .exe files.
