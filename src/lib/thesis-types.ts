@@ -86,6 +86,7 @@ export interface ThesisPipelineResult {
   outline: ThesisOutline;
   fullThesis: string;
   markdownOutline: string;
+  chapters: ChapterFile[];
   references: ThesisPaper[];
   papers: ThesisPaper[];
   stats: ThesisPipelineStats;

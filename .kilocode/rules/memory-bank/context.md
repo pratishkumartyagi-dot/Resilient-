@@ -1699,3 +1699,10 @@ Both Step 1 components (Research Pipeline and Evidence Synthesis & Meta-analysis
 
 ### Validation
 - `bun typecheck` ✅, `bun lint` ✅
+
+## Thesis Generator — Chapter Files, Argument Audit & Tool Attribution (2026-10-17)
+
+- **Per-chapter output surfaced**: `ThesisPipelineResult` now includes `chapters: ChapterFile[]`; `runThesisPipeline` returns it and `/api/thesis-generate` includes `chapters` in the response. Previously Stage 2's per-chapter prose and `ArgumentAudit` were computed then discarded.
+- **UI**: `ThesisGenerator.tsx` now renders a "Chapter Files & Argument Audit" panel — per chapter: word count, citation count, logical-flow score bar, citation-coverage bar, claims, evidence gaps, recommendations, and expandable chapter prose.
+- **Pipeline stage attribution**: added a stage-flow strip (Stage 1 OpenDraft → Stage 2 ThesisGenerator → Stage 3 ScholarCopilot → Stage 4 Humaniser) with live status dots and links to the source repos (federicodeponte/opendraft, ekontoTURBO/thesis-generator, TIGER-AI-Lab/ScholarCopilot), making the referenced tools explicit in the pipeline.
+- Validation: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.

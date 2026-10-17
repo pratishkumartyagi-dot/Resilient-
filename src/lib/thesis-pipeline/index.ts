@@ -127,6 +127,7 @@ export async function runThesisPipeline(
     outline,
     fullThesis,
     markdownOutline,
+    chapters,
     references,
     papers,
     stats,

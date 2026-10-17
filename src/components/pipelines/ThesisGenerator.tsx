@@ -207,6 +207,13 @@ export default function ThesisGenerator() {
 
   const isApiKeyMissing = !config.apiKey && !apiKey;
 
+  const pipelineStages: Array<{ n: number; name: string; role: string; href: string; stageKey: string }> = [
+    { n: 1, name: "OpenDraft", role: "Outline & chapter structure", href: "https://github.com/federicodeponte/opendraft", stageKey: "outline" },
+    { n: 2, name: "ThesisGenerator", role: "Per-chapter prose + argument audit", href: "https://github.com/ekontoTURBO/thesis-generator", stageKey: "prose" },
+    { n: 3, name: "ScholarCopilot", role: "Refine/expand + citation validation", href: "https://github.com/TIGER-AI-Lab/ScholarCopilot", stageKey: "refine" },
+    { n: 4, name: "Humaniser", role: "Anti-AI-detection rewrite", href: "", stageKey: "humanise" },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Header bar */}
@@ -235,6 +242,33 @@ export default function ThesisGenerator() {
           <button onClick={handleReset} disabled={status === "generating"} className="text-xs bg-blue-900/50 text-blue-200 px-3 py-1.5 rounded hover:bg-blue-800/60 disabled:opacity-50">
             <RotateCcw size={14} /> Reset
           </button>
+        </div>
+      </div>
+
+      {/* Pipeline stage flow with source tools */}
+      <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          {pipelineStages.map((s, i) => {
+            const ok = result?.stages?.[s.stageKey];
+            const dot = result ? (ok ? "bg-emerald-400" : "bg-red-400") : (status === "generating" && stage === s.stageKey ? "bg-yellow-400" : "bg-blue-700");
+            return (
+              <React.Fragment key={s.name}>
+                <div className="flex items-start gap-2 min-w-0">
+                  <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${dot} ${status === "generating" && stage === s.stageKey ? "animate-pulse" : ""}`} />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs font-semibold text-white">Stage {s.n}: {s.name}</span>
+                      {s.href && (
+                        <a href={s.href} target="_blank" rel="noreferrer" className="text-[10px] text-yellow-300 underline">repo</a>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-blue-400 truncate">{s.role}</p>
+                  </div>
+                </div>
+                {i < pipelineStages.length - 1 && <ChevronRight size={14} className="text-blue-700 flex-shrink-0" />}
+              </React.Fragment>
+            );
+          })}
         </div>
       </div>
 
@@ -498,6 +532,87 @@ export default function ThesisGenerator() {
                     {i + 1}. {r.authors}. {r.title}. {r.journal || "Unknown journal"}. {r.year || new Date().getFullYear()}.{r.doi ? ` doi:${r.doi}` : ""}.
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Chapter files & argument audit */}
+          {Array.isArray(result.chapters) && result.chapters.length > 0 && (
+            <div className="bg-[#0a1530] border border-blue-800 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                  <FileText size={14} className="text-yellow-400" />
+                  Chapter Files &amp; Argument Audit
+                </h4>
+                <span className="text-[10px] text-blue-400">{result.chapters.length} chapters</span>
+              </div>
+              <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                {result.chapters.map((ch: any, idx: number) => {
+                  const audit = ch.argumentAudit || {};
+                  const score = typeof audit.logicalFlowScore === "number" ? audit.logicalFlowScore : 0;
+                  const coverage = typeof audit.citationCoverage === "number" ? audit.citationCoverage : 0;
+                  return (
+                    <details key={idx} className="bg-blue-950/40 border border-blue-900 rounded-lg p-3">
+                      <summary className="cursor-pointer text-xs text-blue-100 font-semibold flex items-center justify-between">
+                        <span>Chapter {ch.chapterNumber || idx + 1}: {ch.chapterTitle || "Untitled"}</span>
+                        <span className="text-[10px] text-blue-400 ml-2">{ch.wordCount || 0} words · {ch.citations?.length || 0} citations</span>
+                      </summary>
+                      <div className="mt-3 space-y-3">
+                        {/* Audit scores */}
+                        <div className="grid grid-cols-2 gap-2 text-[10px]">
+                          <div className="bg-blue-900/40 rounded p-2">
+                            <div className="flex items-center justify-between text-blue-300">
+                              <span>Logical flow</span>
+                              <span className="text-white font-bold">{score}/100</span>
+                            </div>
+                            <div className="mt-1 h-1.5 bg-blue-950 rounded"><div className="h-full bg-yellow-500 rounded" style={{ width: `${Math.min(Math.max(score, 0), 100)}%` }} /></div>
+                          </div>
+                          <div className="bg-blue-900/40 rounded p-2">
+                            <div className="flex items-center justify-between text-blue-300">
+                              <span>Citation coverage</span>
+                              <span className="text-white font-bold">{coverage}%</span>
+                            </div>
+                            <div className="mt-1 h-1.5 bg-blue-950 rounded"><div className="h-full bg-emerald-500 rounded" style={{ width: `${Math.min(Math.max(coverage, 0), 100)}%` }} /></div>
+                          </div>
+                        </div>
+
+                        {Array.isArray(audit.claims) && audit.claims.length > 0 && (
+                          <div>
+                            <p className="text-[10px] font-semibold text-yellow-300 mb-1">Claims</p>
+                            <ul className="list-disc list-inside text-[11px] text-blue-200 space-y-0.5">
+                              {audit.claims.slice(0, 6).map((c: string, i: number) => <li key={i}>{c}</li>)}
+                            </ul>
+                          </div>
+                        )}
+
+                        {Array.isArray(audit.evidenceGaps) && audit.evidenceGaps.length > 0 && (
+                          <div>
+                            <p className="text-[10px] font-semibold text-red-300 mb-1">Evidence gaps</p>
+                            <ul className="list-disc list-inside text-[11px] text-blue-200 space-y-0.5">
+                              {audit.evidenceGaps.slice(0, 6).map((g: string, i: number) => <li key={i}>{g}</li>)}
+                            </ul>
+                          </div>
+                        )}
+
+                        {Array.isArray(audit.recommendations) && audit.recommendations.length > 0 && (
+                          <div>
+                            <p className="text-[10px] font-semibold text-emerald-300 mb-1">Recommendations</p>
+                            <ul className="list-disc list-inside text-[11px] text-blue-200 space-y-0.5">
+                              {audit.recommendations.slice(0, 6).map((r: string, i: number) => <li key={i}>{r}</li>)}
+                            </ul>
+                          </div>
+                        )}
+
+                        <details className="mt-1">
+                          <summary className="cursor-pointer text-[10px] text-blue-400">View chapter prose</summary>
+                          <div className="mt-2 text-[11px] text-blue-200 whitespace-pre-wrap font-serif max-h-[240px] overflow-y-auto">
+                            {ch.content || "(no content)"}
+                          </div>
+                        </details>
+                      </div>
+                    </details>
+                  );
+                })}
               </div>
             </div>
           )}

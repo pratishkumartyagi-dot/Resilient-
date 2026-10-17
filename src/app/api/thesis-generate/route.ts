@@ -71,6 +71,7 @@ export async function POST(req: Request): Promise<Response> {
       success: true,
       content: result.fullThesis,
       outline: result.outline,
+      chapters: result.chapters,
       stages: result.stages,
       stats: result.stats,
       references: result.references,
