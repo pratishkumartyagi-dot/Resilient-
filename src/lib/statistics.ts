@@ -170,9 +170,6 @@ export function descriptiveStatistics(values: number[]): DescriptiveStats {
   const range = max - min;
   const iqr = n >= 2 ? ss.interquartileRange(xs) : 0;
   const cv = mean === 0 ? 0 : (sd / Math.abs(mean)) * 100;
-  const geom = ss.geometricMean(xs);
-  const harm = ss.harmonicMean(xs);
-  const mad = ss.medianAbsoluteDeviation(xs);
   const safe = (fn: () => number, fallback = 0): number => {
     try {
       const value = fn();
@@ -181,6 +178,12 @@ export function descriptiveStatistics(values: number[]): DescriptiveStats {
       return fallback;
     }
   };
+  // simple-statistics throws for geometric/harmonic means when any value is
+  // non-positive, which is common for effect sizes and mean differences.
+  const allPositive = xs.every((v) => v > 0);
+  const geom = allPositive ? safe(() => ss.geometricMean(xs), NaN) : NaN;
+  const harm = allPositive ? safe(() => ss.harmonicMean(xs), NaN) : NaN;
+  const mad = safe(() => ss.medianAbsoluteDeviation(xs), NaN);
 
   return {
     n, sum: ss.sum(xs), mean, median,
@@ -189,9 +192,9 @@ export function descriptiveStatistics(values: number[]): DescriptiveStats {
     min, max, range, iqr, coefficientOfVariation: cv,
     skewness: n >= 3 ? safe(() => ss.sampleSkewness(xs)) : 0,
     kurtosis: n >= 4 ? safe(() => ss.sampleKurtosis(xs)) : 0,
-    geometricMean: geom === -Infinity || !Number.isFinite(geom) ? null : geom,
-    harmonicMean: harm === -Infinity || !Number.isFinite(harm) ? null : harm,
-    mad: mad === -Infinity || !Number.isFinite(mad) ? null : mad,
+    geometricMean: Number.isFinite(geom) ? geom : null,
+    harmonicMean: Number.isFinite(harm) ? harm : null,
+    mad: Number.isFinite(mad) ? mad : null,
   };
 }
 
@@ -278,7 +281,7 @@ export function wilcoxonRankSum(sampleA: number[], sampleB: number[]): WilcoxonR
   const meanRankSum = (n1 * (total + 1)) / 2;
   const varianceRankSum = (n1 * n2 * (total + 1)) / 12;
   const z = varianceRankSum === 0 ? 0 : (statistic - meanRankSum) / Math.sqrt(varianceRankSum);
-  const pValue = 1 - ss.erf(Math.abs(z) / Math.SQRT2);
+  const pValue = Math.min(1, Math.max(0, 1 - ss.erf(Math.abs(z) / Math.SQRT2)));
   return { statistic, pValue, significant: pValue < 0.05 };
 }
 

@@ -41,7 +41,8 @@ function computeSampleSize(alpha: string, power: string, effect: string, alloc: 
   }
   const zAlpha = normInv(1 - a / 2);
   const zBeta = normInv(p);
-  const ratioFactor = (1 + 1 / ratio) / 2;
+  // Two-sample means: n per arm = (1 + 1/r)·(zα/2+zβ)²/ES².
+  const ratioFactor = 1 + 1 / ratio;
   const perArm = Math.max(2, Math.ceil((((zAlpha + zBeta) ** 2) * ratioFactor) / (es ** 2)));
   const total = Math.round(perArm * (1 + ratio));
   return { perArm, total, note: `α=${a} | power=${p} | ES=${es} | allocation ${alloc}` };

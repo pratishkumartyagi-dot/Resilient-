@@ -1605,17 +1605,29 @@ At the end, include a References section with all papers in Vancouver style:
 
       const apiKey = state.geminiApiKey || state.groqApiKey;
       if (!apiKey) {
+        const localPapers = selectedPapers.map((p) => ({
+          authors: p.authors || "Unknown authors",
+          year: typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || new Date().getFullYear(),
+          title: p.title || "Untitled",
+          journal: p.journal || "Unknown journal",
+          abstract: p.abstract || "",
+          doi: p.doi || undefined,
+          studyType: p.studyType || "Observational Study",
+          database: p.database || "Unknown",
+        }));
+        const localReview = generateLocalLiteratureReview(localPapers, query, { enableRobustReview: true });
+        const parsedLocal = parseLiteratureReview(localReview);
         setLiteratureReviewSections({
-          introduction: "No API key configured. Please add your Gemini or Groq API key in Settings to generate the literature review.",
-          globalIndian: "",
-          gaps: "",
-          futureAdvice: "",
-          summary: "",
-          references: references,
+          introduction: parsedLocal.introduction || localReview,
+          globalIndian: parsedLocal.globalIndian || "",
+          gaps: parsedLocal.gaps || "",
+          futureAdvice: parsedLocal.futureAdvice || "",
+          summary: parsedLocal.summary || "",
+          references: parsedLocal.references || references,
         });
-         setLiteratureReviewLoading(false);
-         return;
-       }
+        setLiteratureReviewLoading(false);
+        return;
+      }
 
       let text: string;
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
@@ -2076,13 +2088,6 @@ ${isNarrative ? `## Evidence Synthesis
     setFinalManuscript("");
     try {
       const prompt = buildAcademicWritingReviewPrompt({ manuscript });
-      const apiKey = state.geminiApiKey || state.groqApiKey;
-      if (!apiKey) {
-        setReviewReport("No API key configured. Please add your Gemini or Groq API key in Settings to run the Academic Writing Agents review.");
-        setReviewLoading(false);
-        return;
-      }
-
       let text: string;
       const searchOptions: AICallOptions = { searchEnabled: false, searchQuery: query };
       if (state.geminiApiKey) {
@@ -2090,7 +2095,8 @@ ${isNarrative ? `## Evidence Synthesis
       } else if (state.groqApiKey) {
         text = await callGroq(state.groqApiKey!, prompt, searchOptions);
       } else {
-        throw new Error("No API key configured. Please open Settings (gear icon).");
+        // Offline fallback: run the review with the in-browser local model.
+        text = await callDeepSeek(prompt, searchOptions);
       }
 
       const cleaned = text.replace(/```/g, "").trim();
@@ -2117,13 +2123,6 @@ ${isNarrative ? `## Evidence Synthesis
         topic: query || "the research topic",
       });
 
-      const apiKey = state.geminiApiKey || state.groqApiKey;
-      if (!apiKey) {
-        setFinalManuscript("No API key configured. Please add your Gemini or Groq API key in Settings to regenerate the final manuscript.");
-        setFinalManuscriptLoading(false);
-        return;
-      }
-
       let text: string;
       const searchOptions: AICallOptions = { searchEnabled: false, searchQuery: query };
       if (state.geminiApiKey) {
@@ -2131,7 +2130,7 @@ ${isNarrative ? `## Evidence Synthesis
       } else if (state.groqApiKey) {
         text = await callGroq(state.groqApiKey!, prompt, searchOptions);
       } else {
-        throw new Error("No API key configured. Please open Settings (gear icon).");
+        text = await callDeepSeek(prompt, searchOptions);
       }
 
       const cleaned = text.replace(/```/g, "").trim();
@@ -2174,13 +2173,6 @@ ${isNarrative ? `## Evidence Synthesis
         query,
       });
 
-      const apiKey = state.geminiApiKey || state.groqApiKey;
-      if (!apiKey) {
-        setStormDraft("# STORM Draft\n\nNo API key configured. Please add your Gemini or Groq API key in Settings to generate the STORM research-paper draft.\n\n## References\n\n1. Page MJ, McKenzie JE, Bossuyt PM, et al. The PRISMA 2020 statement. BMJ. 2021;372:n71.\n");
-        setStormLoading(false);
-        return;
-      }
-
       let text: string;
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
       if (state.geminiApiKey) {
@@ -2188,7 +2180,7 @@ ${isNarrative ? `## Evidence Synthesis
       } else if (state.groqApiKey) {
         text = await callGroq(state.groqApiKey!, prompt, searchOptions);
       } else {
-        throw new Error("No API key configured. Please open Settings (gear icon).");
+        text = await callDeepSeek(prompt, searchOptions);
       }
 
       const cleaned = text.replace(/```/g, "").trim();
@@ -2210,13 +2202,6 @@ ${isNarrative ? `## Evidence Synthesis
     setStormFinal("");
     try {
       const prompt = buildSTORMReviewPrompt({ draft: stormDraft, topic: query || "the research topic" });
-      const apiKey = state.geminiApiKey || state.groqApiKey;
-      if (!apiKey) {
-        setStormReview("No API key configured. Please add your Gemini or Groq API key in Settings to run the STORM self-review.");
-        setStormReviewLoading(false);
-        return;
-      }
-
       let text: string;
       const searchOptions: AICallOptions = { searchEnabled: false, searchQuery: query };
       if (state.geminiApiKey) {
@@ -2224,7 +2209,7 @@ ${isNarrative ? `## Evidence Synthesis
       } else if (state.groqApiKey) {
         text = await callGroq(state.groqApiKey!, prompt, searchOptions);
       } else {
-        throw new Error("No API key configured. Please open Settings (gear icon).");
+        text = await callDeepSeek(prompt, searchOptions);
       }
 
       const cleaned = text.replace(/```/g, "").trim();
@@ -2259,13 +2244,6 @@ ${stormReview}
 - Output the complete final draft in Markdown
 `;
 
-      const apiKey = state.geminiApiKey || state.groqApiKey;
-      if (!apiKey) {
-        setStormFinal("No API key configured. Please add your Gemini or Groq API key in Settings to regenerate the final STORM draft.");
-        setStormFinalLoading(false);
-        return;
-      }
-
       let text: string;
       const searchOptions: AICallOptions = { searchEnabled: false, searchQuery: query };
       if (state.geminiApiKey) {
@@ -2273,7 +2251,7 @@ ${stormReview}
       } else if (state.groqApiKey) {
         text = await callGroq(state.groqApiKey!, prompt, searchOptions);
       } else {
-        throw new Error("No API key configured. Please open Settings (gear icon).");
+        text = await callDeepSeek(prompt, searchOptions);
       }
 
       const cleaned = text.replace(/```/g, "").trim();
