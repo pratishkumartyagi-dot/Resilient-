@@ -1550,7 +1550,6 @@ Step 1 results now show:
 ### Validation
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes (0 errors; only pre-existing not-found.tsx warning)
-- `bun run build` ⚠ blocked by sandbox network (cannot fetch Geist/Geist Mono from Google Fonts) — unrelated to this change; typecheck + lint are the authoritative checks here.
 
 ## Bug Fixes — ClinicalTrials.gov (no results) + Research Pipeline Step 1 parity (2026-07-13)
 
@@ -1569,7 +1568,6 @@ Step 1 results now show:
 ### Validation
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes (0 errors; only pre-existing not-found.tsx warning)
-- `bun run build` ⚠ blocked by sandbox network (Google Fonts) — unrelated.
 
 ## Audit Fixes — Prioritized defects & cross-cutting themes (2026-07-13)
 
@@ -1684,3 +1682,11 @@ Both Step 1 components (Research Pipeline and Evidence Synthesis & Meta-analysis
 ### Validation
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes (0 errors; only pre-existing not-found.tsx warning)
+
+## Windows .exe Release to GitHub (2026-10-18)
+
+- Bumped `package.json` version `0.1.2` → `0.1.3` and committed on branch `kilo/prime-moon-jpp`.
+- Pushed branch and new tag `v0.1.5` to GitHub (https://github.com/pratishkumartyagi-dot/Resilient-/releases/tag/v0.1.5).
+- Tag push matching `v*` triggers `.github/workflows/build-desktop.yml`, which builds the Windows `.exe` on a `windows-latest` runner via `bun run dist:win` (`next build && electron-builder --win --publish never`) and attaches both the NSIS installer (`Resilient Research App Setup 0.1.3.exe`) and portable single-file exe (`Resilient Research App 0.1.3.exe`) to the release.
+- Local Windows build was NOT run here: this Linux sandbox lacks `wine`, so the NSIS packaging step (`spawn wine ENOENT`) cannot complete locally — it succeeds on the GitHub `windows-latest` runner.
+- `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅ all pass before release.
