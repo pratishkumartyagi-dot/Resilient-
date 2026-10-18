@@ -1,6 +1,6 @@
 "use client";
 
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { AppProvider, useApp } from "@/context/AppContext";
 import Header from "@/components/Header";
@@ -35,13 +35,14 @@ const PaperWriterTab = lazy(() => import("@/components/tabs/PaperWriterTab"));
 const ProtocolChatTab = lazy(() => import("@/components/tabs/ProtocolChatTab"));
 const GrantWritingTab = lazy(() => import("@/components/tabs/GrantWritingTab"));
 const OmicsBioinformaticsTab = lazy(() => import("@/components/tabs/OmicsBioinformaticsTab"));
+const ThesisGenerator = lazy(() => import("@/components/pipelines/ThesisGenerator"));
 
 function withSuspense(node: React.ReactNode, label?: string) {
   return <Suspense fallback={<TabLoadingSkeleton label={label} />}>{node}</Suspense>;
 }
 
 function AppContent() {
-  const { state } = useApp();
+  const { state, dispatch } = useApp();
 
   const renderMainPipeline = () => {
     switch (state.currentStep) {
@@ -82,10 +83,19 @@ function AppContent() {
         return withSuspense(<ProtocolChatTab />, "Protocol Generator");
       case "grant":
         return withSuspense(<GrantWritingTab />, "Grant Writing");
+      case "thesis":
+        return withSuspense(<ThesisGenerator />, "Thesis Generator");
       default:
         return withSuspense(<GrantWritingTab />, "Grant Writing");
     }
   };
+
+  // Header dispatches "open-thesis" to switch directly to the Thesis Generator tab.
+  useEffect(() => {
+    const onOpenThesis = () => dispatch({ type: "SET_TAB", payload: "thesis" });
+    window.addEventListener("open-thesis", onOpenThesis);
+    return () => window.removeEventListener("open-thesis", onOpenThesis);
+  }, [dispatch]);
 
   return (
     <div className="min-h-screen flex flex-col bg-[#0f172a]">

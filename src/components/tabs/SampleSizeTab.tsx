@@ -113,10 +113,12 @@ export default function SampleSizeTab() {
         setResult(null);
         return;
       }
+      // Fleiss formula for two proportions: n per arm for allocation ratio r.
+      const pBar = (p0 + ratio * p1) / (1 + ratio);
       const numerator =
-        zAlpha * Math.sqrt(ratioFactor * (p0 + p1) * (2 - p0 - p1)) +
+        zAlpha * Math.sqrt(pBar * (1 - pBar) * (1 + 1 / ratio)) +
         zBeta * Math.sqrt(p1 * (1 - p1) + (p0 * (1 - p0)) / ratio);
-      perArm = Math.max(34, Math.ceil((numerator ** 2) / ((p1 - p0) ** 2)));
+      perArm = Math.max(2, Math.ceil((numerator ** 2) / ((p1 - p0) ** 2)));
     } else if (outcomeType === "Time to Event") {
       const logEs = Math.log(es);
       if (logEs <= 0) {
@@ -124,9 +126,12 @@ export default function SampleSizeTab() {
         setResult(null);
         return;
       }
-      perArm = Math.max(60, Math.ceil((4 * ratioFactor * (zAlpha + zBeta) ** 2) / (logEs ** 2)));
+      // Schoenfeld: events per arm = 2·(zα/2+zβ)²/(ln HR)² for equal allocation,
+      // generalised by ratioFactor = (1+1/r)/2.
+      perArm = Math.max(2, Math.ceil((2 * ratioFactor * (zAlpha + zBeta) ** 2) / (logEs ** 2)));
     } else {
-      perArm = Math.max(64, Math.ceil((16 * ratioFactor * (zAlpha + zBeta) ** 2) / (es ** 2)));
+      // Two-sample means: n per arm = 2·(zα/2+zβ)²/ES² for equal allocation.
+      perArm = Math.max(2, Math.ceil((2 * ratioFactor * (zAlpha + zBeta) ** 2) / (es ** 2)));
     }
 
     const total = Math.round(perArm * (1 + ratio));

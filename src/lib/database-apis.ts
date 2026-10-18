@@ -221,7 +221,8 @@ export async function fetchOpenAlex(
     if (page > 0) await sleep(200);
     let res: Response;
     try {
-      res = await fetchWithTimeout(cursorUrl);
+      // Retry with backoff: OpenAlex returns HTTP 429 on shared egress IPs.
+      res = await fetchWithRetry(cursorUrl, 4, 1500);
     } catch (err: any) {
       if (page === 0 && papers.length === 0) throw new Error(`OpenAlex fetch failed: ${err?.message || String(err)}`);
       break;
@@ -263,11 +264,14 @@ export async function fetchOpenAlex(
 // Re-export STUDY_TYPES for backward compatibility
 export const STUDY_TYPES = Object.keys(STUDY_TYPE_KEYWORDS);
 
-async function fetchWithTimeout(url: string, ms = 30000): Promise<Response> {
+const BROWSER_UA =
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+
+async function fetchWithTimeout(url: string, ms = 30000, init?: RequestInit): Promise<Response> {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), ms);
   try {
-    const res = await fetch(url, { signal: controller.signal });
+    const res = await fetch(url, { ...init, signal: controller.signal });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
     }
@@ -388,11 +392,16 @@ export async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: 
 
 export async function fetchDoaj(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const papers: Paper[] = [];
-  for (let page = 1; page <= 100; page++) {
+  // DOAJ caps pagination at 1000 results (pageSize 100 × 10 pages); page 11
+  // returns HTTP 400. Stop at the cap and keep the pages already retrieved.
+  const MAX_PAGES = 10;
+  for (let page = 1; page <= MAX_PAGES; page++) {
     const url = `https://doaj.org/api/v2/search/articles/${encodeURIComponent(query)}?pageSize=100&page=${page}`;
-    const res = await fetchWithTimeout(url);
-    if (!res.ok) {
-      if (page === 1) throw new Error(`DOAJ error: ${res.status}`);
+    let res: Response;
+    try {
+      res = await fetchWithRetry(url, 3, 800);
+    } catch (err) {
+      if (page === 1) throw err;
       break;
     }
     const data = await res.json();
@@ -482,8 +491,8 @@ export async function fetchPaperSearchMcp(query: string, source: string, yearFro
 
 export async function fetcharXiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const searchQuery = encodeURIComponent(`all:${query}`);
-  const url = `https://export.arxiv.org/api/query?search_query=${searchQuery}&start=0&max_results=5000&sortBy=relevance`;
-  const res = await fetchWithTimeout(url);
+  const url = `https://export.arxiv.org/api/query?search_query=${searchQuery}&start=0&max_results=1000&sortBy=relevance`;
+  const res = await fetchWithTimeout(url, 45000, { headers: { "User-Agent": BROWSER_UA } });
   const text = await res.text();
   if (!text) return [];
   const papers: Paper[] = [];
@@ -544,12 +553,14 @@ export async function fetchBioRxiv(query: string, yearFrom?: string, yearTo?: st
   let bioCursor = 0;
   for (let page = 0; page < 20; page++) {
     const url = `${baseUrl}/${bioCursor}`;
-    const res = await fetchWithTimeout(url);
-    if (!res.ok) {
-      if (page === 0) throw new Error(`bioRxiv error: ${res.status}`);
+    let data: any;
+    try {
+      const res = await fetchWithTimeout(url);
+      data = await res.json();
+    } catch (err: any) {
+      if (page === 0) throw new Error(`bioRxiv error: ${err?.message || String(err)}`);
       break;
     }
-    const data = await res.json();
     const results = data.collection || [];
     if (results.length === 0) break;
     for (const r of results) {
@@ -604,12 +615,14 @@ export async function fetchMedRxiv(query: string, yearFrom?: string, yearTo?: st
   let medCursor = 0;
   for (let page = 0; page < 20; page++) {
     const url = `${baseUrl}/${medCursor}`;
-    const res = await fetchWithTimeout(url);
-    if (!res.ok) {
-      if (page === 0) throw new Error(`medRxiv error: ${res.status}`);
+    let data: any;
+    try {
+      const res = await fetchWithTimeout(url);
+      data = await res.json();
+    } catch (err: any) {
+      if (page === 0) throw new Error(`medRxiv error: ${err?.message || String(err)}`);
       break;
     }
-    const data = await res.json();
     const results = data.collection || [];
     if (results.length === 0) break;
     for (const r of results) {
@@ -653,22 +666,30 @@ export async function fetchMedRxiv(query: string, yearFrom?: string, yearTo?: st
 
 export async function fetchZenodo(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const allResults: any[] = [];
-  for (let page = 1; page <= 10; page++) {
-    const qs = new URLSearchParams({ q: query, size: "100", sort: "mostrecent", page: String(page) });
-    let res = await fetchWithTimeout(`https://zenodo.org/api/records?${qs.toString()}`, 25000);
-    if (!res.ok && res.status === 400) {
-      const qs2 = new URLSearchParams({ q: query, size: "100", sort: "version", page: String(page) });
-      res = await fetchWithTimeout(`https://zenodo.org/api/records?${qs2.toString()}`, 25000);
+  // Zenodo's records endpoint rejects page sizes above 25 with HTTP 400.
+  const ZENODO_PAGE_SIZE = 25;
+  for (let page = 1; page <= 40; page++) {
+    const qs = new URLSearchParams({ q: query, size: String(ZENODO_PAGE_SIZE), sort: "mostrecent", page: String(page) });
+    let data: any;
+    try {
+      const res = await fetchWithTimeout(`https://zenodo.org/api/records?${qs.toString()}`, 25000, { headers: { "User-Agent": BROWSER_UA, Accept: "application/json" } });
+      data = await res.json();
+    } catch {
+      // Retry once with the alternative sort mode (Zenodo rejects some queries
+      // with HTTP 400 under `mostrecent`).
+      try {
+        const qs2 = new URLSearchParams({ q: query, size: String(ZENODO_PAGE_SIZE), sort: "version", page: String(page) });
+        const res = await fetchWithTimeout(`https://zenodo.org/api/records?${qs2.toString()}`, 25000, { headers: { "User-Agent": BROWSER_UA, Accept: "application/json" } });
+        data = await res.json();
+      } catch (err: any) {
+        if (page === 1) throw new Error(`Zenodo error: ${err?.message || String(err)}`);
+        break;
+      }
     }
-    if (!res.ok) {
-      if (page === 1) throw new Error(`Zenodo error: ${res.status}`);
-      break;
-    }
-    const data = await res.json();
     const results = data.hits?.hits || [];
     if (results.length === 0) break;
     allResults.push(...results);
-    if (results.length < 100) break;
+    if (results.length < ZENODO_PAGE_SIZE) break;
     await sleep(200);
   }
   return buildZenodoPapers(allResults, yearFrom, yearTo, studyType);
@@ -746,12 +767,14 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
     const qs = new URLSearchParams({ query, rows: "100", cursor, sort: "relevance" });
     if (filters.length) qs.set("filter", filters.join(","));
     const url = `https://api.crossref.org/works?${qs.toString()}`;
-    const res = await fetchWithRetry(url, 3, 2000);
-    if (!res.ok) {
-      if (page === 0) throw new Error(`Crossref error: ${res.status}`);
+    let data: any;
+    try {
+      const res = await fetchWithRetry(url, 3, 2000);
+      data = await res.json();
+    } catch (err: any) {
+      if (page === 0) throw new Error(`Crossref error: ${err?.message || String(err)}`);
       break;
     }
-    const data = await res.json();
     const results = data.message?.items || [];
     if (results.length === 0) break;
     papers.push(...results.map(paperFromWork));
@@ -771,65 +794,66 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
 export async function fetchOpenAIRE(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   try {
     const papers: Paper[] = [];
+    const pageSize = 100;
+    // OpenAIRE retired the legacy /search/publications endpoint (HTTP 400 for
+    // `query`); use the Graph API instead.
     for (let apiPage = 1; apiPage <= 10; apiPage++) {
-    const qs = new URLSearchParams({ 
-      query: query, 
-      format: "json", 
-      size: "100",
-      page: String(apiPage)
-    });
-    const url = `https://api.openaire.eu/search/publications?${qs.toString()}`;
-    const res = await fetchWithRetry(url, 3, 2000);
-    if (!res.ok) {
-      if (apiPage === 1) throw new Error(`OpenAIRE error: ${res.status}`);
-      break;
-    }
-    const data = await res.json();
-    const results = data.response?.results?.result || [];
-    if (results.length === 0) break;
-    for (const r of results) {
+      const qs = new URLSearchParams({
+        search: query,
+        pageSize: String(pageSize),
+        page: String(apiPage),
+      });
+      const url = `https://api.openaire.eu/graph/v1/researchProducts?${qs.toString()}`;
+      let data: any;
       try {
-        const meta = r.metadata || {};
-        const entity = meta["oaf:entity"] || {};
-        const result = entity["oaf:result"] || {};
-        
-        const title = result.resulttitle?.$ || result.resulttitle || "Untitled";
-        const creatorList = Array.isArray(result.creator) ? result.creator : (result.creator ? [result.creator] : []);
-        const authors = creatorList.map((c: any) => c["$"] || c.content || c.name || "").filter(Boolean).join(", ").substring(0, 300) || "Unknown authors";
-        
-        const yearStr = result.dateofacceptance?.$ || result.dateofacceptance || result.dateofcollection?.$ || result.dateofcollection || "";
-        const year = parseInt(yearStr.slice(0, 4)) || new Date().getFullYear();
-        
-        const doi = (result.doi?.$ || result.doi || "").replace("https://doi.org/", "");
-        const abstract = result.description?.$ || result.description || result.abstract?.$ || result.abstract || "No abstract available.";
-        
-        if (yearFrom && year < parseInt(yearFrom)) continue;
-        if (yearTo && year > parseInt(yearTo)) continue;
-        
-        papers.push({
-          id: `openaire-${doi || Math.random().toString(36).slice(2, 8)}`,
-          title: typeof title === "string" ? title : "Untitled",
-          authors: authors || "Unknown authors",
-          journal: result.journal?.$ || result.journal || "Unknown Journal",
-          year,
-          doi,
-          abstract: (typeof abstract === "string" ? abstract : "No abstract available.").substring(0, 3000),
-          database: "OpenAIRE",
-          studyType: classifyStudyType(typeof title === "string" ? title : "", typeof abstract === "string" ? abstract : ""),
-          selected: false,
-          url: doi ? `https://doi.org/${doi}` : "",
-          sourceBackend: "OpenAIRE API",
-          sources: ["OpenAIRE"],
-        });
-      } catch (err) {
-        console.warn("[OpenAIRE] Failed to parse result:", err);
-        continue;
+        const res = await fetchWithRetry(url, 3, 2000);
+        data = await res.json();
+      } catch (err: any) {
+        if (apiPage === 1) throw new Error(`OpenAIRE error: ${err?.message || String(err)}`);
+        break;
       }
+      const results = data.results || [];
+      if (results.length === 0) break;
+      for (const r of results) {
+        try {
+          const title = r.mainTitle || "Untitled";
+          const authorList = Array.isArray(r.authors) ? r.authors : [];
+          const authors = authorList.map((a: any) => a.fullName || a.name || "").filter(Boolean).join(", ").substring(0, 300) || "Unknown authors";
+          const year = r.publicationDate ? parseInt(String(r.publicationDate).slice(0, 4)) : new Date().getFullYear();
+          const identifiers = [
+            ...(Array.isArray(r.pids) ? r.pids : []),
+            ...(Array.isArray(r.instances) ? r.instances.flatMap((inst: any) => inst.pids || []) : []),
+          ];
+          const doiEntry = identifiers.find((p: any) => String(p?.scheme || "").toLowerCase() === "doi");
+          const doi = String(doiEntry?.value || "").replace(/^https?:\/\/doi\.org\//, "");
+          const abstract = Array.isArray(r.descriptions) ? (r.descriptions[0] || "No abstract available.") : (r.descriptions || "No abstract available.");
+          const instanceUrl = Array.isArray(r.instances) ? (r.instances[0]?.urls?.[0] || "") : "";
+          if (yearFrom && year < parseInt(yearFrom)) continue;
+          if (yearTo && year > parseInt(yearTo)) continue;
+          papers.push({
+            id: `openaire-${r.id || Math.random().toString(36).slice(2, 8)}`,
+            title,
+            authors,
+            journal: r.container?.name || r.publisher || "Unknown Journal",
+            year,
+            doi,
+            abstract: String(abstract).substring(0, 3000),
+            database: "OpenAIRE",
+            studyType: classifyStudyType(title, String(abstract)),
+            selected: false,
+            url: doi ? `https://doi.org/${doi}` : instanceUrl,
+            sourceBackend: "OpenAIRE Graph API",
+            sources: ["OpenAIRE"],
+          });
+        } catch (err) {
+          console.warn("[OpenAIRE] Failed to parse result:", err);
+          continue;
+        }
+      }
+      if (results.length < pageSize) break;
+      await sleep(300);
     }
-    if (results.length < 100) break;
-    await sleep(300);
-    }
-    
+
     if (studyType && studyType !== "All Study Types") {
       const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
       const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
@@ -845,9 +869,13 @@ export async function fetchOpenAIRE(query: string, yearFrom?: string, yearTo?: s
 export async function fetchDblp(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const qs = new URLSearchParams({ q: query, format: "json", h: "100", f: "0" });
   const url = `https://dblp.org/search/publ/api?${qs.toString()}`;
-  const res = await fetchWithTimeout(url);
+  const res = await fetchWithTimeout(url, 30000, { headers: { "User-Agent": BROWSER_UA, Accept: "application/json" } });
   if (!res.ok) throw new Error(`DBLP error: ${res.status}`);
-  const data = await res.json();
+  const raw = await res.text();
+  if (raw.trimStart().startsWith("<")) {
+    throw new Error("DBLP is protected by a bot challenge (Anubis) and cannot be queried from this environment.");
+  }
+  const data = JSON.parse(raw);
   const hits = data.result?.hits?.hit || [];
   const papers: Paper[] = hits.map((h: any) => {
     const info = h.info || {};
@@ -1214,12 +1242,14 @@ export async function fetchClinicalTrialsGov(query: string, yearFrom?: string, y
     });
     if (pageToken) qs.set("pageToken", pageToken);
     const url = `https://clinicaltrials.gov/api/v2/studies?${qs.toString()}`;
-    const res = await fetchWithTimeout(url);
-    if (!res.ok) {
-      if (page === 0) throw new Error(`ClinicalTrials.gov error: ${res.status}`);
+    let data: any;
+    try {
+      const res = await fetchWithTimeout(url);
+      data = await res.json();
+    } catch (err: any) {
+      if (page === 0) throw new Error(`ClinicalTrials.gov error: ${err?.message || String(err)}`);
       break;
     }
-    const data = await res.json();
     const studies = data.studies || [];
     if (studies.length === 0) break;
     for (const s of studies) {
@@ -1319,34 +1349,40 @@ export async function fetchCochraneLibrary(query: string, yearFrom?: string, yea
 }
 
 export async function fetchPubMedBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+  // NCBI E-utilities rate-limits to 3 requests/second per IP (10/sec with an
+  // API key). Shared/serverless egress IPs are frequently already at the limit,
+  // which surfaced as HTTP 429 and an empty result set. NCBI recommends sending
+  // `tool` and `email`, and retrying 429/503 responses with backoff.
+  const apiKey = typeof process !== "undefined" ? process.env.NCBI_API_KEY || process.env.NEXT_PUBLIC_NCBI_API_KEY || "" : "";
+  const ncbiParams = `tool=resilient-researcher&email=${encodeURIComponent("noreply@kilo.app")}${apiKey ? `&api_key=${encodeURIComponent(apiKey)}` : ""}`;
+
+  // A direct, bounded call (max 3 pages = 1500 records) keeps the request count
+  // low enough to stay under the rate limit while still returning useful breadth.
+  const PAGE = 500;
+  const MAX_RESULTS = 1500;
+
   try {
     let pmids: string[] = [];
-    const PAGE = 500;
-    const MAX_RESULTS = 10000;
     for (let start = 0; start < MAX_RESULTS; start += PAGE) {
-      const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=${PAGE}&retstart=${start}&sort=relevance&term=${encodeURIComponent(query)}`;
-      const searchRes = await fetchWithTimeout(searchUrl);
+      const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=${PAGE}&retstart=${start}&sort=relevance&term=${encodeURIComponent(query)}&${ncbiParams}`;
+      const searchRes = await fetchWithRetry(searchUrl, 4, 800);
       const searchText = await searchRes.text();
       const idMatches = searchText.match(/<Id>(\d+)<\/Id>/g) || [];
       const batch = idMatches.map((m) => m.replace(/<Id>|<\/Id>/g, "").trim()).filter(Boolean);
       pmids.push(...batch);
       if (batch.length < PAGE) break;
-      await sleep(350);
+      await sleep(400);
     }
 
     if (pmids.length === 0) {
       // Try with broader search - remove advanced query syntax
       const broadQuery = query.split("(")[0].split(")")[0].trim() || query;
-      const broadSearchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=500&term=${encodeURIComponent(broadQuery)}`;
-      try {
-        const broadSearchRes = await fetchWithTimeout(broadSearchUrl);
-        const broadSearchText = await broadSearchRes.text();
-        const broadIdMatches = broadSearchText.match(/<Id>(\d+)<\/Id>/g) || [];
-        pmids = broadIdMatches.map((m) => m.replace(/<Id>|<\/Id>/g, "").trim()).filter(Boolean);
-        if (pmids.length === 0) return [];
-      } catch {
-        return [];
-      }
+      const broadSearchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=500&sort=relevance&term=${encodeURIComponent(broadQuery)}&${ncbiParams}`;
+      const broadSearchRes = await fetchWithRetry(broadSearchUrl, 4, 800);
+      const broadSearchText = await broadSearchRes.text();
+      const broadIdMatches = broadSearchText.match(/<Id>(\d+)<\/Id>/g) || [];
+      pmids = broadIdMatches.map((m) => m.replace(/<Id>|<\/Id>/g, "").trim()).filter(Boolean);
+      if (pmids.length === 0) return [];
     }
 
     const chunkSize = 200;
@@ -1355,8 +1391,8 @@ export async function fetchPubMedBrowserless(query: string, yearFrom?: string, y
     for (let i = 0; i < pmids.length; i += chunkSize) {
       if (i > 0) await sleep(500);
       const chunk = pmids.slice(i, i + chunkSize).join(",");
-      const fetchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=${chunk}&rettype=abstract`;
-      const res = await fetchWithTimeout(fetchUrl);
+      const fetchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=${chunk}&rettype=abstract&${ncbiParams}`;
+      const res = await fetchWithRetry(fetchUrl, 4, 800);
       const xml = await res.text();
       const entries = xml.split("<PubmedArticle>").slice(1);
       for (const entry of entries) {
@@ -1415,8 +1451,9 @@ export async function fetchPubMedBrowserless(query: string, yearFrom?: string, y
     // Return papers even if empty (caller handles fallback)
     return papers;
   } catch (err: any) {
-    // Return empty array to let caller handle fallback gracefully
-    return [];
+    // Surface the failure so the caller can report "failed" instead of silently
+    // reporting an empty PubMed result (e.g. HTTP 429 rate limiting).
+    throw new Error(`PubMed search failed: ${err?.message || String(err)}`);
   }
 }
 
@@ -1471,8 +1508,15 @@ export async function fetchSemanticScholarBrowserless(query: string, yearFrom?: 
     const papers: Paper[] = [];
     for (let offset = 0; offset < 1000; offset += 100) {
     const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=title,authors,year,abstract,externalIds,venue,publicationDate&limit=100&offset=${offset}`;
-    const res = await fetchWithRetry(url, 3, 2000);
-    const data = await res.json();
+    let data: any;
+    try {
+      const res = await fetchWithRetry(url, 3, 2000);
+      data = await res.json();
+    } catch (err: any) {
+      console.warn("[Semantic Scholar] page failed:", err?.message || String(err));
+      if (offset === 0) throw new Error(`Semantic Scholar error: ${err?.message || String(err)}`);
+      break;
+    }
     const batch: any[] = data.data || [];
     if (batch.length === 0) break;
     papers.push(...batch
@@ -1529,7 +1573,9 @@ export async function fetchSemanticScholarBrowserless(query: string, yearFrom?: 
             };
           });
         if (fallbackPapers.length > 0) return fallbackPapers;
-      } catch {}
+      } catch (fallbackErr: any) {
+        throw new Error(`Semantic Scholar error: ${fallbackErr?.message || String(fallbackErr)}`);
+      }
     }
 
     if (yearFrom || yearTo) {
@@ -1548,7 +1594,7 @@ export async function fetchSemanticScholarBrowserless(query: string, yearFrom?: 
     return papers;
   } catch (err: any) {
     console.warn("[Semantic Scholar] fetch failed:", err?.message);
-    return [];
+    throw err instanceof Error ? err : new Error(String(err));
   }
 }
 

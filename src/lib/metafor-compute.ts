@@ -1,4 +1,4 @@
-import { type Paper } from "./database-apis";
+import { descriptiveStatistics, weightedMean } from "./statistics";
 
 export interface EffectSizeRow {
   study: string;
@@ -25,6 +25,7 @@ export interface MetaforResult {
   weights: number[];
   rows: EffectSizeRow[];
   forestData: ForestRow[];
+  descriptiveStats: DescriptiveStats | null;
 }
 
 export interface ForestRow {
@@ -35,6 +36,20 @@ export interface ForestRow {
   weight: number;
   weightPercent: number;
   isPooled?: boolean;
+}
+
+export interface DescriptiveStats {
+  n: number;
+  mean: number;
+  median: number;
+  variance: number;
+  standardDeviation: number;
+  min: number;
+  max: number;
+  range: number;
+  iqr: number;
+  skewness: number;
+  kurtosis: number;
 }
 
 function parseNumber(s: string): number | null {
@@ -90,8 +105,8 @@ export function fixedEffectsMetaAnalysis(rows: EffectSizeRow[]): MetaforResult |
   const k = valid.length;
   const wStar = valid.map((r) => 1 / r.variance);
   const sumWStar = wStar.reduce((a, b) => a + b, 0);
-  const wy = valid.reduce((acc, r, i) => acc + wStar[i] * r.effect, 0);
-  const pooledEstimate = wy / sumWStar;
+  const effects = valid.map((r) => r.effect);
+  const pooledEstimate = weightedMean(effects, wStar);
   const se = Math.sqrt(1 / sumWStar);
   const z = 1.96;
   const ciLower = pooledEstimate - z * se;
@@ -118,6 +133,7 @@ export function fixedEffectsMetaAnalysis(rows: EffectSizeRow[]): MetaforResult |
     weights: wStar,
     rows: valid,
     forestData: buildForestData(valid, pooledEstimate, ciLower, ciUpper, se, wStar, "Fixed", k),
+    descriptiveStats: buildDescriptiveStats(valid),
   };
 }
 
@@ -143,7 +159,8 @@ export function randomEffectsMetaAnalysis(rows: EffectSizeRow[]): MetaforResult 
 
   const wRandom = valid.map((r) => 1 / (r.variance + tau2));
   const sumWRandom = wRandom.reduce((a, b) => a + b, 0);
-  const pooledEstimate = valid.reduce((acc, r, i) => acc + wRandom[i] * r.effect, 0) / sumWRandom;
+  const effects = valid.map((r) => r.effect);
+  const pooledEstimate = weightedMean(effects, wRandom);
   const se = Math.sqrt(1 / sumWRandom);
   const z = 1.96;
   const ciLower = pooledEstimate - z * se;
@@ -169,6 +186,24 @@ export function randomEffectsMetaAnalysis(rows: EffectSizeRow[]): MetaforResult 
     weights: wRandom,
     rows: valid,
     forestData: buildForestData(valid, pooledEstimate, ciLower, ciUpper, se, wRandom, "Random", k),
+    descriptiveStats: buildDescriptiveStats(valid),
+  };
+}
+
+function buildDescriptiveStats(rows: EffectSizeRow[]): DescriptiveStats {
+  const stats = descriptiveStatistics(rows.map((r) => r.effect));
+  return {
+    n: stats.n,
+    mean: stats.mean,
+    median: stats.median,
+    variance: stats.variance,
+    standardDeviation: stats.standardDeviation,
+    min: stats.min,
+    max: stats.max,
+    range: stats.range,
+    iqr: stats.iqr,
+    skewness: stats.skewness,
+    kurtosis: stats.kurtosis,
   };
 }
 
@@ -204,33 +239,63 @@ function buildForestData(
   ];
 }
 
+function lnGamma(z: number): number {
+  // Lanczos approximation (g = 7, n = 9).
+  const c = [
+    0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+    771.32342877765313, -176.61502916214059, 12.507343278686905,
+    -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7,
+  ];
+  if (z < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * z)) - lnGamma(1 - z);
+  z -= 1;
+  let x = c[0];
+  for (let i = 1; i < 9; i++) x += c[i] / (z + i);
+  const t = z + 7.5;
+  return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x);
+}
+
+function regularizedGammaP(a: number, x: number): number {
+  if (x <= 0) return 0;
+  const FPMIN = 1e-300;
+  const EPS = 1e-14;
+
+  if (x < a + 1) {
+    // Series representation for P(a, x).
+    let ap = a;
+    let sum = 1 / a;
+    let del = sum;
+    for (let n = 1; n <= 200; n++) {
+      ap += 1;
+      del *= x / ap;
+      sum += del;
+      if (Math.abs(del) < Math.abs(sum) * EPS) break;
+    }
+    return sum * Math.exp(-x + a * Math.log(x) - lnGamma(a));
+  }
+
+  // Continued-fraction representation for Q(a, x), then P = 1 - Q.
+  let b = x + 1 - a;
+  let c = 1 / FPMIN;
+  let d = 1 / b;
+  let h = d;
+  for (let i = 1; i <= 200; i++) {
+    const an = -i * (i - a);
+    b += 2;
+    d = an * d + b;
+    if (Math.abs(d) < FPMIN) d = FPMIN;
+    c = b + an / c;
+    if (Math.abs(c) < FPMIN) c = FPMIN;
+    d = 1 / d;
+    const del = d * c;
+    h *= del;
+    if (Math.abs(del - 1) < EPS) break;
+  }
+  const q = Math.exp(-x + a * Math.log(x) - lnGamma(a)) * h;
+  return 1 - q;
+}
+
 function chiSquaredPValue(x: number, df: number): number {
   if (x <= 0 || df <= 0) return 1;
-  if (df % 2 === 0) {
-    let sum = 0;
-    for (let i = df / 2; i > 0; i--) {
-      sum += Math.pow(x, i - 1) / factorial(i - 1);
-    }
-    return Math.exp(-x / 2) * sum;
-  }
-  return Math.exp(-x / 2) * (1 / Math.sqrt(Math.PI * x)) * modifiedBesselI(df / 2 - 0.5, x / 2);
-}
-
-function factorial(n: number): number {
-  if (n <= 1) return 1;
-  let result = 1;
-  for (let i = 2; i <= n; i++) result *= i;
-  return result;
-}
-
-function modifiedBesselI(v: number, x: number): number {
-  const sum = (() => {
-    let s = 0;
-    for (let k = 0; k < 20; k++) {
-      const term = Math.pow(x / 2, 2 * k + 2 * v) / (factorial(k) * factorial(k + v));
-      s += term;
-    }
-    return s;
-  })();
-  return Math.pow(x / 2, v) * sum;
+  // Survival function of the chi-square distribution: P(X > x) = Q(df/2, x/2).
+  return 1 - regularizedGammaP(df / 2, x / 2);
 }

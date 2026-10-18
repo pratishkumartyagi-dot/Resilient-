@@ -1,156 +1,361 @@
 "use client";
 
-import React, { useState, useRef } from "react";
-import { Sparkles, BookOpen, RotateCcw } from "lucide-react";
+import React, { useState, useCallback, useMemo } from "react";
+import { Sparkles, BookOpen, RotateCcw, Loader2, Copy, Check } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
-import { buildStep4Prompt } from "@/lib/research-skills";
 import { generateLocalLiteratureReview } from "@/lib/local-synthesis";
+import { formatVancouverReference } from "@/lib/references";
 
-const generateMockLiteratureReview = (): string => {
-  return `# Literature Review\n\n> **Note:** This review was generated using local NLP analysis because no API key is configured. Add a Gemini or Groq API key in Settings for a richer AI-generated review.\n\n---\n\nNo papers selected or available. Please select papers in Step 2 and generate a synthesis table in Step 3 before proceeding to Step 4.`;
+type SectionKey = "introduction" | "globalIndian" | "gaps" | "futureAdvice" | "summary" | "references";
+
+interface SectionMeta {
+  key: SectionKey;
+  number: number;
+  title: string;
+  blurb: string;
+}
+
+const REVIEW_STRUCTURE: SectionMeta[] = [
+  { key: "introduction", number: 1, title: "Introduction", blurb: "Broad overview of the research field" },
+  { key: "globalIndian", number: 2, title: "Global & Indian Situations", blurb: "Burden data, national programmes" },
+  { key: "gaps", number: 3, title: "Research Gaps / Limitations", blurb: "Populations & settings not studied" },
+  { key: "futureAdvice", number: 4, title: "Authors' Advice for Future Research", blurb: "Recommendations from journals" },
+  { key: "summary", number: 5, title: "Summary of All Studies", blurb: "Thematic synthesis of findings" },
+  { key: "references", number: 6, title: "References", blurb: "All Vancouver-style citations (only here)" },
+];
+
+const EMPTY_SECTIONS: Record<SectionKey, string> = {
+  introduction: "",
+  globalIndian: "",
+  gaps: "",
+  futureAdvice: "",
+  summary: "",
+  references: "",
 };
+
+function stripQuotesAndFences(text: string): string {
+  return text.replace(/```markdown/gi, "").replace(/```/g, "").trim();
+}
+
+function buildSectionPrompt(meta: SectionMeta, evidenceBase: string, query: string): string {
+  const common = `You are an expert academic writer producing ONE section of a publication-ready narrative literature review.
+
+RESEARCH TOPIC: ${query || "the research topic"}
+
+EVIDENCE SYNTHESIS TABLE (single source of truth — cite ONLY these studies):
+${evidenceBase}
+
+CITATION RULES:
+- Cite papers inline using author-year, e.g. (Smith 2020), (Jones et al 2022).
+- Every inline citation MUST map to a paper in the evidence synthesis table.
+- Aim for 2-4 inline citations per paragraph.
+
+SECTION: ${meta.number}. ${meta.title}
+SECTION FOCUS: ${meta.blurb}`;
+
+  switch (meta.key) {
+    case "introduction":
+      return `${common}
+
+TASK: Write the Introduction — a broad, scholarly overview of the research field: background, significance, current understanding, and the rationale for this review. 3-5 paragraphs. Do NOT include a reference list.`;
+    case "globalIndian":
+      return `${common}
+
+TASK: Write "Global & Indian Situations" — synthesize the global burden/epidemiology and national programmes, then the Indian situation (national programmes, epidemiology, policy). Compare and contrast where evidence allows. 3-5 paragraphs. Do NOT include a reference list.`;
+    case "gaps":
+      return `${common}
+
+TASK: Write "Research Gaps / Limitations" as a narrative built from DEEP REASONING over each study's limitations, exclusions, and unanswered questions (use the "Research gaps (deep reasoning)" column). Identify populations, settings, and outcomes not adequately studied. 3-5 paragraphs. Do NOT include a reference list.`;
+    case "futureAdvice":
+      return `${common}
+
+TASK: Write "Authors' Advice for Future Research" — concrete, journal-grounded recommendations for future work, grouped thematically and tied to the identified gaps. 3-5 paragraphs. Do NOT include a reference list.`;
+    case "summary":
+      return `${common}
+
+TASK: Write "Summary of All Studies" — a thematic synthesis of the findings across all included studies, noting convergence, divergence, and evidence strength (T1-T4). 3-5 paragraphs. Do NOT include a reference list.`;
+    default:
+      return common;
+  }
+}
 
 export default function Step4LiteratureReview() {
   const { state, dispatch } = useApp();
-  const [reviewText, setReviewText] = useState(state.literatureReview || "");
-  const lastGeneratedRef = useRef(state.literatureReview || "");
+  const [sections, setSections] = useState<Record<SectionKey, string>>(EMPTY_SECTIONS);
+  const [loading, setLoading] = useState(false);
+  const [sectionLoading, setSectionLoading] = useState<SectionKey | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  const handleGenerateReview = async () => {
-    const selected = state.papers.filter((p) => p.selected);
-    if (selected.length === 0) {
-      alert("Please select papers in Step 2 first, or generate a synthesis table in Step 3.");
+  const selectedPapers = useMemo(() => state.papers.filter((p) => p.selected), [state.papers]);
+  const studyCount = state.synthesisTable.length > 0 ? state.synthesisTable.length : selectedPapers.length;
+
+  // Section 6 — References auto-populated from the evidence synthesis table's
+  // Vancouver reference column. Falls back to building references from selected papers.
+  const referencesText = useMemo(() => {
+    if (state.synthesisTable.length > 0) {
+      return state.synthesisTable
+        .map((r, i) => `${i + 1}. ${r.reference}`)
+        .join("\n");
+    }
+    return selectedPapers
+      .map((p, i) => `${i + 1}. ${formatVancouverReference({
+        authors: p.authors,
+        title: p.title,
+        journal: p.journal,
+        year: p.year,
+        doi: p.doi,
+      })}`)
+      .join("\n");
+  }, [state.synthesisTable, selectedPapers]);
+
+  const callAi = useCallback(
+    async (prompt: string): Promise<string> => {
+      const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: state.searchQuery };
+      if (state.geminiApiKey) return callGemini(state.geminiApiKey, prompt, searchOptions);
+      if (state.groqApiKey) return callGroq(state.groqApiKey, prompt, searchOptions);
+      return callDeepSeek(prompt, searchOptions);
+    },
+    [state.geminiApiKey, state.groqApiKey, state.searchQuery],
+  );
+
+  // Evidence synthesis table used as the single source of truth for every section.
+  const evidenceBase = useMemo(() => {
+    if (state.synthesisTable.length > 0) {
+      return state.synthesisTable
+        .map((r, i) => {
+          return `${i + 1}. ${r.reference}
+   Key findings: ${r.keyFindings}
+   Synopsis: ${r.synopsis}
+   Study: ${r.studyDetails}
+   Research gaps (deep reasoning): ${r.researchGaps}`;
+        })
+        .join("\n\n");
+    }
+    return selectedPapers
+      .map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal}.${p.doi ? ` doi:${p.doi}` : ""}\n   Study type: ${p.studyType}\n   Abstract: ${p.abstract}`)
+      .join("\n\n");
+  }, [state.synthesisTable, selectedPapers]);
+
+  const generateSection = useCallback(
+    async (meta: SectionMeta): Promise<string> => {
+      if (meta.key === "references") return referencesText;
+      const text = await callAi(buildSectionPrompt(meta, evidenceBase, state.searchQuery));
+      return stripQuotesAndFences(text);
+    },
+    [callAi, referencesText, evidenceBase, state.searchQuery],
+  );
+
+  const persist = useCallback(
+    (next: Record<SectionKey, string>) => {
+      const full = REVIEW_STRUCTURE
+        .map((s) => `## ${s.number}. ${s.title}\n\n${next[s.key] || ""}`)
+        .join("\n\n");
+      dispatch({ type: "SET_LITERATURE_REVIEW", payload: full });
+    },
+    [dispatch],
+  );
+
+  const handleGenerateAll = async () => {
+    if (studyCount === 0) {
+      alert("Please select papers in Step 1 / generate a synthesis table in Step 3 first.");
       return;
     }
-
-    dispatch({ type: "SET_LOADING", payload: true });
-    setReviewText("");
-
+    setLoading(true);
+    const next: Record<SectionKey, string> = { ...EMPTY_SECTIONS, references: referencesText };
+    setSections(next);
     try {
-      const synthesisContext = state.synthesisTable.length > 0
-        ? "\n\nPRE-COMPUTED SYNTHESIS TABLE (use this as the core evidence base):\n" +
-          state.synthesisTable.map((r, i) => `${i + 1}. ${r.reference}\n   Key findings: ${r.keyFindings}\n   Study: ${r.studyDetails}\n   Gaps: ${r.researchGaps}`).join("\n\n")
-        : "";
-
-      let review: string = "";
-
-      if (state.geminiApiKey) {
-        const prompt = buildStep4Prompt(selected, "") + synthesisContext;
-        review = await callGemini(state.geminiApiKey, prompt, { searchEnabled: true, searchQuery: state.searchQuery });
-      } else if (state.groqApiKey) {
-        const prompt = buildStep4Prompt(selected, "") + synthesisContext;
-        review = await callGroq(state.groqApiKey, prompt, { searchEnabled: true, searchQuery: state.searchQuery });
-      } else {
-        const prompt = buildStep4Prompt(selected, "") + synthesisContext;
-        review = await callDeepSeek(prompt, { searchEnabled: true, searchQuery: state.searchQuery });
+      for (const meta of REVIEW_STRUCTURE) {
+        if (meta.key === "references") continue;
+        setSectionLoading(meta.key);
+        try {
+          const content = await generateSection(meta);
+          next[meta.key] = content;
+          setSections({ ...next });
+        } catch (err: any) {
+          next[meta.key] = `> Could not generate this section: ${err?.message || "unknown error"}.`;
+          setSections({ ...next });
+        }
       }
-
-      review = review.replace(/```markdown/g, "").replace(/```/g, "").trim();
-      lastGeneratedRef.current = review;
-      setReviewText(review);
-      dispatch({ type: "SET_LITERATURE_REVIEW", payload: review });
+      setSectionLoading(null);
+      persist(next);
     } catch (err: any) {
       console.error("Literature review generation failed:", err);
-      const selectedForLocal = state.papers.filter((p) => p.selected);
-      if (selectedForLocal.length > 0) {
-        const fallback = generateLocalLiteratureReview(
-          selectedForLocal.map((p) => ({
-            authors: p.authors,
-            year: p.year,
-            title: p.title,
-            journal: p.journal,
-            abstract: p.abstract,
-            doi: p.doi,
-            studyType: p.studyType,
-            database: p.database,
-          })),
-          state.searchQuery,
-          { enableRobustReview: true }
-        );
-        setReviewText(fallback);
-        lastGeneratedRef.current = fallback;
-        dispatch({ type: "SET_LITERATURE_REVIEW", payload: fallback });
-      } else {
-        const mock = generateMockLiteratureReview();
-        setReviewText(mock);
-        lastGeneratedRef.current = mock;
-        dispatch({ type: "SET_LITERATURE_REVIEW", payload: mock });
-      }
+      const fallback = generateLocalLiteratureReview(
+        selectedPapers.map((p) => ({
+          authors: p.authors,
+          year: p.year,
+          title: p.title,
+          journal: p.journal,
+          abstract: p.abstract,
+          doi: p.doi,
+          studyType: p.studyType,
+          database: p.database,
+        })),
+        state.searchQuery,
+        { enableRobustReview: true },
+      );
+      next.introduction = fallback;
+      setSections({ ...next });
+      persist(next);
     } finally {
-      dispatch({ type: "SET_LOADING", payload: false });
+      setLoading(false);
     }
   };
 
-  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newValue = e.target.value;
-    setReviewText(newValue);
-    dispatch({ type: "SET_LITERATURE_REVIEW", payload: newValue });
+  const handleRegenerateSection = async (meta: SectionMeta) => {
+    if (meta.key === "references") {
+      // References always come straight from the synthesis table Vancouver column.
+      setSections((prev) => ({ ...prev, references: referencesText }));
+      return;
+    }
+    setSectionLoading(meta.key);
+    try {
+      const content = await generateSection(meta);
+      setSections((prev) => {
+        const nxt = { ...prev, [meta.key]: content };
+        persist(nxt);
+        return nxt;
+      });
+    } catch (err: any) {
+      alert(`Failed to regenerate section: ${err?.message || "unknown error"}`);
+    } finally {
+      setSectionLoading(null);
+    }
   };
 
   const handleReset = () => {
-    if (confirm("Reset literature review to original AI-generated version?")) {
-      setReviewText(lastGeneratedRef.current);
-      dispatch({ type: "SET_LITERATURE_REVIEW", payload: lastGeneratedRef.current });
+    if (!confirm("Reset the literature review?")) return;
+    setSections(EMPTY_SECTIONS);
+    dispatch({ type: "SET_LITERATURE_REVIEW", payload: "" });
+  };
+
+  const handleCopy = async () => {
+    const full = REVIEW_STRUCTURE
+      .map((s) => `## ${s.number}. ${s.title}\n\n${s.key === "references" ? referencesText : sections[s.key]}`)
+      .join("\n\n");
+    try {
+      await navigator.clipboard.writeText(full);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* ignore */
     }
   };
 
+  const hasContent = REVIEW_STRUCTURE.some((s) => s.key !== "references" && sections[s.key]);
+
   return (
     <div className="space-y-6">
-      <div className="bg-[#0d1b3e] border border-blue-900/50 rounded-lg p-6 shadow">
-        <div className="flex items-center justify-between mb-4">
+      {/* AI Powered Literature Review panel */}
+      <div className="bg-[#0d1b3e] border border-blue-900/50 rounded-lg p-5 shadow">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-xl font-bold text-white">Step 4: Review of Literature</h2>
+            <h2 className="text-lg font-bold text-white">AI Powered Literature Review</h2>
             <p className="text-sm text-blue-300">
-              Generate a comprehensive thematic literature review synthesized from your selected papers using AIPOCH methodology.
+              Review based on <span className="font-semibold text-white">{studyCount}</span> studies from evidence
+              synthesis table. Generates 6 sections with references only at the end.
             </p>
           </div>
           <div className="flex gap-2">
             <button
+              onClick={handleCopy}
+              disabled={!hasContent}
+              className="flex items-center gap-2 bg-blue-900/50 text-blue-200 px-3 py-2 rounded-lg hover:bg-blue-800/60 text-sm disabled:opacity-50"
+            >
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+              {copied ? "Copied" : "Copy"}
+            </button>
+            <button
               onClick={handleReset}
-              disabled={!reviewText || state.isLoading}
+              disabled={!hasContent || loading}
               className="flex items-center gap-2 bg-blue-900/50 text-blue-200 px-3 py-2 rounded-lg hover:bg-blue-800/60 text-sm disabled:opacity-50"
             >
               <RotateCcw size={14} />
               Reset
             </button>
             <button
-              onClick={handleGenerateReview}
-              disabled={state.isLoading}
+              onClick={handleGenerateAll}
+              disabled={loading || studyCount === 0}
               className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50 flex items-center gap-2"
             >
-              <Sparkles size={16} />
-              {state.isLoading ? "Generating..." : "Generate Review of Literature"}
+              {loading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+              {loading ? "Generating..." : "Generate Review of Literature"}
             </button>
           </div>
         </div>
+      </div>
 
-        {state.isLoading && !reviewText && (
-          <div className="flex items-center justify-center py-16">
-            <div className="text-center">
-              <div className="w-10 h-10 border-4 border-yellow-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-              <p className="text-blue-200 text-sm">Synthesizing evidence across selected papers thematically...</p>
-              <p className="text-blue-400 text-xs mt-1">This may take 30-60 seconds</p>
-            </div>
-          </div>
-        )}
+      {/* Review structure */}
+      <div className="bg-[#102a1e]/40 border border-emerald-900/40 rounded-lg p-5">
+        <h3 className="text-sm font-bold text-emerald-300 mb-2">Review structure (6 sections):</h3>
+        <ol className="text-sm text-blue-200 space-y-1 list-decimal list-inside">
+          {REVIEW_STRUCTURE.map((s) => (
+            <li key={s.key}>
+              {s.title} — {s.blurb}
+            </li>
+          ))}
+        </ol>
+        <p className="text-[11px] text-emerald-200/80 mt-3">
+          Tip: generate each section on its own (the <span className="font-semibold">Generate</span> button on every
+          section below) to conserve API quota — generating all sections at once can exhaust your daily limit.
+        </p>
+      </div>
 
-        {!state.isLoading && (
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-blue-400 flex items-center gap-1">
-                <BookOpen size={12} />
-                Editable — modify the generated text below
-              </span>
-              <span className="text-xs text-blue-500">{reviewText.length} characters | {reviewText.split(/\s+/).filter(Boolean).length} words</span>
-            </div>
-            <textarea
-              value={reviewText}
-              onChange={handleTextChange}
-              placeholder="AI-generated literature review will appear here. You can also paste your own text..."
-              className="w-full h-[500px] bg-blue-950 border border-blue-800 text-white rounded-lg p-4 text-sm font-serif leading-relaxed placeholder:text-blue-600 focus:outline-none focus:ring-2 focus:ring-yellow-500 resize-y whitespace-pre-wrap"
-            />
+      {loading && !hasContent && (
+        <div className="flex items-center justify-center py-16">
+          <div className="text-center">
+            <div className="w-10 h-10 border-4 border-yellow-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-blue-200 text-sm">Synthesizing evidence and writing each section...</p>
           </div>
-        )}
+        </div>
+      )}
+
+      {/* Rendered sections — each can be generated independently to conserve API quota */}
+      <div className="space-y-4">
+        {REVIEW_STRUCTURE.map((meta) => {
+            const content = meta.key === "references" ? referencesText : sections[meta.key];
+            const isRef = meta.key === "references";
+            return (
+              <div key={meta.key} className="bg-[#0d1b3e] border border-blue-900/50 rounded-lg p-5 shadow">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <BookOpen size={14} className="text-yellow-400" />
+                    {meta.number}. {meta.title}
+                  </h3>
+                  {!isRef && (
+                    <button
+                      onClick={() => handleRegenerateSection(meta)}
+                      disabled={sectionLoading === meta.key || loading}
+                      className="flex items-center gap-1 text-[11px] bg-blue-900/50 text-blue-200 px-2 py-1 rounded hover:bg-blue-800/60 disabled:opacity-50"
+                    >
+                      {sectionLoading === meta.key ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                      {content ? "Regenerate" : "Generate"}
+                    </button>
+                  )}
+                  {isRef && (
+                    <span className="text-[10px] text-blue-400">Auto-filled from evidence synthesis table (Vancouver column)</span>
+                  )}
+                </div>
+                {sectionLoading === meta.key ? (
+                  <p className="text-sm text-blue-400 flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Writing {meta.title}...</p>
+                ) : isRef ? (
+                  <div
+                    className="text-sm text-blue-100 font-serif leading-relaxed space-y-1 max-h-[400px] overflow-y-auto"
+                    dangerouslySetInnerHTML={{
+                      __html: content
+                        ? content.split("\n").map((line) => `<div>${line}</div>`).join("")
+                        : "References will appear here after generating the synthesis table.",
+                    }}
+                  />
+                ) : content ? (
+                  <div className="text-sm text-blue-100 font-serif leading-relaxed whitespace-pre-wrap">{content}</div>
+                ) : (
+                  <p className="text-sm text-blue-500 italic">Not generated yet.</p>
+                )}
+              </div>
+            );
+        })}
       </div>
     </div>
   );

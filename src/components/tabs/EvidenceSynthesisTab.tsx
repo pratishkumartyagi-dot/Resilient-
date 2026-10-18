@@ -330,15 +330,6 @@ export default function EvidenceSynthesisTab() {
   const [stormReviewLoading, setStormReviewLoading] = useState(false);
   const [stormFinal, setStormFinal] = useState("");
   const [stormFinalLoading, setStormFinalLoading] = useState(false);
-  const [literatureReviewSections, setLiteratureReviewSections] = useState({
-    introduction: "",
-    globalIndian: "",
-    gaps: "",
-    futureAdvice: "",
-    summary: "",
-    references: "",
-  });
-  const [literatureReviewLoading, setLiteratureReviewLoading] = useState(false);
   const [effectSizes, setEffectSizes] = useState<{ study: string; effect: string; ci: string; weight: string }[]>([]);
   const [reviewType, setReviewType] = useState("Systematic Review & Meta-analysis");
   const [reviewRequirements, setReviewRequirements] = useState("");
@@ -356,6 +347,7 @@ export default function EvidenceSynthesisTab() {
   const [yearFrom, setYearFrom] = useState("");
   const [yearTo, setYearTo] = useState("");
   const [searchLogic, setSearchLogic] = useState("AND");
+  const [semanticSearch, setSemanticSearch] = useState(false);
   const [studyTypeFilter, setStudyTypeFilter] = useState("All Study Types");
   const [perDatabaseResults, setPerDatabaseResults] = useState<Array<{ database: string; status: string; count: number; error?: string }>>([]);
   const [citationValidationResults, setCitationValidationResults] = useState<Record<string, { valid: boolean; title?: string; message: string }>>({});
@@ -387,7 +379,9 @@ export default function EvidenceSynthesisTab() {
     setPerDatabaseResults([]);
     try {
       const dbs = selectedDbs.length > 0 ? selectedDbs : ["OpenAlex", "Semantic Scholar", "Crossref", "PubMed"];
-      const effectiveQuery = applySearchLogic(query, searchLogic);
+      // In semantic mode, pass the raw query so retrieval matches on meaning across
+      // the broad area of research instead of exact boolean keyword co-occurrence.
+      const effectiveQuery = semanticSearch ? query : applySearchLogic(query, searchLogic);
       const res = await fetch("/api/literature-search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -398,6 +392,7 @@ export default function EvidenceSynthesisTab() {
           yearTo: yearTo || undefined,
           studyType: studyTypeFilter === "All Study Types" ? undefined : studyTypeFilter,
           searchLogic,
+          semanticSearch: semanticSearch || false,
         }),
       });
 
@@ -1425,170 +1420,6 @@ ${methodsBlock}\n\n---
 ### Risk of Bias Commentary\n\nUsing **${robLabel}** (${isProbast ? "PROBAST+AI" : "robvis"}), the overall distribution of risk-of-bias judgments across ${papersForSynthesis.length} studies is: Low ${robSummary.low}, Some/Moderate concerns ${robSummary.some}, High/Critical ${robSummary.high}, Pending ${robSummary.pending}. ${robSummary.high > 0 ? "Studies at high risk of bias may overestimate effects; sensitivity analysis excluding these studies is recommended." : "No studies were rated at high risk of bias."} ${isProbast ? "Domain-level PROBAST+AI traffic-light plots (D1–D4 + applicability A1–A3) are available in the reporting step." : "Domain-level traffic-light plots are available in the reporting step."}\n\n---\n\n### Gaps and Future Directions\n\n- Unpublished or grey literature not searched in this run.\n- Subgroup analyses and meta-regression should be explored if heterogeneity is high.\n- Certainty of evidence (GRADE) should be formally assessed prior to guideline submission.\n- Sensitivity analysis excluding high-RoB studies recommended for robustness.\n\n> Generated locally using awesome-evidence-synthesis open-source workflow standards. For meta-analysis statistics, export the effect table to **R (metafor/meta)**, **JASP**, or **OpenMEE**.\n`;
   };
 
-  const parseLiteratureReview = (text: string): Record<string, string> => {
-    const sections: Record<string, string> = {
-      introduction: "",
-      globalIndian: "",
-      gaps: "",
-      futureAdvice: "",
-      summary: "",
-      references: "",
-    };
-
-    const lines = text.split("\n");
-    let currentKey: string | null = null;
-    let buffer: string[] = [];
-
-    const assign = () => {
-      if (!currentKey) return;
-      const content = buffer.join("\n").trim();
-      if (content && currentKey) {
-        sections[currentKey] = content;
-      }
-      buffer = [];
-    };
-
-    for (const line of lines) {
-      const trimmed = line.trim().toLowerCase();
-      let matched: string | null = null;
-
-      if (/^(1\.\s*introduction|introduction|background|introduction\s*\/\s*background)$/i.test(trimmed)) matched = "introduction";
-      else if (/^(2\.\s*global\s*&\s*indian\s*situation|global\s*&\s*indian\s*situation|global\s*indian|global\s+situation)$/i.test(trimmed)) matched = "globalIndian";
-      else if (/^(3\.\s*research\s*gaps|research\s*gaps\s*\/\s*limitations|research\s*gaps|gaps\s*\/\s*limitations|gaps|limitations)$/i.test(trimmed)) matched = "gaps";
-      else if (/^(4\.\s*advice\s*for\s*future\s*research|advice\s*for\s*future\s*research|future\s*research\s*advice|future\s*advice)$/i.test(trimmed)) matched = "futureAdvice";
-      else if (/^(5\.\s*summary|summary|summary\s*of\s*all\s*studies)$/i.test(trimmed)) matched = "summary";
-      else if (/^(6\.\s*references|references|bibliography)$/i.test(trimmed)) matched = "references";
-
-      if (matched) {
-        assign();
-        currentKey = matched;
-      } else {
-        buffer.push(line);
-      }
-    }
-
-    assign();
-    return sections;
-  };
-
-  const generateLiteratureReview = async () => {
-    const reviewPapers = robSelectedPaperIds.size > 0
-      ? papers.filter((p) => robSelectedPaperIds.has(p.id))
-      : papers.filter((p) => selectedPaperIds.has(p.id));
-
-    if (reviewPapers.length === 0 && extractedData.length === 0) {
-      alert("Please select papers in Risk of Bias Assessment first.");
-      return;
-    }
-    const selectedPapers = reviewPapers;
-    const references = selectedPapers
-      .map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || p.database}.${p.doi ? ` doi:${p.doi}` : ""}`)
-      .join("\n");
-
-    setLiteratureReviewLoading(true);
-    setLiteratureReviewSections({
-      introduction: "",
-      globalIndian: "",
-      gaps: "",
-      futureAdvice: "",
-      summary: "",
-      references: "",
-    });
-    try {
-      const numberedRefs = selectedPapers
-        .map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || p.database}.${p.doi ? ` doi:${p.doi}` : ""}`)
-        .join("\n");
-
-      const prompt = `You are an expert academic writer using deep reasoning methodology. Write a comprehensive, publication-ready narrative literature review based ONLY on the selected studies provided below.
-
-Follow this exact structure and headings:
-- Introduction / Background
-- Problem Statement (with subsections: Global, South-East Asia, India)
-- Research Gaps
-- Future Studies to Be Carried Out
-- Conclusion
-- References
-
-CITATION RULES:
-- Cite papers inline using author-year in parentheses, e.g. (Smith 2020), (Jones et al 2022).
-- The author-year MUST match one of the numbered references below.
-- Aim for 2-4 inline citations per paragraph.
-
-REFERENCES (use these exact author-year strings in your inline citations):
-${selectedPapers.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || p.database}.${p.doi ? ` doi:${p.doi}` : ""}`).join("\n")}
-
-SELECTED STUDIES:
-${selectedPapers.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. Type: ${p.studyType || "Not specified"}. Database: ${p.database}.${p.doi ? ` DOI: ${p.doi}` : ""}`).join("\n\n")}
-
-EXTRACTED DATA:
-${extractedData.filter((p) => selectedPapers.some((sp) => sp.id === p.id)).map((p) => `- ${p.title}: ${p.outcome || "Outcome not specified"}`).join("\n")}
-
-DEEP REASONING RULES:
-1. Think step-by-step before drafting each section.
-2. Explicitly acknowledge conflicting or limited evidence.
-3. Ensure global, South-East Asia, and India perspectives are all addressed where relevant.
-4. Use ONLY author-year inline citations (Author Year). Include a complete References section at the end.
-
-OUTPUT FORMAT:
-Use plain text with these exact headings on their own lines:
-Introduction / Background
-Problem Statement (Global, South-East Asia, India)
-Research Gaps
-Future Studies to Be Carried Out
-Conclusion
-References
-
-At the end, include a References section with all papers in Vancouver style:
-1. Author(s) (Year). Title. Journal. doi:DOI`;
-
-      const apiKey = state.geminiApiKey || state.groqApiKey;
-      if (!apiKey) {
-        setLiteratureReviewSections({
-          introduction: "No API key configured. Please add your Gemini or Groq API key in Settings to generate the literature review.",
-          globalIndian: "",
-          gaps: "",
-          futureAdvice: "",
-          summary: "",
-          references: references,
-        });
-         setLiteratureReviewLoading(false);
-         return;
-       }
-
-      let text: string;
-      const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
-      if (state.geminiApiKey) {
-        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
-      } else if (state.groqApiKey) {
-        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
-      } else {
-        throw new Error("No API key configured. Please open Settings (gear icon).");
-      }
-
-      const cleaned = text.replace(/```/g, "").trim();
-      const parsed = parseLiteratureReview(cleaned);
-      setLiteratureReviewSections({
-        introduction: parsed.introduction || "",
-        globalIndian: parsed.globalIndian || "",
-        gaps: parsed.gaps || "",
-        futureAdvice: parsed.futureAdvice || "",
-        summary: parsed.summary || "",
-        references: parsed.references || references,
-      });
-    } catch (err: any) {
-      setLiteratureReviewSections({
-        introduction: `Error generating review: ${err.message || "Unknown error"}. Please ensure your API key is valid and try again.`,
-        globalIndian: "",
-        gaps: "",
-        futureAdvice: "",
-        summary: "",
-        references: references,
-      });
-    } finally {
-      setLiteratureReviewLoading(false);
-    }
-  };
-
   const generateSynthesis = async () => {
     if (extractedData.length === 0) {
       alert("Please complete data extraction first.");
@@ -2422,6 +2253,8 @@ ${stormReview}
             studyTypeFilter={studyTypeFilter}
             onStudyTypeFilterChange={setStudyTypeFilter}
             onSearch={handleSearch}
+            semanticSearch={semanticSearch}
+            onSemanticSearchChange={setSemanticSearch}
             onProceed={() => {
               if (selectedPaperIds.size === 0) {
                 setSearchError("Select at least one paper before proceeding to extraction.");

@@ -1684,3 +1684,66 @@ Both Step 1 components (Research Pipeline and Evidence Synthesis & Meta-analysis
 ### Validation
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes (0 errors; only pre-existing not-found.tsx warning)
+
+## Statistical Pipeline & Report Upgrade (2026-10-17)
+
+**Goal**: Upgrade the statistical analysis pipeline with `simple-statistics` and the report writer with `jmvReport`-style APA reporting plus NotebookLM.
+
+### Added
+- `src/lib/statistics.ts` — statistics service wrapping `simple-statistics` (v7.12.1): descriptive statistics (mean, median, mode, variance/SD, IQR, CV, skewness, kurtosis, geometric/harmonic means, MAD), linear regression (slope/intercept/R²/r), Pearson + Spearman correlation, one- and two-sample t-tests with exact two-tailed p-values via an incomplete-beta t CDF, Wilcoxon rank-sum (normal approximation with `erf`), and weighted meta-analysis helpers. Small-sample guards prevent `sampleKurtosis`/`sampleSkewness` from throwing.
+- `src/lib/jmv-report.ts` — jmvReport-inspired APA 7th edition reporting: `buildApaMetaAnalysisReport`, `apaTTestReport`, `apaCorrelationReport`, `apaRegressionReport`, `renderApaReportMarkdown`, APA table renderer, and `formatPValue` (`< .001`, `= .03`).
+- `src/lib/notebooklm.ts` — NotebookLM integration (no public API): builds a Source Pack plus Briefing Doc, Study Guide, FAQ, Timeline, and Audio Overview Script, and exposes `NOTEBOOKLM_URL` / `openNotebookLM()`. `renderNotebookLMKitMarkdown` packages the kit.
+
+### Changed
+- `src/lib/metafor-compute.ts` — pooled fixed/random effects now use `weightedMean` from `simple-statistics`; `MetaforResult` gains `descriptiveStats` (n, mean, median, variance, SD, min/max/range, IQR, skewness, kurtosis).
+- `src/components/tabs/StatisticalAnalysisTab.tsx` — added a "Statistician Workbench": editable raw-data input (`Group A/B` for two-sample tests, `x/y` for regression/correlation), descriptive statistics table, inferential statistics (independent t-test, Wilcoxon, one-sample t-test with configurable μ₀, linear regression, correlation), and APA results in the Word export. Scatter + Line now plots real x/y pairs with a fitted regression line.
+- `src/lib/synthesis-report-generator.ts` — embeds an APA-style statistical section (jmvReport) after the meta-analysis results and appends a NotebookLM research notebook (source pack + kit). `Buffer`-based SVG encoding replaced with a browser-safe `toBase64` fallback (`btoa`). Added `generateNotebookLMKitForReport`, `generateNotebookLMSourcePackForReport`, `downloadNotebookLMSourcePack`, `downloadNotebookLMKit`.
+- `src/components/tabs/EvidenceSynthesisTab.tsx` — reporting step now builds `SynthesisReportOptions` from live pipeline state and exposes buttons for the full report, NotebookLM source pack, NotebookLM notebook kit, and opening NotebookLM.
+
+### Validation
+- `bun typecheck` ✅
+- `bun lint` ✅ (no warnings)
+- Runtime checks: descriptive/regression/correlation/t-test/Wilcoxon/weighted-meta outputs verified; `generateSynthesisReport` emits APA and NotebookLM sections; NotebookLM kit keys verified.
+
+## Full Pipeline Audit & Fixes (2026-10-17)
+
+Audited all 10 top-level tabs plus the 11-step Research Pipeline and every API route.
+
+### Functional defects found and fixed
+- **Sample Size Calculator (`SampleSizeTab.tsx`)** — continuous-outcome formula used coefficient `16` (≈8× too large) and time-to-event used `4` (2× too large); corrected to the standard `2·(zα/2+zβ)²/ES²` and Schoenfeld `2·(zα/2+zβ)²/(ln HR)²`. Also replaced the risk-difference numerator with the correct Fleiss formula (`p̄ = (p0 + r·p1)/(1+r)`), and removed arbitrary per-arm floors that distorted small-effect results.
+- **Step 9 Methodology** — same off-by-two sample-size error (`ratioFactor` divided by 2); corrected.
+- **`metafor-compute.ts`** — chi-square heterogeneity p-value was mathematically wrong for df≠2 (omitted the `x/2` scaling); replaced the Bessel/factorial routine with a regularized incomplete-gamma implementation (verified Q=3.843, df=1 → p=.0499).
+- **`statistics.ts`** — `geometricMean`/`harmonicMean` threw on zero/negative values, crashing meta-analysis for non-positive effect sizes; now guarded. Wilcoxon p-value clamped to [0,1].
+- **PubMed** — was returning 0 because the server IP hit NCBI's 3 req/sec limit and the fetcher swallowed HTTP 429. Now sends `tool`/`email`/optional `NCBI_API_KEY`, retries 429/503 with backoff, uses a bounded direct call (≤1500 records), and surfaces failures instead of reporting "empty".
+- **DOAJ** — page 11 returned HTTP 400 and discarded all 1000 already-fetched results; now caps at 10 pages and keeps partial results.
+- **arXiv** — `max_results=5000` timed out at 30s; reduced to 1000 with a 45s timeout (verified).
+- **Zenodo** — Node's default user-agent was blocked (403) and page size 100 is rejected (400); now sends a browser UA and uses pageSize 25 (verified 1000 results).
+- **OpenAIRE** — legacy `/search/publications?query=` endpoint is retired (HTTP 400); migrated to `/graph/v1/researchProducts` (verified 1000 results).
+- **dblp** — returns an Anubis bot-challenge HTML page; now raises a clear error (environment-blocked, cannot be fixed client-side).
+- **OpenAlex / Semantic Scholar / Google Scholar** — externally rate-limited (HTTP 429) from the shared sandbox IP; OpenAlex now retries with backoff, Semantic Scholar reports "failed" instead of silently "empty". These work with a non-shared egress IP.
+- **Paginated fetchers** (Crossref, Semantic Scholar, OpenAIRE, bioRxiv, medRxiv, Zenodo, ClinicalTrials.gov) — mid-pagination failures now preserve partial results instead of discarding the whole batch.
+- **Evidence Synthesis reviews** — `generateReview`, incorporate-review, STORM draft/review/final and the literature-review tab previously dead-ended without an API key; they now fall back to the in-browser local model (`callDeepSeek`) / `generateLocalLiteratureReview`.
+
+### Verified working
+- Tabs: Research Pipeline, Omics, Resilient Chat, Statistical Analysis, Sample Size, Predictive Analysis, Evidence Synthesis, Paper Writer, Protocol Generator, Grant Writing.
+- API routes: `/api/literature-search` (10/14 databases live; 4 externally blocked as noted), `/api/doi-verification`, `/api/web-search`, `/api/chat` (validates missing key).
+- Runtime checks: local synthesis, local literature review, PICO extraction, CSV parsing, statistical edge cases, meta-analysis with negative effects, full report + NotebookLM generation.
+- `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
+
+## Thesis Generator Pipeline Merge & Fixes (2026-10-18)
+
+Merged `origin/kilo/summer-piano-doy` thesis branch into `kilo/gallant-ibis-77f`, resolving conflicts on `package.json`, `database-apis.ts`, `EvidenceSynthesisTab.tsx`, `StatisticalAnalysisTab.tsx`, and `context.md`. Made the Thesis Generator pipeline fully functional:
+
+### Defects Fixed
+- **`src/lib/ai.ts`**: Added server-side direct provider calls (Gemini/Groq) so `callGemini` works in Node/runtime where relative `/api/chat` cannot resolve.
+- **`src/lib/thesis-ai.ts`**: Wired provider dropdown — selected provider tried first, then fallbacks; honors gemini/groq/qwen/mlc selection.
+- **`src/lib/thesis-pipeline/index.ts`**: Cap grounding papers to `maxReferences` before chapter generation; stage `complete` reflects actual subResult.ok.
+- **`src/lib/thesis-generator/index.ts`**: Include outline section titles + word targets in chapter prompt so every section is covered.
+- **`src/lib/humaniser/index.ts`**: Preserve numeric en-dash ranges (0.12–0.45) during em-dash removal; `subResult.ok` reflects actual AI success.
+- **`src/lib/scholar-copilot/index.ts`**: `refine` subResult.ok reflects whether AI refinement succeeded for at least one chapter.
+- **`src/components/pipelines/ThesisGenerator.tsx`**: Cap localStorage session payload (~500 KB) with truncated fallback to avoid quota errors.
+
+### Validation
+- `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
+- Route `/api/thesis-generate` registered and builds cleanly.
+- Thesis Generator tab wired into TopTabs navigation and page.tsx route.

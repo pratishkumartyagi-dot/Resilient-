@@ -68,6 +68,7 @@ export default function Step1Search() {
   const [titleFilter, setTitleFilter] = useState("");
   const [perDatabaseResults, setPerDatabaseResults] = useState<Array<{ database: string; status: string; count: number; error?: string }>>([]);
   const [citationCounts, setCitationCounts] = useState<{ verified: number; unverified: number; noDoi: number }>({ verified: 0, unverified: 0, noDoi: 0 });
+  const [semanticSearch, setSemanticSearch] = useState(true);
 
   const toggleDb = (db: string) => {
     setSelectedDbs((prev) =>
@@ -114,6 +115,8 @@ export default function Step1Search() {
             yearFrom: yearFrom || undefined,
             yearTo: yearTo || undefined,
             studyType: studyType === "All Study Types" ? undefined : studyType,
+            searchLogic: localLogic,
+            semanticSearch,
           }),
         });
         if (!res.ok) {
@@ -361,9 +364,17 @@ export default function Step1Search() {
           <div className="flex items-center gap-2">
             <Database size={18} className="text-yellow-400" />
             <h3 className="text-lg font-bold text-white">Medical Databases</h3>
-            <span className="text-xs bg-blue-800 text-blue-200 px-2 py-0.5 rounded-full">
-              🔬 Semantic Search Active
-            </span>
+            <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none bg-blue-900/50 border border-blue-700 rounded-full px-3 py-0.5">
+              <input
+                type="checkbox"
+                checked={semanticSearch}
+                onChange={(e) => setSemanticSearch(e.target.checked)}
+                className="w-3 h-3 rounded border-blue-600 text-yellow-500 focus:ring-yellow-500 bg-blue-950"
+              />
+              <span className={semanticSearch ? "text-yellow-300" : "text-blue-300"}>
+                {semanticSearch ? "🔬 Semantic Search Active" : "Keyword Search"}
+              </span>
+            </label>
           </div>
           <div className="flex gap-2">
             <button

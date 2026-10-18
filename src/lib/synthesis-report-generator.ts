@@ -1,4 +1,12 @@
 import { type MetaforResult } from "./metafor-compute";
+import { buildApaMetaAnalysisReport, renderApaReportMarkdown } from "./jmv-report";
+import {
+  buildNotebookLMKit,
+  renderNotebookLMKitMarkdown,
+  buildNotebookLMSourcePack,
+  type NotebookLMKit,
+  type NotebookLMKitOptions,
+} from "./notebooklm";
 
 export interface SynthesisReportOptions {
   reviewType: string;
@@ -34,10 +42,22 @@ export interface SynthesisReportOptions {
   screeningMethod?: string;
   extractionMethod?: string;
   totalRecordsRaw?: number;
+  includeApaReport?: boolean;
+  includeNotebookLM?: boolean;
 }
 
 function escapeXml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function toBase64(str: string): string {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(str).toString("base64");
+  }
+  if (typeof btoa !== "undefined") {
+    return btoa(unescape(encodeURIComponent(str)));
+  }
+  return "";
 }
 
 function generateForestChartSVG(
@@ -205,6 +225,8 @@ export function generateSynthesisReport(opts: SynthesisReportOptions): string {
     synthesisExcerpt,
     generatedDate,
     totalRecordsRaw,
+    includeApaReport = true,
+    includeNotebookLM = true,
   } = opts;
 
   const isMeta = reviewType.includes("Meta-analysis") || reviewType.includes("Meta");
@@ -283,7 +305,7 @@ export function generateSynthesisReport(opts: SynthesisReportOptions): string {
 
 ### Forest Plot (embedded)
 
-![Forest Plot — ${reviewType}](data:image/svg+xml;base64,${Buffer.from(
+![Forest Plot — ${reviewType}](data:image/svg+xml;base64,${toBase64(
         generateForestChartSVG(
           `Forest Plot: ${reviewType}`,
           robToolName,
@@ -296,7 +318,7 @@ export function generateSynthesisReport(opts: SynthesisReportOptions): string {
             robColor: r.isPooled ? "#facc15" : robColorFor(papersForSynthesis.find((p) => p.title === r.study)?.robOverall),
           }))
         ) || ""
-      ).toString("base64")})
+      )})
 
 > **Note:** Forest plot data is suitable for import into **forestplot** (R), **OpenMEE**, **JASP**, or **RevMan** for publication-quality visualisation.
 
@@ -350,7 +372,7 @@ Effect estimates were extracted for ${effectSizes.length || k} studies. After en
 
   const robSummarySvg = generateRobSummarySVG(robSummary, robToolName);
   const robSummaryImgTag = robSummarySvg
-    ? `![Risk-of-Bias Summary — ${robToolName}](data:image/svg+xml;base64,${Buffer.from(robSummarySvg).toString("base64")})`
+    ? `![Risk-of-Bias Summary — ${robToolName}](data:image/svg+xml;base64,${toBase64(robSummarySvg)})`
     : "";
 
   const cerSection = isMeta
@@ -389,7 +411,21 @@ Effect estimates were extracted for ${effectSizes.length || k} studies. After en
     ? `The pooled estimate was μ = ${metaforResult.pooledEstimate.toFixed(3)} (95% CI ${metaforResult.ciLower.toFixed(3)}–${metaforResult.ciUpper.toFixed(3)}), with I² = ${metaforResult.I2.toFixed(1)}%.`
     : "";
 
-  return `# ${reviewType}: ${topic}
+  const metaSummary = metaforResult
+    ? `${metaforResult.model}-effects meta-analysis, k = ${metaforResult.k}, pooled effect = ${metaforResult.pooledEstimate.toFixed(2)} (95% CI ${metaforResult.ciLower.toFixed(2)} to ${metaforResult.ciUpper.toFixed(2)}), I² = ${metaforResult.I2.toFixed(1)}%, τ² = ${metaforResult.tau2.toFixed(3)}.`
+    : undefined;
+
+  const apaSection =
+    includeApaReport && metaforResult
+      ? `\n\n${renderApaReportMarkdown(
+          buildApaMetaAnalysisReport(metaforResult, {
+            reviewType,
+            effectMeasure: isDtA ? "diagnostic accuracy" : "effect size",
+          })
+        )}\n\n---\n`
+      : "";
+
+  const reportBody = `# ${reviewType}: ${topic}
 
 ## Title Page
 
@@ -547,7 +583,7 @@ ${effectTable}
 
 ---
 
-${metaStatsSection}` : isDtA ? `### 3.5 Diagnostic Accuracy Summary
+${metaStatsSection}${apaSection}` : isDtA ? `### 3.5 Diagnostic Accuracy Summary
 
 | Study | Sensitivity | Specificity | AUC |
 |-------|------------|-------------|-----|
@@ -563,7 +599,7 @@ ${effectTable}
 ${isMeta && metaforResult ? `
 ### Embedded Forest Plot (analysis result)
 
-![Forest Plot — ${reviewType}](data:image/svg+xml;base64,${Buffer.from(
+![Forest Plot — ${reviewType}](data:image/svg+xml;base64,${toBase64(
       generateForestChartSVG(
         `Forest Plot: ${reviewType} — ${metaforResult.model}-effects`,
         robToolName,
@@ -576,7 +612,7 @@ ${isMeta && metaforResult ? `
           robColor: r.isPooled ? "#facc15" : robColorFor(papersForSynthesis.find((p) => p.title === r.study)?.robOverall),
         }))
       ) || ""
-    ).toString("base64")})
+    )})
 ` : ""}
 
 ---
@@ -636,6 +672,76 @@ ${papersForSynthesis.slice(0, 20).map((p, i) => `${i + 1}. ${p.authors} (${p.yea
 *Methodology:* This report was produced following the ${isDtA ? "STARD" : "awesome-evidence-synthesis"} open-source workflow (${isDtA ? "https://www.equator-network.org/reporting-guidelines/stard/" : "https://github.com/evidencesynthesis-tools/awesome-evidence-synthesis"}), integrating ${isMeta ? "**meta / metafor** meta-analysis, **robvis** risk-of-bias visualisation, **prismAId** AI-assisted screening/extraction, **meta-pipe** end-to-end pipeline alignment, **PRISMA 2020** reporting standards, and **GRADE** certainty assessment." : isDtA ? "**meta4diag / mada / MetaDTA** diagnostic accuracy meta-analysis, **QUADAS-2** risk-of-bias assessment, **STARD** reporting standards, and **GRADE** certainty assessment." : "**robvis** risk-of-bias visualisation, **prismAId** AI-assisted screening/extraction, **meta-pipe** end-to-end pipeline alignment, **PRISMA 2020** reporting standards, and **GRADE** certainty assessment."} The analysis computations were performed locally using DerSimonian–Laird / Inverse-Variance methods. Authors must verify extracted data, complete effect-size calculations in statistical software, confirm GRADE ratings, and ensure proper citation before submission or publication.
 
 *Attribution:* Aligned with OpenClaw-Medical-Skills (FreedomIntelligence/OpenClaw-Medical-Skills) literature-review and literature-deep-research synthesis principles. Forest plots were generated as embedded SVG images compatible with publication and PDF export. Review type-specific sections adapt report structure according to PRISMA 2020, STARD, or scoping review guidelines as appropriate.`;
+
+  const notebookLMSection = includeNotebookLM
+    ? `\n\n---\n\n${renderNotebookLMKitMarkdown(
+        buildNotebookLMKit({
+          reviewTitle: `${reviewType}: ${topic}`,
+          reviewType,
+          query: topic,
+          reportMarkdown: reportBody,
+          sources: papersForSynthesis.map((p) => ({
+            title: p.title,
+            authors: p.authors,
+            year: p.year,
+          })),
+          metaSummary,
+        })
+      )}`
+    : "";
+
+  return reportBody + notebookLMSection;
+}
+
+function reportToNotebookLMOptions(opts: SynthesisReportOptions): NotebookLMKitOptions {
+  const reportBody = generateSynthesisReport({ ...opts, includeNotebookLM: false });
+  const metaSummary = opts.metaforResult
+    ? `${opts.metaforResult.model}-effects meta-analysis, k = ${opts.metaforResult.k}, pooled effect = ${opts.metaforResult.pooledEstimate.toFixed(2)} (95% CI ${opts.metaforResult.ciLower.toFixed(2)} to ${opts.metaforResult.ciUpper.toFixed(2)}), I² = ${opts.metaforResult.I2.toFixed(1)}%, τ² = ${opts.metaforResult.tau2.toFixed(3)}.`
+    : undefined;
+  return {
+    reviewTitle: `${opts.reviewType}: ${opts.query || "the research topic"}`,
+    reviewType: opts.reviewType,
+    query: opts.query,
+    reportMarkdown: reportBody,
+    sources: opts.papersForSynthesis.map((p) => ({
+      title: p.title,
+      authors: p.authors,
+      year: p.year,
+    })),
+    metaSummary,
+  };
+}
+
+export function generateNotebookLMKitForReport(opts: SynthesisReportOptions): NotebookLMKit {
+  return buildNotebookLMKit(reportToNotebookLMOptions(opts));
+}
+
+export function generateNotebookLMSourcePackForReport(opts: SynthesisReportOptions): string {
+  return buildNotebookLMSourcePack(reportToNotebookLMOptions(opts));
+}
+
+function downloadText(content: string, filename: string, mime = "text/markdown;charset=utf-8"): void {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+export function downloadNotebookLMSourcePack(opts: SynthesisReportOptions): void {
+  const today = new Date().toISOString().split("T")[0];
+  const filename = `notebooklm-source-pack-${opts.reviewType.toLowerCase().replace(/\s+/g, "-")}-${today}.md`;
+  downloadText(generateNotebookLMSourcePackForReport(opts), filename);
+}
+
+export function downloadNotebookLMKit(opts: SynthesisReportOptions): void {
+  const today = new Date().toISOString().split("T")[0];
+  const filename = `notebooklm-kit-${opts.reviewType.toLowerCase().replace(/\s+/g, "-")}-${today}.md`;
+  downloadText(renderNotebookLMKitMarkdown(generateNotebookLMKitForReport(opts)), filename);
 }
 
 export function downloadSynthesisReport(report: string, reviewType: string): void {
