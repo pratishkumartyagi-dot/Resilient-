@@ -6,12 +6,13 @@ import {
   LineChart, Line, Scatter, PieChart, Pie, Cell, ComposedChart,
   AreaChart, Area, Legend
 } from "recharts";
-import { Download, Play, RefreshCw, Type, FileText, Sparkles, Loader2, CheckCircle2 } from "lucide-react";
-import { downloadMarkdownAsWord, downloadMarkdownAsPDF } from "@/lib/exporters";
-import { profileDataset, type ProfileRow } from "@/lib/data-profiling";
+import { Download, Play, RefreshCw, Type, FileText, Sparkles, Loader2, CheckCircle2, Upload, File, Edit3 } from "lucide-react";
+import { downloadMarkdownAsWord, downloadMarkdownAsPDF, downloadMarkdownAsLaTeX } from "@/lib/exporters";
+import { profileDataset, type ProfileRow, type NumericProfile, type CorrelationPair, type PCAComponent, type DataQualityIssue, type DataProfile } from "@/lib/data-profiling";
 import { buildAutoAnalystReportAsync } from "@/lib/auto-analyst";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
+import * as XLSX from "xlsx";
 
 const CHART_TYPES = [
   "Histogram", "Density Plot", "Bar Chart", "Pie Chart",
@@ -154,6 +155,75 @@ function deriveChartData(type: string, rows: ParsedRow[]): ChartDatum[] {
   }
 }
 
+function excelRowsToProfileRows(rows: Array<Record<string, any>>): ProfileRow[] {
+  return rows.map((row) => {
+    const profileRow: ProfileRow = {};
+    for (const [key, value] of Object.entries(row)) {
+      if (value === null || value === undefined || value === "") {
+        profileRow[key] = null;
+        continue;
+      }
+      const num = Number(value);
+      profileRow[key] = Number.isFinite(num) && String(value).trim() !== "" ? num : String(value);
+    }
+    return profileRow;
+  });
+}
+
+function parseExcelFile(file: File): Promise<ProfileRow[]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const arrayBuffer = event.target?.result as ArrayBuffer;
+        const workbook = XLSX.read(arrayBuffer, { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const json = XLSX.utils.sheet_to_json(worksheet, { defval: null, raw: true });
+        resolve(excelRowsToProfileRows(json as Array<Record<string, any>>));
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function parseCsvFile(file: File): Promise<ProfileRow[]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+        if (lines.length === 0) return resolve([]);
+        const header = lines[0].split(",").map((h) => h.trim());
+        const rows: ProfileRow[] = [];
+        for (let i = 1; i < lines.length; i++) {
+          const parts = lines[i].split(",");
+          const row: ProfileRow = {};
+          header.forEach((h, idx) => {
+            const raw = parts[idx]?.trim();
+            if (raw === null || raw === undefined || raw === "") {
+              row[h] = null;
+            } else {
+              const num = Number(raw);
+              row[h] = Number.isFinite(num) ? num : raw;
+            }
+          });
+          rows.push(row);
+        }
+        resolve(rows);
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsText(file);
+  });
+}
+
 export default function StatisticalAnalysisTab() {
   const [chartType, setChartType] = useState("Bar Chart");
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>(() => parseDataInput(DEFAULT_DATA_INPUT));
@@ -164,6 +234,8 @@ export default function StatisticalAnalysisTab() {
   const [autoReport, setAutoReport] = useState("");
   const [autoReportLoading, setAutoReportLoading] = useState(false);
   const [autoReportFinalized, setAutoReportFinalized] = useState(false);
+  const [profile, setProfile] = useState<DataProfile | null>(null);
+  const [fileUploaded, setFileUploaded] = useState<{ name: string; size: number } | null>(null);
 
   const applyData = (type: string, text: string) => {
     const rows = parseDataInput(text);
@@ -265,20 +337,41 @@ export default function StatisticalAnalysisTab() {
     await downloadMarkdownAsWord(md, "statistical-analysis.docx");
   };
 
+  const handleFileUpload = async (file: File) => {
+    const isExcel = file.name.endsWith(".xlsx") || file.name.endsWith(".xls");
+    try {
+      const profileRows = isExcel ? await parseExcelFile(file) : await parseCsvFile(file);
+      if (profileRows.length === 0) {
+        alert("No data rows found in the uploaded file.");
+        return;
+      }
+      setParsedRows([]);
+      setChartData([]);
+      setDataInput("");
+      setFileUploaded({ name: file.name, size: file.size });
+      const prof = profileDataset(profileRows);
+      setProfile(prof);
+    } catch (err: any) {
+      alert(`Failed to parse file: ${err?.message || "unknown error"}`);
+    }
+  };
+
   const handleGenerateAutoReport = async () => {
     setAutoReportLoading(true);
     setAutoReportFinalized(false);
     try {
-      const profile = profileDataset(parsedRows as unknown as ProfileRow[]);
+      const dataForProfile = profile ? undefined : parsedRows as unknown as ProfileRow[];
+      const prof = profile || profileDataset(dataForProfile!);
+      setProfile(prof);
       const aiFn = state.geminiApiKey
         ? (p: string) => callGemini(state.geminiApiKey!, p)
         : state.groqApiKey
           ? (p: string) => callGroq(state.groqApiKey!, p)
           : (p: string) => callDeepSeek(p);
-      const report = await buildAutoAnalystReportAsync(profile, {
+      const report = await buildAutoAnalystReportAsync(prof, {
         aiFn,
-        title: `Automated Statistical Report — ${chartType}`,
-        datasetName: chartType,
+        title: `Automated Statistical Report — ${fileUploaded?.name || chartType}`,
+        datasetName: fileUploaded?.name || chartType,
       });
       setAutoReport(report);
     } catch (err: any) {
@@ -288,14 +381,15 @@ export default function StatisticalAnalysisTab() {
     }
   };
 
-  const handleExportReport = (kind: "word" | "pdf") => {
+  const handleExportReport = (kind: "word" | "pdf" | "latex") => {
     if (!autoReport) return;
     if (!autoReportFinalized) {
       alert("Please finalise the report before downloading.");
       return;
     }
     if (kind === "word") downloadMarkdownAsWord(autoReport, "statistical-report.docx");
-    else downloadMarkdownAsPDF(autoReport, "statistical-report.pdf");
+    else if (kind === "pdf") downloadMarkdownAsPDF(autoReport, "statistical-report.pdf");
+    else downloadMarkdownAsLaTeX(autoReport, "statistical-report.tex");
   };
 
   const renderChart = () => {
@@ -393,11 +487,46 @@ export default function StatisticalAnalysisTab() {
       <div className="bg-[#0d1b3e] border border-blue-900/50 rounded-lg p-6 shadow">
         <h2 className="text-xl font-bold text-white mb-1">Statistical Analysis</h2>
         <p className="text-sm text-blue-300 mb-6">
-          Visualize and analyze your research data with interactive statistical charts.
+          Visualize and analyze your research data with interactive statistical charts. Upload Excel/CSV files for multivariate profiling.
         </p>
 
         <div className="flex flex-wrap items-center gap-3 mb-6">
           <div className="relative">
+            <label className="flex items-center gap-2 cursor-pointer bg-blue-900/50 text-blue-200 px-4 py-2.5 rounded-lg hover:bg-blue-900/70 text-sm">
+              <Upload size={14} />
+              Upload Excel/CSV
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="sr-only"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleFileUpload(f);
+                }}
+              />
+            </label>
+          </div>
+          {fileUploaded && (
+            <div className="bg-emerald-900/20 border border-emerald-800 text-emerald-300 text-xs px-3 py-1.5 rounded-lg flex items-center gap-2">
+              <File size={14} className="shrink-0" />
+              <span>{fileUploaded.name}</span>
+              <span>({(fileUploaded.size / 1024).toFixed(1)} KB)</span>
+              <button
+                onClick={() => {
+                  setFileUploaded(null);
+                  setProfile(null);
+                  setParsedRows(parseDataInput(DEFAULT_DATA_INPUT));
+                  setChartData(deriveChartData("Bar Chart", parseDataInput(DEFAULT_DATA_INPUT)));
+                  setDataInput(DEFAULT_DATA_INPUT);
+                }}
+                className="text-emerald-400 hover:text-emerald-300 ml-2 text-sm"
+              >
+                <Edit3 size={12} />
+                Clear
+              </button>
+            </div>
+          )}
+          <div className="relative ml-4">
             <select
               value={chartType}
               onChange={(e) => { setChartType(e.target.value); applyData(e.target.value, dataInput); }}
@@ -460,6 +589,158 @@ export default function StatisticalAnalysisTab() {
           </p>
         </div>
 
+        {/* Data Profiling Results */}
+        {profile && (
+          <div className="mt-6 border-t border-blue-900/50 pt-6">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <FileText size={16} className="text-yellow-400" /> Data Profile
+                </h3>
+                <p className="text-xs text-blue-300">
+                  Descriptive statistics, correlation matrix, PCA, normality tests, and data quality diagnostics.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+              <div className="bg-blue-950 border border-blue-800 rounded-lg p-3">
+                <div className="text-xs text-blue-400 mb-1">Rows</div>
+                <div className="text-lg font-bold text-white">{profile.rowCount}</div>
+              </div>
+              <div className="bg-blue-950 border border-blue-800 rounded-lg p-3">
+                <div className="text-xs text-blue-400 mb-1">Columns</div>
+                <div className="text-lg font-bold text-white">{profile.columnCount}</div>
+              </div>
+              <div className="bg-blue-950 border border-blue-800 rounded-lg p-3">
+                <div className="text-xs text-blue-400 mb-1">Completeness</div>
+                <div className="text-lg font-bold text-white">{profile.quality.completeness.toFixed(1)}%</div>
+              </div>
+            </div>
+
+            {/* Column statistics table */}
+            <div className="mb-4">
+              <h4 className="text-sm font-semibold text-blue-200 mb-2">Column Statistics</h4>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="border-b border-blue-800 text-xs text-blue-400">
+                      {[
+                        "Variable", "n", "Missing (%)", "Mean", "SD", "Median", "Min", "Max", "IQR", "Skew", "Normal?"
+                      ].map((h) => (
+                        <th key={h} className="text-left pb-2 pr-2">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="text-blue-200 divide-y divide-blue-900/50">
+                    {profile.columns.map((c) => (
+                      <tr key={c.name} className="hover:bg-blue-950/50">
+                        <td className="pb-2 pr-2 font-mono">{c.name}</td>
+                        <td className="pb-2 pr-2">{c.count}</td>
+                        <td className="pb-2 pr-2">{c.missingPct.toFixed(1)}%</td>
+                        <td className="pb-2 pr-2">{Number.isFinite(c.mean) ? c.mean.toFixed(2) : "—"}</td>
+                        <td className="pb-2 pr-2">{Number.isFinite(c.sd) ? c.sd.toFixed(2) : "—"}</td>
+                        <td className="pb-2 pr-2">{Number.isFinite(c.median) ? c.median.toFixed(2) : "—"}</td>
+                        <td className="pb-2 pr-2">{Number.isFinite(c.min) ? c.min.toFixed(2) : "—"}</td>
+                        <td className="pb-2 pr-2">{Number.isFinite(c.max) ? c.max.toFixed(2) : "—"}</td>
+                        <td className="pb-2 pr-2">{Number.isFinite(c.iqr) ? c.iqr.toFixed(2) : "—"}</td>
+                        <td className="pb-2 pr-2">{Number.isFinite(c.skewness) ? c.skewness.toFixed(2) : "—"}</td>
+                        <td className="pb-2 pr-2">
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-xs ${c.normality.isNormal ? "text-emerald-400 border border-emerald-900/50 bg-emerald-900/20" : "text-amber-400 border border-amber-900/50 bg-amber-900/20"}`}
+                          >
+                            {c.normality.isNormal ? "Normal" : "Non-normal"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Correlation matrix */}
+            {profile.correlationMatrix.length > 0 && (
+              <div className="mb-4 border border-blue-800 rounded-lg bg-blue-950/50 p-3">
+                <h4 className="text-sm font-semibold text-blue-200 mb-2">Correlation Matrix (Pearson)</h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm border-collapse">
+                    <thead>
+                      <tr className="border-b border-blue-800 text-xs text-blue-400">
+                        <th className="text-left pb-2 pr-2">Var 1</th>
+                        <th className="text-left pb-2 pr-2">Var 2</th>
+                        <th className="text-left pb-2 pr-2">r</th>
+                        <th className="text-left pb-2 pr-2">p-value</th>
+                        <th className="text-left pb-2 pr-2">Sig.</th>
+                        <th className="text-left pb-2 pr-2">Strength</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-blue-200 divide-y divide-blue-900/50">
+                      {profile.correlationMatrix.map((c) => (
+                        <tr key={`${c.var1}-${c.var2}`} className="hover:bg-blue-950/50">
+                          <td className="pb-2 pr-2 font-mono">{c.var1}</td>
+                          <td className="pb-2 pr-2 font-mono">{c.var2}</td>
+                          <td className="pb-2 pr-2">{c.r.toFixed(3)}</td>
+                          <td className="pb-2 pr-2">{c.pValue.toFixed(3)}</td>
+                          <td className="pb-2 pr-2">{c.significant ? "Yes" : "No"}</td>
+                          <td className="pb-2 pr-2">{c.strength}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* PCA */}
+            {profile.pca.components.length > 0 && (
+              <div className="mb-4 border border-blue-800 rounded-lg bg-blue-950/50 p-3">
+                <h4 className="text-sm font-semibold text-blue-200 mb-2">Principal Component Analysis</h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm border-collapse">
+                    <thead>
+                      <tr className="border-b border-blue-800 text-xs text-blue-400">
+                        <th className="text-left pb-2 pr-2">Component</th>
+                        <th className="text-left pb-2 pr-2">Eigenvalue</th>
+                        <th className="text-left pb-2 pr-2">Variance Explained</th>
+                        <th className="text-left pb-2 pr-2">Cumulative</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-blue-200 divide-y divide-blue-900/50">
+                      {profile.pca.components.map((c) => (
+                        <tr key={`PC${c.component}`} className="hover:bg-blue-950/50">
+                          <td className="pb-2 pr-2 font-mono">PC{c.component}</td>
+<td className="pb-2 pr-2">{c.eigenvalue.toFixed(3)}</td>
+<td className="pb-2 pr-2">{`${(c.varianceExplained * 100).toFixed(1)}%`}</td>
+<td className="pb-2 pr-2">{`${(c.cumulativeVariance * 100).toFixed(1)}%`}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="mt-2 text-xs text-blue-400">
+                  Total variance explained: {`${(profile.pca.totalVarianceExplained * 100).toFixed(1)}%`}
+                </p>
+              </div>
+            )}
+
+            {/* Data quality issues */}
+            {profile.quality.issues.length > 0 && (
+              <div className="mb-4 border border-blue-800 rounded-lg bg-blue-950/50 p-3">
+                <h4 className="text-sm font-semibold text-blue-200 mb-2">Data Quality Issues</h4>
+                <ul className="text-xs text-blue-200 space-y-1">
+                  {profile.quality.issues.map((issue) => (
+                    <li key={`${issue.column}-${issue.type}`} className="flex items-center gap-2">
+                      <span className="text-amber-400">{issue.type}</span>
+                      <span className="font-mono">{issue.column}</span>: <span>{issue.description}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Auto-Analyst Report (notebook-style, editable) */}
         <div className="mt-6 border-t border-blue-900/50 pt-6">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
@@ -468,7 +749,7 @@ export default function StatisticalAnalysisTab() {
                 <FileText size={16} className="text-yellow-400" /> Auto-Analyst Report
               </h3>
               <p className="text-xs text-blue-300">
-                Automatic data profiling and analytical narrative in a notebook-style editor. Finalise to download Word / PDF.
+                Automatic data profiling and analytical narrative in a notebook-style editor. Finalise to download Word / PDF / LaTeX.
               </p>
             </div>
             <div className="flex gap-2 flex-wrap items-center">
@@ -494,6 +775,7 @@ export default function StatisticalAnalysisTab() {
                   <button onClick={() => setAutoReportFinalized(false)} className="text-sm bg-blue-900/50 text-blue-200 px-3 py-2 rounded-lg hover:bg-blue-900/70">Edit</button>
                   <button onClick={() => handleExportReport("word")} className="text-sm bg-purple-900/50 text-purple-300 px-3 py-2 rounded-lg hover:bg-purple-900/70 flex items-center gap-1"><Download size={14} /> Word</button>
                   <button onClick={() => handleExportReport("pdf")} className="text-sm bg-emerald-900/50 text-emerald-300 px-3 py-2 rounded-lg hover:bg-emerald-900/70 flex items-center gap-1"><Download size={14} /> PDF</button>
+                  <button onClick={() => handleExportReport("latex")} className="text-sm bg-blue-900/50 text-blue-300 px-3 py-2 rounded-lg hover:bg-blue-900/70 flex items-center gap-1"><Download size={14} /> LaTeX</button>
                 </>
               )}
             </div>
@@ -514,7 +796,7 @@ export default function StatisticalAnalysisTab() {
               className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-3 text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-yellow-500 resize-y"
             />
           ) : (
-            <p className="text-sm text-blue-400 italic">No report yet. Edit the data input above, then click “Generate Report”.</p>
+            <p className="text-sm text-blue-400 italic">No report yet. Upload a file or edit the data input above, then click “Generate Report”.</p>
           )}
         </div>
       </div>
