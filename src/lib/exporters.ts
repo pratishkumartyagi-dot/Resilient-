@@ -596,6 +596,128 @@ export async function downloadMarkdownAsWord(markdown: string, filename = "docum
   URL.revokeObjectURL(url);
 }
 
+export async function downloadMarkdownAsLaTeX(markdown: string, filename = "document.tex") {
+  const lines = markdown.split("\n");
+  const latex: string[] = [];
+  latex.push("\\documentclass[11pt,a4paper]{article}");
+  latex.push("\\usepackage[utf8]{inputenc}");
+  latex.push("\\usepackage[T1]{fontenc}");
+  latex.push("\\usepackage{geometry}");
+  latex.push("\\geometry{margin=2.5cm}");
+  latex.push("\\usepackage{booktabs}");
+  latex.push("\\usepackage{hyperref}");
+  latex.push("\\hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue}");
+  latex.push("");
+  latex.push("\\begin{document}");
+  latex.push("");
+  let inList = false;
+  let listType: "itemize" | "enumerate" | null = null;
+  let inTable = false;
+  let tableRows: string[][] = [];
+  const closeList = () => {
+    if (inList && listType) {
+      latex.push(`\\end{${listType}}`);
+      latex.push("");
+      inList = false;
+      listType = null;
+    }
+  };
+  const closeTable = () => {
+    if (!inTable) return;
+    const cols = tableRows[0]?.length || 1;
+    latex.push("\\begin{table}[h]");
+    latex.push("\\centering");
+    latex.push("\\begin{tabular}{" + Array.from({ length: cols }, () => "l").join("") + "}");
+    latex.push("\\toprule");
+    tableRows.forEach((cells, idx) => {
+      latex.push(cells.map((c) => escapeLatex(c)).join(" & ") + " \\\\");
+      if (idx === 0 && tableRows.length > 1) latex.push("\\midrule");
+    });
+    latex.push("\\bottomrule");
+    latex.push("\\end{tabular}");
+    latex.push("");
+    inTable = false;
+    tableRows = [];
+  };
+  const escapeLatex = (text: string): string => {
+    return text
+      .replace(/\\/g, "\\textbackslash{}")
+      .replace(/[&%$#_{}~^]/g, (m) => "\\" + m)
+      .replace(/~/g, "\\textasciitilde{}")
+      .replace(/\^/g, "\\textasciicircum{}")
+      .replace(/\n/g, " ");
+  };
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (inTable && !line.startsWith("|")) {
+      closeTable();
+    }
+    if (line.startsWith("# ")) {
+      closeList();
+      latex.push(`\\title{${escapeLatex(line.slice(2))}}`);
+      latex.push("\\maketitle");
+      continue;
+    }
+    if (line.startsWith("## ")) {
+      closeList();
+      latex.push(`\\section*{${escapeLatex(line.slice(3))}}`);
+      continue;
+    }
+    if (line.startsWith("### ")) {
+      closeList();
+      latex.push(`\\subsection*{${escapeLatex(line.slice(4))}}`);
+      continue;
+    }
+    if (line.startsWith("- ") || line.startsWith("* ")) {
+      if (!inList || listType !== "itemize") {
+        closeList();
+        inList = true;
+        listType = "itemize";
+      }
+      latex.push(`\\item ${escapeLatex(line.slice(2).trim())}`);
+      continue;
+    }
+    if (/^\d+\.\s/.test(line)) {
+      if (!inList || listType !== "enumerate") {
+        closeList();
+        inList = true;
+        listType = "enumerate";
+      }
+      latex.push(`\\item ${escapeLatex(line.replace(/^\d+\.\s/, ""))}`);
+      continue;
+    }
+    if (line.startsWith("|")) {
+      closeList();
+      const cells = line.split("|").filter((c, i, arr) => i !== 0 && i !== arr.length - 1).map((c) => c.trim());
+      if (cells.length === 0) continue;
+      if (cells.every((c) => /^[-:\s]+$/.test(c))) continue;
+      inTable = true;
+      tableRows.push(cells);
+      continue;
+    }
+    if (line === "") {
+      closeList();
+      latex.push("");
+      continue;
+    }
+    closeList();
+    latex.push(escapeLatex(line));
+  }
+  closeTable();
+  closeList();
+  latex.push("");
+  latex.push("\\end{document}");
+  const blob = new Blob([latex.join("\n")], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 export function downloadMarkdownAsPDF(markdown: string, filename = "document.pdf") {
   const htmlContent = marked.parse(markdown) as string;
 
@@ -807,132 +929,6 @@ export async function downloadPPTX(markdown: string, filename = "presentation.pp
   pptx.writeFile();
 }
 
-export function downloadMarkdownAsLaTeX(markdown: string, filename = "document.tex") {
-  const lines = markdown.split("\n");
-  const latex: string[] = [];
-  let inList = false;
-  let listType: "itemize" | "enumerate" | null = null;
-  let inTable = false;
-  let tableRows: string[][] = [];
-
-  latex.push("\\documentclass[11pt,a4paper]{article}");
-  latex.push("\\usepackage[utf8]{inputenc}");
-  latex.push("\\usepackage[T1]{fontenc}");
-  latex.push("\\usepackage{geometry}");
-  latex.push("\\geometry{margin=2.5cm}");
-  latex.push("\\usepackage{booktabs}");
-  latex.push("\\usepackage{hyperref}");
-  latex.push("\\hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue}");
-  latex.push("");
-  latex.push("\\begin{document}");
-  latex.push("");
-
-  const closeList = () => {
-    if (inList && listType) {
-      latex.push(`\\end{${listType}}`);
-      latex.push("");
-      inList = false;
-      listType = null;
-    }
-  };
-
-  const closeTable = () => {
-    if (!inTable) return;
-    const cols = tableRows[0]?.length || 1;
-    latex.push("\\begin{table}[h]");
-    latex.push("\\centering");
-    latex.push("\\begin{tabular}{" + Array.from({ length: cols }, () => "l").join("") + "}");
-    latex.push("\\toprule");
-    tableRows.forEach((cells, idx) => {
-      latex.push(cells.map((c) => escapeLatex(c)).join(" & ") + " \\\\");
-      if (idx === 0 && tableRows.length > 1) latex.push("\\midrule");
-    });
-    latex.push("\\bottomrule");
-    latex.push("\\end{tabular}");
-    latex.push("\\end{table}");
-    latex.push("");
-    inTable = false;
-    tableRows = [];
-  };
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (inTable && !line.startsWith("|")) closeTable();
-
-    if (line.startsWith("# ")) {
-      closeList();
-      latex.push(`\\title{${escapeLatex(line.slice(2))}}`);
-      latex.push("\\maketitle");
-      continue;
-    }
-
-    if (line.startsWith("## ")) {
-      closeList();
-      latex.push(`\\section*{${escapeLatex(line.slice(3))}}`);
-      continue;
-    }
-
-    if (line.startsWith("### ")) {
-      closeList();
-      latex.push(`\\subsection*{${escapeLatex(line.slice(4))}}`);
-      continue;
-    }
-
-    if (line.startsWith("- ") || line.startsWith("* ")) {
-      if (!inList || listType !== "itemize") {
-        closeList();
-        inList = true;
-        listType = "itemize";
-      }
-      latex.push(`\\item ${escapeLatex(line.slice(2).trim())}`);
-      continue;
-    }
-
-    if (/^\d+\.\s/.test(line)) {
-      if (!inList || listType !== "enumerate") {
-        closeList();
-        inList = true;
-        listType = "enumerate";
-      }
-      latex.push(`\\item ${escapeLatex(line.replace(/^\d+\.\s/, ""))}`);
-      continue;
-    }
-
-    if (line.startsWith("|")) {
-      closeList();
-      const cells = line.split("|").filter((c, i, arr) => i !== 0 && i !== arr.length - 1).map((c) => c.trim());
-      if (cells.length === 0) continue;
-      if (cells.every((c) => /^[-:\s]+$/.test(c))) continue;
-      inTable = true;
-      tableRows.push(cells);
-      continue;
-    }
-
-    if (line === "") {
-      closeList();
-      latex.push("");
-      continue;
-    }
-
-    closeList();
-    latex.push(escapeLatex(line));
-  }
-
-  closeTable();
-  closeList();
-  latex.push("");
-  latex.push("\\end{document}");
-
-  const blob = new Blob([latex.join("\n")], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-}
 
 function escapeLatex(text: string): string {
   return text
