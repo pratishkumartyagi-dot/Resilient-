@@ -8,7 +8,7 @@ import {
 } from "recharts";
 import { Download, Play, RefreshCw, Type, FileText, Sparkles, Loader2, CheckCircle2 } from "lucide-react";
 import { downloadMarkdownAsWord, downloadMarkdownAsPDF } from "@/lib/exporters";
-import { profileRows, type ProfileRow } from "@/lib/data-profiling";
+import { profileDataset, type ProfileRow } from "@/lib/data-profiling";
 import { buildAutoAnalystReportAsync } from "@/lib/auto-analyst";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
@@ -269,7 +269,7 @@ export default function StatisticalAnalysisTab() {
     setAutoReportLoading(true);
     setAutoReportFinalized(false);
     try {
-      const profile = profileRows(parsedRows as ProfileRow[]);
+      const profile = profileDataset(parsedRows as unknown as ProfileRow[]);
       const aiFn = state.geminiApiKey
         ? (p: string) => callGemini(state.geminiApiKey!, p)
         : state.groqApiKey
