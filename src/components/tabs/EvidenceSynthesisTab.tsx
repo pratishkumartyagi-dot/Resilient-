@@ -18,14 +18,6 @@ import {
   parseEffectSizeRow,
   type EffectSizeRow,
 } from "@/lib/metafor-compute";
-import {
-  generateSynthesisReport,
-  downloadSynthesisReport,
-  downloadNotebookLMSourcePack,
-  downloadNotebookLMKit,
-  type SynthesisReportOptions,
-} from "@/lib/synthesis-report-generator";
-import { openNotebookLM } from "@/lib/notebooklm";
 import { extractPICOForPapers, type ExtractedPICO } from "@/lib/pico-extractor";
 import { marked } from "marked";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
@@ -338,15 +330,6 @@ export default function EvidenceSynthesisTab() {
   const [stormReviewLoading, setStormReviewLoading] = useState(false);
   const [stormFinal, setStormFinal] = useState("");
   const [stormFinalLoading, setStormFinalLoading] = useState(false);
-  const [literatureReviewSections, setLiteratureReviewSections] = useState({
-    introduction: "",
-    globalIndian: "",
-    gaps: "",
-    futureAdvice: "",
-    summary: "",
-    references: "",
-  });
-  const [literatureReviewLoading, setLiteratureReviewLoading] = useState(false);
   const [effectSizes, setEffectSizes] = useState<{ study: string; effect: string; ci: string; weight: string }[]>([]);
   const [reviewType, setReviewType] = useState("Systematic Review & Meta-analysis");
   const [reviewRequirements, setReviewRequirements] = useState("");
@@ -364,6 +347,7 @@ export default function EvidenceSynthesisTab() {
   const [yearFrom, setYearFrom] = useState("");
   const [yearTo, setYearTo] = useState("");
   const [searchLogic, setSearchLogic] = useState("AND");
+  const [semanticSearch, setSemanticSearch] = useState(false);
   const [studyTypeFilter, setStudyTypeFilter] = useState("All Study Types");
   const [perDatabaseResults, setPerDatabaseResults] = useState<Array<{ database: string; status: string; count: number; error?: string }>>([]);
   const [citationValidationResults, setCitationValidationResults] = useState<Record<string, { valid: boolean; title?: string; message: string }>>({});
@@ -395,7 +379,9 @@ export default function EvidenceSynthesisTab() {
     setPerDatabaseResults([]);
     try {
       const dbs = selectedDbs.length > 0 ? selectedDbs : ["OpenAlex", "Semantic Scholar", "Crossref", "PubMed"];
-      const effectiveQuery = applySearchLogic(query, searchLogic);
+      // In semantic mode, pass the raw query so retrieval matches on meaning across
+      // the broad area of research instead of exact boolean keyword co-occurrence.
+      const effectiveQuery = semanticSearch ? query : applySearchLogic(query, searchLogic);
       const res = await fetch("/api/literature-search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -406,6 +392,7 @@ export default function EvidenceSynthesisTab() {
           yearTo: yearTo || undefined,
           studyType: studyTypeFilter === "All Study Types" ? undefined : studyTypeFilter,
           searchLogic,
+          semanticSearch: semanticSearch || false,
         }),
       });
 
@@ -825,60 +812,6 @@ export default function EvidenceSynthesisTab() {
         return [d.id, counts];
       })) },
     ];
-  };
-
-  const buildSynthesisReportOptions = (): SynthesisReportOptions => {
-    const sourceRows = extractedData.filter((p) => selectedPaperIds.size === 0 || selectedPaperIds.has(p.id));
-    const rows = sourceRows.length > 0 ? sourceRows : extractedData;
-    const studyYears = rows.map((p) => Number(p.year)).filter((y) => Number.isFinite(y) && y > 0);
-    const yearMin = studyYears.length ? Math.min(...studyYears) : parseInt(yearFrom) || new Date().getFullYear();
-    const yearMax = studyYears.length ? Math.max(...studyYears) : parseInt(yearTo) || new Date().getFullYear();
-    const studyTypes = Array.from(new Set(rows.map((p) => p.studyType).filter(Boolean))) as string[];
-    const robSummary = rows.reduce(
-      (acc, p) => {
-        const rob = (robMode === "probast" ? probastAssessments[p.id]?.overallRob : robAssessments[p.id]?.overall) || p.ROB || "Pending";
-        const j = String(rob).toLowerCase();
-        if (j.includes("low") && !j.includes("high")) acc.low += 1;
-        else if (j.includes("some") || j.includes("moderate") || j.includes("unclear") || j.includes("serious")) acc.some += 1;
-        else if (j.includes("high") || j.includes("critical") || j.includes("very high")) acc.high += 1;
-        else acc.pending += 1;
-        return acc;
-      },
-      { low: 0, some: 0, high: 0, pending: 0 }
-    );
-    return {
-      reviewType,
-      query,
-      totalRecords: prismaCounts.identification,
-      deduped: prismaCounts.deduped,
-      screened: prismaCounts.screened,
-      excluded: prismaCounts.excluded,
-      included: prismaCounts.included,
-      databases: selectedDbs,
-      yearMin,
-      yearMax,
-      yearFrom,
-      yearTo,
-      studyTypes,
-      papersForSynthesis: rows.map((p) => ({
-        id: p.id,
-        title: p.title,
-        authors: p.authors,
-        year: Number(p.year) || yearMin,
-        studyType: p.studyType,
-        outcome: p.outcome,
-        intervention: p.intervention,
-        population: p.population,
-        robOverall: (robMode === "probast" ? probastAssessments[p.id]?.overallRob : robAssessments[p.id]?.overall) || p.ROB,
-      })),
-      robSummary,
-      robToolName: robMode === "probast" ? "PROBAST + AI" : (getRobToolTemplate()?.label || robTool),
-      effectSizes,
-      metaforResult: metaAnalysis.available ? metaAnalysis.random : null,
-      synthesisExcerpt: synthesisOutput,
-      generatedDate: new Date().toISOString().split("T")[0],
-      totalRecordsRaw: prismaCounts.identification,
-    };
   };
 
   const saveRobAssessments = () => {
@@ -1487,182 +1420,6 @@ ${methodsBlock}\n\n---
 ### Risk of Bias Commentary\n\nUsing **${robLabel}** (${isProbast ? "PROBAST+AI" : "robvis"}), the overall distribution of risk-of-bias judgments across ${papersForSynthesis.length} studies is: Low ${robSummary.low}, Some/Moderate concerns ${robSummary.some}, High/Critical ${robSummary.high}, Pending ${robSummary.pending}. ${robSummary.high > 0 ? "Studies at high risk of bias may overestimate effects; sensitivity analysis excluding these studies is recommended." : "No studies were rated at high risk of bias."} ${isProbast ? "Domain-level PROBAST+AI traffic-light plots (D1–D4 + applicability A1–A3) are available in the reporting step." : "Domain-level traffic-light plots are available in the reporting step."}\n\n---\n\n### Gaps and Future Directions\n\n- Unpublished or grey literature not searched in this run.\n- Subgroup analyses and meta-regression should be explored if heterogeneity is high.\n- Certainty of evidence (GRADE) should be formally assessed prior to guideline submission.\n- Sensitivity analysis excluding high-RoB studies recommended for robustness.\n\n> Generated locally using awesome-evidence-synthesis open-source workflow standards. For meta-analysis statistics, export the effect table to **R (metafor/meta)**, **JASP**, or **OpenMEE**.\n`;
   };
 
-  const parseLiteratureReview = (text: string): Record<string, string> => {
-    const sections: Record<string, string> = {
-      introduction: "",
-      globalIndian: "",
-      gaps: "",
-      futureAdvice: "",
-      summary: "",
-      references: "",
-    };
-
-    const lines = text.split("\n");
-    let currentKey: string | null = null;
-    let buffer: string[] = [];
-
-    const assign = () => {
-      if (!currentKey) return;
-      const content = buffer.join("\n").trim();
-      if (content && currentKey) {
-        sections[currentKey] = content;
-      }
-      buffer = [];
-    };
-
-    for (const line of lines) {
-      const trimmed = line.trim().toLowerCase();
-      let matched: string | null = null;
-
-      if (/^(1\.\s*introduction|introduction|background|introduction\s*\/\s*background)$/i.test(trimmed)) matched = "introduction";
-      else if (/^(2\.\s*global\s*&\s*indian\s*situation|global\s*&\s*indian\s*situation|global\s*indian|global\s+situation)$/i.test(trimmed)) matched = "globalIndian";
-      else if (/^(3\.\s*research\s*gaps|research\s*gaps\s*\/\s*limitations|research\s*gaps|gaps\s*\/\s*limitations|gaps|limitations)$/i.test(trimmed)) matched = "gaps";
-      else if (/^(4\.\s*advice\s*for\s*future\s*research|advice\s*for\s*future\s*research|future\s*research\s*advice|future\s*advice)$/i.test(trimmed)) matched = "futureAdvice";
-      else if (/^(5\.\s*summary|summary|summary\s*of\s*all\s*studies)$/i.test(trimmed)) matched = "summary";
-      else if (/^(6\.\s*references|references|bibliography)$/i.test(trimmed)) matched = "references";
-
-      if (matched) {
-        assign();
-        currentKey = matched;
-      } else {
-        buffer.push(line);
-      }
-    }
-
-    assign();
-    return sections;
-  };
-
-  const generateLiteratureReview = async () => {
-    const reviewPapers = robSelectedPaperIds.size > 0
-      ? papers.filter((p) => robSelectedPaperIds.has(p.id))
-      : papers.filter((p) => selectedPaperIds.has(p.id));
-
-    if (reviewPapers.length === 0 && extractedData.length === 0) {
-      alert("Please select papers in Risk of Bias Assessment first.");
-      return;
-    }
-    const selectedPapers = reviewPapers;
-    const references = selectedPapers
-      .map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || p.database}.${p.doi ? ` doi:${p.doi}` : ""}`)
-      .join("\n");
-
-    setLiteratureReviewLoading(true);
-    setLiteratureReviewSections({
-      introduction: "",
-      globalIndian: "",
-      gaps: "",
-      futureAdvice: "",
-      summary: "",
-      references: "",
-    });
-    try {
-      const numberedRefs = selectedPapers
-        .map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || p.database}.${p.doi ? ` doi:${p.doi}` : ""}`)
-        .join("\n");
-
-      const prompt = `You are an expert academic writer using deep reasoning methodology. Write a comprehensive, publication-ready narrative literature review based ONLY on the selected studies provided below.
-
-Follow this exact structure and headings:
-- Introduction / Background
-- Problem Statement (with subsections: Global, South-East Asia, India)
-- Research Gaps
-- Future Studies to Be Carried Out
-- Conclusion
-- References
-
-CITATION RULES:
-- Cite papers inline using author-year in parentheses, e.g. (Smith 2020), (Jones et al 2022).
-- The author-year MUST match one of the numbered references below.
-- Aim for 2-4 inline citations per paragraph.
-
-REFERENCES (use these exact author-year strings in your inline citations):
-${selectedPapers.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || p.database}.${p.doi ? ` doi:${p.doi}` : ""}`).join("\n")}
-
-SELECTED STUDIES:
-${selectedPapers.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. Type: ${p.studyType || "Not specified"}. Database: ${p.database}.${p.doi ? ` DOI: ${p.doi}` : ""}`).join("\n\n")}
-
-EXTRACTED DATA:
-${extractedData.filter((p) => selectedPapers.some((sp) => sp.id === p.id)).map((p) => `- ${p.title}: ${p.outcome || "Outcome not specified"}`).join("\n")}
-
-DEEP REASONING RULES:
-1. Think step-by-step before drafting each section.
-2. Explicitly acknowledge conflicting or limited evidence.
-3. Ensure global, South-East Asia, and India perspectives are all addressed where relevant.
-4. Use ONLY author-year inline citations (Author Year). Include a complete References section at the end.
-
-OUTPUT FORMAT:
-Use plain text with these exact headings on their own lines:
-Introduction / Background
-Problem Statement (Global, South-East Asia, India)
-Research Gaps
-Future Studies to Be Carried Out
-Conclusion
-References
-
-At the end, include a References section with all papers in Vancouver style:
-1. Author(s) (Year). Title. Journal. doi:DOI`;
-
-      const apiKey = state.geminiApiKey || state.groqApiKey;
-      if (!apiKey) {
-        const localPapers = selectedPapers.map((p) => ({
-          authors: p.authors || "Unknown authors",
-          year: typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || new Date().getFullYear(),
-          title: p.title || "Untitled",
-          journal: p.journal || "Unknown journal",
-          abstract: p.abstract || "",
-          doi: p.doi || undefined,
-          studyType: p.studyType || "Observational Study",
-          database: p.database || "Unknown",
-        }));
-        const localReview = generateLocalLiteratureReview(localPapers, query, { enableRobustReview: true });
-        const parsedLocal = parseLiteratureReview(localReview);
-        setLiteratureReviewSections({
-          introduction: parsedLocal.introduction || localReview,
-          globalIndian: parsedLocal.globalIndian || "",
-          gaps: parsedLocal.gaps || "",
-          futureAdvice: parsedLocal.futureAdvice || "",
-          summary: parsedLocal.summary || "",
-          references: parsedLocal.references || references,
-        });
-        setLiteratureReviewLoading(false);
-        return;
-      }
-
-      let text: string;
-      const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
-      if (state.geminiApiKey) {
-        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
-      } else if (state.groqApiKey) {
-        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
-      } else {
-        throw new Error("No API key configured. Please open Settings (gear icon).");
-      }
-
-      const cleaned = text.replace(/```/g, "").trim();
-      const parsed = parseLiteratureReview(cleaned);
-      setLiteratureReviewSections({
-        introduction: parsed.introduction || "",
-        globalIndian: parsed.globalIndian || "",
-        gaps: parsed.gaps || "",
-        futureAdvice: parsed.futureAdvice || "",
-        summary: parsed.summary || "",
-        references: parsed.references || references,
-      });
-    } catch (err: any) {
-      setLiteratureReviewSections({
-        introduction: `Error generating review: ${err.message || "Unknown error"}. Please ensure your API key is valid and try again.`,
-        globalIndian: "",
-        gaps: "",
-        futureAdvice: "",
-        summary: "",
-        references: references,
-      });
-    } finally {
-      setLiteratureReviewLoading(false);
-    }
-  };
-
   const generateSynthesis = async () => {
     if (extractedData.length === 0) {
       alert("Please complete data extraction first.");
@@ -2088,6 +1845,13 @@ ${isNarrative ? `## Evidence Synthesis
     setFinalManuscript("");
     try {
       const prompt = buildAcademicWritingReviewPrompt({ manuscript });
+      const apiKey = state.geminiApiKey || state.groqApiKey;
+      if (!apiKey) {
+        setReviewReport("No API key configured. Please add your Gemini or Groq API key in Settings to run the Academic Writing Agents review.");
+        setReviewLoading(false);
+        return;
+      }
+
       let text: string;
       const searchOptions: AICallOptions = { searchEnabled: false, searchQuery: query };
       if (state.geminiApiKey) {
@@ -2095,8 +1859,7 @@ ${isNarrative ? `## Evidence Synthesis
       } else if (state.groqApiKey) {
         text = await callGroq(state.groqApiKey!, prompt, searchOptions);
       } else {
-        // Offline fallback: run the review with the in-browser local model.
-        text = await callDeepSeek(prompt, searchOptions);
+        throw new Error("No API key configured. Please open Settings (gear icon).");
       }
 
       const cleaned = text.replace(/```/g, "").trim();
@@ -2123,6 +1886,13 @@ ${isNarrative ? `## Evidence Synthesis
         topic: query || "the research topic",
       });
 
+      const apiKey = state.geminiApiKey || state.groqApiKey;
+      if (!apiKey) {
+        setFinalManuscript("No API key configured. Please add your Gemini or Groq API key in Settings to regenerate the final manuscript.");
+        setFinalManuscriptLoading(false);
+        return;
+      }
+
       let text: string;
       const searchOptions: AICallOptions = { searchEnabled: false, searchQuery: query };
       if (state.geminiApiKey) {
@@ -2130,7 +1900,7 @@ ${isNarrative ? `## Evidence Synthesis
       } else if (state.groqApiKey) {
         text = await callGroq(state.groqApiKey!, prompt, searchOptions);
       } else {
-        text = await callDeepSeek(prompt, searchOptions);
+        throw new Error("No API key configured. Please open Settings (gear icon).");
       }
 
       const cleaned = text.replace(/```/g, "").trim();
@@ -2173,6 +1943,13 @@ ${isNarrative ? `## Evidence Synthesis
         query,
       });
 
+      const apiKey = state.geminiApiKey || state.groqApiKey;
+      if (!apiKey) {
+        setStormDraft("# STORM Draft\n\nNo API key configured. Please add your Gemini or Groq API key in Settings to generate the STORM research-paper draft.\n\n## References\n\n1. Page MJ, McKenzie JE, Bossuyt PM, et al. The PRISMA 2020 statement. BMJ. 2021;372:n71.\n");
+        setStormLoading(false);
+        return;
+      }
+
       let text: string;
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
       if (state.geminiApiKey) {
@@ -2180,7 +1957,7 @@ ${isNarrative ? `## Evidence Synthesis
       } else if (state.groqApiKey) {
         text = await callGroq(state.groqApiKey!, prompt, searchOptions);
       } else {
-        text = await callDeepSeek(prompt, searchOptions);
+        throw new Error("No API key configured. Please open Settings (gear icon).");
       }
 
       const cleaned = text.replace(/```/g, "").trim();
@@ -2202,6 +1979,13 @@ ${isNarrative ? `## Evidence Synthesis
     setStormFinal("");
     try {
       const prompt = buildSTORMReviewPrompt({ draft: stormDraft, topic: query || "the research topic" });
+      const apiKey = state.geminiApiKey || state.groqApiKey;
+      if (!apiKey) {
+        setStormReview("No API key configured. Please add your Gemini or Groq API key in Settings to run the STORM self-review.");
+        setStormReviewLoading(false);
+        return;
+      }
+
       let text: string;
       const searchOptions: AICallOptions = { searchEnabled: false, searchQuery: query };
       if (state.geminiApiKey) {
@@ -2209,7 +1993,7 @@ ${isNarrative ? `## Evidence Synthesis
       } else if (state.groqApiKey) {
         text = await callGroq(state.groqApiKey!, prompt, searchOptions);
       } else {
-        text = await callDeepSeek(prompt, searchOptions);
+        throw new Error("No API key configured. Please open Settings (gear icon).");
       }
 
       const cleaned = text.replace(/```/g, "").trim();
@@ -2244,6 +2028,13 @@ ${stormReview}
 - Output the complete final draft in Markdown
 `;
 
+      const apiKey = state.geminiApiKey || state.groqApiKey;
+      if (!apiKey) {
+        setStormFinal("No API key configured. Please add your Gemini or Groq API key in Settings to regenerate the final STORM draft.");
+        setStormFinalLoading(false);
+        return;
+      }
+
       let text: string;
       const searchOptions: AICallOptions = { searchEnabled: false, searchQuery: query };
       if (state.geminiApiKey) {
@@ -2251,7 +2042,7 @@ ${stormReview}
       } else if (state.groqApiKey) {
         text = await callGroq(state.groqApiKey!, prompt, searchOptions);
       } else {
-        text = await callDeepSeek(prompt, searchOptions);
+        throw new Error("No API key configured. Please open Settings (gear icon).");
       }
 
       const cleaned = text.replace(/```/g, "").trim();
@@ -2272,32 +2063,6 @@ ${stormReview}
     link.download = `manuscript-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.md`;
     link.click();
     URL.revokeObjectURL(url);
-  };
-
-  const handleDownloadFullReport = () => {
-    try {
-      const opts = buildSynthesisReportOptions();
-      const report = generateSynthesisReport(opts);
-      downloadSynthesisReport(report, reviewType);
-    } catch (err: any) {
-      alert("Failed to generate report: " + (err?.message || String(err)));
-    }
-  };
-
-  const handleDownloadNotebookLMSource = () => {
-    try {
-      downloadNotebookLMSourcePack(buildSynthesisReportOptions());
-    } catch (err: any) {
-      alert("Failed to generate NotebookLM source pack: " + (err?.message || String(err)));
-    }
-  };
-
-  const handleDownloadNotebookLMKit = () => {
-    try {
-      downloadNotebookLMKit(buildSynthesisReportOptions());
-    } catch (err: any) {
-      alert("Failed to generate NotebookLM kit: " + (err?.message || String(err)));
-    }
   };
 
   const downloadPrismaCsv = () => {
@@ -2488,6 +2253,8 @@ ${stormReview}
             studyTypeFilter={studyTypeFilter}
             onStudyTypeFilterChange={setStudyTypeFilter}
             onSearch={handleSearch}
+            semanticSearch={semanticSearch}
+            onSemanticSearchChange={setSemanticSearch}
             onProceed={() => {
               if (selectedPaperIds.size === 0) {
                 setSearchError("Select at least one paper before proceeding to extraction.");
@@ -3527,32 +3294,6 @@ ${stormReview}
                   </div>
                 </div>
               )}
-            </div>
-            <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5">
-              <div className="flex items-center gap-2 mb-1">
-                <BookOpen size={16} className="text-yellow-400" />
-                <h3 className="text-lg font-bold text-white">Manuscript Report &amp; NotebookLM</h3>
-              </div>
-              <p className="text-xs text-blue-400 mb-3">
-                Generate the full PRISMA-compliant manuscript with APA-style statistical reporting (jmvReport) and a NotebookLM-ready research notebook (source pack, briefing doc, study guide, FAQ, timeline, audio-overview script).
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <button onClick={handleDownloadFullReport} className="flex items-center gap-1 text-xs bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-3 py-2 rounded-lg">
-                  <FileText size={12} /> Download Full Report (MD)
-                </button>
-                <button onClick={handleDownloadNotebookLMSource} className="flex items-center gap-1 text-xs bg-blue-900/50 text-blue-200 px-3 py-2 rounded-lg hover:bg-blue-800/60">
-                  <BookOpen size={12} /> NotebookLM Source Pack
-                </button>
-                <button onClick={handleDownloadNotebookLMKit} className="flex items-center gap-1 text-xs bg-purple-900/50 text-purple-200 px-3 py-2 rounded-lg hover:bg-purple-800/60">
-                  <Bot size={12} /> NotebookLM Notebook Kit
-                </button>
-                <button onClick={openNotebookLM} className="flex items-center gap-1 text-xs bg-emerald-900/50 text-emerald-200 px-3 py-2 rounded-lg hover:bg-emerald-800/60">
-                  <ExternalLink size={12} /> Open NotebookLM
-                </button>
-              </div>
-              <p className="mt-2 text-[10px] text-blue-500">
-                NotebookLM has no public API. The Source Pack is uploaded as a source; the Notebook Kit mirrors NotebookLM&apos;s briefing, study guide, FAQ, timeline, and audio-overview formats.
-              </p>
             </div>
             <div className="flex justify-end gap-3">
               <button onClick={() => setPipelineStep(6)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">

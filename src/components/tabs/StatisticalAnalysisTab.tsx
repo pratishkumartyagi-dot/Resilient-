@@ -6,8 +6,8 @@ import {
   LineChart, Line, Scatter, PieChart, Pie, Cell, ComposedChart,
   AreaChart, Area, Legend
 } from "recharts";
-import { Download, Play, RefreshCw, Type, Calculator, TrendingUp, Sigma } from "lucide-react";
-import { downloadMarkdownAsWord } from "@/lib/exporters";
+import { Download, Play, RefreshCw, Type, Calculator, TrendingUp, Sigma, FileText, Sparkles, Loader2, CheckCircle2 } from "lucide-react";
+import { downloadMarkdownAsWord, downloadMarkdownAsPDF } from "@/lib/exporters";
 import {
   descriptiveStatistics,
   linearRegression,
@@ -18,6 +18,10 @@ import {
   formatStat,
   type DescriptiveStats,
 } from "@/lib/statistics";
+import { profileRows, type ProfileRow } from "@/lib/data-profiling";
+import { buildAutoAnalystReportAsync } from "@/lib/auto-analyst";
+import { useApp } from "@/context/AppContext";
+import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
 
 const CHART_TYPES = [
   "Histogram", "Density Plot", "Bar Chart", "Pie Chart",
@@ -228,6 +232,10 @@ export default function StatisticalAnalysisTab() {
   const [analysisData, setAnalysisData] = useState<AnalysisInput>(() => parseAnalysisInput(DEFAULT_ANALYSIS_INPUT));
   const [testMu, setTestMu] = useState("0");
   const chartRef = useRef<HTMLDivElement>(null);
+  const { state } = useApp();
+  const [autoReport, setAutoReport] = useState("");
+  const [autoReportLoading, setAutoReportLoading] = useState(false);
+  const [autoReportFinalized, setAutoReportFinalized] = useState(false);
 
   const applyData = (type: string, text: string) => {
     const rows = parseDataInput(text);
@@ -421,6 +429,39 @@ export default function StatisticalAnalysisTab() {
     await downloadMarkdownAsWord(md, "statistical-analysis.docx");
   };
 
+  const handleGenerateAutoReport = async () => {
+    setAutoReportLoading(true);
+    setAutoReportFinalized(false);
+    try {
+      const profile = profileRows(parsedRows as ProfileRow[]);
+      const aiFn = state.geminiApiKey
+        ? (p: string) => callGemini(state.geminiApiKey!, p)
+        : state.groqApiKey
+          ? (p: string) => callGroq(state.groqApiKey!, p)
+          : (p: string) => callDeepSeek(p);
+      const report = await buildAutoAnalystReportAsync(profile, {
+        aiFn,
+        title: `Automated Statistical Report — ${chartType}`,
+        datasetName: chartType,
+      });
+      setAutoReport(report);
+    } catch (err: any) {
+      setAutoReport(`# Automated Statistical Report\n\n> Could not generate the report: ${err?.message || "unknown error"}.`);
+    } finally {
+      setAutoReportLoading(false);
+    }
+  };
+
+  const handleExportReport = (kind: "word" | "pdf") => {
+    if (!autoReport) return;
+    if (!autoReportFinalized) {
+      alert("Please finalise the report before downloading.");
+      return;
+    }
+    if (kind === "word") downloadMarkdownAsWord(autoReport, "statistical-report.docx");
+    else downloadMarkdownAsPDF(autoReport, "statistical-report.pdf");
+  };
+
   const renderChart = () => {
     switch (chartType) {
       case "Histogram":
@@ -603,6 +644,64 @@ export default function StatisticalAnalysisTab() {
             One row per line: <span className="font-mono">Label: mean=78.5, SD=12.3, n=165</span>,{" "}
             <span className="font-mono">Label: 42</span>, or <span className="font-mono">Label,42</span>. Lines starting with # are ignored.
           </p>
+        </div>
+
+        {/* Auto-Analyst Report (notebook-style, editable) */}
+        <div className="mt-6 border-t border-blue-900/50 pt-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+            <div>
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <FileText size={16} className="text-yellow-400" /> Auto-Analyst Report
+              </h3>
+              <p className="text-xs text-blue-300">
+                Automatic data profiling and analytical narrative in a notebook-style editor. Finalise to download Word / PDF.
+              </p>
+            </div>
+            <div className="flex gap-2 flex-wrap items-center">
+              <button
+                onClick={handleGenerateAutoReport}
+                disabled={autoReportLoading}
+                className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-4 py-2 rounded-lg flex items-center gap-2 disabled:opacity-50"
+              >
+                {autoReportLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                {autoReport ? "Regenerate Report" : "Generate Report"}
+              </button>
+              {autoReport && !autoReportFinalized && (
+                <button
+                  onClick={() => setAutoReportFinalized(true)}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-lg flex items-center gap-2"
+                >
+                  <CheckCircle2 size={14} /> Finalise
+                </button>
+              )}
+              {autoReportFinalized && (
+                <>
+                  <span className="text-xs text-emerald-300 flex items-center gap-1"><CheckCircle2 size={14} /> Finalised</span>
+                  <button onClick={() => setAutoReportFinalized(false)} className="text-sm bg-blue-900/50 text-blue-200 px-3 py-2 rounded-lg hover:bg-blue-900/70">Edit</button>
+                  <button onClick={() => handleExportReport("word")} className="text-sm bg-purple-900/50 text-purple-300 px-3 py-2 rounded-lg hover:bg-purple-900/70 flex items-center gap-1"><Download size={14} /> Word</button>
+                  <button onClick={() => handleExportReport("pdf")} className="text-sm bg-emerald-900/50 text-emerald-300 px-3 py-2 rounded-lg hover:bg-emerald-900/70 flex items-center gap-1"><Download size={14} /> PDF</button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {autoReportLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <div className="text-center">
+                <div className="w-9 h-9 border-4 border-yellow-400 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                <p className="text-blue-200 text-sm">Profiling data and writing the report…</p>
+              </div>
+            </div>
+          ) : autoReport ? (
+            <textarea
+              value={autoReport}
+              onChange={(e) => { setAutoReport(e.target.value); setAutoReportFinalized(false); }}
+              rows={18}
+              className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-3 text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-yellow-500 resize-y"
+            />
+          ) : (
+            <p className="text-sm text-blue-400 italic">No report yet. Edit the data input above, then click “Generate Report”.</p>
+          )}
         </div>
       </div>
 

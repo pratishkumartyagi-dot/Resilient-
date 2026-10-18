@@ -27,6 +27,8 @@ interface LiteratureSearchRequestBody {
   yearFrom?: string;
   yearTo?: string;
   studyType?: string;
+  searchLogic?: string;
+  semanticSearch?: boolean;
 }
 
 function corsHeaders() {
@@ -59,31 +61,43 @@ export async function POST(request: Request) {
     const yearFrom = body.yearFrom;
     const yearTo = body.yearTo;
     const studyType = body.studyType;
+    const semanticSearch = body.semanticSearch === true;
 
     if (!query) {
       return NextResponse.json({ error: "Missing query parameter" }, { status: 400, headers: corsHeaders() });
     }
 
+    // Semantic mode: strip boolean operators so retrieval matches on meaning
+    // across the broad area of research rather than exact keyword co-occurrence.
+    const semanticQuery = semanticSearch
+      ? query.replace(/\b(AND|OR|NOT)\b/gi, " ").replace(/\s+/g, " ").trim() || query
+      : query;
+
     // Default databases if none selected
     const defaultDbs = ["PubMed", "OpenAlex", "Semantic Scholar", "Crossref", "arXiv", "bioRxiv"];
-    const dbsToSearch = databases.length > 0 ? databases : defaultDbs;
+    const baseDbs = databases.length > 0 ? databases : defaultDbs;
+    // Semantic Scholar performs true meaning-based retrieval, so ensure it is
+    // always queried when semantic search is requested.
+    const dbsToSearch = semanticSearch && !baseDbs.includes("Semantic Scholar")
+      ? [...baseDbs, "Semantic Scholar"]
+      : baseDbs;
 
     const apiMap: Record<string, (() => Promise<any[]>) | undefined> = {
-      "PubMed": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
-      "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
-      "Europe PMC": () => fetchEuropePMC(query, yearFrom, yearTo, studyType),
-      "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
-      "bioRxiv": () => fetchBioRxiv(query, yearFrom, yearTo, studyType),
-      "medRxiv": () => fetchMedRxiv(query, yearFrom, yearTo, studyType),
-      "Crossref": () => fetchCrossref(query, yearFrom, yearTo, studyType),
-      "arXiv": () => fetcharXiv(query, yearFrom, yearTo, studyType),
-      "OpenAIRE": () => fetchOpenAIRE(query, yearFrom, yearTo, studyType),
-      "dblp": () => fetchDblp(query, yearFrom, yearTo, studyType),
-      "Zenodo": () => fetchZenodo(query, yearFrom, yearTo, studyType),
-      "Google Scholar": () => fetchGoogleScholarBrowserless(query, yearFrom, yearTo, studyType),
-      "Semantic Scholar": () => fetchSemanticScholarBrowserless(query, yearFrom, yearTo, studyType),
-      "ClinicalTrials.gov": () => fetchClinicalTrialsGov(query, yearFrom, yearTo, studyType),
-      "paper-search-mcp": () => fetchPaperSearchMcp(query, "all", yearFrom, yearTo, studyType),
+      "PubMed": () => fetchPubMedBrowserless(semanticQuery, yearFrom, yearTo, studyType),
+      "OpenAlex": () => fetchOpenAlex(semanticQuery, yearFrom, yearTo, studyType),
+      "Europe PMC": () => fetchEuropePMC(semanticQuery, yearFrom, yearTo, studyType),
+      "DOAJ": () => fetchDoaj(semanticQuery, yearFrom, yearTo, studyType),
+      "bioRxiv": () => fetchBioRxiv(semanticQuery, yearFrom, yearTo, studyType),
+      "medRxiv": () => fetchMedRxiv(semanticQuery, yearFrom, yearTo, studyType),
+      "Crossref": () => fetchCrossref(semanticQuery, yearFrom, yearTo, studyType),
+      "arXiv": () => fetcharXiv(semanticQuery, yearFrom, yearTo, studyType),
+      "OpenAIRE": () => fetchOpenAIRE(semanticQuery, yearFrom, yearTo, studyType),
+      "dblp": () => fetchDblp(semanticQuery, yearFrom, yearTo, studyType),
+      "Zenodo": () => fetchZenodo(semanticQuery, yearFrom, yearTo, studyType),
+      "Google Scholar": () => fetchGoogleScholarBrowserless(semanticQuery, yearFrom, yearTo, studyType),
+      "Semantic Scholar": () => fetchSemanticScholarBrowserless(semanticQuery, yearFrom, yearTo, studyType),
+      "ClinicalTrials.gov": () => fetchClinicalTrialsGov(semanticQuery, yearFrom, yearTo, studyType),
+      "paper-search-mcp": () => fetchPaperSearchMcp(semanticQuery, "all", yearFrom, yearTo, studyType),
     };
 
     const selectedApis = dbsToSearch.filter((db) => apiMap[db]);
@@ -104,7 +118,10 @@ export async function POST(request: Request) {
     }
 
     const results = await Promise.allSettled(
-      selectedApis.map(async (db): Promise<PerDatabaseResult & { papers?: any[] }> => {
+      selectedApis.map(async (db, idx): Promise<PerDatabaseResult & { papers?: any[] }> => {
+        // Stagger requests so many databases sharing a provider (or a per-IP
+        // rate limit like NCBI/Semantic Scholar) are not all hit at once.
+        if (idx > 0) await new Promise((r) => setTimeout(r, Math.min(idx, 8) * 400));
         const fetchFn = apiMap[db];
         if (!fetchFn) {
           return { database: db, status: "failed", count: 0, error: "No fetcher mapped" };

@@ -5,12 +5,48 @@ export interface AICallOptions {
   searchEnabled?: boolean;
 }
 
-// NOTE: Always use a relative URL so API calls follow whatever host/port the
-// preview is actually served on (3000, custom --port, LAN IP, hosted preview
-// URL). A hardcoded "http://localhost:3000" breaks the preview whenever the
-// dev/prod server runs on any other port.
+// Detect server-side (Node) runtime where relative /api/chat URLs cannot resolve.
+const IS_SERVER = typeof window === "undefined";
+
+async function callGeminiDirect(apiKey: string, prompt: string): Promise<string> {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+    },
+  );
+  if (!res.ok) throw new Error(`Gemini API error: ${res.status}`);
+  const data = await res.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+}
+
+async function callGroqDirect(apiKey: string, prompt: string): Promise<string> {
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "user", content: prompt }] }),
+  });
+  if (!res.ok) throw new Error(`Groq API error: ${res.status}`);
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || "";
+}
 
 async function postChat(provider: "gemini" | "groq", apiKey: string, prompt: string, options?: AICallOptions): Promise<{ content: string; searchPerformed: boolean }> {
+  // Server-side: call provider APIs directly (relative /api/chat cannot resolve in Node).
+  if (IS_SERVER) {
+    let content: string;
+    if (provider === "gemini") {
+      content = await callGeminiDirect(apiKey, prompt);
+    } else if (provider === "groq") {
+      content = await callGroqDirect(apiKey, prompt);
+    } else {
+      throw new Error(`Provider ${provider} not available server-side`);
+    }
+    return { content, searchPerformed: false };
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), CHAT_TIMEOUT_MS);
   let res: Response;
