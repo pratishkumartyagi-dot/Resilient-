@@ -1729,3 +1729,21 @@ Audited all 10 top-level tabs plus the 11-step Research Pipeline and every API r
 - API routes: `/api/literature-search` (10/14 databases live; 4 externally blocked as noted), `/api/doi-verification`, `/api/web-search`, `/api/chat` (validates missing key).
 - Runtime checks: local synthesis, local literature review, PICO extraction, CSV parsing, statistical edge cases, meta-analysis with negative effects, full report + NotebookLM generation.
 - `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
+
+## Thesis Generator Pipeline Merge & Fixes (2026-10-18)
+
+Merged `origin/kilo/summer-piano-doy` thesis branch into `kilo/gallant-ibis-77f`, resolving conflicts on `package.json`, `database-apis.ts`, `EvidenceSynthesisTab.tsx`, `StatisticalAnalysisTab.tsx`, and `context.md`. Made the Thesis Generator pipeline fully functional:
+
+### Defects Fixed
+- **`src/lib/ai.ts`**: Added server-side direct provider calls (Gemini/Groq) so `callGemini` works in Node/runtime where relative `/api/chat` cannot resolve.
+- **`src/lib/thesis-ai.ts`**: Wired provider dropdown — selected provider tried first, then fallbacks; honors gemini/groq/qwen/mlc selection.
+- **`src/lib/thesis-pipeline/index.ts`**: Cap grounding papers to `maxReferences` before chapter generation; stage `complete` reflects actual subResult.ok.
+- **`src/lib/thesis-generator/index.ts`**: Include outline section titles + word targets in chapter prompt so every section is covered.
+- **`src/lib/humaniser/index.ts`**: Preserve numeric en-dash ranges (0.12–0.45) during em-dash removal; `subResult.ok` reflects actual AI success.
+- **`src/lib/scholar-copilot/index.ts`**: `refine` subResult.ok reflects whether AI refinement succeeded for at least one chapter.
+- **`src/components/pipelines/ThesisGenerator.tsx`**: Cap localStorage session payload (~500 KB) with truncated fallback to avoid quota errors.
+
+### Validation
+- `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
+- Route `/api/thesis-generate` registered and builds cleanly.
+- Thesis Generator tab wired into TopTabs navigation and page.tsx route.
