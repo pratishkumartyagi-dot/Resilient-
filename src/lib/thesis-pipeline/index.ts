@@ -6,6 +6,7 @@ import type {
   ChapterFile,
   ThesisStageSubResult,
 } from "@/lib/thesis-types";
+import { LEVEL_WORD_RANGES } from "@/lib/thesis-types";
 import { openDraft } from "@/lib/opendraft";
 import { generateThesis } from "@/lib/thesis-generator";
 import { scholarCopilot } from "@/lib/scholar-copilot";
@@ -39,6 +40,9 @@ export async function runThesisPipeline(
     level: config.level,
     style: config.style,
     language: config.language,
+    targetWordCount: config.targetWordCount,
+    minWordCount: config.minWordCount,
+    maxWordCount: config.maxWordCount,
     papers: [],
     aiFn: (p) => aiFn(p),
   });
@@ -142,9 +146,15 @@ export async function runThesisPipeline(
 }
 
 export function buildDefaultConfig(partial: Partial<ThesisGeneratorConfig>): ThesisGeneratorConfig {
+  const level = partial.level || "master";
+  const range = LEVEL_WORD_RANGES[level as keyof typeof LEVEL_WORD_RANGES] ?? LEVEL_WORD_RANGES.master;
+  const targetWordCount = partial.targetWordCount ?? Math.round((range.min + range.max) / 2);
+  const minWordCount = partial.minWordCount ?? range.min;
+  const maxWordCount = partial.maxWordCount ?? range.max;
+
   return {
     topic: partial.topic || "",
-    level: partial.level || "master",
+    level,
     style: partial.style || "vancouver",
     language: partial.language || "en",
     author: partial.author,
@@ -154,9 +164,9 @@ export function buildDefaultConfig(partial: Partial<ThesisGeneratorConfig>): The
     yearFrom: partial.yearFrom,
     yearTo: partial.yearTo,
     studyDesign: partial.studyDesign || "other",
-    targetWordCount: partial.targetWordCount,
-    minWordCount: partial.minWordCount,
-    maxWordCount: partial.maxWordCount,
+    targetWordCount,
+    minWordCount,
+    maxWordCount,
     maxReferences: partial.maxReferences ?? 150,
     onProgress: partial.onProgress,
     aiFn: partial.aiFn!,

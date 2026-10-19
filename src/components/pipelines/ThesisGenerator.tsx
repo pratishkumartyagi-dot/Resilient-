@@ -125,10 +125,6 @@ export default function ThesisGenerator() {
       setError("Please enter a thesis topic.");
       return;
     }
-    if (!config.apiKey && !apiKey) {
-      setError("No API key configured. Add your Gemini or Groq key in Settings.");
-      return;
-    }
 
     const cfg = { ...config, apiKey: config.apiKey || apiKey };
     setConfig(cfg);
@@ -142,7 +138,7 @@ export default function ThesisGenerator() {
     generatingRef.current = true;
 
     try {
-      const aiFn = buildThesisAiFn(cfg.provider, cfg.apiKey);
+      const aiFn = buildThesisAiFn(cfg.provider, cfg.apiKey, true);
       const res = await runThesisPipeline(cfg, {
         aiFn,
         searchFn: async (query, opts) => {
@@ -237,15 +233,9 @@ export default function ThesisGenerator() {
         </div>
         <div className="flex gap-2">
           {isApiKeyMissing && (
-            <button
-              onClick={() => {
-                const ev = new CustomEvent("open-settings");
-                window.dispatchEvent(ev);
-              }}
-              className="text-xs bg-blue-900/50 text-blue-200 px-3 py-1.5 rounded hover:bg-blue-800/60 border border-blue-700/50"
-            >
-              Configure API key
-            </button>
+            <span className="text-xs bg-purple-900/30 text-purple-300 px-3 py-1.5 rounded border border-purple-800/50">
+              No API key — local thesis generation will be used
+            </span>
           )}
           <button onClick={handleReset} disabled={status === "generating"} className="text-xs bg-blue-900/50 text-blue-200 px-3 py-1.5 rounded hover:bg-blue-800/60 disabled:opacity-50">
             <RotateCcw size={14} /> Reset
@@ -446,7 +436,7 @@ export default function ThesisGenerator() {
       <div className="flex items-center justify-between gap-3">
         <button
           onClick={handleGenerate}
-          disabled={status === "generating" || !config.topic.trim() || isApiKeyMissing}
+          disabled={status === "generating" || !config.topic.trim()}
           className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-6 py-2.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {status === "generating" ? (

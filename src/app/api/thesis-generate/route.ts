@@ -28,9 +28,6 @@ export async function POST(req: Request): Promise<Response> {
     if (!topic || typeof topic !== "string") {
       return NextResponse.json({ error: "topic is required" }, { status: 400 });
     }
-    if (!apiKey || typeof apiKey !== "string") {
-      return NextResponse.json({ error: "apiKey is required" }, { status: 400 });
-    }
 
     const config: ThesisGeneratorConfig = buildDefaultConfig({
       topic,
@@ -39,7 +36,7 @@ export async function POST(req: Request): Promise<Response> {
       language: lang || "en",
       author,
       institution,
-      apiKey,
+      apiKey: apiKey || "",
       provider: provider || "gemini",
       yearFrom: yearFrom ? Number(yearFrom) : undefined,
       yearTo: yearTo ? Number(yearTo) : undefined,
@@ -48,7 +45,7 @@ export async function POST(req: Request): Promise<Response> {
       maxReferences: maxReferences ? Number(maxReferences) : 150,
     });
 
-    const aiFn = buildThesisAiFn(config.provider, config.apiKey);
+    const aiFn = buildThesisAiFn(config.provider, config.apiKey, true);
 
     const result = await runThesisPipeline(config, {
       aiFn,

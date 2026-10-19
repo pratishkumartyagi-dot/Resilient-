@@ -1,4 +1,5 @@
 import type { ThesisChapter, ThesisSection, ThesisPaper, ArgumentAudit, ChapterFile } from "@/lib/thesis-types";
+import { LEVEL_WORD_RANGES } from "@/lib/thesis-types";
 import { extractCitations } from "@/lib/references";
 
 export interface ThesisGeneratorInput {
@@ -33,7 +34,10 @@ const REPORTING_GUIDELINES: Record<string, string> = {
 function chapterPrompt(chapter: any, papers: ThesisPaper[], cfg: any, index: number): string {
   const refs = papers.map((p, i) => `${i + 1}. ${p.authors} (${p.year || "n.d."}). ${p.title}.${p.doi ? ` doi:${p.doi}` : ""}`).join("\n");
   const guideline = REPORTING_GUIDELINES[cfg.studyDesign || "other"] || "none";
-  const target = chapter.wordTarget || 2000;
+  const range = LEVEL_WORD_RANGES[cfg.level as keyof typeof LEVEL_WORD_RANGES] ?? LEVEL_WORD_RANGES.master;
+  const levelTarget = Math.round((range.min + range.max) / 2);
+  const chapterTarget = chapter.wordTarget || Math.floor(levelTarget / Math.max((cfg as any).outline?.chapters?.length || 1, 1)) || 2000;
+  const totalTarget = cfg.targetWordCount || levelTarget;
 
   return `You are an academic writer. Write the full prose for ONE chapter of a thesis.
 
@@ -43,7 +47,8 @@ STYLE: ${cfg.style}
 LANGUAGE: ${cfg.language}
 REPORTING GUIDELINE: ${guideline}
 CHAPTER: ${chapter.title} (Chapter ${index})
-CHAPTER WORD TARGET: ${target} words (prose only; references excluded)
+CHAPTER WORD TARGET: ${chapterTarget} words (prose only; references excluded)
+TOTAL THESIS TARGET: ${totalTarget} words (${range.min}–${range.max} acceptable range)
 
 GROUNDING PAPERS (Vancouver style, cite inline as Author Year):
 ${refs}
@@ -51,7 +56,7 @@ ${refs}
 TASK:
 Write academic prose for every section of this chapter. Requirements:
 - Write inline citations using (Author, Year) format, matching the numbered references above.
-- Aim for ≥ 90% of the chapter word target (${Math.round(target * 0.9)}–${Math.round(target * 1.1)} words).
+- Aim for ≥ 90% of the chapter word target (${Math.round(chapterTarget * 0.9)}–${Math.round(chapterTarget * 1.1)} words).
 - Target < 2% plagiarism; write originally, do not copy abstracts.
 - Markdown-only output. Use headings for sections.
 - Preserve any headings/lists/tables exactly; do not wrap the whole chapter in code fences.

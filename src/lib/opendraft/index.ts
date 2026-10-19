@@ -13,6 +13,9 @@ export interface OpenDraftInput {
   level: ThesisLevel;
   style: string;
   language: string;
+  targetWordCount?: number;
+  minWordCount?: number;
+  maxWordCount?: number;
   papers: Array<{ title: string; authors: string; year?: number; doi?: string }>;
   aiFn: (prompt: string) => Promise<string>;
 }
@@ -29,6 +32,9 @@ function rangeForLevel(level: ThesisLevel): { min: number; max: number } {
 
 function buildPrompt(input: OpenDraftInput): string {
   const range = rangeForLevel(input.level);
+  const min = input.minWordCount ?? range.min;
+  const max = input.maxWordCount ?? range.max;
+  const target = input.targetWordCount ?? Math.round((min + max) / 2);
   const paperList = input.papers
     .slice(0, 20)
     .map((p, i) => `${i + 1}. ${p.authors} (${p.year || "n.d."}). ${p.title}.${p.doi ? ` doi:${p.doi}` : ""}`)
@@ -40,7 +46,8 @@ TOPIC: ${input.topic}
 LEVEL: ${input.level}
 STYLE: ${input.style}
 LANGUAGE: ${input.language}
-TARGET WORD RANGE: ${range.min}–${range.max} words (body only, references excluded)
+TARGET WORD COUNT: ${target} words (body only, references excluded)
+ACCEPTABLE RANGE: ${min}–${max} words
 
 AVAILABLE GROUNDING PAPERS:
 ${paperList}
@@ -55,7 +62,7 @@ Produce a thesis outline with:
    - sections (each with a title and an indicative word target)
    - a chapter-level word target
 
-Distribute the total word target across chapters proportionally. Typical chapters: Introduction, Literature Review, Methodology, Results, Discussion, Conclusion, References (references excluded from word count).
+Distribute the total word target (${target} words, range ${min}–${max}) across chapters proportionally. Typical chapters: Introduction, Literature Review, Methodology, Results, Discussion, Conclusion, References (references excluded from word count). Ensure the sum of chapter word targets is close to ${target}.
 
 Return ONLY a JSON object (no markdown fences, no extra text) with this exact schema:
 {
