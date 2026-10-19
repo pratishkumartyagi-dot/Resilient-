@@ -1773,3 +1773,25 @@ Converted the app to Windows executables using the existing Electron + electron-
 The requested repos (academic-humanizer, fg-data-profiling, Auto-Analyst, notebooklm-py) are external Python/skill projects that cannot be installed in this Next.js app; their methodologies were implemented natively in the modules above.
 
 - Validation: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
+
+## Step 3 Synthesis & Step 4 Literature Review — DeepSeek + Local Fallbacks (2026-10-19)
+
+### Fixes Applied
+
+**Step 3 Synthesis Table** (`src/components/steps/Step3Synthesis.tsx`):
+- Added `callDeepSeek` import from `@/lib/ai`
+- Added DeepSeek fallback between Gemini/Groq failure and rule-based local synthesis in `handleGenerateSynthesis`
+- Fallback chain: Gemini → Groq → DeepSeek (local browser model, no API key) → `generateLocalSynthesis` (rule-based)
+- Research Gaps column continues to populate via `extractResearchGaps` in both AI and local modes (`buildStep3Prompt` requires `researchGaps` in output)
+
+**Step 4 Literature Review** (`src/components/steps/Step4LiteratureReview.tsx`):
+- `handleRegenerateSection`: added DeepSeek fallback then rule-based local section content (`buildLocalSectionContent`) — previously only showed an alert on failure
+- `handleGenerateAll`: per-section fallback chain — AI (`generateSection`) → DeepSeek → `buildLocalSectionContent`; outer catch now populates all sections with local content instead of only introduction
+- Added `buildLocalSectionContent` helper generating section-appropriate local content (introduction, globalIndian, gaps, futureAdvice, summary) based on papers and query
+- `callAi` already fell back to `callDeepSeek` when no Gemini/Groq keys — now all code paths have local fallback
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes (0 errors)
+- `bun run build` ✅ passes cleanly
+- Committed as `c7f8757` on branch `kilo/summer-piano-doy`, pushed to origin
