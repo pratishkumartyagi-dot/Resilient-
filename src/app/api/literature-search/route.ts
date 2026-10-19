@@ -78,8 +78,8 @@ export async function POST(request: Request) {
       ? query.replace(/\b(AND|OR|NOT)\b/gi, " ").replace(/\s+/g, " ").trim() || query
       : query;
 
-    // Default databases if none selected
-    const defaultDbs = ["PubMed", "OpenAlex", "Semantic Scholar", "Crossref", "arXiv", "bioRxiv"];
+    // Default databases if none selected — all 14 supported databases
+    const defaultDbs = ["PubMed", "OpenAlex", "Europe PMC", "DOAJ", "bioRxiv", "medRxiv", "Crossref", "arXiv", "OpenAIRE", "dblp", "Zenodo", "Google Scholar", "Semantic Scholar", "ClinicalTrials.gov"];
     const baseDbs = databases.length > 0 ? databases : defaultDbs;
     // Semantic Scholar performs true meaning-based retrieval, so ensure it is
     // always queried when semantic search is requested.
