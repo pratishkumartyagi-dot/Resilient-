@@ -51,7 +51,7 @@ function stripQuotesAndFences(text: string): string {
 }
 
 function buildSectionPrompt(meta: SectionMeta, evidenceBase: string, deepReasoning: string, query: string): string {
-  const common = `You are an expert academic writer producing ONE section of a publication-ready narrative literature review.
+  const common = `You are an expert academic writer producing ONE section of a publication-ready, COMPREHENSIVE narrative literature review.
 
 RESEARCH TOPIC: ${query || "the research topic"}
 
@@ -64,7 +64,16 @@ ${deepReasoning}
 CITATION RULES:
 - Cite papers inline using author-year, e.g. (Smith 2020), (Jones et al 2022).
 - Every inline citation MUST map to a paper in the evidence synthesis table.
-- Aim for 2-4 inline citations per paragraph.
+- Aim for 3-6 inline citations per paragraph.
+- Include a brief evidence summary table where helpful (Author, Year, Design, Key Finding, Relevance).
+
+STRUCTURAL REQUIREMENTS:
+- Write 5-8 substantial paragraphs minimum.
+- Use subheadings (###) to organize content within the section.
+- Include comparative synthesis, not just paper-by-paper summaries.
+- Discuss convergence, divergence, strengths, weaknesses, and clinical/policy implications.
+- Ground every claim in the deep-reasoning analysis above.
+- Do NOT include a reference list (references are handled separately in Section 6).
 
 SECTION: ${meta.number}. ${meta.title}
 SECTION FOCUS: ${meta.blurb}`;
@@ -73,23 +82,55 @@ SECTION FOCUS: ${meta.blurb}`;
     case "introduction":
       return `${common}
 
-TASK: Write the Introduction — a broad, scholarly overview of the research field: background, significance, current understanding, and the rationale for this review. Ground every claim in the deep-reasoning analysis above. 3-5 paragraphs. Do NOT include a reference list.`;
+TASK: Write a COMPREHENSIVE Introduction (Section 1). Include subheadings:
+### 1.1 Background and Significance
+### 1.2 Current Understanding of the Problem
+### 1.3 Rationale and Objectives of This Review
+
+Write 6-10 paragraphs covering: the scope and importance of the research field; historical context and evolution of knowledge; current consensus and controversies; why this review is needed now; specific objectives and research questions. Ground every claim in the deep-reasoning analysis and cite inline. Do NOT include a reference list.`;
     case "globalIndian":
       return `${common}
 
-TASK: Write "Global & Indian Situations" — synthesize the global burden/epidemiology and national programmes, then the Indian situation (national programmes, epidemiology, policy). Compare and contrast where evidence allows. Ground every claim in the deep-reasoning analysis above. 3-5 paragraphs. Do NOT include a reference list.`;
+TASK: Write a COMPREHENSIVE "Global & Indian Situations" section (Section 2). Include subheadings:
+### 2.1 Global Burden and Epidemiology
+### 2.2 Regional Variations and Comparisons
+### 2.3 Indian Context: National Programmes and Epidemiology
+### 2.4 Policy Landscape and Implications
+
+Write 6-10 paragraphs covering: global prevalence/incidence and trends; regional disparities; India-specific data and national health programmes; policy implications; comparison of Indian situation with global evidence. Ground every claim in the deep-reasoning analysis and cite inline. Do NOT include a reference list.`;
     case "gaps":
       return `${common}
 
-TASK: Write "Research Gaps / Limitations" as a narrative built from DEEP REASONING over each study's limitations, exclusions, and unanswered questions (use the chain-of-thought analysis above). Identify populations, settings, and outcomes not adequately studied. 3-5 paragraphs. Do NOT include a reference list.`;
+TASK: Write a COMPREHENSIVE "Research Gaps / Limitations" section (Section 3). Include subheadings:
+### 3.1 Methodological Limitations Across Studies
+### 3.2 Populations and Settings Not Adequately Studied
+### 3.3 Outcomes and Measures Not Addressed
+### 3.4 Unanswered Questions and Contradictions
+### 3.5 Implications of Identified Gaps
+
+Write 6-10 paragraphs covering: study design limitations (sample size, follow-up, bias); under-studied populations/geographies/settings; outcomes not measured; contradictions between studies; how gaps affect confidence in findings. Ground every claim in the chain-of-thought analysis and cite inline. Do NOT include a reference list.`;
     case "futureAdvice":
       return `${common}
 
-TASK: Write "Authors' Advice for Future Research" — concrete, journal-grounded recommendations for future work, grouped thematically and tied to the identified gaps. Base recommendations on the chain-of-thought analysis above. 3-5 paragraphs. Do NOT include a reference list.`;
+TASK: Write a COMPREHENSIVE "Authors' Advice for Future Research" section (Section 4). Include subheadings:
+### 4.1 Study Design Recommendations
+### 4.2 Population and Setting Recommendations
+### 4.3 Outcome Measurement Recommendations
+### 4.4 Implementation and Translation Priorities
+### 4.5 Methodological Priorities
+
+Write 6-10 paragraphs covering: concrete recommendations for future study designs; populations/settings to prioritize; outcome measures to use; implementation research priorities; methodological standards to follow. Tie every recommendation to specific gaps identified in the deep-reasoning analysis. Do NOT include a reference list.`;
     case "summary":
       return `${common}
 
-TASK: Write "Summary of All Studies" — a thematic synthesis of the findings across all included studies, noting convergence, divergence, and evidence strength (T1-T4). Ground the synthesis in the per-paper deep-reasoning analysis above. 3-5 paragraphs. Do NOT include a reference list.`;
+TASK: Write a COMPREHENSIVE "Summary of All Studies" section (Section 5). Include subheadings:
+### 5.1 Overview of Included Studies
+### 5.2 Thematic Synthesis of Findings
+### 5.3 Convergence and Divergence Across Studies
+### 5.4 Evidence Strength Assessment (T1-T4)
+### 5.5 Overall Conclusions
+
+Write 6-10 paragraphs covering: study characteristics summary; thematic clusters of findings; where studies agree and disagree; evidence tier assessment for key claims; overall conclusions about the state of evidence on this topic. Ground the synthesis in the per-paper deep-reasoning analysis and cite inline. Do NOT include a reference list.`;
     default:
       return common;
   }
@@ -107,15 +148,98 @@ function buildLocalSectionContent(
 
   switch (meta.key) {
     case "introduction":
-      return `This review synthesizes evidence from ${n} peer-reviewed studies addressing ${topic}, published across multiple years and retrieved from ${databases || "academic databases"}. The included studies span designs including ${studyTypes}. This narrative overview provides background, significance, current understanding, and the rationale for reviewing the available evidence on ${topic}.`;
+      return `## 1.1 Background and Significance
+
+This review synthesizes evidence from ${n} peer-reviewed studies addressing ${topic}, published across multiple years and retrieved from ${databases || "academic databases"}. The included studies span designs including ${studyTypes}. ${topic} represents an important area of research with implications for clinical practice, public health policy, and future research.
+
+## 1.2 Current Understanding of the Problem
+
+The available evidence suggests that ${topic} is a multifaceted issue with variations across populations, settings, and study designs. The included studies collectively provide insight into the prevalence, risk factors, and outcomes associated with this topic, though the strength and consistency of evidence vary.
+
+## 1.3 Rationale and Objectives of This Review
+
+Given the heterogeneity in the existing literature and the need to synthesize findings across multiple studies, this narrative review aims to: (1) summarize the current state of evidence on ${topic}; (2) identify thematic patterns and inconsistencies across studies; (3) assess methodological strengths and limitations of the included research; and (4) identify gaps requiring further investigation.`;
+
     case "globalIndian":
-      return `The ${n} included studies reflect varied geographic and clinical settings, with global burden data and national programme contexts reported across the literature. Some studies focus on specific populations and settings, while others address broader epidemiological patterns. Comparative analysis is limited by heterogeneity in study design, population characteristics, and outcome measures across the included literature.`;
+      return `## 2.1 Global Burden and Epidemiology
+
+The ${n} included studies reflect varied geographic and clinical settings, with global burden data reported across the literature. Prevalence and incidence patterns vary by region, with some settings reporting higher burdens than others.
+
+## 2.2 Regional Variations and Comparisons
+
+Regional differences in ${topic} are evident across the included studies, driven by variations in healthcare access, population demographics, environmental factors, and health system capacity. Comparative analysis is limited by heterogeneity in study design, population characteristics, and outcome measures.
+
+## 2.3 Indian Context: National Programmes and Epidemiology
+
+Within the Indian context, ${topic} is addressed through various national programmes and policies. The available evidence suggests unique challenges related to population size, healthcare infrastructure, and resource allocation that shape the epidemiology and management of this condition in India.
+
+## 2.4 Policy Landscape and Implications
+
+Policy implications include the need for strengthened surveillance, improved access to care, targeted interventions for high-risk populations, and integration of evidence into national health programmes. Further research is needed to inform policy decisions specific to the Indian context.`;
+
     case "gaps":
-      return `Across the ${n} included studies, several limitations are evident: reliance on abstract-level data for synthesis, variable study designs (${studyTypes}), potential selection and measurement bias, and limited longitudinal follow-up. Populations and settings not adequately studied include under-represented demographic groups and diverse geographic regions. Several studies note small sample sizes, single-center designs, or short follow-up periods as constraints. Further research is needed to address these identified gaps.`;
+      return `## 3.1 Methodological Limitations Across Studies
+
+Across the ${n} included studies, several limitations are evident: reliance on abstract-level data for synthesis, variable study designs (${studyTypes}), potential selection and measurement bias, and limited longitudinal follow-up. Several studies note small sample sizes, single-center designs, or short follow-up periods as constraints.
+
+## 3.2 Populations and Settings Not Adequately Studied
+
+Populations and settings not adequately studied include under-represented demographic groups, diverse geographic regions, and specific clinical subgroups. Further research is needed to address these gaps and ensure evidence is applicable across different contexts.
+
+## 3.3 Outcomes and Measures Not Addressed
+
+Several studies did not report on key outcomes or used non-standardized outcome measures, limiting comparability across studies. Standardized outcome reporting is needed for future research.
+
+## 3.4 Unanswered Questions and Contradictions
+
+Contradictions exist between studies regarding the magnitude of effect, optimal interventions, and prognostic factors. These contradictions reflect differences in methodology, population, and context rather than definitive evidence of opposing effects.
+
+## 3.5 Implications of Identified Gaps
+
+The identified gaps reduce confidence in certain conclusions and highlight the need for larger, more rigorously designed studies. Addressing these gaps will strengthen the evidence base and inform more reliable clinical and policy recommendations.`;
+
     case "futureAdvice":
-      return `Future research should prioritize larger, adequately powered, multicenter studies with longer follow-up and diverse population representation. Prospective designs, standardized outcome measures, head-to-head comparisons against current standards of care, and implementation research are recommended to translate current evidence into clinical and policy recommendations. Replication in independent populations is needed to confirm and extend the findings summarized in this review.`;
+      return `## 4.1 Study Design Recommendations
+
+Future research should prioritize larger, adequately powered, multicenter studies with longer follow-up and diverse population representation. Prospective designs are recommended over retrospective designs to reduce bias.
+
+## 4.2 Population and Setting Recommendations
+
+Studies should include under-represented populations and diverse geographic settings to improve generalizability. Special attention should be paid to vulnerable and high-risk groups.
+
+## 4.3 Outcome Measurement Recommendations
+
+Prospective designs, standardized outcome measures, head-to-head comparisons against current standards of care, and implementation research are recommended to translate current evidence into clinical and policy recommendations.
+
+## 4.4 Implementation and Translation Priorities
+
+Implementation research should focus on how findings can be translated into practice, including barriers to adoption, cost-effectiveness, and scalability of interventions.
+
+## 4.5 Methodological Priorities
+
+Methodological priorities include standardized outcome reporting, longer follow-up periods, larger sample sizes, and replication in independent populations to confirm and extend the findings summarized in this review.`;
+
     case "summary":
-      return `The ${n} included studies show thematic convergence in several areas, with variations in methodology, population characteristics, and outcome measurement. Evidence strength varies across study designs, with higher-tier evidence providing more reliable findings. Consistent patterns and divergent results are noted across the included literature, suggesting both areas of converging evidence and underexplored directions for ${topic}.`;
+      return `## 5.1 Overview of Included Studies
+
+The ${n} included studies show thematic convergence in several areas, with variations in methodology, population characteristics, and outcome measurement. Evidence strength varies across study designs, with higher-tier evidence providing more reliable findings.
+
+## 5.2 Thematic Synthesis of Findings
+
+Consistent patterns and divergent results are noted across the included literature, suggesting both areas of converging evidence and underexplored directions for ${topic}. Thematic clusters include methodological approaches, outcome measures, and clinical implications.
+
+## 5.3 Convergence and Divergence Across Studies
+
+Where studies agree, there is greater confidence in the findings. Where studies diverge, the differences often reflect methodological choices, population characteristics, or contextual factors rather than true contradictions in evidence.
+
+## 5.4 Evidence Strength Assessment (T1-T4)
+
+Evidence strength varies across study designs. Randomized controlled trials and systematic reviews provide higher-tier evidence, while observational studies and case reports provide lower-tier but still valuable insights.
+
+## 5.5 Overall Conclusions
+
+The available evidence provides a foundation for understanding ${topic}, though significant gaps remain. Future research should address these gaps through larger, more diverse, and methodologically rigorous studies.`;
+
     case "references":
       return "";
     default:
@@ -138,17 +262,18 @@ RESEARCH TOPIC: ${query || "the research topic"}
 INCLUDED PAPERS:
 ${paperList}
 
-TASK: For EACH paper above, produce a chain-of-thought analysis covering:
+TASK: For EACH paper above, produce a thorough chain-of-thought analysis covering:
 
-1. Chain-of-thought reasoning: Walk through your thinking step-by-step — what the paper claims, how it supports or contradicts the research topic, what evidence it provides, and how it relates to other papers.
-2. Key claims: 2-4 specific claims made by the paper, with supporting evidence from the abstract.
-3. Methodological assessment: Study design quality, sample size, potential biases, appropriateness of methods for the research question.
-4. Limitations: Specific limitations, exclusions, and unanswered questions identified in the paper.
-5. Relevance to query: How directly relevant is this paper to "${query || "the research topic"}"? (High/Medium/Low with justification)
-6. Identified gaps: What gaps does this paper reveal or leave unaddressed?
-7. Connections to other papers: How does this paper agree, disagree, or complement other papers in the set?
+1. Chain-of-thought reasoning: Walk through your thinking step-by-step — what the paper claims, how it supports or contradicts the research topic, what evidence it provides, the strength of that evidence, and how it relates to other papers in the set.
+2. Key claims: 3-5 specific claims made by the paper, with supporting evidence from the abstract.
+3. Methodological assessment: Study design quality, sample size, potential biases, appropriateness of methods for the research question, statistical approaches, and validity concerns.
+4. Limitations: Specific limitations, exclusions, unanswered questions, and methodological weaknesses identified in the paper.
+5. Relevance to query: How directly relevant is this paper to "${query || "the research topic"}"? (High/Medium/Low with detailed justification)
+6. Identified gaps: What gaps does this paper reveal or leave unaddressed? What questions remain unanswered?
+7. Connections to other papers: How does this paper agree, disagree, or complement other papers in the set? Where are there convergences and divergences?
+8. Evidence tier classification: Classify evidence strength (T1 = highest: RCT/systematic review/meta-analysis; T2 = functional: cohort/case-control; T3 = associational: cross-sectional/observational; T4 = mention: case report/editorial).
 
-Format your output as a structured analysis per paper, clearly numbered. Be thorough — this analysis will be the sole analytical foundation for writing all literature-review sections. Do NOT write the review sections yet; only produce the deep-reasoning analysis.`;
+Format your output as a structured analysis per paper, clearly numbered with headings for each of the 8 dimensions above. Be thorough and analytical — this analysis will be the sole analytical foundation for writing all literature-review sections. Do NOT write the review sections yet; only produce the deep-reasoning analysis.`;
 }
 
 export default function Step4LiteratureReview() {
