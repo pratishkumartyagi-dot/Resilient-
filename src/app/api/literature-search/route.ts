@@ -16,6 +16,8 @@ import {
   fetchSemanticScholarBrowserless,
   fetchClinicalTrialsGov,
   deduplicatePapers,
+  enrichPapersWithDois,
+  verifyCitations,
   generateMockLegacy,
 } from "@/lib/database-apis";
 import { filterPapersByMedspacyRelevance } from "@/lib/medspacy-relevance";
@@ -218,12 +220,45 @@ export async function POST(request: Request) {
       medspacyMeta = { enabled: false, queryConcepts: [], negationTerms: [], filteredCount: 0, totalCount: enriched.length };
     }
 
-    const verifiedCount = 0;
-    const unverifiedCount = enriched.filter((p) => p.citationStatus === "unverified").length;
-    const noDoiCount = enriched.filter((p) => p.citationStatus === "no-doi").length;
+    // DOI enrichment: find missing DOIs via Crossref title/author lookup
+    let citationResults = new Map<string, { valid: boolean; title?: string; message: string }>();
+    try {
+      const doiEnriched = await enrichPapersWithDois(enriched as any);
+      // Replace enriched in-place with DOI-enriched papers
+      (enriched as any[]).splice(0, enriched.length, ...doiEnriched);
+    } catch {
+      /* DOI enrichment failed — papers keep their existing DOI status */
+    }
+
+    // DOI verification: validate each DOI against Crossref
+    try {
+      citationResults = await verifyCitations(enriched);
+    } catch {
+      /* citation verification failed — results map stays empty */
+    }
+
+    // Apply verification results to each paper
+    const finalPapers = enriched.map((p) => {
+      if (!p.doi) {
+        return { ...p, citationStatus: "no-doi" as const, citationMessage: "No DOI available" };
+      }
+      const k = p.doi.toLowerCase();
+      const r = citationResults.get(k);
+      if (r?.valid) {
+        return { ...p, citationStatus: "verified" as const, citationMessage: r.message || "DOI verified via Crossref" };
+      }
+      return { ...p, citationStatus: "unverified" as const, citationMessage: r?.message || "DOI not verified via Crossref" };
+    });
+
+    const verifiedCount = finalPapers.filter((p) => p.citationStatus === "verified").length;
+    const unverifiedCount = finalPapers.filter((p) => p.citationStatus === "unverified").length;
+    const noDoiCount = finalPapers.filter((p) => p.citationStatus === "no-doi").length;
+
+    const citationValidationResults: Record<string, { valid: boolean; title?: string; message: string }> = {};
+    citationResults.forEach((v, k) => { citationValidationResults[k] = v; });
 
     // If no papers were returned, provide mock data as fallback
-    if (enriched.length === 0 && succeeded.length === 0) {
+    if (finalPapers.length === 0 && succeeded.length === 0) {
       const mockPapers = generateMockLegacy(query, dbsToSearch);
       const mockEnriched = mockPapers.map((p) => ({
         ...p,
@@ -262,8 +297,8 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         query,
-        total: enriched.length,
-        papers: enriched,
+        total: finalPapers.length,
+        papers: finalPapers,
         sourceBreakdown: Object.fromEntries(selectedWithResults.map((r) => [r.database, r.count])),
         sourcesUsed: succeeded,
         errors: perDatabaseErrors,
@@ -283,7 +318,7 @@ export async function POST(request: Request) {
           verified: verifiedCount,
           unverified: unverifiedCount,
           noDoi: noDoiCount,
-          results: {},
+          results: citationValidationResults,
         },
         medspacy: medspacyMeta,
       },
