@@ -604,6 +604,14 @@ export interface PipelineContextInput {
   methodology?: Record<string, unknown>;
   protocol?: Record<string, unknown>;
   impactAssessment?: string;
+  references?: Array<{
+    authors?: string;
+    year?: number | string;
+    title: string;
+    journal?: string;
+    doi?: string;
+    database?: string;
+  }>;
 }
 
 export function buildPipelineContext(ctx: PipelineContextInput): string {
@@ -650,6 +658,18 @@ export function buildPipelineContext(ctx: PipelineContextInput): string {
   }
   if (ctx.literatureReview) {
     parts.push(`LITERATURE REVIEW:\n${ctx.literatureReview}`);
+  }
+  if (ctx.references?.length) {
+    parts.push(
+      `SEARCHED REFERENCES (from ${ctx.searchQuery || "research topic"}, real database results — cite these inline where supported):\n${ctx.references
+        .map(
+          (r, i) =>
+            `${i + 1}. ${r.authors ?? "Unknown authors"} (${r.year ?? "n.d."}). ${r.title}. ${
+              r.journal ?? "journal"
+            }${r.doi ? ` doi:${r.doi}` : ""} [database: ${r.database ?? "unknown"}]`
+        )
+        .join("\n")}`
+    );
   }
   if (ctx.impactAssessment) {
     parts.push(`IMPACT ASSESSMENT:\n${ctx.impactAssessment}`);

@@ -131,6 +131,18 @@ export default function PaperWriterTab() {
   const [arsMode, setArsMode] = useState<ArsMode>("full");
   const [inputText, setInputText] = useState("");
   const [targetJournal, setTargetJournal] = useState(JOURNAL_PROFILES[0].id);
+  const [yearFrom, setYearFrom] = useState(state.yearFrom || "");
+  const [yearTo, setYearTo] = useState(state.yearTo || "");
+  const [searchedReferences, setSearchedReferences] = useState<{
+    authors: string;
+    year: number | string;
+    title: string;
+    journal: string;
+    doi?: string;
+    database: string;
+  }[]>([]);
+  const [searchingRefs, setSearchingRefs] = useState(false);
+  const [refsError, setRefsError] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [stage, setStage] = useState<Stage>("plan");
   const [draft, setDraft] = useState("");
@@ -169,6 +181,53 @@ export default function PaperWriterTab() {
     [state.geminiApiKey, state.groqApiKey, state.searchQuery]
   );
 
+  // Search references from the app's own databases (uses From/To year bounds).
+  const searchReferences = async () => {
+    const topic = (inputText || state.searchQuery || "").trim();
+    if (!topic) {
+      setRefsError("Please enter a research topic before searching references.");
+      return;
+    }
+    setRefsError("");
+    setSearchingRefs(true);
+    setSearchedReferences([]);
+    try {
+      const res = await fetch("/api/literature-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: topic,
+          databases: state.selectedDatabases.length > 0 ? state.selectedDatabases : undefined,
+          yearFrom: yearFrom || undefined,
+          yearTo: yearTo || undefined,
+          studyType: state.studyType === "All Study Types" ? undefined : state.studyType,
+          searchLogic: state.searchLogic,
+          semanticSearch: false,
+          medspacyFilter: false,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || `Reference search failed with status ${res.status}`);
+      }
+      const data = await res.json();
+      const papers = (data.papers || []).slice(0, 30);
+      const refs = papers.map((p: any) => ({
+        authors: p.authors || "Unknown authors",
+        year: p.year || "n.d.",
+        title: p.title || "Untitled",
+        journal: p.journal || "journal",
+        doi: p.doi || undefined,
+        database: p.database || p.sourceBackend || "unknown",
+      }));
+      setSearchedReferences(refs);
+    } catch (err: any) {
+      setRefsError(err?.message || "Reference search failed.");
+    } finally {
+      setSearchingRefs(false);
+    }
+  };
+
   // Assemble the research-pipeline context (synthesis, lit review, aim, methods,
   // protocol, impact) so the writer grounds the manuscript in real pipeline output.
   const pipelineContext = useMemo(
@@ -182,6 +241,7 @@ export default function PaperWriterTab() {
         methodology: state.methodology as unknown as Record<string, unknown>,
         protocol: state.protocol as unknown as Record<string, unknown>,
         impactAssessment: state.impactAssessment,
+        references: searchedReferences,
       }),
     [
       state.searchQuery,
@@ -192,6 +252,7 @@ export default function PaperWriterTab() {
       state.methodology,
       state.protocol,
       state.impactAssessment,
+      searchedReferences,
     ]
   );
 
@@ -316,7 +377,7 @@ export default function PaperWriterTab() {
 
       setStage("draft");
       const manuscript = await runStage("draft");
-      const draftText = manuscript.trim() || buildLocalDraft(journal, effectiveInput);
+      const draftText = manuscript.trim() || buildLocalDraft(journal, effectiveInput, searchedReferences);
       setDraft(draftText);
 
       setStage("review");
@@ -521,6 +582,65 @@ export default function PaperWriterTab() {
             </p>
           </div>
         )}
+
+        {/* Reference search (by year) */}
+        <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-4 mb-4">
+          <h4 className="text-xs font-bold text-yellow-300 mb-2 flex items-center gap-1.5">
+            <FileText size={13} /> Search References (From / To Year)
+          </h4>
+          <div className="flex flex-wrap gap-3 items-end">
+            <div className="flex items-center gap-2">
+              <label className="text-[11px] text-blue-300">From Year</label>
+              <input
+                type="number"
+                value={yearFrom}
+                onChange={(e) => setYearFrom(e.target.value)}
+                min="1000"
+                max={new Date().getFullYear()}
+                placeholder="e.g. 2015"
+                className="w-24 bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-[11px] text-blue-300">To Year</label>
+              <input
+                type="number"
+                value={yearTo}
+                onChange={(e) => setYearTo(e.target.value)}
+                min="1000"
+                max={new Date().getFullYear()}
+                placeholder="e.g. 2026"
+                className="w-24 bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+            <button
+              onClick={searchReferences}
+              disabled={searchingRefs || !(inputText.trim() || state.searchQuery)}
+              className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2 rounded-lg disabled:opacity-50 flex items-center gap-2"
+            >
+              {searchingRefs ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+              {searchingRefs ? "Searching..." : "Search References"}
+            </button>
+            <span className="text-[11px] text-blue-400">
+              {searchedReferences.length} papers found
+            </span>
+            {refsError && (
+              <span className="text-[11px] text-red-400">{refsError}</span>
+            )}
+          </div>
+          {searchedReferences.length > 0 && (
+            <div className="mt-3 max-h-[200px] overflow-y-auto space-y-1">
+              {searchedReferences.map((r, i) => (
+                <div key={i} className="text-[10px] text-blue-200 truncate flex items-center gap-2">
+                  <span className="text-blue-500">{i + 1}.</span>
+                  <span className="flex-1">{r.authors} ({r.year}). {r.title}.</span>
+                  <span className="text-blue-400">{r.journal}</span>
+                  {r.doi && <span className="text-green-400">✓ doi</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-4">
@@ -779,12 +899,29 @@ export default function PaperWriterTab() {
 // Local fallbacks (no-AI path) — keep the pipeline usable offline.
 // ---------------------------------------------------------------------------
 
-const buildLocalDraft = (journal: JournalProfile, input: string): string => {
+const buildLocalDraft = (
+  journal: JournalProfile,
+  input: string,
+  references: {
+    authors: string;
+    year: number | string;
+    title: string;
+    journal: string;
+    doi?: string;
+  }[]
+): string => {
   const trimmed = input.trim();
   const firstLine = trimmed.split("\n").map((l) => l.trim()).find(Boolean) || "Untitled Research";
   const title = firstLine.length > 120 ? `${firstLine.slice(0, 117)}...` : firstLine;
   const words = trimmed.split(/\s+/).filter(Boolean);
   const abstractSeed = words.slice(0, 60).join(" ");
+
+  const vancouverRefs = references
+    .map(
+      (r, i) =>
+        `${i + 1}. ${r.authors}. ${r.title}. ${r.journal}${r.doi ? ` doi:${r.doi}` : ""}`
+    )
+    .join("\n");
 
   return `# ${title}
 Target journal: ${journal.name}
@@ -810,7 +947,7 @@ Interpret the findings against the existing literature, state the principal find
 Summarise the main contribution and its implications for ${journal.name}'s readership.
 
 ## ${journal.sectionOrder[6] ?? "References"}
-[REFERENCES TO BE SUPPLIED BY AUTHOR]
+${vancouverRefs || "[REFERENCES TO BE SUPPLIED BY AUTHOR]"}
 
 ---
 
