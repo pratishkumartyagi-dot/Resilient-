@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useCallback, useMemo } from "react";
-import { Sparkles, BookOpen, RotateCcw, Loader2, Copy, Check } from "lucide-react";
+import { Sparkles, BookOpen, RotateCcw, Loader2, Copy, Check, Brain, ArrowRight } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
 import { generateLocalLiteratureReview } from "@/lib/local-synthesis";
@@ -14,6 +14,18 @@ interface SectionMeta {
   number: number;
   title: string;
   blurb: string;
+}
+
+interface DeepReasoningEntry {
+  paperIndex: number;
+  reference: string;
+  chainOfThought: string;
+  keyClaims: string[];
+  methodologicalAssessment: string;
+  limitations: string[];
+  relevanceToQuery: string;
+  identifiedGaps: string[];
+  connectionsToOtherPapers: string;
 }
 
 const REVIEW_STRUCTURE: SectionMeta[] = [
@@ -38,13 +50,16 @@ function stripQuotesAndFences(text: string): string {
   return text.replace(/```markdown/gi, "").replace(/```/g, "").trim();
 }
 
-function buildSectionPrompt(meta: SectionMeta, evidenceBase: string, query: string): string {
+function buildSectionPrompt(meta: SectionMeta, evidenceBase: string, deepReasoning: string, query: string): string {
   const common = `You are an expert academic writer producing ONE section of a publication-ready narrative literature review.
 
 RESEARCH TOPIC: ${query || "the research topic"}
 
 EVIDENCE SYNTHESIS TABLE (single source of truth — cite ONLY these studies):
 ${evidenceBase}
+
+DEEP REASONING / CHAIN-OF-THOUGHT ANALYSIS (per-paper deep reasoning — use this as the analytical foundation):
+${deepReasoning}
 
 CITATION RULES:
 - Cite papers inline using author-year, e.g. (Smith 2020), (Jones et al 2022).
@@ -58,23 +73,23 @@ SECTION FOCUS: ${meta.blurb}`;
     case "introduction":
       return `${common}
 
-TASK: Write the Introduction — a broad, scholarly overview of the research field: background, significance, current understanding, and the rationale for this review. 3-5 paragraphs. Do NOT include a reference list.`;
+TASK: Write the Introduction — a broad, scholarly overview of the research field: background, significance, current understanding, and the rationale for this review. Ground every claim in the deep-reasoning analysis above. 3-5 paragraphs. Do NOT include a reference list.`;
     case "globalIndian":
       return `${common}
 
-TASK: Write "Global & Indian Situations" — synthesize the global burden/epidemiology and national programmes, then the Indian situation (national programmes, epidemiology, policy). Compare and contrast where evidence allows. 3-5 paragraphs. Do NOT include a reference list.`;
+TASK: Write "Global & Indian Situations" — synthesize the global burden/epidemiology and national programmes, then the Indian situation (national programmes, epidemiology, policy). Compare and contrast where evidence allows. Ground every claim in the deep-reasoning analysis above. 3-5 paragraphs. Do NOT include a reference list.`;
     case "gaps":
       return `${common}
 
-TASK: Write "Research Gaps / Limitations" as a narrative built from DEEP REASONING over each study's limitations, exclusions, and unanswered questions (use the "Research gaps (deep reasoning)" column). Identify populations, settings, and outcomes not adequately studied. 3-5 paragraphs. Do NOT include a reference list.`;
+TASK: Write "Research Gaps / Limitations" as a narrative built from DEEP REASONING over each study's limitations, exclusions, and unanswered questions (use the chain-of-thought analysis above). Identify populations, settings, and outcomes not adequately studied. 3-5 paragraphs. Do NOT include a reference list.`;
     case "futureAdvice":
       return `${common}
 
-TASK: Write "Authors' Advice for Future Research" — concrete, journal-grounded recommendations for future work, grouped thematically and tied to the identified gaps. 3-5 paragraphs. Do NOT include a reference list.`;
+TASK: Write "Authors' Advice for Future Research" — concrete, journal-grounded recommendations for future work, grouped thematically and tied to the identified gaps. Base recommendations on the chain-of-thought analysis above. 3-5 paragraphs. Do NOT include a reference list.`;
     case "summary":
       return `${common}
 
-TASK: Write "Summary of All Studies" — a thematic synthesis of the findings across all included studies, noting convergence, divergence, and evidence strength (T1-T4). 3-5 paragraphs. Do NOT include a reference list.`;
+TASK: Write "Summary of All Studies" — a thematic synthesis of the findings across all included studies, noting convergence, divergence, and evidence strength (T1-T4). Ground the synthesis in the per-paper deep-reasoning analysis above. 3-5 paragraphs. Do NOT include a reference list.`;
     default:
       return common;
   }
@@ -108,12 +123,42 @@ function buildLocalSectionContent(
   }
 }
 
+function buildDeepReasoningPrompt(papers: { authors: string; year: number; title: string; journal: string; abstract: string; doi?: string; studyType: string; database: string }[], query: string): string {
+  const paperList = papers.map((p, i) => {
+    return `Paper ${i + 1}: ${p.authors} (${p.year}). ${p.title}. ${p.journal}${p.doi ? ` doi:${p.doi}` : ""}
+Abstract: ${p.abstract}
+Study type: ${p.studyType}
+Database: ${p.database}`;
+  }).join("\n\n");
+
+  return `You are an expert evidence-synthesis researcher performing DEEP REASONING (chain-of-thought) over each included paper before any literature-review section is written.
+
+RESEARCH TOPIC: ${query || "the research topic"}
+
+INCLUDED PAPERS:
+${paperList}
+
+TASK: For EACH paper above, produce a chain-of-thought analysis covering:
+
+1. Chain-of-thought reasoning: Walk through your thinking step-by-step — what the paper claims, how it supports or contradicts the research topic, what evidence it provides, and how it relates to other papers.
+2. Key claims: 2-4 specific claims made by the paper, with supporting evidence from the abstract.
+3. Methodological assessment: Study design quality, sample size, potential biases, appropriateness of methods for the research question.
+4. Limitations: Specific limitations, exclusions, and unanswered questions identified in the paper.
+5. Relevance to query: How directly relevant is this paper to "${query || "the research topic"}"? (High/Medium/Low with justification)
+6. Identified gaps: What gaps does this paper reveal or leave unaddressed?
+7. Connections to other papers: How does this paper agree, disagree, or complement other papers in the set?
+
+Format your output as a structured analysis per paper, clearly numbered. Be thorough — this analysis will be the sole analytical foundation for writing all literature-review sections. Do NOT write the review sections yet; only produce the deep-reasoning analysis.`;
+}
+
 export default function Step4LiteratureReview() {
   const { state, dispatch } = useApp();
   const [sections, setSections] = useState<Record<SectionKey, string>>(EMPTY_SECTIONS);
   const [loading, setLoading] = useState(false);
   const [sectionLoading, setSectionLoading] = useState<SectionKey | null>(null);
   const [copied, setCopied] = useState(false);
+  const [deepReasoning, setDeepReasoning] = useState<string>("");
+  const [deepReasoningLoading, setDeepReasoningLoading] = useState(false);
 
   const selectedPapers = useMemo(() => state.papers.filter((p) => p.selected), [state.papers]);
   const studyCount = state.synthesisTable.length > 0 ? state.synthesisTable.length : selectedPapers.length;
@@ -168,10 +213,10 @@ export default function Step4LiteratureReview() {
   const generateSection = useCallback(
     async (meta: SectionMeta): Promise<string> => {
       if (meta.key === "references") return referencesText;
-      const text = await callAi(buildSectionPrompt(meta, evidenceBase, state.searchQuery));
+      const text = await callAi(buildSectionPrompt(meta, evidenceBase, deepReasoning, state.searchQuery));
       return stripQuotesAndFences(text);
     },
-    [callAi, referencesText, evidenceBase, state.searchQuery],
+    [callAi, referencesText, evidenceBase, deepReasoning, state.searchQuery],
   );
 
   const persist = useCallback(
@@ -204,7 +249,7 @@ export default function Step4LiteratureReview() {
           // Fallback 1: local DeepSeek model (no API key needed)
           try {
             const deepSeekContent = await callDeepSeek(
-              buildSectionPrompt(meta, evidenceBase, state.searchQuery)
+              buildSectionPrompt(meta, evidenceBase, deepReasoning, state.searchQuery)
             );
             next[meta.key] = stripQuotesAndFences(deepSeekContent);
           } catch {
@@ -229,6 +274,46 @@ export default function Step4LiteratureReview() {
     }
   };
 
+  const handleGenerateDeepReasoning = async () => {
+    if (studyCount === 0) {
+      alert("Please select papers in Step 1 / generate a synthesis table in Step 3 first.");
+      return;
+    }
+    const papersForReasoning = selectedPapers;
+    setDeepReasoningLoading(true);
+    setDeepReasoning("");
+    try {
+      const prompt = buildDeepReasoningPrompt(papersForReasoning, state.searchQuery);
+      const text = await callAi(prompt);
+      setDeepReasoning(stripQuotesAndFences(text));
+    } catch (err: any) {
+      console.error("Deep reasoning generation failed:", err);
+      // Local fallback: build structured deep reasoning from synthesis table
+      const localReasoning = papersForReasoning.map((p, i) => {
+        return `Paper ${i + 1}: ${p.authors} (${p.year}). ${p.title}. ${p.journal}${p.doi ? ` doi:${p.doi}` : ""}
+
+Chain-of-thought reasoning: This study by ${p.authors} (${p.year}) addresses ${state.searchQuery || "the research topic"} using a ${p.studyType} design. The abstract reports findings related to the topic, though specific methodological details are limited to what is available in the abstract. The paper's relevance to the research question should be assessed in context of the full evidence base.
+
+Key claims: ${p.abstract ? p.abstract.substring(0, 200) : "No abstract available"}...
+
+Methodological assessment: Study type is ${p.studyType}. Limitations cannot be fully assessed from abstract-level data alone.
+
+Limitations: Reliance on abstract-level data; potential selection and measurement bias; limited longitudinal follow-up may not be evident from abstract.
+
+Relevance to query: The paper appears relevant to "${state.searchQuery || "the research topic"}" based on title and abstract keyword overlap, but full-text review would be needed for definitive assessment.
+
+Identified gaps: Gaps in evidence cannot be fully determined from abstract-level data; further research needed.
+
+Connections to other papers: This paper contributes to the evidence base on ${state.searchQuery || "the research topic"} and should be synthesized alongside other included studies.
+
+---`;
+      }).join("\n\n");
+      setDeepReasoning(localReasoning);
+    } finally {
+      setDeepReasoningLoading(false);
+    }
+  };
+
   const handleRegenerateSection = async (meta: SectionMeta) => {
     if (meta.key === "references") {
       // References always come straight from the synthesis table Vancouver column.
@@ -247,7 +332,7 @@ export default function Step4LiteratureReview() {
       // Fallback 1: local DeepSeek model (no API key needed)
       try {
         const deepSeekContent = await callDeepSeek(
-          buildSectionPrompt(meta, evidenceBase, state.searchQuery)
+          buildSectionPrompt(meta, evidenceBase, deepReasoning, state.searchQuery)
         );
         const clean = stripQuotesAndFences(deepSeekContent);
         setSections((prev) => {
@@ -272,6 +357,7 @@ export default function Step4LiteratureReview() {
   const handleReset = () => {
     if (!confirm("Reset the literature review?")) return;
     setSections(EMPTY_SECTIONS);
+    setDeepReasoning("");
     dispatch({ type: "SET_LITERATURE_REVIEW", payload: "" });
   };
 
@@ -288,7 +374,7 @@ export default function Step4LiteratureReview() {
     }
   };
 
-  const hasContent = REVIEW_STRUCTURE.some((s) => s.key !== "references" && sections[s.key]);
+  const hasContent = REVIEW_STRUCTURE.some((s) => s.key !== "references" && sections[s.key]) || !!deepReasoning;
 
   return (
     <div className="space-y-6">
@@ -320,6 +406,14 @@ export default function Step4LiteratureReview() {
               Reset
             </button>
             <button
+              onClick={handleGenerateDeepReasoning}
+              disabled={deepReasoningLoading || studyCount === 0}
+              className="flex items-center gap-2 bg-purple-900/50 text-purple-200 px-3 py-2 rounded-lg hover:bg-purple-800/60 text-sm disabled:opacity-50"
+            >
+              {deepReasoningLoading ? <Loader2 size={14} className="animate-spin" /> : <Brain size={14} />}
+              {deepReasoning ? "Regenerate Deep Reasoning" : "Deep Reasoning (CoT)"}
+            </button>
+            <button
               onClick={handleGenerateAll}
               disabled={loading || studyCount === 0}
               className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50 flex items-center gap-2"
@@ -330,6 +424,34 @@ export default function Step4LiteratureReview() {
           </div>
         </div>
       </div>
+
+      {/* Deep Reasoning / Chain-of-Thought panel */}
+      {deepReasoning && (
+        <div className="bg-[#1e1b4b]/50 border border-purple-900/40 rounded-lg p-5 shadow">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Brain size={14} className="text-purple-400" />
+              <h3 className="text-sm font-bold text-purple-200">Deep Reasoning / Chain-of-Thought Analysis</h3>
+            </div>
+            <span className="text-[10px] text-purple-400">{deepReasoning.split("Paper ").length - 1} papers analyzed</span>
+          </div>
+          <div className="text-sm text-purple-100 font-serif leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto">
+            {deepReasoning}
+          </div>
+          <p className="text-[11px] text-purple-300/80 mt-2">
+            This per-paper chain-of-thought analysis is used as the analytical foundation for all literature-review sections.
+          </p>
+        </div>
+      )}
+
+      {deepReasoningLoading && (
+        <div className="flex items-center justify-center py-8">
+          <div className="text-center">
+            <div className="w-8 h-8 border-4 border-purple-400 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+            <p className="text-sm text-purple-300">Running chain-of-thought deep reasoning over each paper...</p>
+          </div>
+        </div>
+      )}
 
       {/* Review structure */}
       <div className="bg-[#102a1e]/40 border border-emerald-900/40 rounded-lg p-5">

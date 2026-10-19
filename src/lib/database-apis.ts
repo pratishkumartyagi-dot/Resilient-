@@ -1164,8 +1164,7 @@ export async function validateDoiViaCrossref(doi: string): Promise<{ valid: bool
 export async function verifyCitations(papers: Paper[]): Promise<Map<string, { valid: boolean; title?: string; message: string }>> {
   const results = new Map<string, { valid: boolean; title?: string; message: string }>();
   const dois = papers.filter((p) => p.doi && p.doi.length > 3).map((p) => p.doi!);
-  const MAX_VERIFY = 20;
-  const toVerify = dois.slice(0, MAX_VERIFY);
+  const toVerify = dois;
 
   await runWithConcurrency(
     toVerify,

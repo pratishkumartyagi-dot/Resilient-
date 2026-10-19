@@ -21,6 +21,7 @@ import {
   generateMockLegacy,
 } from "@/lib/database-apis";
 import { filterPapersByMedspacyRelevance } from "@/lib/medspacy-relevance";
+import { expandQueryWithMesh } from "@/lib/mesh-expansion";
 
 export const runtime = "nodejs";
 
@@ -57,6 +58,32 @@ interface PerDatabaseResult {
   error?: string;
 }
 
+/** Extract significant keywords from a query (strip stop words, operators). */
+function extractQueryKeywords(query: string): string[] {
+  const stop = new Set([
+    "and","or","not","the","a","an","of","in","on","at","to","for","with","by","from","as","is","are","was","were",
+    "be","been","being","have","has","had","do","does","did","will","would","could","should","may","might","can",
+    "this","that","these","those","i","me","my","we","our","you","your","it","its","they","them","their","he","she",
+    "his","her","what","which","who","whom","where","when","why","how","if","then","else","all","each","few","more",
+    "most","other","some","such","no","nor","only","own","same","so","than","too","very","just","don","now"
+  ]);
+  return query
+    .toLowerCase()
+    .replace(/\b(AND|OR|NOT)\b/gi, " ")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !stop.has(w));
+}
+
+/** Require at least one significant query keyword in title or abstract. */
+function filterByKeywordPresence(papers: any[], keywords: string[]): any[] {
+  if (keywords.length === 0) return papers;
+  return papers.filter((p) => {
+    const text = `${p.title || ""} ${p.abstract || ""}`.toLowerCase();
+    return keywords.some((k) => text.includes(k));
+  });
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => ({}))) as LiteratureSearchRequestBody;
@@ -72,11 +99,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing query parameter" }, { status: 400, headers: corsHeaders() });
     }
 
+    // MeSH expansion + ATM + truncation wildcard expansion (applied to both
+    // the main research pipeline and the systematic review pipeline).
+    // Expands initial keywords into MeSH synonyms/narrower terms, maps lay
+    // terms to canonical terms (ATM), and supports truncation wildcards (*).
+    const meshResult = expandQueryWithMesh(query);
+    const meshExpandedQuery = meshResult.expandedQuery || query;
+
     // Semantic mode: strip boolean operators so retrieval matches on meaning
     // across the broad area of research rather than exact keyword co-occurrence.
     const semanticQuery = semanticSearch
-      ? query.replace(/\b(AND|OR|NOT)\b/gi, " ").replace(/\s+/g, " ").trim() || query
-      : query;
+      ? meshExpandedQuery.replace(/\b(AND|OR|NOT)\b/gi, " ").replace(/\s+/g, " ").trim() || meshExpandedQuery
+      : meshExpandedQuery;
 
     // Default databases if none selected — all 14 supported databases
     const defaultDbs = ["PubMed", "OpenAlex", "Europe PMC", "DOAJ", "bioRxiv", "medRxiv", "Crossref", "arXiv", "OpenAIRE", "dblp", "Zenodo", "Google Scholar", "Semantic Scholar", "ClinicalTrials.gov"];
@@ -193,33 +227,6 @@ export async function POST(request: Request) {
       citationMessage: p.doi ? "Pending verification in Step 2" : "No DOI available",
     }));
 
-    // Medspacy-inspired clinical relevance filtering: removes papers that are
-    // not relevant to the user's query based on medical concept extraction,
-    // negation detection, and targeted rule matching. Applied to both the main
-    // research pipeline and the systematic review pipeline.
-    let medspacyMeta: { enabled: boolean; queryConcepts: string[]; negationTerms: string[]; filteredCount: number; totalCount: number } | undefined;
-    if (medspacyFilter && enriched.length > 0) {
-      const medResult = filterPapersByMedspacyRelevance(enriched, query, {
-        threshold: 40,
-        respectNegation: true,
-        respectUncertainty: true,
-      });
-      medspacyMeta = {
-        enabled: true,
-        queryConcepts: medResult.queryConcepts,
-        negationTerms: medResult.negationTerms,
-        filteredCount: medResult.filteredCount,
-        totalCount: medResult.totalCount,
-      };
-      // Only replace the paper list if filtering left results; otherwise keep
-      // unfiltered papers so users aren't left with nothing.
-      if (medResult.papers.length > 0) {
-        enriched.splice(0, enriched.length, ...medResult.papers);
-      }
-    } else {
-      medspacyMeta = { enabled: false, queryConcepts: [], negationTerms: [], filteredCount: 0, totalCount: enriched.length };
-    }
-
     // DOI enrichment: find missing DOIs via Crossref title/author lookup
     let citationResults = new Map<string, { valid: boolean; title?: string; message: string }>();
     try {
@@ -230,7 +237,7 @@ export async function POST(request: Request) {
       /* DOI enrichment failed — papers keep their existing DOI status */
     }
 
-    // DOI verification: validate each DOI against Crossref
+    // DOI verification: validate every DOI against Crossref (no cap — all papers verified)
     try {
       citationResults = await verifyCitations(enriched);
     } catch {
@@ -238,7 +245,7 @@ export async function POST(request: Request) {
     }
 
     // Apply verification results to each paper
-    const finalPapers = enriched.map((p) => {
+    const verifiedPapers = enriched.map((p) => {
       if (!p.doi) {
         return { ...p, citationStatus: "no-doi" as const, citationMessage: "No DOI available" };
       }
@@ -249,6 +256,45 @@ export async function POST(request: Request) {
       }
       return { ...p, citationStatus: "unverified" as const, citationMessage: r?.message || "DOI not verified via Crossref" };
     });
+
+    // Medspacy clinical relevance filtering — always applied (mandatory).
+    // Removes papers not relevant to the query based on medical concept extraction,
+    // negation detection, and targeted rule matching. Applied to both pipelines.
+    let medspacyMeta: { enabled: boolean; queryConcepts: string[]; negationTerms: string[]; filteredCount: number; totalCount: number };
+    const medResult = filterPapersByMedspacyRelevance(verifiedPapers, query, {
+      threshold: 50,
+      respectNegation: true,
+      respectUncertainty: true,
+    });
+    medspacyMeta = {
+      enabled: true,
+      queryConcepts: medResult.queryConcepts,
+      negationTerms: medResult.negationTerms,
+      filteredCount: medResult.filteredCount,
+      totalCount: medResult.totalCount,
+    };
+    let relevanceFiltered = medResult.papers.length > 0 ? medResult.papers : verifiedPapers;
+
+    // Strict keyword-in-title/abstract filter: at least one significant query keyword
+    // must appear in the paper's title or abstract for it to be shown to the user.
+    const keywords = extractQueryKeywords(query);
+    if (keywords.length > 0) {
+      const beforeKeywordCount = relevanceFiltered.length;
+      relevanceFiltered = filterByKeywordPresence(relevanceFiltered, keywords);
+      const keywordFilteredCount = beforeKeywordCount - relevanceFiltered.length;
+      if (keywordFilteredCount > 0) {
+        (medspacyMeta as any).keywordFilteredCount = keywordFilteredCount;
+      }
+    }
+
+    // If no papers survived relevance filtering, fall back to verified papers so
+    // users aren't left with nothing, but mark them as low-relevance.
+    let finalPapers: any[];
+    if (relevanceFiltered.length === 0 && verifiedPapers.length > 0) {
+      finalPapers = verifiedPapers.map((p) => ({ ...p, _lowRelevance: true }));
+    } else {
+      finalPapers = relevanceFiltered;
+    }
 
     const verifiedCount = finalPapers.filter((p) => p.citationStatus === "verified").length;
     const unverifiedCount = finalPapers.filter((p) => p.citationStatus === "unverified").length;
@@ -289,6 +335,13 @@ export async function POST(request: Request) {
           totalBeforeDedup: 0,
           citationValidation: { verified: 0, unverified: mockEnriched.length, noDoi: 0, results: {} },
           medspacy: medspacyMeta,
+          meshExpansion: {
+            originalQuery: query,
+            expandedQuery: meshExpandedQuery,
+            meshTerms: meshResult.meshTerms,
+            atmMappings: meshResult.atmMappings,
+            wildcardRoots: meshResult.wildcardRoots,
+          },
         },
         { headers: corsHeaders() }
       );
@@ -321,6 +374,13 @@ export async function POST(request: Request) {
           results: citationValidationResults,
         },
         medspacy: medspacyMeta,
+        meshExpansion: {
+          originalQuery: query,
+          expandedQuery: meshExpandedQuery,
+          meshTerms: meshResult.meshTerms,
+          atmMappings: meshResult.atmMappings,
+          wildcardRoots: meshResult.wildcardRoots,
+        },
       },
       { headers: corsHeaders() }
     );
