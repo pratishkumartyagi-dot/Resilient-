@@ -68,38 +68,74 @@ export default function Step8AimObjectives() {
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: state.searchQuery };
 
       let responseText: string = "";
-      if (state.geminiApiKey) {
-        responseText = await callGemini(state.geminiApiKey, prompt, searchOptions);
-      } else if (state.groqApiKey) {
-        responseText = await callGroq(state.groqApiKey, prompt, searchOptions);
-      } else {
-        responseText = await callDeepSeek(prompt, searchOptions);
+      try {
+        responseText = await callGemini(state.geminiApiKey || "", prompt, searchOptions);
+      } catch {
+        try {
+          responseText = await callGroq(state.groqApiKey || "", prompt, searchOptions);
+        } catch {
+          try {
+            responseText = await callDeepSeek(prompt, searchOptions);
+          } catch {
+            responseText = "";
+          }
+        }
       }
 
-      const cleaned = responseText.replace(/```markdown/g, "").replace(/```/g, "").trim();
-
-      const aimMatch = cleaned.match(/(?:Primary?\s*)?Aim[:\s]+(.+?)(?:\n|$)/i);
-      const primaryObjMatch = cleaned.match(/Primary\s*(?:Objective)?[:\s]+(.+?)(?:\n|$)/i);
-      const secondaryMatches = cleaned.matchAll(/(?:Secondary\s*Objective|Secondary\s*Aim)\s*\d*[:\s]+(.+?)(?:\n|$)/gi);
-
-      if (aimMatch) updateAim(aimMatch[1].trim());
-      if (primaryObjMatch) updatePrimary(primaryObjMatch[1].trim());
-
-      const secondaryObjs = Array.from(secondaryMatches).map((m) => m[1].trim()).filter(Boolean);
-      if (secondaryObjs.length > 0) {
-        const allSecondary = [...localObj.secondaryObjectives];
-        secondaryObjs.forEach((obj, i) => {
-          if (!allSecondary[i]) allSecondary[i] = "";
-          allSecondary[i] = obj;
-        });
+      if (!responseText.trim()) {
+        const topic = state.searchQuery || "the research topic";
+        const questions = state.researchQuestions || [];
+        const aim = questions.length > 0
+          ? `To evaluate ${questions[0].question.toLowerCase().replace(/^(what|how|why|does|is|are|can|could|should|would|will)\s+/i, "")}`
+          : `To investigate the impact and effectiveness of interventions related to ${topic}.`;
+        const primaryObjective = `To determine the primary outcomes associated with ${topic} using robust, reproducible methodology.`;
+        const secondaryObjs = [
+          `To assess the prevalence and distribution of key outcomes related to ${topic} across the included studies.`,
+          `To identify moderating factors and sources of heterogeneity affecting the reported effects.`,
+          `To provide evidence-based recommendations for clinical practice and future research on ${topic}.`,
+        ];
+        updateAim(aim);
+        updatePrimary(primaryObjective);
+        const allSecondary = [...secondaryObjs];
         setLocalObj((prev) => ({ ...prev, secondaryObjectives: allSecondary }));
         dispatch({ type: "SET_AIM_OBJECTIVES", payload: { secondaryObjectives: allSecondary } });
-      }
+        setGeneratedText(`# Aim & Objectives (local fallback — no AI key available)\n\n**Aim:** ${aim}\n\n**Primary Objective:** ${primaryObjective}\n\n**Secondary Objectives:**\n${secondaryObjs.map((o, i) => `${i + 1}. ${o}`).join("\n")}`);
+      } else {
+        const cleaned = responseText.replace(/```markdown/g, "").replace(/```/g, "").trim();
 
-      setGeneratedText(cleaned);
+        const aimMatch = cleaned.match(/(?:Primary?\s*)?Aim[:\s]+(.+?)(?:\n|$)/i);
+        const primaryObjMatch = cleaned.match(/Primary\s*(?:Objective)?[:\s]+(.+?)(?:\n|$)/i);
+        const secondaryMatches = cleaned.matchAll(/(?:Secondary\s*Objective|Secondary\s*Aim)\s*\d*[:\s]+(.+?)(?:\n|$)/gi);
+
+        if (aimMatch) updateAim(aimMatch[1].trim());
+        if (primaryObjMatch) updatePrimary(primaryObjMatch[1].trim());
+
+        const secondaryObjs = Array.from(secondaryMatches).map((m) => m[1].trim()).filter(Boolean);
+        if (secondaryObjs.length > 0) {
+          const allSecondary = [...localObj.secondaryObjectives];
+          secondaryObjs.forEach((obj, i) => {
+            if (!allSecondary[i]) allSecondary[i] = "";
+            allSecondary[i] = obj;
+          });
+          setLocalObj((prev) => ({ ...prev, secondaryObjectives: allSecondary }));
+          dispatch({ type: "SET_AIM_OBJECTIVES", payload: { secondaryObjectives: allSecondary } });
+        }
+
+        setGeneratedText(cleaned);
+      }
     } catch (err: any) {
       console.error("Aim generation failed:", err);
-      alert(err.message || "Failed to generate aims. Please try again.");
+      const topic = state.searchQuery || "the research topic";
+      updateAim(`To investigate interventions related to ${topic}.`);
+      updatePrimary(`To determine primary outcomes associated with ${topic}.`);
+      const secondaryObjs = [
+        `To assess key outcomes related to ${topic} across included studies.`,
+        `To identify moderating factors and sources of heterogeneity.`,
+        `To provide evidence-based recommendations for practice and future research on ${topic}.`,
+      ];
+      setLocalObj((prev) => ({ ...prev, secondaryObjectives: secondaryObjs }));
+      dispatch({ type: "SET_AIM_OBJECTIVES", payload: { secondaryObjectives: secondaryObjs } });
+      setGeneratedText(`# Aim & Objectives (local fallback)\n\n**Aim:** To investigate interventions related to ${topic}.\n\n**Primary Objective:** To determine primary outcomes associated with ${topic}.\n\n**Secondary Objectives:**\n${secondaryObjs.map((o, i) => `${i + 1}. ${o}`).join("\n")}`);
     } finally {
       dispatch({ type: "SET_LOADING", payload: false });
     }

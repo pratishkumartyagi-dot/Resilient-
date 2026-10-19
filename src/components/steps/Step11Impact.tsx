@@ -150,9 +150,19 @@ export default function Step11Impact() {
     const prompt = buildImpactPrompt();
     let text = "";
     try {
-      if (state.geminiApiKey) text = await callGemini(state.geminiApiKey, prompt);
-      else if (state.groqApiKey) text = await callGroq(state.groqApiKey, prompt);
-      else text = await callDeepSeek(prompt);
+      try {
+        text = await callGemini(state.geminiApiKey || "", prompt);
+      } catch {
+        try {
+          text = await callGroq(state.groqApiKey || "", prompt);
+        } catch {
+          try {
+            text = await callDeepSeek(prompt);
+          } catch {
+            text = "";
+          }
+        }
+      }
     } catch {
       text = "";
     }
