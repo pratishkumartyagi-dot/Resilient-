@@ -1795,3 +1795,58 @@ The requested repos (academic-humanizer, fg-data-profiling, Auto-Analyst, notebo
 - `bun lint` ✅ passes (0 errors)
 - `bun run build` ✅ passes cleanly
 - Committed as `c7f8757` on branch `kilo/summer-piano-doy`, pushed to origin
+
+## Both Pipelines — Relevance, Deep Reasoning, MeSH Expansion, and ARS Integration (2026-10-19)
+
+### 1. All 14 Databases Searched by Default (both Step 1s)
+- `src/context/AppContext.tsx`: default `selectedDatabases` expanded 7 → all 14 (added Europe PMC, arXiv, OpenAIRE, dblp, Zenodo, Google Scholar, Semantic Scholar, ClinicalTrials.gov)
+- `src/app/api/literature-search/route.ts`: `defaultDbs` fallback expanded 6 → all 14
+- Evidence Synthesis pipeline (`EvidenceSynthesisTab.tsx`) already had all 14 selected by default
+- Committed `741eb49`
+
+### 2. DeepSeek + Local Fallbacks Across Both Pipelines
+- Pipeline A Steps 5, 6, 7, 11: DeepSeek added as intermediate fallback between Groq failure and mock data
+- Pipeline A Steps 8, 9, 10: replaced AI-only `alert()`-on-failure with DeepSeek fallback + rule-based local content (aim/objectives, methods section, protocol defaults)
+- Pipeline B Step 6: DeepSeek + local fallback added to `generateReview`, `incorporateReviewAndRegenerate`, and all three STORM functions (draft/review/final)
+- Committed `0ef62ad`
+
+### 3. Step 1 Relevance + Full DOI Verification
+- `src/lib/database-apis.ts`: removed `MAX_VERIFY = 20` cap in `verifyCitations` — every DOI is now verified against Crossref
+- `src/app/api/literature-search/route.ts`: reordered pipeline to DOI enrichment → DOI verification → relevance filtering; medspacy filtering now mandatory (threshold 40 → 50); added `extractQueryKeywords` + `filterByKeywordPresence` so at least one significant query keyword must appear in title or abstract; papers with no DOI/no keyword match are excluded from display
+- Committed `e37281f`
+
+### 4. MeSH Expansion + ATM + Truncation Wildcards (both Step 1s)
+- New `src/lib/mesh-expansion.ts`:
+  - MeSH term map (term → MeSH synonyms + narrower/exploded terms): cancer, hypertension, diabetes, liver disease, hepatitis, cirrhosis, asthma, COPD, TB, HIV, stroke, MI, heart failure, depression, anxiety, obesity, pneumonia, dementia, Parkinson's, epilepsy, arthritis, pregnancy, infection, sepsis, pain, CKD and more
+  - ATM (Automatic Term Mapping): lay → canonical ("high blood pressure" → hypertension, "heart attack" → myocardial infarction, "sugar" → diabetes)
+  - Truncation roots: `pediat*` → pediatric/pediatrics/pediatrician/paediatric…, plus cardi/hepat/nephr/pulmon/onc/immun/inflam/infect/diagn/treat/prevent/manag/screen/surveil/epidemiol/clinic/therap/interven/cohort/longitud/prospect/retrospect/random/control/blind/placebo
+  - `expandQueryWithMesh()` returns expanded query + meshTerms + atmMappings + wildcardRoots
+- Route applies expansion before dispatching to all 14 databases; response includes a `meshExpansion` block
+- Committed `e37281f`
+
+### 5. Step 4 Literature Review — Deep Reasoning + Comprehensive Sections
+- `src/components/steps/Step4LiteratureReview.tsx`:
+  - Added `DeepReasoningEntry` interface, `buildDeepReasoningPrompt()` (8 dimensions per paper: CoT, key claims, methodological assessment, limitations, relevance, gaps, connections, evidence tier T1–T4), `handleGenerateDeepReasoning()`
+  - New purple "Deep Reasoning / Chain-of-Thought Analysis" panel; `buildSectionPrompt` now receives the deep-reasoning text as the analytical foundation
+  - Section prompts upgraded to comprehensive: 5–8 paragraphs with `###` subheadings, comparative synthesis, evidence tables, convergence/divergence analysis
+  - Per-section subheadings: Introduction (1.1–1.3), Global & Indian (2.1–2.4), Research Gaps (3.1–3.5), Future Advice (4.1–4.5), Summary (5.1–5.5)
+  - `buildLocalSectionContent` rewritten with matching comprehensive subheading structure
+- Committed `2fbc575`
+
+### 6. Academic Research Skills (ARS) Integration — Paper Writer & Reviewer
+- New `src/lib/ars-skills.ts` — ported ARS methodology from https://github.com/Imbad0202/academic-research-skills (Academic Research Skills by Cheng-I Wu, CC BY-NC 4.0). ARS is prompt-driven, so the *protocols* are encoded as prompt builders:
+  - **Style Calibration** — 5 journal profiles (BMC Medicine, IJTLD, PLOS Medicine, Lancet Global Health, BMJ Open) with word limits, reporting guideline, reference style, section order, structured abstract headings, house style
+  - **Anti-Leakage Protocol** — never invent numbers/citations/ethics IDs; missing items declared as "requires author input"
+  - **Socratic Planning** — question sequence, decision map, chapter plan
+  - **Writing Quality Check** — 8-dimension audit + critical blockers/major/minor/verdict
+  - **Criterion-Bound Review** — 7 lenses: Journal-Fit, Methods & Validity, Statistical, Clinical Translation, Ethics & Equity, Presentation, **Devil's Advocate**; evidence-anchored, severity-tagged (CRITICAL/MAJOR/MINOR), attack intensity preserved
+  - **Concession Threshold Protocol** — Accept / Partial Concede / Dispute / Unresolved / Concede with Reservation
+  - **Revision Coach** — triage table, roadmap by section, new-analysis requests, response-letter skeleton, pre-submission checklist
+  - `buildPipelineContext()` assembles synthesis table + lit review + aim + methodology + protocol + impact from research pipeline
+- `src/components/tabs/PaperWriterTab.tsx` rewritten as a 6-stage pipeline: **plan → outline → draft → review → revise → audit**, each stage independently runnable. Uses the app's existing Gemini/Groq keys (no new API keys) with local DeepSeek model and local fallbacks when no key is set.
+- Committed `8ff99bb`
+
+### Validation
+- `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅ across all commits above
+- Note: `node_modules` is wiped between some sessions in this environment — run `bun install` before typecheck/lint/build if `tsc: command not found` appears
+
