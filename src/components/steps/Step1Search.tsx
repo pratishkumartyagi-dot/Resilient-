@@ -69,6 +69,8 @@ export default function Step1Search() {
   const [perDatabaseResults, setPerDatabaseResults] = useState<Array<{ database: string; status: string; count: number; error?: string }>>([]);
   const [citationCounts, setCitationCounts] = useState<{ verified: number; unverified: number; noDoi: number }>({ verified: 0, unverified: 0, noDoi: 0 });
   const [semanticSearch, setSemanticSearch] = useState(true);
+  const [medspacyFilter, setMedspacyFilter] = useState(true);
+  const [medspacyMeta, setMedspacyMeta] = useState<{ enabled: boolean; queryConcepts: string[]; negationTerms: string[]; filteredCount: number; totalCount: number } | null>(null);
 
   const toggleDb = (db: string) => {
     setSelectedDbs((prev) =>
@@ -109,15 +111,16 @@ export default function Step1Search() {
         const res = await fetch("/api/literature-search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            query: localQuery,
-            databases: selectedDbs,
-            yearFrom: yearFrom || undefined,
-            yearTo: yearTo || undefined,
-            studyType: studyType === "All Study Types" ? undefined : studyType,
-            searchLogic: localLogic,
-            semanticSearch,
-          }),
+            body: JSON.stringify({
+              query: localQuery,
+              databases: selectedDbs,
+              yearFrom: yearFrom || undefined,
+              yearTo: yearTo || undefined,
+              studyType: studyType === "All Study Types" ? undefined : studyType,
+              searchLogic: localLogic,
+              semanticSearch,
+              medspacyFilter,
+            }),
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
@@ -126,6 +129,7 @@ export default function Step1Search() {
         const data = await res.json();
         papers = data.papers || [];
         perDb = data.perDatabaseResults || [];
+        setMedspacyMeta(data.medspacy || null);
         if (papers.length === 0) {
           throw new Error("No papers returned from literature search.");
         }
@@ -375,6 +379,17 @@ export default function Step1Search() {
                 {semanticSearch ? "🔬 Semantic Search Active" : "Keyword Search"}
               </span>
             </label>
+            <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none bg-blue-900/50 border border-blue-700 rounded-full px-3 py-0.5">
+              <input
+                type="checkbox"
+                checked={medspacyFilter}
+                onChange={(e) => setMedspacyFilter(e.target.checked)}
+                className="w-3 h-3 rounded border-purple-600 text-purple-400 focus:ring-purple-500 bg-blue-950"
+              />
+              <span className={medspacyFilter ? "text-purple-300" : "text-blue-300"}>
+                {medspacyFilter ? "🧬 Medspacy Relevance Filter" : "Show All Results"}
+              </span>
+            </label>
           </div>
           <div className="flex gap-2">
             <button
@@ -487,6 +502,22 @@ export default function Step1Search() {
                   {" "}— failed: {perDatabaseResults.filter((r) => r.error).map((r) => `${r.database} (${r.error})`).join(", ")}
                 </span>
               )}
+            </div>
+          )}
+
+          {medspacyMeta && medspacyMeta.enabled && (
+            <div className="bg-purple-900/20 border border-purple-800/50 rounded-lg p-3 mb-4">
+              <div className="flex items-center gap-2 text-xs text-purple-300 mb-1">
+                <span className="font-semibold">🧬 Medspacy Relevance Filter</span>
+                <span className="bg-purple-900/50 text-purple-400 px-1.5 py-0.5 rounded">active</span>
+              </div>
+              <p className="text-[10px] text-purple-200">
+                Query concepts: {medspacyMeta.queryConcepts.join(", ") || "none detected"} •
+                Papers filtered: {medspacyMeta.filteredCount} of {medspacyMeta.totalCount} removed as irrelevant
+                {medspacyMeta.negationTerms.length > 0 && (
+                  <span className="block mt-0.5">Negation terms detected: {medspacyMeta.negationTerms.join(", ")}</span>
+                )}
+              </p>
             </div>
           )}
 

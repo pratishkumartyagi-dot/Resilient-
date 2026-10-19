@@ -348,10 +348,12 @@ export default function EvidenceSynthesisTab() {
   const [yearTo, setYearTo] = useState("");
   const [searchLogic, setSearchLogic] = useState("AND");
   const [semanticSearch, setSemanticSearch] = useState(false);
+  const [medspacyFilter, setMedspacyFilter] = useState(true);
   const [studyTypeFilter, setStudyTypeFilter] = useState("All Study Types");
   const [perDatabaseResults, setPerDatabaseResults] = useState<Array<{ database: string; status: string; count: number; error?: string }>>([]);
   const [citationValidationResults, setCitationValidationResults] = useState<Record<string, { valid: boolean; title?: string; message: string }>>({});
   const [showVerifiedOnly, setShowVerifiedOnly] = useState(false);
+  const [medspacyMeta, setMedspacyMeta] = useState<{ enabled: boolean; queryConcepts: string[]; negationTerms: string[]; filteredCount: number; totalCount: number } | null>(null);
 
   const toggleDb = (db: string) => {
     setSelectedDbs((prev) =>
@@ -385,15 +387,16 @@ export default function EvidenceSynthesisTab() {
       const res = await fetch("/api/literature-search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query: effectiveQuery,
-          databases: dbs,
-          yearFrom: yearFrom || undefined,
-          yearTo: yearTo || undefined,
-          studyType: studyTypeFilter === "All Study Types" ? undefined : studyTypeFilter,
-          searchLogic,
-          semanticSearch: semanticSearch || false,
-        }),
+          body: JSON.stringify({
+            query: effectiveQuery,
+            databases: dbs,
+            yearFrom: yearFrom || undefined,
+            yearTo: yearTo || undefined,
+            studyType: studyTypeFilter === "All Study Types" ? undefined : studyTypeFilter,
+            searchLogic,
+            semanticSearch: semanticSearch || false,
+            medspacyFilter,
+          }),
       });
 
       if (!res.ok) {
@@ -426,6 +429,7 @@ export default function EvidenceSynthesisTab() {
       // records remaining after deduplication instead so PRISMA math is correct.
       setDedupedCount(uniqueCount);
       setCitationValidationResults(data.citationValidation?.results || {});
+      setMedspacyMeta(data.medspacy || null);
 
       // Show warnings if APIs failed but we have mock/simulated results
       const hasErrors = Object.keys(data.errors || {}).length > 0;
@@ -2255,6 +2259,9 @@ ${stormReview}
             onSearch={handleSearch}
             semanticSearch={semanticSearch}
             onSemanticSearchChange={setSemanticSearch}
+            medspacyFilter={medspacyFilter}
+            onMedspacyFilterChange={setMedspacyFilter}
+            medspacyMeta={medspacyMeta}
             onProceed={() => {
               if (selectedPaperIds.size === 0) {
                 setSearchError("Select at least one paper before proceeding to extraction.");

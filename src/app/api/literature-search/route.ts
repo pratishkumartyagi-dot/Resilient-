@@ -18,6 +18,7 @@ import {
   deduplicatePapers,
   generateMockLegacy,
 } from "@/lib/database-apis";
+import { filterPapersByMedspacyRelevance } from "@/lib/medspacy-relevance";
 
 export const runtime = "nodejs";
 
@@ -29,6 +30,7 @@ interface LiteratureSearchRequestBody {
   studyType?: string;
   searchLogic?: string;
   semanticSearch?: boolean;
+  medspacyFilter?: boolean;
 }
 
 function corsHeaders() {
@@ -62,6 +64,7 @@ export async function POST(request: Request) {
     const yearTo = body.yearTo;
     const studyType = body.studyType;
     const semanticSearch = body.semanticSearch === true;
+    const medspacyFilter = body.medspacyFilter === true;
 
     if (!query) {
       return NextResponse.json({ error: "Missing query parameter" }, { status: 400, headers: corsHeaders() });
@@ -188,6 +191,33 @@ export async function POST(request: Request) {
       citationMessage: p.doi ? "Pending verification in Step 2" : "No DOI available",
     }));
 
+    // Medspacy-inspired clinical relevance filtering: removes papers that are
+    // not relevant to the user's query based on medical concept extraction,
+    // negation detection, and targeted rule matching. Applied to both the main
+    // research pipeline and the systematic review pipeline.
+    let medspacyMeta: { enabled: boolean; queryConcepts: string[]; negationTerms: string[]; filteredCount: number; totalCount: number } | undefined;
+    if (medspacyFilter && enriched.length > 0) {
+      const medResult = filterPapersByMedspacyRelevance(enriched, query, {
+        threshold: 40,
+        respectNegation: true,
+        respectUncertainty: true,
+      });
+      medspacyMeta = {
+        enabled: true,
+        queryConcepts: medResult.queryConcepts,
+        negationTerms: medResult.negationTerms,
+        filteredCount: medResult.filteredCount,
+        totalCount: medResult.totalCount,
+      };
+      // Only replace the paper list if filtering left results; otherwise keep
+      // unfiltered papers so users aren't left with nothing.
+      if (medResult.papers.length > 0) {
+        enriched.splice(0, enriched.length, ...medResult.papers);
+      }
+    } else {
+      medspacyMeta = { enabled: false, queryConcepts: [], negationTerms: [], filteredCount: 0, totalCount: enriched.length };
+    }
+
     const verifiedCount = 0;
     const unverifiedCount = enriched.filter((p) => p.citationStatus === "unverified").length;
     const noDoiCount = enriched.filter((p) => p.citationStatus === "no-doi").length;
@@ -223,6 +253,7 @@ export async function POST(request: Request) {
           dedupedCount: 0,
           totalBeforeDedup: 0,
           citationValidation: { verified: 0, unverified: mockEnriched.length, noDoi: 0, results: {} },
+          medspacy: medspacyMeta,
         },
         { headers: corsHeaders() }
       );
@@ -254,6 +285,7 @@ export async function POST(request: Request) {
           noDoi: noDoiCount,
           results: {},
         },
+        medspacy: medspacyMeta,
       },
       { headers: corsHeaders() }
     );
