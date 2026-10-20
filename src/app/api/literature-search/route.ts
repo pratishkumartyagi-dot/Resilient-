@@ -251,6 +251,7 @@ export async function POST(request: Request) {
       "PubMed": (q, o) => fetchPubMedBrowserless(q, o.yearFrom, o.yearTo, o.studyType),
       "OpenAlex": (q, o) => fetchOpenAlex(q, o.yearFrom, o.yearTo, o.studyType),
       "Europe PMC": (q, o) => fetchEuropePMC(q, o.yearFrom, o.yearTo, o.studyType),
+      "pyEuropePMC": (q, o) => fetchEuropePMC(q, o.yearFrom, o.yearTo, o.studyType),
       "DOAJ": (q, o) => fetchDoaj(q, o.yearFrom, o.yearTo, o.studyType),
       "bioRxiv": (q, o) => fetchBioRxiv(q, o.yearFrom, o.yearTo, o.studyType),
       "medRxiv": (q, o) => fetchMedRxiv(q, o.yearFrom, o.yearTo, o.studyType),

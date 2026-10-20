@@ -43,38 +43,32 @@ const STUDY_TYPES = [
 
 const DATABASES = [
   "PubMed",
-  "OpenAlex",
   "Europe PMC",
+  "pyEuropePMC",
   "DOAJ",
   "bioRxiv",
   "medRxiv",
   "Crossref",
   "arXiv",
   "OpenAIRE",
-  "dblp",
   "Zenodo",
-  "Google Scholar",
-  "Semantic Scholar",
-  "ScienceDirect",
   "ClinicalTrials.gov",
+  "paper-search-mcp",
 ];
 
 const DATABASE_URLS: Record<string, string> = {
   PubMed: "https://pubmed.ncbi.nlm.nih.gov/",
-  OpenAlex: "https://openalex.org/",
   "Europe PMC": "https://europepmc.org/",
+  "pyEuropePMC": "https://github.com/JonasHeinickeBio/pyEuropePMC",
   DOAJ: "https://doaj.org/",
   "bioRxiv": "https://www.biorxiv.org/",
   medRxiv: "https://www.medrxiv.org/",
   Crossref: "https://www.crossref.org/",
   arXiv: "https://arxiv.org/",
   OpenAIRE: "https://www.openaire.eu/",
-  dblp: "https://dblp.org/",
   Zenodo: "https://zenodo.org/",
-  "Google Scholar": "https://scholar.google.com/",
-  "Semantic Scholar": "https://www.semanticscholar.org/",
-  "ScienceDirect": "https://www.sciencedirect.com/",
   "ClinicalTrials.gov": "https://clinicaltrials.gov/",
+  "paper-search-mcp": "https://github.com/openags/paper-search-mcp",
 };
 
 const ROLE_STYLES: Record<string, string> = {
