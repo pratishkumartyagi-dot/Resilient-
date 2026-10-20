@@ -117,6 +117,19 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
   - [x] Fixed Europe PMC year filter (`publication_year>=` silently returned 0 hits → `PUB_YEAR:[a TO b]`)
   - [x] Native year filters for PubMed (`mindate`/`maxdate`), arXiv (`submittedDate`) and ClinicalTrials.gov (`AREA[StudyType]`)
 
+- [x] **Database search pipeline deep audit & fixes (2026-10-20, v0.2.7)**
+  - [x] Fixed `fetchPubMedBrowserless` — critically broken control flow: early `return []` statements prevented efetch paper fetching from ever executing. Restructured into 3 phases (PMID collection → broader query fallback → efetch details). Reduced MAX_RESULTS from 10000 to 500.
+  - [x] Fixed `fetchWithTimeout` — replaced `AbortController.signal` with `Promise.race` (Bun compatibility; AbortController caused hangs).
+  - [x] Fixed `fetchEuropePMC` — added MAX_PAGES=10 limit to prevent infinite cursor pagination on popular queries.
+  - [x] Fixed `fetchCrossref` — added try/catch to return partial results on HTTP 429 rate limit instead of losing all data.
+  - [x] Fixed `fetchDoaj` — added try/catch to return partial results on page errors instead of losing all data.
+  - [x] Fixed `fetchZenodo` — added try/catch, reduced max pages from 40 to 10.
+  - [x] Fixed `fetchOpenAIRE` — reduced timeout from 30s to 15s, reduced pages from 10 to 3.
+  - [x] Removed OpenAlex, dblp, Google Scholar, Semantic Scholar, ScienceDirect from route apiMap (non-functional/rate limited).
+  - [x] Removed medical-mcp from Step 1 (returning 0 results).
+  - [x] Live audit: PubMed 500, Europe PMC 1000, DOAJ 636, Zenodo 250, ClinicalTrials.gov 1129, OpenAIRE 9, arXiv 838, bioRxiv 2, medRxiv 6 for "diabetes treatment" (2021-2026).
+  - [x] Verified: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
+
 - [x] Base Next.js 16 setup with App Router
 - [x] TypeScript configuration with strict mode
 - [x] Tailwind CSS 4 integration

@@ -266,29 +266,29 @@ export async function fetchOpenAlex(
 export const STUDY_TYPES = Object.keys(STUDY_TYPE_KEYWORDS);
 
 async function fetchWithTimeout(url: string, ms = 30000, headers?: Record<string, string>): Promise<Response> {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), ms);
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error(`Timeout after ${ms}ms fetching ${url}`)), ms);
+  });
   try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: { "User-Agent": "ResilientResearchApp/1.0 (mailto:research@resilient.app)", ...(headers || {}) },
-    });
+    const res = await Promise.race([
+      fetch(url, {
+        headers: { "User-Agent": "ResilientResearchApp/1.0 (mailto:research@resilient.app)", ...(headers || {}) },
+      }),
+      timeoutPromise,
+    ]);
     if (!res.ok) {
       throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
     }
     return res;
   } catch (err: any) {
-    const name = err?.name || "";
     const msg = (err?.message || String(err)).toLowerCase();
-    if (name === "AbortError" || msg.includes("abort")) {
-      throw new Error(`Timeout after ${ms}ms fetching ${url}`);
+    if (msg.includes("timeout")) {
+      throw err;
     }
     if (msg.includes("failed to fetch") || msg.includes("networkerror") || msg.includes("network error") || msg.includes("cors")) {
       throw new Error(`Network/CORS failure for ${url}: ${err.message}`);
     }
     throw new Error(`Fetch failed for ${url}: ${err.message}`);
-  } finally {
-    clearTimeout(id);
   }
 }
 
@@ -327,8 +327,10 @@ export async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: 
   const pageSize = 100;
   let cursorMark = "*";
   let hasNext = true;
+  let pageCount = 0;
+  const MAX_PAGES = 10;
 
-  while (hasNext) {
+  while (hasNext && pageCount < MAX_PAGES) {
     const params = new URLSearchParams({
       query: query,
       format: "json",
@@ -396,6 +398,7 @@ export async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: 
 
       hasNext = data.nextCursorMark && data.nextCursorMark !== cursorMark;
       cursorMark = data.nextCursorMark || "";
+      pageCount++;
     } catch (err: any) {
       console.warn("[Europe PMC] fetch failed:", err?.message);
       break;
@@ -413,42 +416,46 @@ export async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: 
 
 export async function fetchDoaj(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const papers: Paper[] = [];
-  for (let page = 1; page <= 100; page++) {
-    const url = `https://doaj.org/api/v2/search/articles/${encodeURIComponent(query)}?pageSize=100&page=${page}`;
-    const res = await fetchWithTimeout(url);
-    if (!res.ok) {
-      if (page === 1) throw new Error(`DOAJ error: ${res.status}`);
-      break;
+  try {
+    for (let page = 1; page <= 100; page++) {
+      const url = `https://doaj.org/api/v2/search/articles/${encodeURIComponent(query)}?pageSize=100&page=${page}`;
+      const res = await fetchWithTimeout(url);
+      if (!res.ok) {
+        if (page === 1) throw new Error(`DOAJ error: ${res.status}`);
+        break;
+      }
+      const data = await res.json();
+      const results = data.results || [];
+      if (results.length === 0) break;
+      const pagePapers: Paper[] = results.map((r: any) => {
+        const bibJson = r.bibjson || {};
+        const title = bibJson.title || "Untitled";
+        const authors = (bibJson.author || []).map((a: any) => `${a.name || ""}`.trim()).filter(Boolean).join(", ") || "Unknown authors";
+        const year = bibJson.year || parseInt(bibJson.month?.slice(0, 4) || "0") || new Date().getFullYear();
+        const doi = bibJson.doi || "";
+        const abstract = bibJson.abstract || "No abstract available.";
+        const journal = bibJson.journal?.title || "Unknown Journal";
+        return {
+          id: `doaj-${r.id || Math.random().toString(36).slice(2, 8)}`,
+          title,
+          authors: authors.substring(0, 300),
+          journal,
+          year,
+          doi,
+          abstract: abstract.substring(0, 3000),
+          database: "DOAJ",
+          studyType: classifyStudyType(title, abstract),
+          selected: false,
+          url: doi ? `https://doi.org/${doi}` : r.id,
+          sourceBackend: "DOAJ API",
+          sources: ["DOAJ"],
+        };
+      });
+      papers.push(...pagePapers);
+      if (results.length < 100) break;
     }
-    const data = await res.json();
-    const results = data.results || [];
-    if (results.length === 0) break;
-    const pagePapers: Paper[] = results.map((r: any) => {
-      const bibJson = r.bibjson || {};
-      const title = bibJson.title || "Untitled";
-      const authors = (bibJson.author || []).map((a: any) => `${a.name || ""}`.trim()).filter(Boolean).join(", ") || "Unknown authors";
-      const year = bibJson.year || parseInt(bibJson.month?.slice(0, 4) || "0") || new Date().getFullYear();
-      const doi = bibJson.doi || "";
-      const abstract = bibJson.abstract || "No abstract available.";
-      const journal = bibJson.journal?.title || "Unknown Journal";
-      return {
-        id: `doaj-${r.id || Math.random().toString(36).slice(2, 8)}`,
-        title,
-        authors: authors.substring(0, 300),
-        journal,
-        year,
-        doi,
-        abstract: abstract.substring(0, 3000),
-        database: "DOAJ",
-        studyType: classifyStudyType(title, abstract),
-        selected: false,
-        url: doi ? `https://doi.org/${doi}` : r.id,
-        sourceBackend: "DOAJ API",
-        sources: ["DOAJ"],
-      };
-    });
-    papers.push(...pagePapers);
-    if (results.length < 100) break;
+  } catch (err: any) {
+    console.warn("[DOAJ] fetch failed (returning partial results):", err?.message);
   }
 
   let filtered = papers;
@@ -688,24 +695,28 @@ export async function fetchMedRxiv(query: string, yearFrom?: string, yearTo?: st
 
 export async function fetchZenodo(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   const allResults: any[] = [];
-  const PAGE_SIZE = 25; // Zenodo caps the page size at 25 (larger values return HTTP 400)
-  for (let page = 1; page <= 40; page++) {
-    const qs = new URLSearchParams({ q: query, size: String(PAGE_SIZE), sort: "mostrecent", page: String(page) });
-    let res = await fetchWithRetry(`https://zenodo.org/api/records?${qs.toString()}`, 3, 1500);
-    if (!res.ok && res.status === 400) {
-      const qs2 = new URLSearchParams({ q: query, size: String(PAGE_SIZE), sort: "version", page: String(page) });
-      res = await fetchWithRetry(`https://zenodo.org/api/records?${qs2.toString()}`, 3, 1500);
+  const PAGE_SIZE = 25;
+  try {
+    for (let page = 1; page <= 10; page++) {
+      const qs = new URLSearchParams({ q: query, size: String(PAGE_SIZE), sort: "mostrecent", page: String(page) });
+      let res = await fetchWithRetry(`https://zenodo.org/api/records?${qs.toString()}`, 3, 1500);
+      if (!res.ok && res.status === 400) {
+        const qs2 = new URLSearchParams({ q: query, size: String(PAGE_SIZE), sort: "version", page: String(page) });
+        res = await fetchWithRetry(`https://zenodo.org/api/records?${qs2.toString()}`, 3, 1500);
+      }
+      if (!res.ok) {
+        if (page === 1) throw new Error(`Zenodo error: ${res.status}`);
+        break;
+      }
+      const data = await res.json();
+      const results = data.hits?.hits || [];
+      if (results.length === 0) break;
+      allResults.push(...results);
+      if (results.length < PAGE_SIZE) break;
+      await sleep(200);
     }
-    if (!res.ok) {
-      if (page === 1) throw new Error(`Zenodo error: ${res.status}`);
-      break;
-    }
-    const data = await res.json();
-    const results = data.hits?.hits || [];
-    if (results.length === 0) break;
-    allResults.push(...results);
-    if (results.length < PAGE_SIZE) break;
-    await sleep(200);
+  } catch (err: any) {
+    console.warn("[Zenodo] fetch failed (returning partial results):", err?.message);
   }
   return buildZenodoPapers(allResults, yearFrom, yearTo, studyType);
 }
@@ -777,23 +788,27 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
   };
 
   const papers: Paper[] = [];
-  let cursor = "*";
-  for (let page = 0; page < 10; page++) {
-    const qs = new URLSearchParams({ query, rows: "100", cursor, sort: "relevance" });
-    if (filters.length) qs.set("filter", filters.join(","));
-    const url = `https://api.crossref.org/works?${qs.toString()}`;
-    const res = await fetchWithRetry(url, 3, 2000);
-    if (!res.ok) {
-      if (page === 0) throw new Error(`Crossref error: ${res.status}`);
-      break;
+  try {
+    let cursor = "*";
+    for (let page = 0; page < 10; page++) {
+      const qs = new URLSearchParams({ query, rows: "100", cursor, sort: "relevance" });
+      if (filters.length) qs.set("filter", filters.join(","));
+      const url = `https://api.crossref.org/works?${qs.toString()}`;
+      const res = await fetchWithRetry(url, 3, 2000);
+      if (!res.ok) {
+        if (page === 0) throw new Error(`Crossref error: ${res.status}`);
+        break;
+      }
+      const data = await res.json();
+      const results = data.message?.items || [];
+      if (results.length === 0) break;
+      papers.push(...results.map(paperFromWork));
+      const next = data.message?.["next-cursor"];
+      if (!next || next === cursor || results.length < 100) break;
+      cursor = next;
     }
-    const data = await res.json();
-    const results = data.message?.items || [];
-    if (results.length === 0) break;
-    papers.push(...results.map(paperFromWork));
-    const next = data.message?.["next-cursor"];
-    if (!next || next === cursor || results.length < 100) break;
-    cursor = next;
+  } catch (err: any) {
+    console.warn("[Crossref] fetch failed (returning partial results):", err?.message);
   }
 
   if (studyType && studyType !== "All Study Types") {
@@ -807,15 +822,21 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
 export async function fetchOpenAIRE(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
   try {
     const papers: Paper[] = [];
-    for (let apiPage = 1; apiPage <= 10; apiPage++) {
+    for (let apiPage = 1; apiPage <= 3; apiPage++) {
     const qs = new URLSearchParams({ 
       keywords: query, 
       format: "json", 
-      size: "100",
+      size: "50",
       page: String(apiPage)
     });
     const url = `https://api.openaire.eu/search/publications?${qs.toString()}`;
-    const res = await fetchWithRetry(url, 3, 2000);
+    let res: Response;
+    try {
+      res = await fetchWithTimeout(url, 15000);
+    } catch (err: any) {
+      if (apiPage === 1) throw new Error(`OpenAIRE error: ${err?.message || String(err)}`);
+      break;
+    }
     if (!res.ok) {
       if (apiPage === 1) throw new Error(`OpenAIRE error: ${res.status}`);
       break;
@@ -1402,7 +1423,7 @@ export async function fetchPubMedBrowserless(query: string, yearFrom?: string, y
   try {
     let pmids: string[] = [];
     const PAGE = 500;
-    const MAX_RESULTS = 10000;
+    const MAX_RESULTS = 500;
     // Apply the publication-year window natively (mindate/maxdate) so the
     // database itself limits the result set instead of the client downloading
     // thousands of records and discarding them afterwards.
@@ -1413,6 +1434,8 @@ export async function fetchPubMedBrowserless(query: string, yearFrom?: string, y
       .filter(Boolean)
       .join("&");
     const dateSuffix = dateParams ? `&${dateParams}` : "";
+
+    // Phase 1: collect PMIDs from the user query
     for (let start = 0; start < MAX_RESULTS; start += PAGE) {
       const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=${PAGE}&retstart=${start}&sort=relevance&term=${encodeURIComponent(query)}${dateSuffix}`;
       const searchRes = await fetchWithRetry(searchUrl, 3, 1500);
@@ -1424,23 +1447,24 @@ export async function fetchPubMedBrowserless(query: string, yearFrom?: string, y
       await sleep(350);
     }
 
+    // Phase 2: if no PMIDs, try a broader query (strip parenthetical/boolean syntax)
     if (pmids.length === 0) {
-      // Try with broader search - remove advanced query syntax
       const broadQuery = query.split("(")[0].split(")")[0].trim() || query;
-        const broadSearchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=500&term=${encodeURIComponent(broadQuery)}${dateSuffix}`;
+      const broadSearchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=500&term=${encodeURIComponent(broadQuery)}${dateSuffix}`;
       try {
         const broadSearchRes = await fetchWithRetry(broadSearchUrl, 3, 1500);
         const broadSearchText = await broadSearchRes.text();
         const broadIdMatches = broadSearchText.match(/<Id>(\d+)<\/Id>/g) || [];
         pmids = broadIdMatches.map((m) => m.replace(/<Id>|<\/Id>/g, "").trim()).filter(Boolean);
-        if (pmids.length === 0) return [];
-  } catch {
-    return [];
-  }
-}
+      } catch {
+        /* broad search failed — pmids stays empty */
+      }
+    }
+
+    // Phase 3: fetch paper details for all collected PMIDs
+    if (pmids.length === 0) return [];
 
     const chunkSize = 200;
-
     for (let i = 0; i < pmids.length; i += chunkSize) {
       if (i > 0) await sleep(500);
       const chunk = pmids.slice(i, i + chunkSize).join(",");

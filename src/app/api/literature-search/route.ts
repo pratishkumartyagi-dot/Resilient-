@@ -2,18 +2,13 @@ import { NextResponse } from "next/server";
 import {
   fetchPubMedBrowserless,
   fetchEuropePMC,
-  fetchOpenAlex,
   fetchDoaj,
   fetchBioRxiv,
   fetchMedRxiv,
   fetchCrossref,
   fetcharXiv,
   fetchOpenAIRE,
-  fetchDblp,
   fetchZenodo,
-  fetchGoogleScholarBrowserless,
-  fetchSemanticScholarBrowserless,
-  fetchScienceDirectBrowserless,
   fetchClinicalTrialsGov,
   deduplicatePapers,
   enrichPapersWithDois,
@@ -248,7 +243,6 @@ export async function POST(request: Request) {
 
     const apiMap: Record<string, Fetcher | undefined> = {
       "PubMed": (q, o) => fetchPubMedBrowserless(q, o.yearFrom, o.yearTo, o.studyType),
-      "OpenAlex": (q, o) => fetchOpenAlex(q, o.yearFrom, o.yearTo, o.studyType),
       "Europe PMC": (q, o) => fetchEuropePMC(q, o.yearFrom, o.yearTo, o.studyType),
       "pyEuropePMC": (q, o) => fetchEuropePMC(q, o.yearFrom, o.yearTo, o.studyType),
       "DOAJ": (q, o) => fetchDoaj(q, o.yearFrom, o.yearTo, o.studyType),
@@ -257,11 +251,7 @@ export async function POST(request: Request) {
       "Crossref": (q, o) => fetchCrossref(q, o.yearFrom, o.yearTo, o.studyType),
       "arXiv": (q, o) => fetcharXiv(q, o.yearFrom, o.yearTo, o.studyType),
       "OpenAIRE": (q, o) => fetchOpenAIRE(q, o.yearFrom, o.yearTo, o.studyType),
-      "dblp": (q, o) => fetchDblp(q, o.yearFrom, o.yearTo, o.studyType),
       "Zenodo": (q, o) => fetchZenodo(q, o.yearFrom, o.yearTo, o.studyType),
-      "Google Scholar": (q, o) => fetchGoogleScholarBrowserless(q, o.yearFrom, o.yearTo, o.studyType),
-      "Semantic Scholar": (q, o) => fetchSemanticScholarBrowserless(q, o.yearFrom, o.yearTo, o.studyType),
-      "ScienceDirect": (q, o) => fetchScienceDirectBrowserless(q, o.yearFrom, o.yearTo, o.studyType),
       "ClinicalTrials.gov": (q, o) =>
         fetchClinicalTrialsGov(q, o.yearFrom, o.yearTo, o.studyType, o.studyTypeArea),
     };
