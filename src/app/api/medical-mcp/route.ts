@@ -1,38 +1,7 @@
 import { NextResponse } from "next/server";
 import { spawn } from "child_process";
-import * as fs from "fs";
-import * as path from "path";
 
 export const runtime = "nodejs";
-
-const MEDICAL_MCP_CANDIDATES = [
-  process.env.MEDICAL_MCP_BIN,
-  "/usr/local/bin/medical-mcp",
-  "/usr/bin/medical-mcp",
-  "/opt/homebrew/bin/medical-mcp",
-  path.join(process.env.HOME || "", ".local/bin/medical-mcp"),
-  path.join(process.env.HOME || "", "medical-mcp", "dist", "server.js"),
-];
-
-function findMedicalMcpBinary(): string | null {
-  if (process.env.MEDICAL_MCP_BIN && process.env.MEDICAL_MCP_BIN.trim()) {
-    return process.env.MEDICAL_MCP_BIN.trim();
-  }
-  for (const candidate of MEDICAL_MCP_CANDIDATES) {
-    if (!candidate) continue;
-    try {
-      if (candidate.endsWith(".js")) {
-        if (fs.existsSync(/*turbopackIgnore: true*/ candidate)) return candidate;
-        continue;
-      }
-      fs.accessSync(/*turbopackIgnore: true*/ candidate, fs.constants.X_OK);
-      return candidate;
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
 
 function corsHeaders() {
   return new Headers({
@@ -49,7 +18,8 @@ export async function OPTIONS() {
   });
 }
 
-const MEDICAL_MCP_BINARY = findMedicalMcpBinary();
+// @turbopack-ignore
+const MEDICAL_MCP_BINARY = process.env.MEDICAL_MCP_BIN || eval('"/usr/local/bin/medical-mcp"');
 
 function sendMcpRequest(proc: ReturnType<typeof spawn>, id: number, method: string, params: any = {}): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -102,17 +72,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing query parameter" }, { status: 400, headers: corsHeaders() });
     }
 
-    if (!MEDICAL_MCP_BINARY) {
-      return NextResponse.json({
-        error: "medical-mcp binary not found. Install JamesANZ/medical-mcp and ensure the binary is in PATH.",
-        papers: [],
-        total: 0,
-        sourcesUsed: [],
-        errors: { medical_mcp: "Binary not found" },
-      }, { status: 500, headers: corsHeaders() });
-    }
-
-    const proc = spawn(/*turbopackIgnore: true*/ MEDICAL_MCP_BINARY, [], {
+    const proc = spawn("node", [MEDICAL_MCP_BINARY], {
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env },
     });
@@ -125,51 +85,72 @@ export async function POST(request: Request) {
       });
 
       const toolResult = await sendMcpRequest(proc, 2, "tools/call", {
-        name: "search_papers",
+        name: "search-medical-literature",
         arguments: {
           query,
           maxResults,
-          sortBy: "relevance",
         },
       });
 
       const content = toolResult?.content || [];
-      const text = content.find((c: any) => c.type === "text")?.text || "{}";
+      const textItem = content.find((c: any) => c.type === "text");
+      const text = textItem ? textItem.text : "";
 
-      let parsed: any;
+      let papers: any[] = [];
+      let parsedTotal = 0;
+
+      // Try structured JSON first (some MCP servers return { papers: [...] })
       try {
-        parsed = JSON.parse(text);
+        const parsed = JSON.parse(text);
+        if (parsed.papers && Array.isArray(parsed.papers)) {
+          papers = parsed.papers;
+          parsedTotal = parsed.total || papers.length;
+        } else {
+          throw new Error("not structured");
+        }
       } catch {
-        return NextResponse.json(
-          { error: "Invalid JSON from medical-mcp tool result", raw: text.slice(0, 1000) },
-          { status: 500, headers: corsHeaders() }
-        );
+        // Parse formatted text output: "Found N article(s)\n\n1. **Title.**\n   Authors: ...\n   Journal: ...\n   Publication Date: ...\n   PMID: ...\n   Abstract: ...\n   URL: ..."
+        const countMatch = text.match(/Found\s+(\d+)\s+article/);
+        parsedTotal = countMatch ? parseInt(countMatch[1], 10) : 0;
+
+        // Split into individual article blocks
+        const articleBlocks = text.split(/\n(?=\d+\.\s+\*\*)/);
+        for (const block of articleBlocks) {
+          const titleMatch = block.match(/\d+\.\s+\*\*(.*?)\*\*/);
+          const authorsMatch = block.match(/Authors:\s*([\s\S]*?)(?=\n\s+Journal:|\n\s*$)/);
+          const journalMatch = block.match(/Journal:\s*(.*?)(?=\n|\s*$)/);
+          const dateMatch = block.match(/Publication Date:\s*(.*?)(?=\n|\s*$)/);
+          const pmidMatch = block.match(/PMID:\s*(.*?)(?=\n|\s*$)/);
+          const abstractMatch = block.match(/Abstract:\s*([\s\S]*?)(?=\n\s+URL:|\n\s*$)/);
+          const urlMatch = block.match(/URL:\s*(.*?)(?=\n|\s*$)/);
+
+          if (titleMatch) {
+            papers.push({
+              id: `medical-mcp-${pmidMatch?.[1]?.trim() || Math.random().toString(36).slice(2, 8)}`,
+              title: titleMatch[1].trim().replace(/\.$/, ""),
+              authors: authorsMatch?.[1]?.trim() || "Unknown authors",
+              journal: journalMatch?.[1]?.trim() || "Unknown Journal",
+              year: dateMatch?.[1]?.trim() ? parseInt(dateMatch[1].trim().slice(0, 4)) : new Date().getFullYear(),
+              doi: "",
+              abstract: abstractMatch?.[1]?.trim() || "No abstract available.",
+              database: "medical-mcp",
+              studyType: "Journal Article",
+              selected: false,
+              url: urlMatch?.[1]?.trim() || "",
+              sourceBackend: "JamesANZ/medical-mcp",
+              sources: ["medical-mcp"],
+            });
+          }
+        }
       }
 
-      const papers = (parsed.papers || []).map((p: any) => ({
-        id: p.paperId || p.id || `medical-mcp-${Math.random().toString(36).slice(2, 8)}`,
-        title: p.title || "",
-        authors: Array.isArray(p.authors) ? p.authors.join(", ") : (p.authors || "Unknown authors"),
-        year: p.year || new Date().getFullYear(),
-        abstract: p.abstract || "",
-        doi: p.doi || "",
-        url: p.url || (p.doi ? `https://doi.org/${p.doi}` : ""),
-        database: p.source || "medical-mcp",
-        studyType: p.paperType || p.studyType || "Journal Article",
-        selected: false,
-        citationCount: p.citationCount || 0,
-        keywords: p.keywords || [],
-        sourceBackend: "JamesANZ/medical-mcp",
-        sources: p.source ? [p.source] : ["medical-mcp"],
-      }));
-
       return NextResponse.json({
-        query: parsed.query || query,
-        total: parsed.total || papers.length,
+        query,
+        total: parsedTotal || papers.length,
         papers,
         sourceBreakdown: {},
-        sourcesUsed: parsed.sourcesUsed || [],
-        errors: parsed.errors || {},
+        sourcesUsed: ["medical-mcp"],
+        errors: {},
       }, { headers: corsHeaders() });
 
     } finally {

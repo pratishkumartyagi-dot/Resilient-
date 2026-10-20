@@ -1,38 +1,7 @@
 import { NextResponse } from "next/server";
 import { spawn } from "child_process";
-import * as fs from "fs";
-import * as path from "path";
 
 export const runtime = "nodejs";
-
-const PAPER_SEARCH_MCP_CANDIDATES = [
-  process.env.PAPER_SEARCH_MCP_BIN,
-  "/usr/local/bin/paper-search-mcp",
-  "/usr/bin/paper-search-mcp",
-  "/opt/homebrew/bin/paper-search-mcp",
-  path.join(process.env.HOME || "", ".local/bin/paper-search-mcp"),
-  path.join(process.env.HOME || "", "paper-search-mcp", "dist", "server.js"),
-];
-
-function findPaperSearchMcpBinary(): string | null {
-  if (process.env.PAPER_SEARCH_MCP_BIN && process.env.PAPER_SEARCH_MCP_BIN.trim()) {
-    return process.env.PAPER_SEARCH_MCP_BIN.trim();
-  }
-  for (const candidate of PAPER_SEARCH_MCP_CANDIDATES) {
-    if (!candidate) continue;
-    try {
-      if (candidate.endsWith(".js")) {
-        if (fs.existsSync(/*turbopackIgnore: true*/ candidate)) return candidate;
-        continue;
-      }
-      fs.accessSync(/*turbopackIgnore: true*/ candidate, fs.constants.X_OK);
-      return candidate;
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
 
 function corsHeaders() {
   return new Headers({
@@ -49,7 +18,8 @@ export async function OPTIONS() {
   });
 }
 
-const MCP_BINARY = findPaperSearchMcpBinary();
+// @turbopack-ignore
+const MCP_BINARY = process.env.PAPER_SEARCH_MCP_BIN || eval('"paper-search-mcp"');
 
 function sendMcpRequest(proc: ReturnType<typeof spawn>, id: number, method: string, params: any = {}): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -103,17 +73,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing query parameter" }, { status: 400, headers: corsHeaders() });
     }
 
-    if (!MCP_BINARY) {
-      return NextResponse.json({
-        error: "paper-search-mcp binary not found. Install openags/paper-search-mcp and ensure the binary is in PATH.",
-        papers: [],
-        total: 0,
-        sourcesUsed: [],
-        errors: { paper_search_mcp: "Binary not found" },
-      }, { status: 500, headers: corsHeaders() });
-    }
-
-    const proc = spawn(/*turbopackIgnore: true*/ MCP_BINARY, [], {
+    const proc = spawn("node", [MCP_BINARY], {
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env },
     });
