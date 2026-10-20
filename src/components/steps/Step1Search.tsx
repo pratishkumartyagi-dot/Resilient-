@@ -67,7 +67,6 @@ const DATABASE_URLS: Record<string, string> = {
   OpenAIRE: "https://www.openaire.eu/",
   Zenodo: "https://zenodo.org/",
   "ClinicalTrials.gov": "https://clinicaltrials.gov/",
-  "medical-mcp": "https://github.com/JamesANZ/medical-mcp",
 };
 
 const ROLE_STYLES: Record<string, string> = {
