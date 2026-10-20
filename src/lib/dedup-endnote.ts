@@ -163,6 +163,19 @@ export function deduplicatePapers(papers: DedupPaper[]): DedupResult {
     if (!group.primary.studyType && paper.studyType) group.primary.studyType = paper.studyType;
     if (group.primary.selected !== true && paper.selected === true) group.primary.selected = true;
 
+    // A merged record can supply the DOI the primary record was missing —
+    // index it so later records with the same DOI join this group.
+    if (!group.doi && group.primary.doi) {
+      const resolved = normalizeDoi(group.primary.doi);
+      if (resolved) {
+        group.doi = resolved;
+        if (!doiIndex.has(resolved)) doiIndex.set(resolved, groupIndex);
+        for (const base of doiBases(resolved)) {
+          if (!doiChildIndex.has(base)) doiChildIndex.set(base, groupIndex);
+        }
+      }
+    }
+
     matchBreakdown[match]++;
   };
 
