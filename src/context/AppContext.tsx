@@ -297,7 +297,6 @@ const initialState: AppState = {
     "OpenAIRE",
     "Zenodo",
     "ClinicalTrials.gov",
-    "paper-search-mcp",
   ],
   geminiApiKey: "",
   groqApiKey: "",

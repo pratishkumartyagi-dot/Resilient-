@@ -966,7 +966,7 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
     "Semantic Scholar": () => fetchSemanticScholarBrowserless(query, yearFrom, yearTo, studyType),
     "ScienceDirect": () => fetchScienceDirectBrowserless(query, yearFrom, yearTo, studyType),
     "ClinicalTrials.gov": () => fetchClinicalTrialsGov(query, yearFrom, yearTo, studyType),
-    "paper-search-mcp": () => fetchPaperSearchMcp(query, "all", yearFrom, yearTo, studyType),
+    "medical-mcp": () => fetchMedicalMcp(query, yearFrom, yearTo, studyType),
   };
 
   const selectedApis = databases.filter((db) => apiDatabases[db]);
@@ -1045,7 +1045,7 @@ export async function fetchRealPapersWithCounts(query: string, databases: string
     "Semantic Scholar": () => fetchSemanticScholarBrowserless(query, yearFrom, yearTo, studyType),
     "ScienceDirect": () => fetchScienceDirectBrowserless(query, yearFrom, yearTo, studyType),
     "ClinicalTrials.gov": () => fetchClinicalTrialsGov(query, yearFrom, yearTo, studyType),
-    "paper-search-mcp": () => fetchPaperSearchMcp(query, "all", yearFrom, yearTo, studyType),
+    "medical-mcp": () => fetchMedicalMcp(query, yearFrom, yearTo, studyType),
   };
 
   const selectedApis = databases.filter((db) => apiDatabases[db]);
@@ -1102,7 +1102,7 @@ function getDatabaseBackend(uiDatabase: string): string {
     "Semantic Scholar": "Semantic Scholar Graph API",
     "ScienceDirect": "Semantic Scholar Graph API",
     "ClinicalTrials.gov": "ClinicalTrials.gov API v2",
-    "paper-search-mcp": "openags/paper-search-mcp",
+    "medical-mcp": "JamesANZ/medical-mcp",
   };
   return mapping[uiDatabase] || uiDatabase;
 }
@@ -1437,10 +1437,10 @@ export async function fetchPubMedBrowserless(query: string, yearFrom?: string, y
         const broadIdMatches = broadSearchText.match(/<Id>(\d+)<\/Id>/g) || [];
         pmids = broadIdMatches.map((m) => m.replace(/<Id>|<\/Id>/g, "").trim()).filter(Boolean);
         if (pmids.length === 0) return [];
-      } catch {
-        return [];
-      }
-    }
+  } catch {
+    return [];
+  }
+}
 
     const chunkSize = 200;
 
@@ -1700,6 +1700,41 @@ export async function fetchScienceDirectBrowserless(query: string, yearFrom?: st
     }
     return papers;
   } catch {
+    return [];
+  }
+}
+
+export async function fetchMedicalMcp(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+  try {
+    const base =
+      typeof window !== "undefined" ? "" : process.env.PORT ? `http://localhost:${process.env.PORT}` : "http://localhost:3000";
+    const res = await fetch(`${base}/api/medical-mcp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, yearFrom, yearTo, studyType, maxResults: 200 }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `medical-mcp failed: ${res.status}`);
+    }
+    const data = await res.json();
+    return (data.papers || []).map((p: any) => ({
+      id: p.id || `medical-mcp-${Math.random().toString(36).slice(2, 8)}`,
+      title: p.title || "",
+      authors: p.authors || "Unknown authors",
+      journal: p.journal || p.source || "medical-mcp",
+      year: p.year || new Date().getFullYear(),
+      doi: p.doi || "",
+      abstract: p.abstract || "",
+      database: p.source || "medical-mcp",
+      studyType: p.studyType || "Journal Article",
+      selected: false,
+      url: p.url || (p.doi ? `https://doi.org/${p.doi}` : ""),
+      sourceBackend: "JamesANZ/medical-mcp",
+      sources: p.source ? [p.source] : ["medical-mcp"],
+    }));
+  } catch (err: any) {
+    console.error("[fetchMedicalMcp] error:", err?.message || String(err));
     return [];
   }
 }

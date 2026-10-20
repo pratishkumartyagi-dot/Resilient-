@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import {
-  fetchPaperSearchMcp,
+  fetchMedicalMcp,
   fetchPubMedBrowserless,
   fetchEuropePMC,
   fetchOpenAlex,
@@ -265,7 +265,7 @@ export async function POST(request: Request) {
       "ScienceDirect": (q, o) => fetchScienceDirectBrowserless(q, o.yearFrom, o.yearTo, o.studyType),
       "ClinicalTrials.gov": (q, o) =>
         fetchClinicalTrialsGov(q, o.yearFrom, o.yearTo, o.studyType, o.studyTypeArea),
-      "paper-search-mcp": (q, o) => fetchPaperSearchMcp(q, "all", o.yearFrom, o.yearTo, o.studyType),
+      "medical-mcp": (q, o) => fetchMedicalMcp(q, o.yearFrom, o.yearTo, o.studyType),
     };
 
     const selectedApis = dbsToSearch.filter((db) => apiMap[db]);
