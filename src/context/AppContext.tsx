@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useReducer, ReactNode } from "react";
+import type { ConceptBlock } from "@/lib/concept-extraction";
 
 export interface Paper {
   id: string;
@@ -15,6 +16,15 @@ export interface Paper {
   selected: boolean;
   url?: string;
   pmid?: string;
+  /** Every database the record was found in. */
+  sources?: string[];
+  /** Backend that actually served the record. */
+  sourceBackend?: string;
+  /** Result of the citation check performed in Step 2. */
+  citationStatus?: "verified" | "unverified" | "no-doi";
+  citationMessage?: string;
+  /** IDs of all raw records collapsed into this unique paper. */
+  memberIds?: string[];
 }
 
 export interface SynthesisRow {
@@ -88,6 +98,18 @@ export interface AppState {
   yearFrom: string;
   yearTo: string;
   studyType: string;
+  /** Selected study types — empty means "no restriction". */
+  studyTypes: string[];
+  /** Concepts extracted from the broad research area. */
+  conceptBlocks: ConceptBlock[];
+  /** Records returned by the database searches before any filtering. */
+  rawRecordCount: number;
+  /** Records returned by each database before any filtering. */
+  rawRecordsPerDatabase: Record<string, number>;
+  /** Records that survived the automated relevance filter. */
+  relevanceFilteredCount: number;
+  /** Duplicates collapsed by the DedupEndNote pass in Step 2. */
+  duplicatesRemoved: number;
   papers: Paper[];
   selectedPapers: Paper[];
   synthesisTable: SynthesisRow[];
@@ -145,8 +167,13 @@ type Action =
   | { type: "SET_TAB"; payload: string }
   | { type: "SET_STEP"; payload: number }
   | { type: "SET_SEARCH"; payload: { query?: string; logic?: string; yearFrom?: string; yearTo?: string; studyType?: string } }
+  | { type: "SET_STUDY_TYPES"; payload: string[] }
+  | { type: "SET_CONCEPT_BLOCKS"; payload: ConceptBlock[] }
+  | { type: "SET_RAW_COUNTS"; payload: { total?: number; perDatabase?: Record<string, number>; relevanceFiltered?: number } }
+  | { type: "SET_DUPLICATES_REMOVED"; payload: number }
   | { type: "SET_PAPERS"; payload: Paper[] }
   | { type: "TOGGLE_PAPER"; payload: string }
+  | { type: "SET_PAPER_SELECTION"; payload: { ids: string[]; selected: boolean } }
   | { type: "SELECT_ALL_PAPERS"; payload: boolean }
   | { type: "SET_SYNTHESIS"; payload: SynthesisRow[] }
   | { type: "SET_LITERATURE_REVIEW"; payload: string }
@@ -214,6 +241,12 @@ const initialState: AppState = {
   yearFrom: "",
   yearTo: "",
   studyType: "All Study Types",
+  studyTypes: [],
+  conceptBlocks: [],
+  rawRecordCount: 0,
+  rawRecordsPerDatabase: {},
+  relevanceFilteredCount: 0,
+  duplicatesRemoved: 0,
   papers: [],
   selectedPapers: [],
   synthesisTable: [],
@@ -315,6 +348,28 @@ function appReducer(state: AppState, action: Action): AppState {
         yearTo: action.payload.yearTo ?? state.yearTo,
         studyType: action.payload.studyType ?? state.studyType,
       };
+    case "SET_STUDY_TYPES":
+      return {
+        ...state,
+        studyTypes: action.payload,
+        studyType:
+          action.payload.length === 0
+            ? "All Study Types"
+            : action.payload.length === 1
+              ? action.payload[0]
+              : `${action.payload.length} study types`,
+      };
+    case "SET_CONCEPT_BLOCKS":
+      return { ...state, conceptBlocks: action.payload };
+    case "SET_RAW_COUNTS":
+      return {
+        ...state,
+        rawRecordCount: action.payload.total ?? state.rawRecordCount,
+        rawRecordsPerDatabase: action.payload.perDatabase ?? state.rawRecordsPerDatabase,
+        relevanceFilteredCount: action.payload.relevanceFiltered ?? state.relevanceFilteredCount,
+      };
+    case "SET_DUPLICATES_REMOVED":
+      return { ...state, duplicatesRemoved: action.payload };
     case "SET_PAPERS":
       return { ...state, papers: action.payload, selectedPapers: action.payload.filter((p) => p.selected) };
     case "TOGGLE_PAPER":
@@ -327,6 +382,18 @@ function appReducer(state: AppState, action: Action): AppState {
           p.id === action.payload ? { ...p, selected: !p.selected } : p
         ).filter((p) => p.selected),
       };
+    case "SET_PAPER_SELECTION": {
+      const ids = new Set(action.payload.ids);
+      const selected = action.payload.selected;
+      const papers = state.papers.map((p) =>
+        ids.has(p.id) ? { ...p, selected } : p
+      );
+      return {
+        ...state,
+        papers,
+        selectedPapers: papers.filter((p) => p.selected),
+      };
+    }
     case "SELECT_ALL_PAPERS": {
       const papers = state.papers.map((p) => ({ ...p, selected: action.payload }));
       return {

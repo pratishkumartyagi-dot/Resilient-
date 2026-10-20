@@ -19,7 +19,7 @@ export interface Paper {
   citationMessage?: string;
 }
 
-const STUDY_TYPE_KEYWORDS: Record<string, string[]> = {
+export const STUDY_TYPE_KEYWORDS: Record<string, string[]> = {
   "Randomized Controlled Trial (RCT)": ["randomized controlled trial", "randomised controlled trial", "rct"],
   "Systematic Review": ["systematic review"],
   "Meta-Analysis": ["meta-analysis", "meta analysis", "metaanalysis"],
@@ -337,12 +337,26 @@ export async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: 
       sort: "CITED desc",
     });
 
-    if (yearFrom) {
-      params.set("query", `${params.get("query")} AND publication_year>=${yearFrom}`);
+    // The incoming query may contain a top-level OR. Europe PMC binds AND
+    // tighter than OR, so the query has to be parenthesised before the year
+    // constraints are appended — otherwise the whole search returns nothing.
+    const baseQuery = /(^|\s)OR(\s|$)/i.test(query) ? `(${query})` : query;
+    // Europe PMC expects a range expression — "publication_year>=2015" is
+    // silently ignored and returns zero hits.
+    const yearClauses: string[] = [];
+    if (yearFrom && yearTo) {
+      yearClauses.push(`PUB_YEAR:[${yearFrom} TO ${yearTo}]`);
+    } else if (yearFrom) {
+      yearClauses.push(`PUB_YEAR:[${yearFrom} TO 3000]`);
+    } else if (yearTo) {
+      yearClauses.push(`PUB_YEAR:[1000 TO ${yearTo}]`);
     }
-    if (yearTo) {
-      params.set("query", `${params.get("query")} AND publication_year<=${yearTo}`);
-    }
+    params.set(
+      "query",
+      yearClauses.length > 0
+        ? `${baseQuery} AND ${yearClauses.join(" AND ")}`
+        : baseQuery
+    );
 
     const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?${params.toString()}`;
 
@@ -492,7 +506,13 @@ export async function fetchPaperSearchMcp(query: string, source: string, yearFro
 }
 
 export async function fetcharXiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
-  const searchQuery = encodeURIComponent(`all:${query}`);
+  // arXiv supports a native submittedDate range — use it so the server does
+  // the date filtering rather than the client downloading every preprint.
+  const dateClause =
+    yearFrom || yearTo
+      ? ` AND submittedDate:[${yearFrom || "1991"}01010000 TO ${yearTo || "2100"}12312359]`
+      : "";
+  const searchQuery = encodeURIComponent(`all:${query}${dateClause}`);
   const url = `https://export.arxiv.org/api/query?search_query=${searchQuery}&start=0&max_results=1000&sortBy=relevance`;
   const res = await fetchWithRetry(url, 4, 2000);
   const text = await res.text();
@@ -1163,14 +1183,22 @@ export async function validateDoiViaCrossref(doi: string): Promise<{ valid: bool
 
 export async function verifyCitations(papers: Paper[]): Promise<Map<string, { valid: boolean; title?: string; message: string }>> {
   const results = new Map<string, { valid: boolean; title?: string; message: string }>();
-  const dois = papers.filter((p) => p.doi && p.doi.length > 3).map((p) => p.doi!);
-  const toVerify = dois;
+  // De-duplicate the DOI list first — the same article can be returned by
+  // several databases, and each duplicate would otherwise trigger another
+  // network round trip to Crossref.
+  const dois = Array.from(
+    new Set(
+      papers
+        .filter((p) => p.doi && p.doi.length > 3)
+        .map((p) => p.doi!.trim().toLowerCase())
+    )
+  );
 
   await runWithConcurrency(
-    toVerify,
+    dois,
     async (doi) => {
       const result = await validateDoiViaCrossref(doi);
-      results.set(doi.toLowerCase(), result);
+      results.set(doi, result);
     },
     5,
     0
@@ -1239,7 +1267,7 @@ export async function quickSearch(query: string, maxResults: number = 8): Promis
   }
 }
 
-export async function fetchClinicalTrialsGov(query: string, yearFrom?: string, yearTo?: string, studyType?: string): Promise<Paper[]> {
+export async function fetchClinicalTrialsGov(query: string, yearFrom?: string, yearTo?: string, studyType?: string, studyTypeArea?: string): Promise<Paper[]> {
   const papers: Paper[] = [];
   let pageToken: string | undefined;
   for (let page = 0; page < 20; page++) {
@@ -1249,6 +1277,14 @@ export async function fetchClinicalTrialsGov(query: string, yearFrom?: string, y
       pageSize: "100",
     });
     if (pageToken) qs.set("pageToken", pageToken);
+    // Native study-type restriction (interventional / observational) — applied
+    // by the registry itself rather than by a keyword filter afterwards.
+    if (studyTypeArea) {
+      qs.set(
+        "filter.advanced",
+        `AREA[StudyType]${studyTypeArea.toUpperCase()}`
+      );
+    }
     const url = `https://clinicaltrials.gov/api/v2/studies?${qs.toString()}`;
     const res = await fetchWithTimeout(url);
     if (!res.ok) {
@@ -1293,7 +1329,7 @@ export async function fetchClinicalTrialsGov(query: string, yearFrom?: string, y
     await sleep(200);
   }
 
-  if (studyType && studyType !== "All Study Types") {
+  if (studyType && studyType !== "All Study Types" && !studyTypeArea) {
     const keywords = STUDY_TYPE_KEYWORDS[studyType] || [];
     const filtered = papers.filter((p) => keywords.some((kw) => `${p.title} ${p.abstract}`.toLowerCase().includes(kw)));
     return filtered.length > 0 ? filtered : papers;
@@ -1360,8 +1396,18 @@ export async function fetchPubMedBrowserless(query: string, yearFrom?: string, y
     let pmids: string[] = [];
     const PAGE = 500;
     const MAX_RESULTS = 10000;
+    // Apply the publication-year window natively (mindate/maxdate) so the
+    // database itself limits the result set instead of the client downloading
+    // thousands of records and discarding them afterwards.
+    const dateParams = [
+      yearFrom ? `mindate=${encodeURIComponent(`${yearFrom}/01/01`)}` : "",
+      yearTo ? `maxdate=${encodeURIComponent(`${yearTo}/12/31`)}` : "",
+    ]
+      .filter(Boolean)
+      .join("&");
+    const dateSuffix = dateParams ? `&${dateParams}` : "";
     for (let start = 0; start < MAX_RESULTS; start += PAGE) {
-      const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=${PAGE}&retstart=${start}&sort=relevance&term=${encodeURIComponent(query)}`;
+      const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=${PAGE}&retstart=${start}&sort=relevance&term=${encodeURIComponent(query)}${dateSuffix}`;
       const searchRes = await fetchWithRetry(searchUrl, 3, 1500);
       const searchText = await searchRes.text();
       const idMatches = searchText.match(/<Id>(\d+)<\/Id>/g) || [];
@@ -1374,7 +1420,7 @@ export async function fetchPubMedBrowserless(query: string, yearFrom?: string, y
     if (pmids.length === 0) {
       // Try with broader search - remove advanced query syntax
       const broadQuery = query.split("(")[0].split(")")[0].trim() || query;
-      const broadSearchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=500&term=${encodeURIComponent(broadQuery)}`;
+        const broadSearchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=500&term=${encodeURIComponent(broadQuery)}${dateSuffix}`;
       try {
         const broadSearchRes = await fetchWithRetry(broadSearchUrl, 3, 1500);
         const broadSearchText = await broadSearchRes.text();

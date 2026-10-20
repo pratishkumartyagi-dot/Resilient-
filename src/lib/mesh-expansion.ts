@@ -327,6 +327,64 @@ function expandKeyword(keyword: string): string[] {
   return Array.from(results);
 }
 
+/**
+ * Look up a single *concept* (not a keyword) in the MeSH dictionary.
+ *
+ * Unlike {@link expandQueryWithMesh} this is deliberately conservative: a
+ * compound concept such as "latent tuberculosis infection" must not pull in
+ * the whole "Infections" explosion, because that silently widens the search
+ * far beyond what the researcher asked for.
+ *
+ * Rules:
+ *   - an exact dictionary hit returns the full expansion for that entry;
+ *   - a compound concept matches only the single most specific covering key,
+ *     and keeps just the narrower terms that share an "extra" token with the
+ *     concept (e.g. "latent" keeps "latent tuberculosis" but not "pulmonary
+ *     tuberculosis");
+ *   - anything else yields no expansion.
+ */
+export function lookupConceptExpansion(concept: string): {
+  meshTerms: string[];
+  narrowerTerms: string[];
+  synonyms: string[];
+} {
+  const empty = { meshTerms: [] as string[], narrowerTerms: [] as string[], synonyms: [] as string[] };
+  const normalized = (concept || "").toLowerCase().trim();
+  if (!normalized) return empty;
+
+  // 1. The concept is itself a dictionary entry.
+  const exact = MESH_MAP[normalized];
+  if (exact) {
+    return {
+      meshTerms: [...exact.mesh],
+      narrowerTerms: [...exact.narrower],
+      synonyms: [...exact.synonyms],
+    };
+  }
+
+  // 2. Compound concept — use the most specific covering key only.
+  const keys = Object.keys(MESH_MAP).sort((a, b) => b.length - a.length);
+  for (const key of keys) {
+    if (key.length < 4) continue;
+    if (!normalized.includes(key)) continue;
+    const entry = MESH_MAP[key];
+    const keyTokens = new Set(tokenize(key));
+    const extraTokens = tokenize(normalized).filter((t) => !keyTokens.has(t));
+    const narrower = entry.narrower.filter((n) => {
+      if (extraTokens.length === 0) return true;
+      const nTokens = tokenize(n);
+      return extraTokens.some((t) => nTokens.includes(t));
+    });
+    return {
+      meshTerms: [...entry.mesh],
+      narrowerTerms: narrower,
+      synonyms: entry.synonyms.filter((s) => s !== key),
+    };
+  }
+
+  return empty;
+}
+
 /** Expand the full query with MeSH + ATM + truncation */
 export function expandQueryWithMesh(query: string): {
   expandedQuery: string;

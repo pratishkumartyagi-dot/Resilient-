@@ -97,6 +97,18 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
 
 ## Recently Completed
 
+- [x] **Systematic Review pipeline rebuild (2026-10-20, v0.1.9)**
+  - [x] Concept extraction library (Gemini + local parser) with roles, required/optional, synonyms, MeSH
+  - [x] Per-track query compiler (Track 1 field-tagged PubMed/ClinicalTrials.gov, Track 2 simple databases, Track 3 preprint servers)
+  - [x] DedupEndNote-style dedup (DOI → DOI base → title → fuzzy title) with source/member tracking
+  - [x] PRISMA 2020 diagram component with per-database counts and exclusion reasons
+  - [x] Refchecker-style citation validation API (doi.org CSL-JSON + Crossref fallback)
+  - [x] Step 1 rewritten: broad area, AND/OR/NOT, year range, 13 study-type checkboxes (OR), concept panel, compiled-strategy preview, per-database selection
+  - [x] Step 2 rewritten: dedup, abstract filter, unique papers with "also found in" badges, citation badges, PRISMA toggle
+  - [x] `medspacyFilter` flag now honoured (was parsed and ignored)
+  - [x] Fixed Europe PMC year filter (`publication_year>=` silently returned 0 hits → `PUB_YEAR:[a TO b]`)
+  - [x] Native year filters for PubMed (`mindate`/`maxdate`), arXiv (`submittedDate`) and ClinicalTrials.gov (`AREA[StudyType]`)
+
 - [x] Base Next.js 16 setup with App Router
 - [x] TypeScript configuration with strict mode
 - [x] Tailwind CSS 4 integration
@@ -1667,6 +1679,8 @@ Step 1 results now show:
   - **Fallback Updates**: Updated all fallback cases (no API key, AI extraction failure) to include `predictors`, `ciLower`, and `ciUpper` fields with appropriate default values.
   - **Validation**: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅ passes cleanly.
 
+- 2026-10-20: **Systematic Review pipeline rebuild (v0.1.9)**: Rebuilt Research Pipeline Steps 1 and 2 into a systematic-review-grade flow — concept extraction (Gemini + local parser), per-track query compilation (PubMed/ClinicalTrials.gov field-tagged, simple databases, preprint servers), DedupEndNote-style dedup, PRISMA 2020 diagram, refchecker-style citation validation API, 13 study-type checkboxes with OR logic, "Show All Results" that now really bypasses the relevance filter, and native year filters for PubMed/arXiv/ClinicalTrials.gov. Also fixed a silent Europe PMC bug (`publication_year>=` returns zero hits; now `PUB_YEAR:[a TO b]`). Validation: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅; live API checks confirmed the compiled plan, PRISMA counts, dedup cascade and DOI validation.
+
 ## Step 1 Database Parity — Europe PMC restored (2026-09-08)
 
 **Issue**: Evidence Synthesis & Meta-analysis pipeline Step 1 was missing "Europe PMC" from its database list, making it unavailable for search despite being present in the Research Pipeline Step 1 and in the `/api/literature-search` backend. Additionally, `fetchRealPapers` and `fetchRealPapersWithCounts` in `database-apis.ts` incorrectly mapped "Europe PMC" to `fetchPubMedBrowserless` instead of `fetchEuropePMC`.
@@ -1845,6 +1859,45 @@ The requested repos (academic-humanizer, fg-data-profiling, Auto-Analyst, notebo
   - `buildPipelineContext()` assembles synthesis table + lit review + aim + methodology + protocol + impact from research pipeline
 - `src/components/tabs/PaperWriterTab.tsx` rewritten as a 6-stage pipeline: **plan → outline → draft → review → revise → audit**, each stage independently runnable. Uses the app's existing Gemini/Groq keys (no new API keys) with local DeepSeek model and local fallbacks when no key is set.
 - Committed `8ff99bb`
+
+### 7. Systematic Review Pipeline Rebuild — Step 1 Search Strategy + Step 2 Screening (2026-10-20)
+
+Rebuilt Steps 1 and 2 of the Research Pipeline into a systematic-review-grade flow.
+
+**New libraries**
+- `src/lib/concept-extraction.ts` — `ConceptBlock` (role: condition / predictor / outcome / design, `required` flag, synonyms, MeSH terms, `negated`). `extractConcepts()` uses Gemini when a key is set and falls back to a deterministic local parser that understands "A AND B", "effect of A on B", "A in B", "<design> of A in B" and NOT clauses. `enrichConcepts()` attaches MeSH headings/synonyms.
+- `src/lib/query-compiler.ts` — per-track compilation. Track 1 = PubMed + ClinicalTrials.gov (field-tagged boolean, MeSH, publication-type filters); Track 2 = OpenAlex/Europe PMC/DOAJ/Crossref/OpenAIRE/Semantic Scholar/dblp/Zenodo/Google Scholar (one query per concept); Track 3 = bioRxiv/medRxiv/arXiv (top-3 synonyms, single AND-ed query). `PUBMED_STUDY_TYPE_TAGS` emits `"term"[pt]` (the tag must sit outside the quotes — `("term"[pt])` returns nothing). `CLINICAL_TRIALS_STUDY_TYPE_AREAS` maps study types to the registry's interventional/observational areas.
+- `src/lib/dedup-endnote.ts` — DedupEndNote-style cascade: exact DOI → DOI base (preprint vs journal version) → normalised title → fuzzy title (Jaccard ≥ 0.82 within ±1 year). Merged records keep every source database, the filled-in DOI/abstract and the ids of all collapsed members.
+- `src/components/Prisma2020Diagram.tsx` — PRISMA 2020 flow diagram with per-database identification counts, exclusion boxes and eligibility reasons.
+- `src/app/api/citation-validator/route.ts` — refchecker-style validation via doi.org content negotiation (CSL-JSON) with a Crossref fallback; statuses `valid` / `mismatch` / `unresolved` / `not-found`; concurrency 8; title-only papers are matched by title similarity.
+
+**Mesh expansion**
+- `src/lib/mesh-expansion.ts`: added `lookupConceptExpansion()` — deliberately conservative. A compound concept matches only the single most specific covering MeSH key and keeps just the narrower terms sharing an extra token, so "latent tuberculosis infection" no longer explodes into the whole "Infections" family.
+
+**Step 1 (`src/components/steps/Step1Search.tsx`, rewritten)**
+- Broad-area input with AND/OR/NOT selector, Year From/To, 13 study-type checkboxes combined with OR plus Select All / Clear Filter.
+- "Extract Concepts" button (Gemini, local-parser fallback); concept cards show role, required/optional toggle, MeSH and synonym chips.
+- Live "Compiled search strategy" preview (per track, per database).
+- Results grouped by database with per-paper, per-database and global selection; "Show All Results" toggle now genuinely bypasses the relevance filter.
+- Sends `useCompiledQueries: true`, `deduplicate: false` so Step 2 receives every raw record.
+
+**Step 2 (`src/components/steps/Step2Results.tsx`, rewritten)**
+- DedupEndNote dedup, abstract/full-text filter, unique papers grouped by database with "also found in" source badges, refchecker validation badges, PRISMA 2020 toggle, and the deduplicated set is committed before Step 3.
+
+**Route (`src/app/api/literature-search/route.ts`)**
+- Accepts `concepts`, `studyTypes[]`, `useCompiledQueries`, `deduplicate`; dispatches per track, fans out Track 2 queries, dedupes within each database, applies the study-type OR filter only to databases that cannot filter natively, and applies NOT terms locally for Track 2/3.
+- Returns `rawRecordCount`, `rawRecordsPerDatabase`, `relevanceFilteredCount`, `compiledPlan`, `planSummary`.
+- The `medspacyFilter` flag is now honoured — previously it was parsed and ignored, so the filter was always applied.
+
+**Database API fixes (`src/lib/database-apis.ts`)**
+- Europe PMC: the year filter used `publication_year>=2015`, which Europe PMC silently ignores and which made every year-filtered search return zero hits — now `PUB_YEAR:[2015 TO 2025]`. Top-level OR groups are parenthesised because Europe PMC binds AND tighter than OR.
+- PubMed: native `mindate`/`maxdate` instead of downloading and discarding records client-side.
+- arXiv: native `submittedDate:[... TO ...]` range.
+- ClinicalTrials.gov: native `filter.advanced=AREA[StudyType]INTERVENTIONAL|OBSERVATIONAL`.
+- `STUDY_TYPE_KEYWORDS` is now exported; `verifyCitations` de-duplicates the DOI list before hitting Crossref.
+
+**Context (`src/context/AppContext.tsx`)**
+- New state: `studyTypes[]`, `conceptBlocks`, `rawRecordCount`, `rawRecordsPerDatabase`, `relevanceFilteredCount`, `duplicatesRemoved`; `Paper` gained `sources`, `sourceBackend`, `citationStatus`, `citationMessage`, `memberIds`; new actions `SET_STUDY_TYPES`, `SET_CONCEPT_BLOCKS`, `SET_RAW_COUNTS`, `SET_DUPLICATES_REMOVED`, `SET_PAPER_SELECTION` (bulk selection for large result sets).
 
 ### Validation
 - `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅ across all commits above

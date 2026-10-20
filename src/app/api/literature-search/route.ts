@@ -19,9 +19,16 @@ import {
   enrichPapersWithDois,
   verifyCitations,
   generateMockLegacy,
+  STUDY_TYPE_KEYWORDS,
 } from "@/lib/database-apis";
 import { filterPapersByMedspacyRelevance } from "@/lib/medspacy-relevance";
 import { expandQueryWithMesh } from "@/lib/mesh-expansion";
+import {
+  compileQueryPlan,
+  summarizePlan,
+  type CompiledQuery,
+} from "@/lib/query-compiler";
+import type { ConceptBlock } from "@/lib/concept-extraction";
 
 export const runtime = "nodejs";
 
@@ -30,10 +37,19 @@ interface LiteratureSearchRequestBody {
   databases: string[];
   yearFrom?: string;
   yearTo?: string;
+  /** Legacy single study type. */
   studyType?: string;
+  /** Multi-select study types — combined with OR. */
+  studyTypes?: string[];
   searchLogic?: string;
   semanticSearch?: boolean;
   medspacyFilter?: boolean;
+  /** Concepts extracted from the broad research area. */
+  concepts?: ConceptBlock[];
+  /** Use the per-track compiled query plan instead of one flat query. */
+  useCompiledQueries?: boolean;
+  /** Deduplicate across databases (Step 2 does the DedupEndNote pass instead). */
+  deduplicate?: boolean;
 }
 
 function corsHeaders() {
@@ -84,6 +100,67 @@ function filterByKeywordPresence(papers: any[], keywords: string[]): any[] {
   });
 }
 
+/**
+ * Restrict records to the selected study types (OR logic).
+ *
+ * Only applied to databases that cannot filter by publication type natively
+ * — PubMed and ClinicalTrials.gov already apply it inside the query.
+ */
+function filterByStudyTypes(papers: any[], studyTypes: string[]): any[] {
+  if (studyTypes.length === 0) return papers;
+  const keywordSets = studyTypes
+    .map((st) => STUDY_TYPE_KEYWORDS[st] || [])
+    .filter((keywords) => keywords.length > 0);
+  // A study type with no keyword mapping cannot be enforced locally.
+  if (keywordSets.length === 0) return papers;
+  return papers.filter((p) => {
+    const text = `${p.title || ""} ${p.abstract || ""}`.toLowerCase();
+    return keywordSets.some((keywords) =>
+      keywords.some((keyword) => text.includes(keyword))
+    );
+  });
+}
+
+/** Remove repeats of the same record returned by several fan-out queries. */
+function dedupeWithinDatabase(papers: any[]): any[] {
+  const seen = new Set<string>();
+  const out: any[] = [];
+  for (const paper of papers) {
+    const doi = (paper.doi || "").trim().toLowerCase();
+    const title = (paper.title || "").toLowerCase().trim().slice(0, 80);
+    const key = doi || title;
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+    out.push(paper);
+  }
+  return out;
+}
+
+/**
+ * Drop records that mention an excluded concept.
+ *
+ * Track 1 databases express NOT inside the query; the simpler databases do
+ * not support it, so the exclusion is applied locally instead.
+ */
+function filterNegatedConcepts(papers: any[], negatedTerms: string[]): any[] {
+  if (negatedTerms.length === 0) return papers;
+  const terms = negatedTerms.map((t) => t.toLowerCase()).filter((t) => t.length > 2);
+  if (terms.length === 0) return papers;
+  return papers.filter((p) => {
+    const text = `${p.title || ""} ${p.abstract || ""}`.toLowerCase();
+    return !terms.some((term) => text.includes(term));
+  });
+}
+
+interface FetchContext {
+  yearFrom?: string;
+  yearTo?: string;
+  studyType?: string;
+  studyTypeArea?: string;
+}
+
+type Fetcher = (query: string, ctx: FetchContext) => Promise<any[]>;
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => ({}))) as LiteratureSearchRequestBody;
@@ -91,9 +168,17 @@ export async function POST(request: Request) {
     const databases = Array.isArray(body.databases) ? body.databases : [];
     const yearFrom = body.yearFrom;
     const yearTo = body.yearTo;
-    const studyType = body.studyType;
     const semanticSearch = body.semanticSearch === true;
     const medspacyFilter = body.medspacyFilter === true;
+    const shouldDeduplicate = body.deduplicate !== false;
+    const useCompiledQueries = body.useCompiledQueries === true;
+    const concepts: ConceptBlock[] = Array.isArray(body.concepts) ? body.concepts : [];
+
+    const studyTypes: string[] = Array.isArray(body.studyTypes)
+      ? body.studyTypes.filter((t) => t && t !== "All Study Types")
+      : body.studyType && body.studyType !== "All Study Types"
+        ? [body.studyType]
+        : [];
 
     if (!query) {
       return NextResponse.json({ error: "Missing query parameter" }, { status: 400, headers: corsHeaders() });
@@ -101,8 +186,6 @@ export async function POST(request: Request) {
 
     // MeSH expansion + ATM + truncation wildcard expansion (applied to both
     // the main research pipeline and the systematic review pipeline).
-    // Expands initial keywords into MeSH synonyms/narrower terms, maps lay
-    // terms to canonical terms (ATM), and supports truncation wildcards (*).
     const meshResult = expandQueryWithMesh(query);
     const meshExpandedQuery = meshResult.expandedQuery || query;
 
@@ -121,22 +204,65 @@ export async function POST(request: Request) {
       ? [...baseDbs, "Semantic Scholar"]
       : baseDbs;
 
-    const apiMap: Record<string, (() => Promise<any[]>) | undefined> = {
-      "PubMed": () => fetchPubMedBrowserless(semanticQuery, yearFrom, yearTo, studyType),
-      "OpenAlex": () => fetchOpenAlex(semanticQuery, yearFrom, yearTo, studyType),
-      "Europe PMC": () => fetchEuropePMC(semanticQuery, yearFrom, yearTo, studyType),
-      "DOAJ": () => fetchDoaj(semanticQuery, yearFrom, yearTo, studyType),
-      "bioRxiv": () => fetchBioRxiv(semanticQuery, yearFrom, yearTo, studyType),
-      "medRxiv": () => fetchMedRxiv(semanticQuery, yearFrom, yearTo, studyType),
-      "Crossref": () => fetchCrossref(semanticQuery, yearFrom, yearTo, studyType),
-      "arXiv": () => fetcharXiv(semanticQuery, yearFrom, yearTo, studyType),
-      "OpenAIRE": () => fetchOpenAIRE(semanticQuery, yearFrom, yearTo, studyType),
-      "dblp": () => fetchDblp(semanticQuery, yearFrom, yearTo, studyType),
-      "Zenodo": () => fetchZenodo(semanticQuery, yearFrom, yearTo, studyType),
-      "Google Scholar": () => fetchGoogleScholarBrowserless(semanticQuery, yearFrom, yearTo, studyType),
-      "Semantic Scholar": () => fetchSemanticScholarBrowserless(semanticQuery, yearFrom, yearTo, studyType),
-      "ClinicalTrials.gov": () => fetchClinicalTrialsGov(semanticQuery, yearFrom, yearTo, studyType),
-      "paper-search-mcp": () => fetchPaperSearchMcp(semanticQuery, "all", yearFrom, yearTo, studyType),
+    // ---------------------------------------------------------------------
+    // Per-track query plan
+    // ---------------------------------------------------------------------
+    const plan =
+      useCompiledQueries && concepts.length > 0
+        ? compileQueryPlan({
+            concepts,
+            studyTypes,
+            databases: dbsToSearch,
+            searchLogic:
+              body.searchLogic === "OR" ? "OR" : body.searchLogic === "NOT" ? "NOT" : "AND",
+            rawQuery: query,
+          })
+        : null;
+
+    const compiledByDatabase = new Map<string, CompiledQuery[]>();
+    if (plan) {
+      for (const compiled of plan.all) {
+        const list = compiledByDatabase.get(compiled.database) || [];
+        list.push(compiled);
+        compiledByDatabase.set(compiled.database, list);
+      }
+    }
+
+    // Databases whose study-type restriction is already inside the query.
+    const nativelyFilteredDatabases = new Set<string>();
+    if (plan) {
+      for (const compiled of plan.all) {
+        if (compiled.studyTypeFilteredNatively) {
+          nativelyFilteredDatabases.add(compiled.database);
+        }
+      }
+    }
+
+    // Terms excluded with NOT — applied locally for every database that cannot
+    // express the exclusion in its own query language.
+    const negatedTerms = concepts
+      .filter((c) => c.negated)
+      .flatMap((c) => [c.label, ...(c.synonyms || [])])
+      .filter((t) => t && t.length > 2);
+    const track1Databases = new Set(["PubMed", "ClinicalTrials.gov"]);
+
+    const apiMap: Record<string, Fetcher | undefined> = {
+      "PubMed": (q, o) => fetchPubMedBrowserless(q, o.yearFrom, o.yearTo, o.studyType),
+      "OpenAlex": (q, o) => fetchOpenAlex(q, o.yearFrom, o.yearTo, o.studyType),
+      "Europe PMC": (q, o) => fetchEuropePMC(q, o.yearFrom, o.yearTo, o.studyType),
+      "DOAJ": (q, o) => fetchDoaj(q, o.yearFrom, o.yearTo, o.studyType),
+      "bioRxiv": (q, o) => fetchBioRxiv(q, o.yearFrom, o.yearTo, o.studyType),
+      "medRxiv": (q, o) => fetchMedRxiv(q, o.yearFrom, o.yearTo, o.studyType),
+      "Crossref": (q, o) => fetchCrossref(q, o.yearFrom, o.yearTo, o.studyType),
+      "arXiv": (q, o) => fetcharXiv(q, o.yearFrom, o.yearTo, o.studyType),
+      "OpenAIRE": (q, o) => fetchOpenAIRE(q, o.yearFrom, o.yearTo, o.studyType),
+      "dblp": (q, o) => fetchDblp(q, o.yearFrom, o.yearTo, o.studyType),
+      "Zenodo": (q, o) => fetchZenodo(q, o.yearFrom, o.yearTo, o.studyType),
+      "Google Scholar": (q, o) => fetchGoogleScholarBrowserless(q, o.yearFrom, o.yearTo, o.studyType),
+      "Semantic Scholar": (q, o) => fetchSemanticScholarBrowserless(q, o.yearFrom, o.yearTo, o.studyType),
+      "ClinicalTrials.gov": (q, o) =>
+        fetchClinicalTrialsGov(q, o.yearFrom, o.yearTo, o.studyType, o.studyTypeArea),
+      "paper-search-mcp": (q, o) => fetchPaperSearchMcp(q, "all", o.yearFrom, o.yearTo, o.studyType),
     };
 
     const selectedApis = dbsToSearch.filter((db) => apiMap[db]);
@@ -145,6 +271,7 @@ export async function POST(request: Request) {
     const allPapers: any[] = [];
     const perDatabaseResults: PerDatabaseResult[] = [];
     const perDatabaseErrors: Record<string, string> = {};
+    const rawRecordsPerDatabase: Record<string, number> = {};
     const succeeded: string[] = [];
     const failed: string[] = [];
 
@@ -166,12 +293,46 @@ export async function POST(request: Request) {
           return { database: db, status: "failed", count: 0, error: "No fetcher mapped" };
         }
         try {
-          const papers = await fetchFn();
+          const compiled = compiledByDatabase.get(db) || [];
+          const queries: string[] = compiled.length > 0 ? compiled.map((c) => c.query) : [semanticQuery];
+          const nativeStudyType = compiled.find((c) => c.nativeStudyType)?.nativeStudyType;
+          const nativeFiltered = nativelyFilteredDatabases.has(db);
+
+          const collected: any[] = [];
+          for (const singleQuery of queries) {
+            const papers = await fetchFn(singleQuery, {
+              yearFrom,
+              yearTo,
+              // The study-type restriction is applied by the database for
+              // Track 1 databases; elsewhere it is enforced below with OR
+              // semantics across every selected type.
+              studyType: nativeFiltered
+                ? undefined
+                : studyTypes.length === 1
+                  ? studyTypes[0]
+                  : undefined,
+              studyTypeArea: nativeStudyType,
+            });
+            collected.push(...papers);
+          }
+
+          let records = dedupeWithinDatabase(collected);
+          if (!nativeFiltered) {
+            records = filterByStudyTypes(records, studyTypes);
+          }
+          if (negatedTerms.length > 0 && !track1Databases.has(db)) {
+            records = filterNegatedConcepts(records, negatedTerms);
+          }
+          records.forEach((p: any) => {
+            if (!p.database) p.database = db;
+            p.sourceBackend = p.sourceBackend || db;
+            p.sources = Array.from(new Set([...(p.sources || []), db]));
+          });
           return {
             database: db,
-            status: papers.length > 0 ? "success" : "empty",
-            count: papers.length,
-            papers,
+            status: records.length > 0 ? "success" : "empty",
+            count: records.length,
+            papers: records,
           };
         } catch (err: any) {
           const message = err?.message || String(err);
@@ -189,13 +350,9 @@ export async function POST(request: Request) {
       if (result.status === "fulfilled") {
         const { database, status, count, papers, error } = result.value;
         perDatabaseResults.push({ database, status, count, error });
+        rawRecordsPerDatabase[database] = count;
         if (status === "success") {
           succeeded.push(database);
-          (papers || []).forEach((p: any) => {
-            if (!p.database) p.database = database;
-            p.sourceBackend = p.sourceBackend || database;
-            p.sources = Array.from(new Set([...(p.sources || []), database]));
-          });
           allPapers.push(...(papers || []));
         } else if (status === "empty") {
           succeeded.push(database);
@@ -217,13 +374,19 @@ export async function POST(request: Request) {
     const selectedWithoutResults = perDatabaseResults.filter((r) => r.status === "empty");
     const selectedFailed = perDatabaseResults.filter((r) => r.status === "failed");
 
-    const totalBeforeDedup = allPapers.length;
-    const deduped = deduplicatePapers(allPapers);
-    const dedupedCount = totalBeforeDedup - deduped.length;
+    // Records identified by the database searches — the PRISMA starting point.
+    const rawRecordCount = allPapers.length;
+    const totalBeforeDedup = rawRecordCount;
 
-    const enriched = deduped.map((p) => ({
+    let workingPapers = allPapers;
+    if (shouldDeduplicate) {
+      workingPapers = deduplicatePapers(workingPapers);
+    }
+    const dedupedCount = totalBeforeDedup - workingPapers.length;
+
+    const enriched = workingPapers.map((p) => ({
       ...p,
-      citationStatus: p.doi ? "unverified" as const : "no-doi" as const,
+      citationStatus: p.doi ? ("unverified" as const) : ("no-doi" as const),
       citationMessage: p.doi ? "Pending verification in Step 2" : "No DOI available",
     }));
 
@@ -231,7 +394,6 @@ export async function POST(request: Request) {
     let citationResults = new Map<string, { valid: boolean; title?: string; message: string }>();
     try {
       const doiEnriched = await enrichPapersWithDois(enriched as any);
-      // Replace enriched in-place with DOI-enriched papers
       (enriched as any[]).splice(0, enriched.length, ...doiEnriched);
     } catch {
       /* DOI enrichment failed — papers keep their existing DOI status */
@@ -249,7 +411,7 @@ export async function POST(request: Request) {
       if (!p.doi) {
         return { ...p, citationStatus: "no-doi" as const, citationMessage: "No DOI available" };
       }
-      const k = p.doi.toLowerCase();
+      const k = p.doi.trim().toLowerCase();
       const r = citationResults.get(k);
       if (r?.valid) {
         return { ...p, citationStatus: "verified" as const, citationMessage: r.message || "DOI verified via Crossref" };
@@ -257,44 +419,66 @@ export async function POST(request: Request) {
       return { ...p, citationStatus: "unverified" as const, citationMessage: r?.message || "DOI not verified via Crossref" };
     });
 
-    // Medspacy clinical relevance filtering — always applied (mandatory).
-    // Removes papers not relevant to the query based on medical concept extraction,
-    // negation detection, and targeted rule matching. Applied to both pipelines.
-    let medspacyMeta: { enabled: boolean; queryConcepts: string[]; negationTerms: string[]; filteredCount: number; totalCount: number };
-    const medResult = filterPapersByMedspacyRelevance(verifiedPapers, query, {
-      threshold: 50,
-      respectNegation: true,
-      respectUncertainty: true,
-    });
-    medspacyMeta = {
-      enabled: true,
-      queryConcepts: medResult.queryConcepts,
-      negationTerms: medResult.negationTerms,
-      filteredCount: medResult.filteredCount,
-      totalCount: medResult.totalCount,
+    // Automated clinical relevance filtering (medspacy-inspired).
+    // Only applied when the user keeps the filter enabled — "Show All Results"
+    // must genuinely return every record the databases returned.
+    let medspacyMeta: {
+      enabled: boolean;
+      queryConcepts: string[];
+      negationTerms: string[];
+      filteredCount: number;
+      totalCount: number;
+      keywordFilteredCount?: number;
     };
-    let relevanceFiltered = medResult.papers.length > 0 ? medResult.papers : verifiedPapers;
+    let relevanceFiltered: any[];
 
-    // Strict keyword-in-title/abstract filter: at least one significant query keyword
-    // must appear in the paper's title or abstract for it to be shown to the user.
-    const keywords = extractQueryKeywords(query);
-    if (keywords.length > 0) {
-      const beforeKeywordCount = relevanceFiltered.length;
-      relevanceFiltered = filterByKeywordPresence(relevanceFiltered, keywords);
-      const keywordFilteredCount = beforeKeywordCount - relevanceFiltered.length;
-      if (keywordFilteredCount > 0) {
-        (medspacyMeta as any).keywordFilteredCount = keywordFilteredCount;
+    if (medspacyFilter) {
+      const medResult = filterPapersByMedspacyRelevance(verifiedPapers, query, {
+        threshold: 50,
+        respectNegation: true,
+        respectUncertainty: true,
+      });
+      medspacyMeta = {
+        enabled: true,
+        queryConcepts: medResult.queryConcepts,
+        negationTerms: medResult.negationTerms,
+        filteredCount: medResult.filteredCount,
+        totalCount: medResult.totalCount,
+      };
+      relevanceFiltered = medResult.papers.length > 0 ? medResult.papers : verifiedPapers;
+
+      // Strict keyword-in-title/abstract filter: at least one significant
+      // query keyword must appear in the paper's title or abstract.
+      const keywords = extractQueryKeywords(query);
+      if (keywords.length > 0) {
+        const beforeKeywordCount = relevanceFiltered.length;
+        relevanceFiltered = filterByKeywordPresence(relevanceFiltered, keywords);
+        const keywordFilteredCount = beforeKeywordCount - relevanceFiltered.length;
+        if (keywordFilteredCount > 0) {
+          medspacyMeta.keywordFilteredCount = keywordFilteredCount;
+        }
       }
+    } else {
+      medspacyMeta = {
+        enabled: false,
+        queryConcepts: [],
+        negationTerms: [],
+        filteredCount: 0,
+        totalCount: verifiedPapers.length,
+      };
+      relevanceFiltered = verifiedPapers;
     }
 
     // If no papers survived relevance filtering, fall back to verified papers so
     // users aren't left with nothing, but mark them as low-relevance.
     let finalPapers: any[];
-    if (relevanceFiltered.length === 0 && verifiedPapers.length > 0) {
+    if (medspacyFilter && relevanceFiltered.length === 0 && verifiedPapers.length > 0) {
       finalPapers = verifiedPapers.map((p) => ({ ...p, _lowRelevance: true }));
     } else {
       finalPapers = relevanceFiltered;
     }
+
+    const relevanceFilteredCount = finalPapers.length;
 
     const verifiedCount = finalPapers.filter((p) => p.citationStatus === "verified").length;
     const unverifiedCount = finalPapers.filter((p) => p.citationStatus === "unverified").length;
@@ -302,6 +486,16 @@ export async function POST(request: Request) {
 
     const citationValidationResults: Record<string, { valid: boolean; title?: string; message: string }> = {};
     citationResults.forEach((v, k) => { citationValidationResults[k] = v; });
+
+    const compiledPlan = plan
+      ? plan.all.map((c) => ({
+          database: c.database,
+          track: c.track,
+          query: c.query,
+          label: c.label,
+        }))
+      : [];
+    const planSummary = plan ? summarizePlan(plan) : [];
 
     // If no papers were returned, provide mock data as fallback
     if (finalPapers.length === 0 && succeeded.length === 0) {
@@ -333,8 +527,13 @@ export async function POST(request: Request) {
           databasesSkipped: 0,
           dedupedCount: 0,
           totalBeforeDedup: 0,
+          rawRecordCount: 0,
+          rawRecordsPerDatabase: {},
+          relevanceFilteredCount: mockEnriched.length,
           citationValidation: { verified: 0, unverified: mockEnriched.length, noDoi: 0, results: {} },
           medspacy: medspacyMeta,
+          compiledPlan,
+          planSummary,
           meshExpansion: {
             originalQuery: query,
             expandedQuery: meshExpandedQuery,
@@ -367,6 +566,9 @@ export async function POST(request: Request) {
         databasesSkipped: skippedDatabases.length,
         dedupedCount,
         totalBeforeDedup,
+        rawRecordCount,
+        rawRecordsPerDatabase,
+        relevanceFilteredCount,
         citationValidation: {
           verified: verifiedCount,
           unverified: unverifiedCount,
@@ -374,6 +576,8 @@ export async function POST(request: Request) {
           results: citationValidationResults,
         },
         medspacy: medspacyMeta,
+        compiledPlan,
+        planSummary,
         meshExpansion: {
           originalQuery: query,
           expandedQuery: meshExpandedQuery,
