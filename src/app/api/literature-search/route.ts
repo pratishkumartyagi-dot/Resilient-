@@ -14,6 +14,7 @@ import {
   fetchZenodo,
   fetchGoogleScholarBrowserless,
   fetchSemanticScholarBrowserless,
+  fetchScienceDirectBrowserless,
   fetchClinicalTrialsGov,
   deduplicatePapers,
   enrichPapersWithDois,
@@ -260,6 +261,7 @@ export async function POST(request: Request) {
       "Zenodo": (q, o) => fetchZenodo(q, o.yearFrom, o.yearTo, o.studyType),
       "Google Scholar": (q, o) => fetchGoogleScholarBrowserless(q, o.yearFrom, o.yearTo, o.studyType),
       "Semantic Scholar": (q, o) => fetchSemanticScholarBrowserless(q, o.yearFrom, o.yearTo, o.studyType),
+      "ScienceDirect": (q, o) => fetchScienceDirectBrowserless(q, o.yearFrom, o.yearTo, o.studyType),
       "ClinicalTrials.gov": (q, o) =>
         fetchClinicalTrialsGov(q, o.yearFrom, o.yearTo, o.studyType, o.studyTypeArea),
       "paper-search-mcp": (q, o) => fetchPaperSearchMcp(q, "all", o.yearFrom, o.yearTo, o.studyType),

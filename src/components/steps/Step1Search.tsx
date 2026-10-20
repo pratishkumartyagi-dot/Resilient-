@@ -55,6 +55,7 @@ const DATABASES = [
   "Zenodo",
   "Google Scholar",
   "Semantic Scholar",
+  "ScienceDirect",
   "ClinicalTrials.gov",
 ];
 
@@ -72,6 +73,7 @@ const DATABASE_URLS: Record<string, string> = {
   Zenodo: "https://zenodo.org/",
   "Google Scholar": "https://scholar.google.com/",
   "Semantic Scholar": "https://www.semanticscholar.org/",
+  "ScienceDirect": "https://www.sciencedirect.com/",
   "ClinicalTrials.gov": "https://clinicaltrials.gov/",
 };
 

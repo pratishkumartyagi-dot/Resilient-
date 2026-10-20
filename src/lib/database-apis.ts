@@ -963,6 +963,7 @@ export async function fetchRealPapers(query: string, databases: string[], yearFr
     "Zenodo": () => fetchZenodo(query, yearFrom, yearTo, studyType),
     "Google Scholar": () => fetchGoogleScholarBrowserless(query, yearFrom, yearTo, studyType),
     "Semantic Scholar": () => fetchSemanticScholarBrowserless(query, yearFrom, yearTo, studyType),
+    "ScienceDirect": () => fetchScienceDirectBrowserless(query, yearFrom, yearTo, studyType),
     "ClinicalTrials.gov": () => fetchClinicalTrialsGov(query, yearFrom, yearTo, studyType),
     "paper-search-mcp": () => fetchPaperSearchMcp(query, "all", yearFrom, yearTo, studyType),
   };
@@ -1040,6 +1041,7 @@ export async function fetchRealPapersWithCounts(query: string, databases: string
     "Zenodo": () => fetchZenodo(query, yearFrom, yearTo, studyType),
     "Google Scholar": () => fetchGoogleScholarBrowserless(query, yearFrom, yearTo, studyType),
     "Semantic Scholar": () => fetchSemanticScholarBrowserless(query, yearFrom, yearTo, studyType),
+    "ScienceDirect": () => fetchScienceDirectBrowserless(query, yearFrom, yearTo, studyType),
     "ClinicalTrials.gov": () => fetchClinicalTrialsGov(query, yearFrom, yearTo, studyType),
     "paper-search-mcp": () => fetchPaperSearchMcp(query, "all", yearFrom, yearTo, studyType),
   };
@@ -1095,6 +1097,7 @@ function getDatabaseBackend(uiDatabase: string): string {
     "Zenodo": "Zenodo API",
     "Google Scholar": "Semantic Scholar Graph API",
     "Semantic Scholar": "Semantic Scholar Graph API",
+    "ScienceDirect": "Semantic Scholar Graph API",
     "ClinicalTrials.gov": "ClinicalTrials.gov API v2",
     "paper-search-mcp": "openags/paper-search-mcp",
   };
