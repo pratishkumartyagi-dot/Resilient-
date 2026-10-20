@@ -591,7 +591,9 @@ export async function fetchBioRxiv(query: string, yearFrom?: string, yearTo?: st
       const abstract = r.abstract || "No abstract available.";
       if (queryTerms.length > 0) {
         const text = `${title} ${abstract}`.toLowerCase();
-        if (!queryTerms.some((t) => text.includes(t))) continue;
+        // Require ALL query terms to be present (not just any one) so that
+        // common stop-words like "of" do not match unrelated papers.
+        if (!queryTerms.every((t) => text.includes(t))) continue;
       }
       papers.push({
         id: `biorxiv-${r.doi || r.journal || Math.random().toString(36).slice(2, 8)}`,
@@ -651,7 +653,9 @@ export async function fetchMedRxiv(query: string, yearFrom?: string, yearTo?: st
       const abstract = r.abstract || "No abstract available.";
       if (queryTerms.length > 0) {
         const text = `${title} ${abstract}`.toLowerCase();
-        if (!queryTerms.some((t) => text.includes(t))) continue;
+        // Require ALL query terms to be present (not just any one) so that
+        // common stop-words like "of" do not match unrelated papers.
+        if (!queryTerms.every((t) => text.includes(t))) continue;
       }
       papers.push({
         id: `medrxiv-${r.doi || r.journal || Math.random().toString(36).slice(2, 8)}`,
