@@ -91,7 +91,12 @@ export default function Step2Results() {
     [dedup.unique]
   );
 
-  const selectedCount = state.papers.filter((p) => p.selected).length;
+  // Count unique papers, not raw records — a unique paper may stand for
+  // several records that were collapsed during deduplication.
+  const selectedCount = useMemo(
+    () => dedup.unique.filter((p) => p.selected).length,
+    [dedup.unique]
+  );
 
   // -------------------------------------------------------------------------
   // Citation validation
@@ -200,8 +205,10 @@ export default function Step2Results() {
   };
 
   const proceedToSynthesis = () => {
-    const selected = state.papers.filter((p) => p.selected);
-    if (selected.length === 0) {
+    // Commit the deduplicated set so downstream steps do not count the same
+    // article once per source database.
+    const uniqueSelected = dedup.unique.filter((p) => p.selected);
+    if (uniqueSelected.length === 0) {
       dispatch({
         type: "SET_ERROR",
         payload: "Please select at least one paper to proceed.",
@@ -210,13 +217,7 @@ export default function Step2Results() {
     }
     dispatch({ type: "SET_ERROR", payload: "" });
 
-    // Commit the deduplicated set so downstream steps do not count the same
-    // article once per source database.
-    const uniqueSelected = dedup.unique.filter((p) => p.selected);
-    if (uniqueSelected.length > 0) {
-      dispatch({ type: "SET_PAPERS", payload: uniqueSelected as unknown as Paper[] });
-    }
-
+    dispatch({ type: "SET_PAPERS", payload: uniqueSelected as unknown as Paper[] });
     dispatch({ type: "SET_STEP", payload: 3 });
   };
 
