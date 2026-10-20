@@ -1,342 +1,103 @@
-// Multivariate data profiling (concept: data-centric-ai-community/fg-data-profiling).
-// Produces descriptive statistics, missingness, outlier diagnostics, correlation
-// matrix, PCA, normality tests and group comparisons for tabular research data.
+// fg-data-profiling style profiler.
+//
+// Feature set mirrors https://github.com/data-centric-ai-community/fg-data-profiling
+// (formerly ydata-profiling / pandas-profiling):
+//
+//   - Type inference ................ type-inference.ts
+//   - Univariate analysis ........... univariate.ts
+//   - Multivariate analysis ........ multivariate.ts
+//   - Alerts / warnings ............. alerts.ts
+//   - Time-series diagnostics ....... timeseries.ts
+//   - Text analysis ................ text.ts
+//   - Compare datasets .............. compare.ts
+//   - HTML / JSON report ............ html-report.ts
+//
+// The report is organised as Overview → Variables → Interactions →
+// Missing values → Duplicate rows → Time series → Text → Alerts →
+// Reproduction, matching the structure of the original report.
 
-export interface ProfileRow {
-  [column: string]: string | number | null | undefined;
+import type {
+  CategoricalProfile,
+  CorrelationPair,
+  DataProfile,
+  DataQualityIssue,
+  DateProfile,
+  DuplicateRowGroup,
+  HistogramBin,
+  NumericProfile,
+  PCAComponent,
+  ProfileAlert,
+  ProfileRow,
+  TextProfile,
+  TimeSeriesProfile,
+} from "./types";
+import {
+  buildHistogram,
+  profileCategoricalColumn,
+  profileDateColumn,
+  profileNumericColumn,
+} from "./univariate";
+import { inferColumnTypes, inferColumnType } from "./type-inference";
+import {
+  analyseMissingValues,
+  correlationMatrix,
+  findDuplicateRows,
+} from "./multivariate";
+import { buildAlerts } from "./alerts";
+import { detectTimeSeries } from "./timeseries";
+import { profileTextColumn } from "./text";
+import { pcaAnalysis } from "./pca";
+import { isMissing } from "./utils";
+
+export * from "./types";
+export { buildAlerts, ALERT_LABELS } from "./alerts";
+export { buildHistogram } from "./univariate";
+export { inferColumnType, inferColumnTypes, looksLikeDate } from "./type-inference";
+export { compareProfiles, summariseDataset } from "./compare";
+export { profileTextColumn } from "./text";
+export { autocorrelation, partialAutocorrelation, profileTimeSeries } from "./timeseries";
+export { correlationMatrix, analyseMissingValues, findDuplicateRows } from "./multivariate";
+export { buildHtmlReport } from "./html-report";
+export { profileToJson } from "./json-report";
+
+export interface ProfileOptions {
+  /** Name shown in the report and used for the reproduction section. */
+  name?: string;
+  /** Maximum number of correlation pairs to keep. */
+  maxCorrelations?: number;
+  /** Number of histogram bins per numeric column. */
+  histogramBins?: number;
+  /** Skip the (more expensive) time-series detection. */
+  skipTimeSeries?: boolean;
 }
 
-export interface NumericProfile {
-  name: string;
-  count: number;
-  missing: number;
-  missingPct: number;
-  min: number;
-  max: number;
-  mean: number;
-  median: number;
-  sd: number;
-  variance: number;
-  cv: number;
-  q1: number;
-  q3: number;
-  iqr: number;
-  skewness: number;
-  kurtosis: number;
-  outliers: number[];
-  outlierCount: number;
-  normality: {
-    shapiroWilkP: number;
-    isNormal: boolean;
-  };
-}
+const ENGINE_NAME = "fg-data-profiling (TypeScript port)";
+const ENGINE_VERSION = "1.0.0";
 
-export interface CorrelationPair {
-  var1: string;
-  var2: string;
-  r: number;
-  pValue: number;
-  significant: boolean;
-  strength: "none" | "weak" | "moderate" | "strong";
-}
-
-export interface PCAComponent {
-  component: number;
-  eigenvalue: number;
-  varianceExplained: number;
-  cumulativeVariance: number;
-  loadings: Record<string, number>;
-}
-
-export interface DataQualityIssue {
-  column: string;
-  type: "missing" | "outlier" | "nonNumeric" | "constant";
-  count: number;
-  percentage: number;
-  description: string;
-}
-
-export interface DataProfile {
-  rowCount: number;
-  columnCount: number;
-  columns: NumericProfile[];
-  correlationMatrix: CorrelationPair[];
-  pca: {
-    components: PCAComponent[];
-    totalVarianceExplained: number;
-  };
-  quality: {
-    completeness: number;
-    missingCells: number;
-    totalCells: number;
-    issues: DataQualityIssue[];
-  };
-  groups: Array<{
-    label: string;
-    value: number;
-    sd?: number;
-    n?: number;
-    ci95?: [number, number];
-  }>;
-}
-
-function quantile(sorted: number[], q: number): number {
-  if (sorted.length === 0) return NaN;
-  if (sorted.length === 1) return sorted[0];
-  const pos = (sorted.length - 1) * q;
-  const base = Math.floor(pos);
-  const rest = pos - base;
-  if (sorted[base + 1] !== undefined) {
-    return sorted[base] + rest * (sorted[base + 1] - sorted[base]);
-  }
-  return sorted[base];
-}
-
-function mean(values: number[]): number {
-  if (values.length === 0) return NaN;
-  return values.reduce((s, v) => s + v, 0) / values.length;
-}
-
-function variance(values: number[], meanVal: number): number {
-  if (values.length < 2) return 0;
-  return values.reduce((s, v) => s + (v - meanVal) ** 2, 0) / (values.length - 1);
-}
-
-function skewness(values: number[], meanVal: number, sd: number): number {
-  if (values.length < 3 || sd === 0) return 0;
-  const n = values.length;
-  const m3 = values.reduce((s, v) => s + (v - meanVal) ** 3, 0) / n;
-  return (n / ((n - 1) * (n - 2))) * (m3 / sd ** 3);
-}
-
-function kurtosis(values: number[], meanVal: number, sd: number): number {
-  if (values.length < 4 || sd === 0) return 0;
-  const n = values.length;
-  const m4 = values.reduce((s, v) => s + (v - meanVal) ** 4, 0) / n;
-  const m2 = values.reduce((s, v) => s + (v - meanVal) ** 2, 0) / n;
-  return (n * (n + 1) / ((n - 1) * (n - 2) * (n - 3))) * (m4 / (m2 ** 2)) - (3 * (n - 1) ** 2) / ((n - 1) * (n - 2));
-}
-
-function shapiroWilkApprox(values: number[]): { shapiroWilkP: number; isNormal: boolean } {
-  const n = values.length;
-  if (n < 3 || n > 5000) return { shapiroWilkP: NaN, isNormal: false };
-  const sorted = [...values].sort((a, b) => a - b);
-  const meanVal = mean(values);
-  const sd = Math.sqrt(variance(values, meanVal));
-  if (sd === 0) return { shapiroWilkP: 1, isNormal: true };
-
-  // Approximate inverse normal CDF for expected order statistics
-  const expectedNormal: number[] = [];
-  for (let i = 1; i <= n; i++) {
-    const p = (i - 0.375) / (n + 0.25);
-    if (p <= 0 || p >= 1) {
-      expectedNormal.push(0);
-      continue;
-    }
-    let z = Math.sqrt(-2 * Math.log(1 - p));
-    z = z - (2.515517 + 0.802853 * z + 0.010328 * z * z) /
-      (1 + 1.432788 * z + 0.189269 * z * z + 0.001308 * z * z * z);
-    expectedNormal.push(z);
-  }
-
-  const meanExp = mean(expectedNormal);
-  const sdExp = Math.sqrt(variance(expectedNormal, meanExp));
-  if (sdExp === 0) return { shapiroWilkP: 1, isNormal: true };
-
-  const cov = sorted.reduce((s, v, i) => s + (v - meanVal) * (expectedNormal[i] - meanExp), 0) / n;
-  const w = (cov ** 2) / (variance(values, meanVal) * variance(expectedNormal, meanExp));
-
-  // Approximate p-value from W statistic
-  let pValue = 1;
-  if (w < 0.5) pValue = 0.001;
-  else if (w < 0.7) pValue = 0.01;
-  else if (w < 0.8) pValue = 0.05;
-  else if (w < 0.9) pValue = 0.1;
-  else pValue = 0.5;
-
-  return { shapiroWilkP: pValue, isNormal: pValue > 0.05 };
-}
-
-export function profileNumeric(name: string, raw: Array<number | undefined>): NumericProfile {
-  const present = raw.filter((v): v is number => typeof v === "number" && Number.isFinite(v));
-  const sorted = [...present].sort((a, b) => a - b);
-  const count = present.length;
-  const missing = raw.length - count;
-  const meanVal = count ? present.reduce((s, v) => s + v, 0) / count : NaN;
-  const varVal = count > 1 ? present.reduce((s, v) => s + (v - meanVal) ** 2, 0) / (count - 1) : 0;
-  const sd = Math.sqrt(varVal);
-  const cv = meanVal !== 0 ? (sd / Math.abs(meanVal)) * 100 : 0;
-  const q1 = quantile(sorted, 0.25);
-  const q3 = quantile(sorted, 0.75);
-  const iqr = q3 - q1;
-  const lo = q1 - 1.5 * iqr;
-  const hi = q3 + 1.5 * iqr;
-  const outliers = sorted.filter((v) => v < lo || v > hi);
-  const normality = count >= 3 ? shapiroWilkApprox(present) : { shapiroWilkP: NaN, isNormal: false };
-
-  return {
-    name,
-    count,
-    missing,
-    missingPct: raw.length ? (missing / raw.length) * 100 : 0,
-    min: count ? sorted[0] : NaN,
-    max: count ? sorted[sorted.length - 1] : NaN,
-    mean: meanVal,
-    median: quantile(sorted, 0.5),
-    sd,
-    variance: varVal,
-    cv,
-    q1,
-    q3,
-    iqr,
-    skewness: skewness(present, meanVal, sd),
-    kurtosis: kurtosis(present, meanVal, sd),
-    outliers,
-    outlierCount: outliers.length,
-    normality,
-  };
-}
-
-export function correlationMatrix(data: ProfileRow[], colNames: string[]): CorrelationPair[] {
-  const pairs: CorrelationPair[] = [];
-  for (let i = 0; i < colNames.length; i++) {
-    for (let j = i + 1; j < colNames.length; j++) {
-      const v1 = colNames[i];
-      const v2 = colNames[j];
-      const paired: Array<[number, number]> = [];
-      for (const row of data) {
-        const a = row[v1];
-        const b = row[v2];
-        if (typeof a === "number" && typeof b === "number" && Number.isFinite(a) && Number.isFinite(b)) {
-          paired.push([a, b]);
-        }
-      }
-      if (paired.length < 3) continue;
-
-      const x = paired.map((p) => p[0]);
-      const y = paired.map((p) => p[1]);
-      const mx = mean(x);
-      const my = mean(y);
-      const sdx = Math.sqrt(variance(x, mx));
-      const sdy = Math.sqrt(variance(y, my));
-
-      if (sdx === 0 || sdy === 0) continue;
-
-      const cov = paired.reduce((s: number, [a, b]: [number, number]) => s + (a - mx) * (b - my), 0) / (paired.length - 1);
-      const r = cov / (sdx * sdy);
-
-      const rClamped = Math.max(-1, Math.min(1, r));
-      const n = paired.length;
-      const t = (rClamped * Math.sqrt(n - 2)) / Math.sqrt(Math.max(1e-10, 1 - rClamped ** 2));
-      const df = n - 2;
-
-      let pValue = 1;
-      if (Math.abs(t) > 3) pValue = 0.01;
-      else if (Math.abs(t) > 2) pValue = 0.05;
-      else if (Math.abs(t) > 1) pValue = 0.2;
-      else pValue = 0.5;
-
-      let strength: "none" | "weak" | "moderate" | "strong" = "none";
-      const absR = Math.abs(rClamped);
-      if (absR >= 0.7) strength = "strong";
-      else if (absR >= 0.4) strength = "moderate";
-      else if (absR >= 0.2) strength = "weak";
-
-      pairs.push({
-        var1: v1,
-        var2: v2,
-        r: rClamped,
-        pValue,
-        significant: pValue < 0.05,
-        strength,
-      });
+function estimateFootprint(rows: ProfileRow[], colNames: string[]): string {
+  let cells = 0;
+  for (const row of rows) {
+    for (const col of colNames) {
+      const value = row[col];
+      if (value === null || value === undefined) continue;
+      cells += typeof value === "number" ? 8 : String(value).length * 2;
     }
   }
-  return pairs.sort((a, b) => Math.abs(b.r) - Math.abs(a.r));
+  if (cells < 1024) return `${cells} B`;
+  if (cells < 1024 * 1024) return `${(cells / 1024).toFixed(1)} KB`;
+  return `${(cells / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-export function pcaAnalysis(data: ProfileRow[], colNames: string[]): PCAComponent[] {
-  const numericCols = colNames.filter((c) => {
-    return data.some((r) => typeof r[c] === "number" && Number.isFinite(r[c]));
-  });
+export function profileDataset(
+  rows: ProfileRow[],
+  options: ProfileOptions = {}
+): DataProfile {
+  const startedAt = Date.now();
+  const name = options.name || "dataset";
+  const colNames = rows.length > 0 ? Object.keys(rows[0]) : [];
+  const maxCorrelations = options.maxCorrelations ?? 200;
+  const histogramBins = options.histogramBins ?? 20;
 
-  if (numericCols.length < 2) return [];
-
-  // Standardize data
-  const standardized: number[][] = [];
-  const colStats: { mean: number; sd: number }[] = [];
-  for (const col of numericCols) {
-    const vals = data.map((r) => r[col]).filter((v): v is number => typeof v === "number" && Number.isFinite(v));
-    const m = mean(vals);
-    const sd = Math.sqrt(variance(vals, m));
-    colStats.push({ mean: m, sd: sd === 0 ? 1 : sd });
-  }
-
-  for (const row of data) {
-    const rowVals: number[] = [];
-    for (let i = 0; i < numericCols.length; i++) {
-      const v = row[numericCols[i]];
-      const val = typeof v === "number" && Number.isFinite(v) ? v : colStats[i].mean;
-      rowVals.push((val - colStats[i].mean) / colStats[i].sd);
-    }
-    standardized.push(rowVals);
-  }
-
-  const nCols = numericCols.length;
-  const covMatrix: number[][] = Array.from({ length: nCols }, () => Array(nCols).fill(0));
-  for (let i = 0; i < nCols; i++) {
-    for (let j = 0; j < nCols; j++) {
-      let sum = 0;
-      for (const row of standardized) {
-        sum += row[i] * row[j];
-      }
-      covMatrix[i][j] = sum / (standardized.length - 1);
-    }
-  }
-
-  // Power iteration for principal components
-  const components: PCAComponent[] = [];
-  let remaining = covMatrix.map((row) => [...row]);
-
-  for (let comp = 0; comp < nCols; comp++) {
-    let v = Array.from({ length: nCols }, () => 1 / Math.sqrt(nCols));
-    for (let iter = 0; iter < 100; iter++) {
-      const newV = Array.from({ length: nCols }, (_, i) =>
-        remaining[i].reduce((s, vj, j) => s + vj * v[j], 0)
-      );
-      const norm = Math.sqrt(newV.reduce((s, v) => s + v * v, 0));
-      if (norm === 0) break;
-      for (let j = 0; j < nCols; j++) v[j] = newV[j] / norm;
-    }
-
-    const eigenvalue = v.reduce((s, v_i, i) => s + v_i * remaining[i].reduce((sum, vj, j) => sum + vj * v[j], 0), 0);
-
-    // Deflate
-    for (let i = 0; i < nCols; i++) {
-      for (let j = 0; j < nCols; j++) {
-        remaining[i][j] -= eigenvalue * v[i] * v[j];
-      }
-    }
-
-    components.push({
-      component: comp + 1,
-      eigenvalue,
-      varianceExplained: eigenvalue / nCols,
-      cumulativeVariance: 0,
-      loadings: Object.fromEntries(numericCols.map((col, idx) => [col, v[idx]])),
-    });
-  }
-
-  let cumVar = 0;
-  for (const comp of components) {
-    cumVar += comp.varianceExplained;
-    comp.cumulativeVariance = cumVar;
-  }
-
-  return components;
-}
-
-export function profileDataset(rows: ProfileRow[]): DataProfile {
   if (rows.length === 0) {
     return {
       rowCount: 0,
@@ -344,35 +105,144 @@ export function profileDataset(rows: ProfileRow[]): DataProfile {
       columns: [],
       correlationMatrix: [],
       pca: { components: [], totalVarianceExplained: 0 },
-      quality: { completeness: 0, missingCells: 0, totalCells: 0, issues: [{ column: "all", type: "missing", count: 0, percentage: 0, description: "No data rows were parsed." }] },
+      quality: {
+        completeness: 0,
+        missingCells: 0,
+        totalCells: 0,
+        issues: [
+          {
+            column: "all",
+            type: "missing",
+            count: 0,
+            percentage: 0,
+            description: "No data rows were parsed.",
+          },
+        ],
+      },
       groups: [],
+      name,
+      types: [],
+      numericProfiles: [],
+      categoricalProfiles: [],
+      dateProfiles: [],
+      textProfiles: [],
+      histograms: {},
+      alerts: [],
+      missingAnalysis: {
+        totalCells: 0,
+        missingCells: 0,
+        completeness: 0,
+        perColumn: [],
+        patterns: [],
+        correlations: [],
+      },
+      duplicates: [],
+      duplicateCount: 0,
+      timeSeries: [],
+      summary: {
+        name,
+        rowCount: 0,
+        columnCount: 0,
+        memoryFootprint: "0 B",
+        completeness: 0,
+        duplicates: 0,
+        typeCounts: {},
+      },
+      reproduction: {
+        generatedAt: new Date().toISOString(),
+        engine: ENGINE_NAME,
+        engineVersion: ENGINE_VERSION,
+        durationMs: Date.now() - startedAt,
+        rowCount: 0,
+        columnCount: 0,
+        configuration: {},
+      },
     };
   }
 
-  const colNames = Object.keys(rows[0]);
-  const numericCols = colNames.filter((col) => rows.some((r) => typeof r[col] === "number" && Number.isFinite(r[col])));
+  // ---- Type inference ---------------------------------------------------
+  const types = inferColumnTypes(rows, colNames);
+  const typeByName = new Map(types.map((t) => [t.name, t]));
 
-  const columns: NumericProfile[] = [];
-  for (const col of numericCols) {
-    const raw = rows.map((r) => (typeof r[col] === "number" && Number.isFinite(r[col]) ? r[col] : undefined));
-    columns.push(profileNumeric(col, raw));
-  }
-
-  const correlationMatrixResult = correlationMatrix(rows, numericCols);
-  const pca = pcaAnalysis(rows, numericCols);
-
-  const totalCells = rows.length * colNames.length;
-  const missingCells = rows.reduce((sum, r) => sum + colNames.filter((c) => r[c] === undefined || r[c] === null || r[c] === "").length, 0);
-  const completeness = totalCells ? 1 - missingCells / totalCells : 1;
-
-  const issues: Array<{ column: string; type: "missing" | "outlier" | "nonNumeric" | "constant"; count: number; percentage: number; description: string }> = [];
+  // ---- Univariate --------------------------------------------------------
+  const numericProfiles: NumericProfile[] = [];
+  const categoricalProfiles: CategoricalProfile[] = [];
+  const dateProfiles: DateProfile[] = [];
+  const textProfiles: TextProfile[] = [];
+  const histograms: Record<string, HistogramBin[]> = {};
 
   for (const col of colNames) {
+    const type = typeByName.get(col)?.type;
+    const values = rows.map((row) => row[col]);
+    const present = values.filter((v) => !isMissing(v));
+
+    if (type === "Date") {
+      dateProfiles.push(profileDateColumn(col, values));
+      continue;
+    }
+
+    if (type === "Numeric" || type === "Integer" || type === "ID") {
+      const numeric = present
+        .map((v) => (typeof v === "number" ? v : Number(v)))
+        .filter((v) => Number.isFinite(v));
+      const raw: Array<number | undefined> = values.map((v) => {
+        if (isMissing(v)) return undefined;
+        const parsed = typeof v === "number" ? v : Number(v);
+        return Number.isFinite(parsed) ? parsed : undefined;
+      });
+      const profile = profileNumericColumn(col, raw);
+      numericProfiles.push(profile);
+      histograms[col] = buildHistogram(numeric, histogramBins);
+      continue;
+    }
+
+    if (type === "Text") {
+      textProfiles.push(profileTextColumn(col, values));
+      continue;
+    }
+
+    // Categorical, Boolean, URL, Email, Constant, Empty and mixed columns
+    // are all summarised as frequency tables.
+    categoricalProfiles.push(profileCategoricalColumn(col, values));
+  }
+
+  // ---- Multivariate ------------------------------------------------------
+  // Identifier columns are excluded from correlations and PCA — a row counter
+  // is not a measured variable.
+  const numericColumnNames = numericProfiles
+    .filter((c) => typeByName.get(c.name)?.type !== "ID")
+    .map((c) => c.name);
+  const correlations: CorrelationPair[] = correlationMatrix(rows, numericColumnNames).slice(
+    0,
+    maxCorrelations
+  );
+  const pca: PCAComponent[] = pcaAnalysis(rows, numericColumnNames);
+  const missingAnalysis = analyseMissingValues(rows, colNames);
+  const { groups: duplicateGroups, duplicateCount } = findDuplicateRows(rows, colNames);
+
+  // ---- Time series -------------------------------------------------------
+  let timeSeries: TimeSeriesProfile[] = [];
+  if (!options.skipTimeSeries) {
+    const dateColumns = dateProfiles.map((c) => c.name);
+    // Identifier columns are excluded — a row counter is not a measurement.
+    const timeSeriesValues = numericProfiles
+      .filter((c) => typeByName.get(c.name)?.type !== "ID")
+      .map((c) => c.name);
+    timeSeries = detectTimeSeries(rows, dateColumns, timeSeriesValues);
+  }
+
+  // ---- Quality issues ----------------------------------------------------
+  const issues: DataQualityIssue[] = [];
+  for (const col of colNames) {
     const values = rows.map((r) => r[col]);
-    const nonNumeric = values.filter((v) => v !== null && v !== undefined && v !== "" && typeof v !== "number").length;
-    const missing = values.filter((v) => v === undefined || v === null || v === "").length;
-    const numericVals = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v));
-    const outliers = numericVals.length > 0 ? profileNumeric(col, numericVals).outliers : [];
+    const missing = values.filter((v) => isMissing(v)).length;
+    const nonNumeric = values.filter(
+      (v) => !isMissing(v) && typeof v !== "number"
+    ).length;
+    const numericVals = values.filter(
+      (v): v is number => typeof v === "number" && Number.isFinite(v)
+    );
+    const distinctNumeric = new Set(numericVals).size;
 
     if (missing > 0) {
       issues.push({
@@ -392,16 +262,7 @@ export function profileDataset(rows: ProfileRow[]): DataProfile {
         description: `${nonNumeric} non-numeric value(s)`,
       });
     }
-    if (outliers.length > 0) {
-      issues.push({
-        column: col,
-        type: "outlier",
-        count: outliers.length,
-        percentage: (outliers.length / numericVals.length) * 100,
-        description: `${outliers.length} potential outlier(s) beyond 1.5×IQR`,
-      });
-    }
-    if (numericVals.length > 0 && new Set(numericVals).size === 1) {
+    if (numericVals.length > 0 && distinctNumeric === 1) {
       issues.push({
         column: col,
         type: "constant",
@@ -411,20 +272,51 @@ export function profileDataset(rows: ProfileRow[]): DataProfile {
       });
     }
   }
+  if (duplicateCount > 0) {
+    issues.push({
+      column: "(dataset)",
+      type: "duplicate",
+      count: duplicateCount,
+      percentage: (duplicateCount / rows.length) * 100,
+      description: `${duplicateCount} duplicated row(s) across ${duplicateGroups.length} pattern(s)`,
+    });
+  }
+
+  // ---- Alerts ------------------------------------------------------------
+  const alerts: ProfileAlert[] = buildAlerts({
+    rows,
+    columnNames: colNames,
+    types,
+    numericProfiles,
+    categoricalProfiles,
+    correlations,
+    missingAnalysis,
+    duplicateGroups,
+    duplicateCount,
+  });
+
+  const typeCounts: Record<string, number> = {};
+  for (const column of types) {
+    typeCounts[column.type] = (typeCounts[column.type] || 0) + 1;
+  }
+
+  const memoryFootprint = estimateFootprint(rows, colNames);
+  const durationMs = Date.now() - startedAt;
 
   return {
     rowCount: rows.length,
     columnCount: colNames.length,
-    columns,
-    correlationMatrix: correlationMatrixResult,
+    // Backwards-compatible fields used by the auto-analyst report.
+    columns: numericProfiles,
+    correlationMatrix: correlations,
     pca: {
       components: pca,
       totalVarianceExplained: pca.reduce((s, c) => s + c.varianceExplained, 0),
     },
     quality: {
-      completeness: completeness * 100,
-      missingCells,
-      totalCells,
+      completeness: missingAnalysis.completeness,
+      missingCells: missingAnalysis.missingCells,
+      totalCells: missingAnalysis.totalCells,
       issues,
     },
     groups: rows.map((r) => ({
@@ -433,5 +325,44 @@ export function profileDataset(rows: ProfileRow[]): DataProfile {
       sd: typeof r.sd === "number" ? r.sd : undefined,
       n: typeof r.n === "number" ? r.n : undefined,
     })),
+
+    name,
+    types,
+    numericProfiles,
+    categoricalProfiles,
+    dateProfiles,
+    textProfiles,
+    histograms,
+    alerts,
+    missingAnalysis,
+    duplicates: duplicateGroups,
+    duplicateCount,
+    timeSeries,
+    summary: {
+      name,
+      rowCount: rows.length,
+      columnCount: colNames.length,
+      memoryFootprint,
+      completeness: missingAnalysis.completeness,
+      duplicates: duplicateCount,
+      typeCounts,
+    },
+    reproduction: {
+      generatedAt: new Date().toISOString(),
+      engine: ENGINE_NAME,
+      engineVersion: ENGINE_VERSION,
+      durationMs,
+      rowCount: rows.length,
+      columnCount: colNames.length,
+      configuration: {
+        title: name,
+        memoryFootprint,
+        maxCorrelations: String(maxCorrelations),
+        histogramBins: String(histogramBins),
+        timeSeries: options.skipTimeSeries ? "disabled" : "enabled",
+      },
+    },
   };
 }
+
+export type { DuplicateRowGroup, TextProfile, DateProfile, CategoricalProfile };

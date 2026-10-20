@@ -6,9 +6,12 @@ import {
   LineChart, Line, Scatter, PieChart, Pie, Cell, ComposedChart,
   AreaChart, Area, Legend
 } from "recharts";
-import { Download, Play, RefreshCw, Type, FileText, Sparkles, Loader2, CheckCircle2, Upload, File, Edit3 } from "lucide-react";
+import { Download, Play, RefreshCw, Type, FileText, Sparkles, Loader2, CheckCircle2, Upload, File, Edit3, Copy } from "lucide-react";
 import { downloadMarkdownAsWord, downloadMarkdownAsPDF, downloadMarkdownAsLaTeX } from "@/lib/exporters";
-import { profileDataset, type ProfileRow, type NumericProfile, type CorrelationPair, type PCAComponent, type DataQualityIssue, type DataProfile } from "@/lib/data-profiling";
+import { profileDataset, type ProfileRow, type DataProfile } from "@/lib/data-profiling";
+import { buildHtmlReport } from "@/lib/data-profiling/html-report";
+import { profileToJson } from "@/lib/data-profiling/json-report";
+import DataProfilePanels from "@/components/DataProfilePanels";
 import { buildAutoAnalystReportAsync } from "@/lib/auto-analyst";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
@@ -598,146 +601,52 @@ export default function StatisticalAnalysisTab() {
                   <FileText size={16} className="text-yellow-400" /> Data Profile
                 </h3>
                 <p className="text-xs text-blue-300">
-                  Descriptive statistics, correlation matrix, PCA, normality tests, and data quality diagnostics.
+                  Full exploratory data analysis in the fg-data-profiling style:
+                  type inference, univariate/multivariate analysis, alerts,
+                  missing-value patterns, duplicates, time-series diagnostics
+                  and text analysis.
                 </p>
               </div>
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
-              <div className="bg-blue-950 border border-blue-800 rounded-lg p-3">
-                <div className="text-xs text-blue-400 mb-1">Rows</div>
-                <div className="text-lg font-bold text-white">{profile.rowCount}</div>
-              </div>
-              <div className="bg-blue-950 border border-blue-800 rounded-lg p-3">
-                <div className="text-xs text-blue-400 mb-1">Columns</div>
-                <div className="text-lg font-bold text-white">{profile.columnCount}</div>
-              </div>
-              <div className="bg-blue-950 border border-blue-800 rounded-lg p-3">
-                <div className="text-xs text-blue-400 mb-1">Completeness</div>
-                <div className="text-lg font-bold text-white">{profile.quality.completeness.toFixed(1)}%</div>
-              </div>
+            <DataProfilePanels profile={profile} />
+            <div className="mt-3 flex gap-2 flex-wrap">
+              <button
+                onClick={() => {
+                  const html = buildHtmlReport(profile, {
+                    title: `Profiling Report — ${fileUploaded?.name || "dataset"}`,
+                  });
+                  const blob = new Blob([html], { type: "text/html" });
+                  const url = URL.createObjectURL(blob);
+                  const link = document.createElement("a");
+                  link.href = url;
+                  link.download = `${(fileUploaded?.name || "profile").replace(/\.[^/.]+$/, "")}-profile.html`;
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                  URL.revokeObjectURL(url);
+                }}
+                className="text-sm bg-blue-900/50 text-blue-200 px-3 py-2 rounded hover:bg-blue-900/70 flex items-center gap-1"
+              >
+                <Download size={12} /> Export HTML report
+              </button>
+              <button
+                onClick={() => {
+                  const json = profileToJson(profile);
+                  const blob = new Blob([json], { type: "application/json" });
+                  const url = URL.createObjectURL(blob);
+                  const link = document.createElement("a");
+                  link.href = url;
+                  link.download = `${(fileUploaded?.name || "profile").replace(/\.[^/.]+$/, "")}-profile.json`;
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                  URL.revokeObjectURL(url);
+                }}
+                className="text-sm bg-blue-900/50 text-blue-200 px-3 py-2 rounded hover:bg-blue-900/70 flex items-center gap-1"
+              >
+                <Copy size={12} /> Export JSON profile
+              </button>
             </div>
-
-            {/* Column statistics table */}
-            <div className="mb-4">
-              <h4 className="text-sm font-semibold text-blue-200 mb-2">Column Statistics</h4>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm border-collapse">
-                  <thead>
-                    <tr className="border-b border-blue-800 text-xs text-blue-400">
-                      {[
-                        "Variable", "n", "Missing (%)", "Mean", "SD", "Median", "Min", "Max", "IQR", "Skew", "Normal?"
-                      ].map((h) => (
-                        <th key={h} className="text-left pb-2 pr-2">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="text-blue-200 divide-y divide-blue-900/50">
-                    {profile.columns.map((c) => (
-                      <tr key={c.name} className="hover:bg-blue-950/50">
-                        <td className="pb-2 pr-2 font-mono">{c.name}</td>
-                        <td className="pb-2 pr-2">{c.count}</td>
-                        <td className="pb-2 pr-2">{c.missingPct.toFixed(1)}%</td>
-                        <td className="pb-2 pr-2">{Number.isFinite(c.mean) ? c.mean.toFixed(2) : "—"}</td>
-                        <td className="pb-2 pr-2">{Number.isFinite(c.sd) ? c.sd.toFixed(2) : "—"}</td>
-                        <td className="pb-2 pr-2">{Number.isFinite(c.median) ? c.median.toFixed(2) : "—"}</td>
-                        <td className="pb-2 pr-2">{Number.isFinite(c.min) ? c.min.toFixed(2) : "—"}</td>
-                        <td className="pb-2 pr-2">{Number.isFinite(c.max) ? c.max.toFixed(2) : "—"}</td>
-                        <td className="pb-2 pr-2">{Number.isFinite(c.iqr) ? c.iqr.toFixed(2) : "—"}</td>
-                        <td className="pb-2 pr-2">{Number.isFinite(c.skewness) ? c.skewness.toFixed(2) : "—"}</td>
-                        <td className="pb-2 pr-2">
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-xs ${c.normality.isNormal ? "text-emerald-400 border border-emerald-900/50 bg-emerald-900/20" : "text-amber-400 border border-amber-900/50 bg-amber-900/20"}`}
-                          >
-                            {c.normality.isNormal ? "Normal" : "Non-normal"}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Correlation matrix */}
-            {profile.correlationMatrix.length > 0 && (
-              <div className="mb-4 border border-blue-800 rounded-lg bg-blue-950/50 p-3">
-                <h4 className="text-sm font-semibold text-blue-200 mb-2">Correlation Matrix (Pearson)</h4>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm border-collapse">
-                    <thead>
-                      <tr className="border-b border-blue-800 text-xs text-blue-400">
-                        <th className="text-left pb-2 pr-2">Var 1</th>
-                        <th className="text-left pb-2 pr-2">Var 2</th>
-                        <th className="text-left pb-2 pr-2">r</th>
-                        <th className="text-left pb-2 pr-2">p-value</th>
-                        <th className="text-left pb-2 pr-2">Sig.</th>
-                        <th className="text-left pb-2 pr-2">Strength</th>
-                      </tr>
-                    </thead>
-                    <tbody className="text-blue-200 divide-y divide-blue-900/50">
-                      {profile.correlationMatrix.map((c) => (
-                        <tr key={`${c.var1}-${c.var2}`} className="hover:bg-blue-950/50">
-                          <td className="pb-2 pr-2 font-mono">{c.var1}</td>
-                          <td className="pb-2 pr-2 font-mono">{c.var2}</td>
-                          <td className="pb-2 pr-2">{c.r.toFixed(3)}</td>
-                          <td className="pb-2 pr-2">{c.pValue.toFixed(3)}</td>
-                          <td className="pb-2 pr-2">{c.significant ? "Yes" : "No"}</td>
-                          <td className="pb-2 pr-2">{c.strength}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* PCA */}
-            {profile.pca.components.length > 0 && (
-              <div className="mb-4 border border-blue-800 rounded-lg bg-blue-950/50 p-3">
-                <h4 className="text-sm font-semibold text-blue-200 mb-2">Principal Component Analysis</h4>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm border-collapse">
-                    <thead>
-                      <tr className="border-b border-blue-800 text-xs text-blue-400">
-                        <th className="text-left pb-2 pr-2">Component</th>
-                        <th className="text-left pb-2 pr-2">Eigenvalue</th>
-                        <th className="text-left pb-2 pr-2">Variance Explained</th>
-                        <th className="text-left pb-2 pr-2">Cumulative</th>
-                      </tr>
-                    </thead>
-                    <tbody className="text-blue-200 divide-y divide-blue-900/50">
-                      {profile.pca.components.map((c) => (
-                        <tr key={`PC${c.component}`} className="hover:bg-blue-950/50">
-                          <td className="pb-2 pr-2 font-mono">PC{c.component}</td>
-<td className="pb-2 pr-2">{c.eigenvalue.toFixed(3)}</td>
-<td className="pb-2 pr-2">{`${(c.varianceExplained * 100).toFixed(1)}%`}</td>
-<td className="pb-2 pr-2">{`${(c.cumulativeVariance * 100).toFixed(1)}%`}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <p className="mt-2 text-xs text-blue-400">
-                  Total variance explained: {`${(profile.pca.totalVarianceExplained * 100).toFixed(1)}%`}
-                </p>
-              </div>
-            )}
-
-            {/* Data quality issues */}
-            {profile.quality.issues.length > 0 && (
-              <div className="mb-4 border border-blue-800 rounded-lg bg-blue-950/50 p-3">
-                <h4 className="text-sm font-semibold text-blue-200 mb-2">Data Quality Issues</h4>
-                <ul className="text-xs text-blue-200 space-y-1">
-                  {profile.quality.issues.map((issue) => (
-                    <li key={`${issue.column}-${issue.type}`} className="flex items-center gap-2">
-                      <span className="text-amber-400">{issue.type}</span>
-                      <span className="font-mono">{issue.column}</span>: <span>{issue.description}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
           </div>
         )}
 

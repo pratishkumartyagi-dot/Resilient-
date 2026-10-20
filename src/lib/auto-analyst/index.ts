@@ -3,6 +3,7 @@
 // narrative report with descriptive statistics, comparisons and recommendations.
 
 import type { DataProfile, NumericProfile } from "@/lib/data-profiling";
+import { ALERT_LABELS } from "@/lib/data-profiling/alerts";
 
 export interface AutoReportOptions {
   title?: string;
@@ -49,10 +50,9 @@ function buildDataQualitySection(profile: DataProfile): string {
 function buildCorrelationSection(profile: DataProfile): string {
   const { correlationMatrix } = profile;
   if (correlationMatrix.length === 0) {
-    return "## Correlation Matrix\n\nInsufficient numeric data for correlation analysis.\n";
+    return "Insufficient numeric data for correlation analysis.\n";
   }
   const lines: string[] = [];
-  lines.push("## Correlation Matrix (Pearson)");
   lines.push("");
   lines.push("| Variable 1 | Variable 2 | r | p-value | Significant | Strength |");
   lines.push("| --- | --- | --- | --- | --- | --- |");
@@ -81,10 +81,9 @@ function buildCorrelationSection(profile: DataProfile): string {
 function buildPCASection(profile: DataProfile): string {
   const { pca } = profile;
   if (pca.components.length === 0) {
-    return "## Principal Component Analysis\n\nInsufficient numeric variables for PCA.\n";
+    return "Insufficient numeric variables for PCA.\n";
   }
   const lines: string[] = [];
-  lines.push("## Principal Component Analysis");
   lines.push("");
   lines.push("| Component | Eigenvalue | Variance Explained | Cumulative Variance |");
   lines.push("| --- | --- | --- | --- |");
@@ -156,6 +155,50 @@ function buildFindings(profile: DataProfile): string {
   return findings.map((f) => `- ${f}`).join("\n");
 }
 
+function buildAlertsSection(profile: DataProfile): string {
+  const alerts = profile.alerts;
+  if (alerts.length === 0) {
+    return "## Alerts\n\nNo data quality alerts were raised.\n";
+  }
+  const lines: string[] = [];
+  lines.push("## 3. Alerts");
+  lines.push("");
+  lines.push(
+    "The following data-quality checks were raised (modeled on the fg-data-profiling alerts engine):"
+  );
+  lines.push("");
+  lines.push(
+    "| Severity | Check | Issue | Detail |"
+  );
+  lines.push("| --- | --- | --- | --- |");
+  for (const a of alerts) {
+    const columns = a.columns ? ` (${a.columns.join(", ")})` : "";
+    lines.push(
+      `| ${a.severity}${columns} | ${ALERT_LABELS[a.type] || a.type} | ${escapeMd(a.title)} | ${escapeMd(a.description)} |`
+    );
+  }
+  return lines.join("\n");
+}
+
+function escapeMd(s: string): string {
+  return s.replace(/\|/g, "\\|").replace(/\n/g, " ");
+}
+
+function buildReproductionSection(profile: DataProfile): string {
+  const r = profile.reproduction;
+  const lines: string[] = [];
+  lines.push("## 9. Reproduction");
+  lines.push("");
+  lines.push("- Engine: " + r.engine + " v" + r.engineVersion);
+  lines.push("- Generated: " + new Date(r.generatedAt).toLocaleString());
+  lines.push("- Duration: " + r.durationMs + " ms");
+  lines.push("- Records / variables: " + r.rowCount + " / " + r.columnCount);
+  for (const [key, value] of Object.entries(r.configuration)) {
+    lines.push(`- ${key}: ${value}`);
+  }
+  return lines.join("\n");
+}
+
 function buildReportBody(profile: DataProfile, title: string): string {
   const valueProfile = profile.columns.find((c) => c.name === "value");
   const outlierSection = valueProfile && valueProfile.outlierCount > 0
@@ -177,27 +220,31 @@ function buildReportBody(profile: DataProfile, title: string): string {
     "",
     buildDataQualitySection(profile),
     "",
-    "## 3. Distribution & Outliers",
+    buildAlertsSection(profile),
+    "",
+    "## 4. Distribution & Outliers",
     "",
     outlierSection,
     "",
-    "## 4. Correlation Matrix",
+    "## 5. Correlation Matrix",
     "",
     buildCorrelationSection(profile),
     "",
-    "## 5. Principal Component Analysis",
+    "## 6. Principal Component Analysis",
     "",
     buildPCASection(profile),
     "",
-    "## 6. Group Comparisons",
+    "## 7. Group Comparisons",
     "",
     buildComparisons(profile),
     "",
-    "## 7. Key Findings",
+    "## 8. Key Findings",
     "",
     buildFindings(profile),
     "",
-    "## 8. Limitations & Recommendations",
+    buildReproductionSection(profile),
+    "",
+    "## 10. Limitations & Recommendations",
     "",
     "- These are descriptive statistics from summary inputs; formal inference requires the raw observations.",
     "- Providing SD and n for every group enables 95% confidence intervals.",

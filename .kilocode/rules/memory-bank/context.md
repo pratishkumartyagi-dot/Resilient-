@@ -97,6 +97,14 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
 
 ## Recently Completed
 
+- [x] **Statistical Analysis tab — fg-data-profiling style profiling (2026-10-20, v0.1.9)**
+  - [x] New `src/lib/data-profiling/` module implementing the fg-data-profiling feature set: type inference, univariate/multivariate analysis, alerts engine, missing-value patterns, duplicate detection, time-series diagnostics (ACF/PACF, trend, seasonality), text analysis (scripts, blocks, casing, common words), dataset comparison, HTML + JSON report export.
+  - [x] New `src/components/DataProfilePanels.tsx` rendering Overview cards, Alerts table, Variable types, Numerical/Categorical/Temporal/Text variables, histograms (recharts), correlations (Pearson + Spearman), PCA, duplicates, time-series sparklines and Reproduction section.
+  - [x] `StatisticalAnalysisTab.tsx` now renders `DataProfilePanels` on file upload and offers HTML report + JSON profile export.
+  - [x] `auto-analyst/index.ts` report extended with numbered Alerts section (severity-coloured) and Reproduction section (engine, duration, config).
+  - [x] Fixed kurtosis formula (bias-corrected sample G2), ID-column detection (unique numerics flagged as identifiers and excluded from correlations/PCA/time-series), missing-value alerts for all column types.
+  - [x] Verified: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅; live profiler test on a synthetic 122-row cohort confirmed type inference, alerts, correlations, duplicates, histograms, HTML/JSON export.
+
 - [x] **Systematic Review pipeline rebuild (2026-10-20, v0.1.9)**
   - [x] Concept extraction library (Gemini + local parser) with roles, required/optional, synonyms, MeSH
   - [x] Per-track query compiler (Track 1 field-tagged PubMed/ClinicalTrials.gov, Track 2 simple databases, Track 3 preprint servers)
