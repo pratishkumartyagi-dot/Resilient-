@@ -25,6 +25,10 @@ export interface Paper {
   citationMessage?: string;
   /** IDs of all raw records collapsed into this unique paper. */
   memberIds?: string[];
+  /** SLR screening fields */
+  screened?: boolean;
+  included?: boolean;
+  screeningReason?: string;
 }
 
 export interface SynthesisRow {
@@ -161,6 +165,24 @@ export interface AppState {
   predictionReportNotes: string;
   predictionCaptumEnabled: boolean;
   predictionCaptumResults: string;
+  /** Automated SLR state */
+  slrFramework: "PICO" | "PECO" | "PECOT" | "freeflow";
+  slrPopulation: string;
+  slrIntervention: string;
+  slrComparator: string;
+  slrOutcome: string;
+  slrTimeframe: string;
+  slrFreeQuery: string;
+  slrYearFrom: string;
+  slrYearTo: string;
+  slrDatabases: string[];
+  slrPapers: Paper[];
+  slrScreenedPapers: Paper[];
+  slrIncludedPapers: Paper[];
+  slrSynthesisRows: SynthesisRow[];
+  slrStep: number;
+  slrResults: string;
+  slrPrismaCounts: { identified: number; screened: number; eligible: number; included: number };
 }
 
 type Action =
@@ -230,7 +252,19 @@ type Action =
   | { type: "SET_PREDICTION_IMPORTANCE_METHOD"; payload: "shap" | "permutation" | "captum" | "both" | "all" | null }
   | { type: "SET_PREDICTION_REPORT_NOTES"; payload: string }
   | { type: "SET_PREDICTION_CAPTUM_ENABLED"; payload: boolean }
-  | { type: "SET_PREDICTION_CAPTUM_RESULTS"; payload: string };
+  | { type: "SET_PREDICTION_CAPTUM_RESULTS"; payload: string }
+  /** Automated SLR actions */
+  | { type: "SET_SLR_FRAMEWORK"; payload: "PICO" | "PECO" | "PECOT" | "freeflow" }
+  | { type: "SET_SLR_FIELD"; payload: { field: "slrPopulation" | "slrIntervention" | "slrComparator" | "slrOutcome" | "slrTimeframe" | "slrFreeQuery" | "slrYearFrom" | "slrYearTo"; value: string } }
+  | { type: "SET_SLR_DATABASES"; payload: string[] }
+  | { type: "SET_SLR_PAPERS"; payload: Paper[] }
+  | { type: "SET_SLR_SCREENED"; payload: Paper[] }
+  | { type: "SET_SLR_INCLUDED"; payload: Paper[] }
+  | { type: "SET_SLR_SYNTHESIS"; payload: SynthesisRow[] }
+  | { type: "SET_SLR_STEP"; payload: number }
+  | { type: "SET_SLR_RESULTS"; payload: string }
+  | { type: "SET_SLR_PRISMA"; payload: { identified: number; screened: number; eligible: number; included: number } }
+  | { type: "RESET_SLR" };
 
 const initialState: AppState = {
   currentTab: "main",
@@ -328,7 +362,47 @@ const initialState: AppState = {
   predictionReportNotes: "",
   predictionCaptumEnabled: false,
   predictionCaptumResults: "",
+  /** Automated SLR initial state */
+  slrFramework: "PICO",
+  slrPopulation: "",
+  slrIntervention: "",
+  slrComparator: "",
+  slrOutcome: "",
+  slrTimeframe: "",
+  slrFreeQuery: "",
+  slrYearFrom: "",
+  slrYearTo: "",
+  slrDatabases: [],
+  slrPapers: [],
+  slrScreenedPapers: [],
+  slrIncludedPapers: [],
+  slrSynthesisRows: [],
+  slrStep: 1,
+  slrResults: "",
+  slrPrismaCounts: { identified: 0, screened: 0, eligible: 0, included: 0 },
 };
+
+function getInitialSLRState(): Partial<AppState> {
+  return {
+    slrFramework: "PICO",
+    slrPopulation: "",
+    slrIntervention: "",
+    slrComparator: "",
+    slrOutcome: "",
+    slrTimeframe: "",
+    slrFreeQuery: "",
+    slrYearFrom: "",
+    slrYearTo: "",
+    slrDatabases: [],
+    slrPapers: [],
+    slrScreenedPapers: [],
+    slrIncludedPapers: [],
+    slrSynthesisRows: [],
+    slrStep: 1,
+    slrResults: "",
+    slrPrismaCounts: { identified: 0, screened: 0, eligible: 0, included: 0 },
+  };
+}
 
 function appReducer(state: AppState, action: Action): AppState {
   switch (action.type) {
@@ -545,6 +619,29 @@ function appReducer(state: AppState, action: Action): AppState {
       return { ...state, predictionCaptumEnabled: action.payload };
     case "SET_PREDICTION_CAPTUM_RESULTS":
       return { ...state, predictionCaptumResults: action.payload };
+    /** Automated SLR actions */
+    case "SET_SLR_FRAMEWORK":
+      return { ...state, slrFramework: action.payload };
+    case "SET_SLR_FIELD":
+      return { ...state, [action.payload.field]: action.payload.value };
+    case "SET_SLR_DATABASES":
+      return { ...state, slrDatabases: action.payload };
+    case "SET_SLR_PAPERS":
+      return { ...state, slrPapers: action.payload };
+    case "SET_SLR_SCREENED":
+      return { ...state, slrScreenedPapers: action.payload };
+    case "SET_SLR_INCLUDED":
+      return { ...state, slrIncludedPapers: action.payload };
+    case "SET_SLR_SYNTHESIS":
+      return { ...state, slrSynthesisRows: action.payload };
+    case "SET_SLR_STEP":
+      return { ...state, slrStep: action.payload };
+    case "SET_SLR_RESULTS":
+      return { ...state, slrResults: action.payload };
+    case "SET_SLR_PRISMA":
+      return { ...state, slrPrismaCounts: action.payload };
+    case "RESET_SLR":
+      return { ...state, ...getInitialSLRState() };
     case "RESET_STATE":
       return { ...initialState };
     default:

@@ -36,6 +36,7 @@ const ProtocolChatTab = lazy(() => import("@/components/tabs/ProtocolChatTab"));
 const GrantWritingTab = lazy(() => import("@/components/tabs/GrantWritingTab"));
 const OmicsBioinformaticsTab = lazy(() => import("@/components/tabs/OmicsBioinformaticsTab"));
 const ThesisGenerator = lazy(() => import("@/components/pipelines/ThesisGenerator"));
+const AutomatedSLR = lazy(() => import("@/components/pipelines/AutomatedSLR"));
 
 function withSuspense(node: React.ReactNode, label?: string) {
   return <Suspense fallback={<TabLoadingSkeleton label={label} />}>{node}</Suspense>;
@@ -85,6 +86,8 @@ function AppContent() {
         return withSuspense(<GrantWritingTab />, "Grant Writing");
       case "thesis":
         return withSuspense(<ThesisGenerator />, "Thesis Generator");
+      case "slr":
+        return withSuspense(<AutomatedSLR />, "Automated SLR");
       default:
         return withSuspense(<GrantWritingTab />, "Grant Writing");
     }
@@ -95,6 +98,13 @@ function AppContent() {
     const onOpenThesis = () => dispatch({ type: "SET_TAB", payload: "thesis" });
     window.addEventListener("open-thesis", onOpenThesis);
     return () => window.removeEventListener("open-thesis", onOpenThesis);
+  }, [dispatch]);
+
+  // Header dispatches "open-slr" to switch directly to the Automated SLR tab.
+  useEffect(() => {
+    const onOpenSLR = () => dispatch({ type: "SET_TAB", payload: "slr" });
+    window.addEventListener("open-slr", onOpenSLR);
+    return () => window.removeEventListener("open-slr", onOpenSLR);
   }, [dispatch]);
 
   return (

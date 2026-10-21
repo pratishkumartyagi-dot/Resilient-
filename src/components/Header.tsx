@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { Settings, BookOpen } from "lucide-react";
+import { Settings, BookOpen, Microscope } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 
 export default function Header() {
@@ -37,6 +37,16 @@ export default function Header() {
             title="Thesis Generator"
           >
             <BookOpen size={20} />
+          </button>
+          <button
+            onClick={() => {
+              const event = new CustomEvent("open-slr");
+              window.dispatchEvent(event);
+            }}
+            className="p-2 rounded-lg bg-emerald-900/40 text-emerald-300 hover:bg-emerald-900/60"
+            title="Automated SLR"
+          >
+            <Microscope size={20} />
           </button>
           <button
             onClick={() => {

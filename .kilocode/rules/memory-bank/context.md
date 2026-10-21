@@ -130,6 +130,26 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
   - [x] Live audit: PubMed 500, Europe PMC 1000, DOAJ 636, Zenodo 250, ClinicalTrials.gov 1129, OpenAIRE 9, arXiv 838, bioRxiv 2, medRxiv 6 for "diabetes treatment" (2021-2026).
   - [x] Verified: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
 
+- [x] **Automated SLR — systematic literature review pipeline (2026-10-21, v0.2.8)**
+  - [x] New `src/lib/slr-skills.ts` — SLR-Engine step-by-step workflow skills (all 10 skills including optional citation chasing and living SLR):
+    - Skill 1: Problem Formulation (PICO/PECO/PECOT/freeflow)
+    - Skill 2: Protocol Development (inclusion/exclusion criteria, search strategy)
+    - Skill 3: Literature Search (compiled database queries)
+    - Skill 4: Study Selection (title/abstract screening, full-text screening)
+    - Skill 5: Data Extraction (PICO extraction from included papers)
+    - Skill 6: Quality Assessment (ROB-2, NOS, AMSTAR-2, QUADAS-2, CASP)
+    - Skill 7: Data Synthesis (PRISMA flow, evidence synthesis)
+    - Skill 8: Reporting (PRISMA 2020-compliant manuscript generation)
+    - Skill 9: Citation Chasing (forward/backward, optional)
+    - Skill 10: Living SLR (ongoing monitoring, optional)
+  - [x] New `src/components/pipelines/AutomatedSLR.tsx` — 8-step SLR UI with PICO/PECO/PECOT/freeflow input, year range, multi-database search, screening, extraction, quality assessment, synthesis, reporting with MD export
+  - [x] Updated `src/components/Header.tsx` — added "Automated SLR" microscope toggle button next to Thesis Generator
+  - [x] Updated `src/components/TopTabs.tsx` — added "Automated SLR" tab with Microscope icon
+  - [x] Updated `src/app/page.tsx` — added "slr" tab route and "open-slr" event listener
+  - [x] Updated `src/context/AppContext.tsx` — added SLR state fields (framework, PICO elements, year range, databases, papers, screened/included, synthesis rows, PRISMA counts, step tracking)
+  - [x] Added `screened`/`included`/`screeningReason` fields to `Paper` interface
+  - [x] Verified: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
+
 - [x] Base Next.js 16 setup with App Router
 - [x] TypeScript configuration with strict mode
 - [x] Tailwind CSS 4 integration
