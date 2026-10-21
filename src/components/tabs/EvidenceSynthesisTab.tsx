@@ -42,20 +42,15 @@ import EvidenceSynthesisStep1, { type EvidenceSynthesisStep1Props } from "./Evid
 
 const INTEGRATED_EVIDENCE_SKILLS = getIntegratedSkills().filter(s => ["literature-review", "literature-deep-research", "clinical-trials-database"].includes(s.id));
 
-const SR_DATABASES = [
+const FALLBACK_SR_DATABASES = [
   "PubMed",
-  "OpenAlex",
   "Europe PMC",
-  "DOAJ",
   "bioRxiv",
   "medRxiv",
   "Crossref",
   "arXiv",
   "OpenAIRE",
-  "dblp",
   "Zenodo",
-  "Google Scholar",
-  "Semantic Scholar",
   "ClinicalTrials.gov",
 ];
 
@@ -293,7 +288,8 @@ export default function EvidenceSynthesisTab() {
   const { state } = useApp();
   const [pipelineStep, setPipelineStep] = useState(1);
   const [query, setQuery] = useState("");
-  const [selectedDbs, setSelectedDbs] = useState<string[]>(["PubMed", "OpenAlex", "Europe PMC", "DOAJ", "bioRxiv", "medRxiv", "Crossref", "arXiv", "OpenAIRE", "dblp", "Zenodo", "Google Scholar", "Semantic Scholar", "ClinicalTrials.gov"]);
+  const [selectedDbs, setSelectedDbs] = useState<string[]>(FALLBACK_SR_DATABASES);
+  const [srDatabases, setSrDatabases] = useState<string[]>(FALLBACK_SR_DATABASES);
   const [papers, setPapers] = useState<Paper[]>([]);
   const [selectedPaperIds, setSelectedPaperIds] = useState<Set<string>>(new Set());
   const [robSelectedPaperIds, setRobSelectedPaperIds] = useState<Set<string>>(new Set());
@@ -367,8 +363,32 @@ export default function EvidenceSynthesisTab() {
     );
   };
 
+  // Only sources that can actually be queried are offered (the server decides:
+  // it knows which API keys are configured and which upstreams block access).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/literature-search");
+        const data = await res.json();
+        if (cancelled || !Array.isArray(data.available) || data.available.length === 0) return;
+        const available: string[] = data.available;
+        setSrDatabases(available);
+        setSelectedDbs((prev) => {
+          const kept = prev.filter((d) => available.includes(d));
+          return kept.length > 0 ? kept : available;
+        });
+      } catch {
+        /* keep the static fallback list */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const selectAllDbs = () => {
-    setSelectedDbs([...SR_DATABASES]);
+    setSelectedDbs([...srDatabases]);
   };
 
   const deselectAllDbs = () => {
@@ -386,7 +406,7 @@ export default function EvidenceSynthesisTab() {
     setSearchError(null);
     setPerDatabaseResults([]);
     try {
-      const dbs = selectedDbs.length > 0 ? selectedDbs : ["OpenAlex", "Semantic Scholar", "Crossref", "PubMed"];
+      const dbs = selectedDbs.length > 0 ? selectedDbs : ["PubMed", "Europe PMC", "Crossref"];
       const effectiveQuery = applySearchLogic(query, searchLogic);
       const res = await fetch("/api/literature-search", {
         method: "POST",
@@ -2390,7 +2410,7 @@ ${stormReview}
 
         {pipelineStep === 1 && (
           <EvidenceSynthesisStep1
-            databases={SR_DATABASES}
+            databases={srDatabases}
             query={query}
             onQueryChange={setQuery}
             selectedDbs={selectedDbs}

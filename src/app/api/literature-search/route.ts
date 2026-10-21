@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
-import { searchDatabases, DATABASE_IDS, type Paper } from "@/lib/database-apis";
+import {
+  searchDatabases,
+  DATABASE_IDS,
+  DATABASE_DEFINITIONS,
+  AVAILABLE_DATABASE_IDS,
+  getUnavailableReason,
+  type Paper,
+} from "@/lib/database-apis";
 
 export const runtime = "nodejs";
 
@@ -28,7 +35,36 @@ export async function OPTIONS() {
   });
 }
 
-const DEFAULT_DATABASES = ["PubMed", "OpenAlex", "Europe PMC", "Crossref", "arXiv"];
+const DEFAULT_DATABASES = AVAILABLE_DATABASE_IDS;
+
+/**
+ * Catalogue of the databases the client can search. Sources that are switched
+ * off upstream (or that need an API key which is not configured) are reported
+ * as unavailable instead of being offered and then failing.
+ */
+export async function GET() {
+  const databases = DATABASE_DEFINITIONS.map((d) => {
+    const reason = getUnavailableReason(d);
+    return {
+      id: d.id,
+      label: d.label,
+      url: d.url,
+      description: d.description,
+      available: reason === undefined,
+      reason: reason ?? null,
+      requiresKey: d.requiresKey ?? null,
+    };
+  });
+
+  return NextResponse.json(
+    {
+      databases,
+      available: databases.filter((d) => d.available).map((d) => d.id),
+      unavailable: databases.filter((d) => !d.available).map((d) => ({ id: d.id, reason: d.reason })),
+    },
+    { headers: corsHeaders() }
+  );
+}
 
 export async function POST(request: Request) {
   const started = Date.now();

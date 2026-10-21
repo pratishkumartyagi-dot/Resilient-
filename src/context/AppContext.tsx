@@ -254,8 +254,7 @@ const initialState: AppState = {
   showPrisma: false,
   selectedDatabases: [
     "PubMed",
-    "OpenAlex",
-    "DOAJ",
+    "Europe PMC",
     "bioRxiv",
     "medRxiv",
     "Crossref",

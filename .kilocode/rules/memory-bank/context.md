@@ -48,6 +48,35 @@
   - **60 s** → 907 papers (wall 25 s) — no extra records, because the remaining failures are hard HTTP errors (OpenAlex/S2 429, DOAJ 502, dblp bot-protection), not timeouts
 - Practical implication: beyond ~30 s the extra wall clock buys nothing without API keys; a longer budget only matters for a slow-but-healthy source such as OpenAIRE.
 
+## Failing databases removed from the active source list (2026-10-21)
+
+Sources that could not return a single record in this environment were switched off so Step 1 no longer offers (or queries) them:
+
+| Source | Status | Reason recorded in the registry |
+|---|---|---|
+| DOAJ | disabled | upstream answers HTTP 502 for automated access |
+| dblp | disabled | dblp.org serves a bot-protection page to automated clients |
+| Google Scholar | disabled | no public Google Scholar API — it resolved through the same Semantic Scholar Graph API as the "Semantic Scholar" entry (duplicate) |
+| OpenAlex | key-gated | needs `OPENALEX_API_KEY`; without it the shared-IP daily budget is exhausted (HTTP 429) |
+| Semantic Scholar | key-gated | needs `SEMANTIC_SCHOLAR_API_KEY`; without it the shared-IP quota is exhausted (HTTP 429) |
+| Cochrane Library | key-gated | needs `TAVILY_API_KEY` (no public API) |
+| paper-search-mcp | disabled | optional local bridge, binary not installed |
+
+**Active sources (9)**: PubMed, Europe PMC, bioRxiv, medRxiv, Crossref, arXiv, OpenAIRE, Zenodo, ClinicalTrials.gov — all verified returning real records.
+
+### Implementation
+- `DatabaseDefinition` gained `disabled`, `disabledReason`, `requiresKey` and `keyHint`; `getUnavailableReason()` / `isDatabaseAvailable()` / `getAvailableDatabases()` / `AVAILABLE_DATABASE_IDS` added in `src/lib/database-apis.ts`.
+- `searchDatabases()` skips an unavailable source **without any network call** and reports it as `failed` with its reason in 0 ms (no more 12–25 s stalls).
+- New `GET /api/literature-search` returns the catalogue: `databases[]` with `available` + `reason`, plus `available[]` and `unavailable[]` arrays.
+- `Step1Search.tsx` and `EvidenceSynthesisTab.tsx` load the catalogue on mount and build their database tabs from it, so the list always matches what the server can actually query. Step 1 shows a one-line "Currently unavailable (excluded from the search)" note with the reasons.
+- Defaults updated: route default list, `AppContext.selectedDatabases`, SR tab fallback list.
+- Re-enabling a source = flip `disabled: false` (and/or set its key in `.env.local`); the fetcher code is retained for all of them.
+
+### Verified
+- Default search: 9 sources, **1256 real papers in 7.1 s, zero failures**.
+- Explicitly requesting a removed source returns instantly (0.00 s) with the reason, without touching the network.
+- `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
+
 ## Current State
 
 **App Status**: ✅ Fully functional prototype built

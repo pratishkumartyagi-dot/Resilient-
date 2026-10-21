@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { Search, Database, ChevronRight, CheckSquare, Square, Loader2, CheckCircle2, AlertCircle, Globe } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { webSearchPapers, verifyCitations, enrichPapersWithDois, type Paper } from "@/lib/database-apis";
@@ -22,20 +22,15 @@ const STUDY_TYPES = [
   "Dissertation / Thesis",
 ];
 
-const DATABASES = [
+const FALLBACK_DATABASES = [
   "PubMed",
-  "OpenAlex",
   "Europe PMC",
-  "DOAJ",
   "bioRxiv",
   "medRxiv",
   "Crossref",
   "arXiv",
   "OpenAIRE",
-  "dblp",
   "Zenodo",
-  "Google Scholar",
-  "Semantic Scholar",
   "ClinicalTrials.gov",
 ];
 
@@ -69,6 +64,15 @@ interface PerDatabaseRow {
   elapsedMs?: number;
 }
 
+interface CatalogueEntry {
+  id: string;
+  label: string;
+  url: string;
+  description: string;
+  available: boolean;
+  reason: string | null;
+}
+
 export default function Step1Search() {
   const { state, dispatch } = useApp();
   const [localQuery, setLocalQuery] = useState(state.searchQuery);
@@ -76,8 +80,18 @@ export default function Step1Search() {
   const [yearFrom, setYearFrom] = useState(state.yearFrom);
   const [yearTo, setYearTo] = useState(state.yearTo);
   const [studyType, setStudyType] = useState(state.studyType);
+  const [catalogue, setCatalogue] = useState<CatalogueEntry[]>(
+    FALLBACK_DATABASES.map((id) => ({
+      id,
+      label: id,
+      url: DATABASE_URLS[id] || "",
+      description: "",
+      available: true,
+      reason: null,
+    }))
+  );
   const [selectedDbs, setSelectedDbs] = useState<string[]>(state.selectedDatabases);
-  const [activeDbTab, setActiveDbTab] = useState<string>(DATABASES[0]);
+  const [activeDbTab, setActiveDbTab] = useState<string>(FALLBACK_DATABASES[0]);
   const [titleFilter, setTitleFilter] = useState("");
   const [perDatabaseResults, setPerDatabaseResults] = useState<PerDatabaseRow[]>([]);
   const [citationCounts, setCitationCounts] = useState<{ verified: number; unverified: number; noDoi: number }>({ verified: 0, unverified: 0, noDoi: 0 });
@@ -86,6 +100,35 @@ export default function Step1Search() {
   const [searchFailed, setSearchFailed] = useState(false);
   const [webFallbackBusy, setWebFallbackBusy] = useState(false);
 
+  const availableDbs = useMemo(() => catalogue.filter((d) => d.available).map((d) => d.id), [catalogue]);
+  const unavailableDbs = useMemo(() => catalogue.filter((d) => !d.available), [catalogue]);
+
+  // The server owns the list of usable sources (it knows which API keys are
+  // configured and which upstreams currently block automated access).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/literature-search");
+        const data = await res.json();
+        if (cancelled || !Array.isArray(data.databases)) return;
+        setCatalogue(data.databases);
+        const available: string[] = data.databases.filter((d: CatalogueEntry) => d.available).map((d: CatalogueEntry) => d.id);
+        if (available.length === 0) return;
+        setSelectedDbs((prev) => {
+          const kept = prev.filter((d) => available.includes(d));
+          return kept.length > 0 ? kept : available;
+        });
+        setActiveDbTab((prev) => (available.includes(prev) ? prev : available[0]));
+      } catch {
+        /* keep the static fallback list */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const toggleDb = (db: string) => {
     setSelectedDbs((prev) =>
       prev.includes(db) ? prev.filter((d) => d !== db) : [...prev, db]
@@ -93,8 +136,8 @@ export default function Step1Search() {
   };
 
   const selectAllDbs = () => {
-    const allSelected = selectedDbs.length === DATABASES.length;
-    const next = allSelected ? [] : DATABASES;
+    const allSelected = selectedDbs.length === availableDbs.length;
+    const next = allSelected ? [] : availableDbs;
     setSelectedDbs(next);
     dispatch({ type: "SET_SELECTED_DATABASES", payload: next });
   };
@@ -451,7 +494,7 @@ export default function Step1Search() {
               onClick={selectAllDbs}
               className="text-xs bg-green-900/50 text-green-300 px-3 py-1 rounded hover:bg-green-900/70"
             >
-              {selectedDbs.length === DATABASES.length ? "Deselect All" : "Select All"}
+              {selectedDbs.length === availableDbs.length ? "Deselect All" : "Select All"}
             </button>
             <button
               onClick={clearDbs}
@@ -464,7 +507,7 @@ export default function Step1Search() {
 
         <div className="bg-blue-950 rounded-lg border border-blue-900 overflow-hidden">
           <div className="flex border-b border-blue-900 overflow-x-auto no-scrollbar">
-            {DATABASES.map((db) => (
+            {availableDbs.map((db) => (
               <button
                 key={db}
                 onClick={() => setActiveDbTab(db)}
@@ -496,6 +539,13 @@ export default function Step1Search() {
             </div>
           </div>
         </div>
+
+        {unavailableDbs.length > 0 && (
+          <div className="mt-3 bg-blue-950/40 border border-blue-900/40 rounded-lg px-3 py-2 text-[10px] text-blue-400">
+            <span className="font-semibold text-blue-300">Currently unavailable (excluded from the search):</span>{" "}
+            {unavailableDbs.map((d) => `${d.id} — ${d.reason}`).join(" · ")}
+          </div>
+        )}
       </div>
 
       {state.isLoading && (

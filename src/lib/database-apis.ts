@@ -1322,7 +1322,14 @@ export interface DatabaseDefinition {
   label: string;
   url: string;
   description: string;
+  /** API key env var that must be present for the source to be usable. */
   requiresKey?: string;
+  /** Extra context shown when the required key is missing. */
+  keyHint?: string;
+  /** Set when the source is switched off (upstream blocks / no public API). */
+  disabled?: boolean;
+  disabledReason?: string;
+  /** Shown when the source is rate-limited or blocked upstream. */
   rateLimitHint?: string;
   search: (ctx: FetchContext) => Promise<Paper[]>;
 }
@@ -1332,8 +1339,7 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     id: "PubMed",
     label: "PubMed",
     url: "https://pubmed.ncbi.nlm.nih.gov/",
-    description: "NLM E-utilities search over MEDLINE/PMC",
-    requiresKey: "NCBI_API_KEY",
+    description: "NLM E-utilities search over MEDLINE/PMC (NCBI_API_KEY only raises the request rate)",
     search: (ctx) => fetchPubMedBrowserless(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
   },
   {
@@ -1342,10 +1348,10 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     url: "https://openalex.org/",
     description: "OpenAlex works index (uses OPENALEX_API_KEY when available)",
     requiresKey: "OPENALEX_API_KEY",
+    keyHint: "Without a key the API answers HTTP 429 because the shared-IP daily budget is exhausted.",
     rateLimitHint: "the shared-IP daily budget is exhausted; set OPENALEX_API_KEY in .env.local to lift the limit",
     search: (ctx) => fetchOpenAlex(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, { limit: ctx.limit }),
-  },
-  {
+  },  {
     id: "Europe PMC",
     label: "Europe PMC",
     url: "https://europepmc.org/",
@@ -1357,6 +1363,8 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "DOAJ",
     url: "https://doaj.org/",
     description: "Directory of Open Access Journals",
+    disabled: true,
+    disabledReason: "The DOAJ API answers HTTP 502 for automated access from this environment. Re-enable (disabled: false) once doaj.org serves the API again.",
     search: (ctx) => fetchDoaj(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
   },
   {
@@ -1399,6 +1407,8 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "dblp",
     url: "https://dblp.org/",
     description: "dblp computer science bibliography",
+    disabled: true,
+    disabledReason: "dblp.org serves a bot-protection page to automated clients, so no records can be retrieved. Re-enable (disabled: false) if dblp.org allows this network again.",
     search: (ctx) => fetchDblp(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
   },
   {
@@ -1413,6 +1423,8 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "Google Scholar",
     url: "https://scholar.google.com/",
     description: "Scholar index served by the Semantic Scholar Graph API (no public Google Scholar API)",
+    disabled: true,
+    disabledReason: "Google Scholar has no public API: this entry resolved through the same Semantic Scholar Graph API as the 'Semantic Scholar' entry, so it was a duplicate that only added a second failing call.",
     search: (ctx) => fetchGoogleScholarBrowserless(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
   },
   {
@@ -1421,6 +1433,7 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     url: "https://www.semanticscholar.org/",
     description: "Semantic Scholar Graph API (uses SEMANTIC_SCHOLAR_API_KEY when available)",
     requiresKey: "SEMANTIC_SCHOLAR_API_KEY",
+    keyHint: "Without a key the Graph API answers HTTP 429 because the shared-IP quota is exhausted.",
     rateLimitHint: "the shared-IP quota is exhausted; set SEMANTIC_SCHOLAR_API_KEY in .env.local to lift the limit",
     search: (ctx) => fetchSemanticScholarBrowserless(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
   },
@@ -1444,11 +1457,46 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "paper-search-mcp",
     url: "https://github.com/openags/paper-search-mcp",
     description: "Local paper-search-mcp bridge (optional external tool)",
+    disabled: true,
+    disabledReason: "Optional local bridge: it requires the paper-search-mcp binary to be installed. Set PAPER_SEARCH_MCP_BIN and re-enable (disabled: false) to use it.",
     search: (ctx) => fetchPaperSearchMcp(ctx.query, "all", ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
   },
 ];
 
 export const DATABASE_IDS = DATABASE_DEFINITIONS.map((d) => d.id);
+
+/**
+ * Why a database cannot be used right now, or undefined when it is usable.
+ * A source is unusable when it was switched off (upstream blocks automated
+ * access) or when it needs an API key that is not configured.
+ */
+export function getUnavailableReason(definition: DatabaseDefinition): string | undefined {
+  if (definition.disabled) {
+    return definition.disabledReason || "This database is currently disabled";
+  }
+  if (definition.requiresKey && !process.env[definition.requiresKey]) {
+    const hint = definition.keyHint ? ` ${definition.keyHint}` : "";
+    return `This database needs the ${definition.requiresKey} environment variable (set it in .env.local to enable it).${hint}`;
+  }
+  return undefined;
+}
+
+export function isDatabaseAvailable(definition: DatabaseDefinition): boolean {
+  return getUnavailableReason(definition) === undefined;
+}
+
+/** The databases that can actually be searched right now. */
+export function getAvailableDatabases(): DatabaseDefinition[] {
+  return DATABASE_DEFINITIONS.filter(isDatabaseAvailable);
+}
+
+export const AVAILABLE_DATABASE_IDS = getAvailableDatabases().map((d) => d.id);
+
+/** Sources that are always usable (no API key, no upstream block). */
+const DEFAULT_AVAILABLE_DATABASE_IDS = AVAILABLE_DATABASE_IDS.filter((id) => {
+  const definition = getDatabaseDefinition(id);
+  return !!definition && !definition.requiresKey;
+});
 
 export function getDatabaseDefinition(id: string): DatabaseDefinition | undefined {
   return DATABASE_DEFINITIONS.find((d) => d.id === id);
@@ -1461,7 +1509,7 @@ export function getDatabaseDefinition(id: string): DatabaseDefinition | undefine
  */
 export async function searchDatabases(databases: string[], options: SearchOptions): Promise<SearchOutcome> {
   const limit = Math.min(Math.max(options.limitPerDatabase ?? DEFAULT_LIMIT_PER_DATABASE, 25), MAX_LIMIT_PER_DATABASE);
-  const requested = databases.length > 0 ? databases : ["PubMed", "OpenAlex", "Europe PMC", "Crossref", "arXiv"];
+  const requested = databases.length > 0 ? databases : DEFAULT_AVAILABLE_DATABASE_IDS;
 
   const outcomes: DatabaseOutcome[] = [];
   const errors: Record<string, string> = {};
@@ -1479,6 +1527,22 @@ export async function searchDatabases(databases: string[], options: SearchOption
         elapsedMs: 0,
       };
       errors[database] = outcome.error!;
+      return outcome;
+    }
+
+    // Databases that are switched off or missing their API key are skipped
+    // immediately — there is no point in waiting for a call that cannot work.
+    const unavailableReason = getUnavailableReason(definition);
+    if (unavailableReason) {
+      const outcome: DatabaseOutcome = {
+        database,
+        status: "failed",
+        count: 0,
+        rawCount: 0,
+        error: unavailableReason,
+        elapsedMs: 0,
+      };
+      errors[database] = unavailableReason;
       return outcome;
     }
 
