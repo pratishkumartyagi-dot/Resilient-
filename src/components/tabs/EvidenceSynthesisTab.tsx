@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
-import { fetchRealPapers, generateMockLegacy, webSearchPapers, type Paper } from "@/lib/database-apis";
+import { type Paper } from "@/lib/database-apis";
 import { generateLocalLiteratureReview, generateLitLLMSynthesis } from "@/lib/local-synthesis";
 import {
   fixedEffectsMetaAnalysis,
@@ -401,26 +401,23 @@ export default function EvidenceSynthesisTab() {
         }),
       });
 
+      const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
-        let message = `Search request failed (${res.status})`;
-        try {
-          const errData = await res.json();
-          message = errData?.error || message;
-        } catch {
-          /* ignore parse errors */
-        }
-        const mock = generateMockLegacy(query, selectedDbs);
-        setPapers(mock);
-        setTotalIdentified(mock.length);
-        setDedupedCount(mock.length);
-        setSearchError(`${message}. Showing ${mock.length} simulated results.`);
+        const perDb = data.perDatabaseResults || [];
+        setPerDatabaseResults(perDb);
+        setFailedDatabases(data.failedDatabases || []);
+        const failures = perDb
+          .filter((r: any) => r.status === "failed")
+          .map((r: any) => `${r.database}: ${r.error || "unknown error"}`)
+          .join(" | ");
+        setSearchError(
+          `${data.error || `Search request failed (${res.status})`}${failures ? ` — ${failures}` : ""}`
+        );
         return;
       }
 
-      const data = await res.json();
-
-      // Handle both success and error responses - data.papers may contain mock data
-      const apiPapers = data.papers || [];
+      const apiPapers = Array.isArray(data.papers) ? data.papers : [];
       const uniqueCount = apiPapers.length;
       setPapers(apiPapers);
       setDbSearchStatus(data.sourceBreakdown || {});
@@ -432,24 +429,21 @@ export default function EvidenceSynthesisTab() {
       setDedupedCount(uniqueCount);
       setCitationValidationResults(data.citationValidation?.results || {});
 
-      // Show warnings if APIs failed but we have mock/simulated results
+      // Report partial failures without hiding the records that were retrieved.
       const hasErrors = Object.keys(data.errors || {}).length > 0;
-      const allFailed = data.databasesFailed > 0 && data.databasesSucceeded === 0;
-      if (hasErrors && allFailed) {
-        setSearchError(`Note: Live database access unavailable. Showing ${apiPapers.length} simulated results.`);
-      } else if (hasErrors) {
+      if (hasErrors) {
         const errorEntries = Object.entries(data.errors || {}).map(([db, msg]) => `${db}: ${msg}`).join("; ");
         setSearchError(`${errorEntries}`);
+      } else if (apiPapers.length === 0) {
+        setSearchError("No records were retrieved for this query. Try broader terms, a wider year range, or more databases.");
       }
     } catch (err: any) {
       const msg = err?.message || String(err);
       console.warn("[EvidenceSynthesis] Search failed:", msg);
-      // Always provide some results via mock
-      const mock = generateMockLegacy(query, selectedDbs);
-      setPapers(mock);
-      setTotalIdentified(mock.length);
-      setDedupedCount(mock.length);
-      setSearchError(`Search error: ${msg}. Showing ${mock.length} simulated results.`);
+      setPapers([]);
+      setTotalIdentified(0);
+      setDedupedCount(0);
+      setSearchError(`Search error: ${msg}`);
     } finally {
       setLoading(false);
     }

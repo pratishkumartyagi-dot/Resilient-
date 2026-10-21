@@ -1,5 +1,43 @@
 # Active Context: Resilient Researcher Assistant
 
+## Step 1 "Search of Databases" — real records only, no mock results (2026-10-21)
+
+**Goal**: make the systematic-review pipeline's Step 1 fully functional against live scholarly APIs and remove every simulated/mocked result path.
+
+### Removed
+- `generateMockLegacy()` deleted from `src/lib/database-apis.ts` together with all 5 call sites (API route, `database-apis.ts` x2, `Step1Search.tsx` x2, `EvidenceSynthesisTab.tsx` x2).
+- No source of fabricated records remains in Step 1: a failing database now produces a real error, never substitute papers.
+
+### Rebuilt `src/lib/database-apis.ts`
+- Single source of truth: `DATABASE_DEFINITIONS` registry (id, label, url, description, optional API key, rate-limit hint) + `searchDatabases(databases, options)` that queries all databases concurrently and returns `{ papers, outcomes, totalBeforeDedup, dedupedCount, errors }`. The three duplicated database maps (route, `fetchRealPapers`, `fetchRealPapersWithCounts`) are gone; `fetchRealPapers*` remain as thin compatibility wrappers.
+- New HTTP layer: `httpRequest/httpJson/httpText` with descriptive `User-Agent`, per-request timeout, exponential backoff on 408/425/429/5xx honouring `Retry-After` (capped at 12s so a hostile header cannot stall a search), JSON-parse guards, and per-database hard timeout (90s).
+- Year and study-type filters are applied centrally (`applyFilters`) so every database behaves identically; a filter that removes everything reports `status: "empty"` with a note instead of silently falling back to unfiltered records.
+- Result cap: 200 records/database by default, 500 max, 5 pages max per database (previously OpenAlex/Crossref/PubMed paged to 5 000–10 000 records, which made a search take 60s+).
+
+### Database fixes (verified live)
+- **PubMed**: E-utilities `esearch` now uses `retmode=json` (XML regex matching was silently returning 0 records), date range injected as `[Date - Publication]`, `efetch` chunked at 100, publication types mapped to the app's study types.
+- **OpenAlex**: `from_publication_date`/`to_publication_date` filter, optional `OPENALEX_API_KEY`, 429 no longer mis-reported as a network failure.
+- **Europe PMC**: `FIRST_PDATE:[y TO y]` range filter, `resultType=core` for abstracts, `sort` removed, cursor paging capped.
+- **bioRxiv / medRxiv**: the direct `api.biorxiv.org` endpoint has no text search and needed 25s+ of date-range scanning, so both now query the Europe PMC preprint index (`SRC:PPR AND PUBLISHER:bioRxiv|medRxiv`) — real records in <1s.
+- **Crossref**: `query` + cursor paging capped at 5 pages, year filter via `from-pub-date`/`until-pub-date`.
+- **arXiv**: `max_results` capped at 200 (was 5 000).
+- **Zenodo**: the records API rejects `size=100` (HTTP 400) — now `size=25` with up to 8 pages.
+- **OpenAIRE**: invalid `query=` parameter (HTTP 400) replaced with `keywords=`; title read from `result.title` (not `resulttitle`).
+- **DOAJ / dblp**: fail with the real upstream reason (DOAJ 502, dblp bot-protection page) instead of silently returning zero.
+- **Cochrane Library**: previously called a relative URL from the server (always invalid) — now calls the Tavily API directly and states that `TAVILY_API_KEY` is required.
+- **Google Scholar / ScienceDirect**: labelled truthfully as Semantic Scholar Graph API results (no public API exists for the former).
+
+### Route + UI
+- `/api/literature-search` returns HTTP 502 with `perDatabaseResults` (real per-database reasons) when no database could be reached, 200 with an empty `papers` array for a genuine zero-hit search, and never substitutes data.
+- `Step1Search.tsx`: new per-database outcome table (status, records, time, reason), "Max Records / Database" selector, DOI shown per record, an explicit "Search the open web instead" action on failure (real Tavily/arXiv results, labelled as a separate source), and no mock fallback.
+- `EvidenceSynthesisTab.tsx` step 1: mock fallbacks removed; real per-database errors surfaced; PRISMA counts now reflect only retrieved records.
+- `.env.example` documents `OPENALEX_API_KEY`, `SEMANTIC_SCHOLAR_API_KEY`, `NCBI_API_KEY`, `RESEARCH_CONTACT_EMAIL`.
+
+### Verification (live, this environment)
+- 13 databases queried in ~25s → 281 real records (PubMed, Europe PMC, Crossref, arXiv, bioRxiv, medRxiv, Zenodo, OpenAIRE, ClinicalTrials.gov succeeded).
+- Environment-limited failures reported honestly: OpenAlex + Semantic Scholar HTTP 429 (shared-IP daily budget → set an API key), DOAJ HTTP 502, dblp bot-protection.
+- `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
+
 ## Current State
 
 **App Status**: ✅ Fully functional prototype built

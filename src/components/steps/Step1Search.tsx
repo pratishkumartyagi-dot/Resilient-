@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { Search, Database, ChevronRight, CheckSquare, Square, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { Search, Database, ChevronRight, CheckSquare, Square, Loader2, CheckCircle2, AlertCircle, Globe } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { generateMockLegacy, webSearchPapers, verifyCitations, enrichPapersWithDois, type Paper } from "@/lib/database-apis";
+import { webSearchPapers, verifyCitations, enrichPapersWithDois, type Paper } from "@/lib/database-apis";
 
 const STUDY_TYPES = [
   "All Study Types",
@@ -56,6 +56,18 @@ const DATABASE_URLS: Record<string, string> = {
   "ClinicalTrials.gov": "https://clinicaltrials.gov/",
 };
 
+const RESULT_LIMITS = [50, 100, 200, 500];
+
+interface PerDatabaseRow {
+  database: string;
+  status: string;
+  count: number;
+  rawCount?: number;
+  error?: string;
+  note?: string;
+  elapsedMs?: number;
+}
+
 export default function Step1Search() {
   const { state, dispatch } = useApp();
   const [localQuery, setLocalQuery] = useState(state.searchQuery);
@@ -66,8 +78,11 @@ export default function Step1Search() {
   const [selectedDbs, setSelectedDbs] = useState<string[]>(state.selectedDatabases);
   const [activeDbTab, setActiveDbTab] = useState<string>(DATABASES[0]);
   const [titleFilter, setTitleFilter] = useState("");
-  const [perDatabaseResults, setPerDatabaseResults] = useState<Array<{ database: string; status: string; count: number; error?: string }>>([]);
+  const [perDatabaseResults, setPerDatabaseResults] = useState<PerDatabaseRow[]>([]);
   const [citationCounts, setCitationCounts] = useState<{ verified: number; unverified: number; noDoi: number }>({ verified: 0, unverified: 0, noDoi: 0 });
+  const [resultLimit, setResultLimit] = useState(200);
+  const [searchFailed, setSearchFailed] = useState(false);
+  const [webFallbackBusy, setWebFallbackBusy] = useState(false);
 
   const toggleDb = (db: string) => {
     setSelectedDbs((prev) =>
@@ -87,6 +102,35 @@ export default function Step1Search() {
     dispatch({ type: "SET_SELECTED_DATABASES", payload: [] });
   };
 
+  const formatFailures = (rows: PerDatabaseRow[]) => {
+    const failed = rows.filter((r) => r.status === "failed");
+    if (failed.length === 0) return "";
+    return failed.map((r) => `${r.database}: ${r.error || "unknown error"}`).join(" | ");
+  };
+
+  const runCitationVerification = async (papers: Paper[]) => {
+    dispatch({ type: "SET_CITATION_STATUS", payload: "running" });
+    try {
+      const enrichedPapers = await enrichPapersWithDois(papers);
+      const citationResults = await verifyCitations(enrichedPapers);
+      dispatch({ type: "SET_CITATION_RESULTS", payload: Object.fromEntries(citationResults) });
+      dispatch({ type: "SET_PAPERS", payload: enrichedPapers });
+      let verified = 0, unverified = 0, noDoi = 0;
+      enrichedPapers.forEach((p) => {
+        if (!p.doi) { noDoi++; return; }
+        const r: any = citationResults.get(p.doi.toLowerCase());
+        if (r?.valid) verified++; else unverified++;
+      });
+      setCitationCounts({ verified, unverified, noDoi });
+    } catch {
+      dispatch({ type: "SET_CITATION_RESULTS", payload: {} });
+      dispatch({ type: "SET_PAPERS", payload: papers });
+      setCitationCounts({ verified: 0, unverified: 0, noDoi: papers.filter((p) => !p.doi).length });
+    } finally {
+      dispatch({ type: "SET_CITATION_STATUS", payload: "done" });
+    }
+  };
+
   const handleSearch = async () => {
     if (!localQuery.trim() || selectedDbs.length === 0) {
       dispatch({ type: "SET_ERROR", payload: "Enter a search query and select at least one database." });
@@ -99,92 +143,92 @@ export default function Step1Search() {
       payload: { query: localQuery, logic: localLogic, yearFrom, yearTo, studyType },
     });
     dispatch({ type: "SET_SELECTED_DATABASES", payload: selectedDbs });
+    dispatch({ type: "SET_PAPERS", payload: [] });
+    setPerDatabaseResults([]);
+    setSearchFailed(false);
 
     try {
-      let papers: Paper[] = [];
-      let perDb: Array<{ database: string; status: string; count: number; error?: string }> = [];
+      const res = await fetch("/api/literature-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: localQuery,
+          databases: selectedDbs,
+          yearFrom: yearFrom || undefined,
+          yearTo: yearTo || undefined,
+          studyType: studyType === "All Study Types" ? undefined : studyType,
+          maxResults: resultLimit,
+        }),
+      });
 
-      try {
-        const res = await fetch("/api/literature-search", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            query: localQuery,
-            databases: selectedDbs,
-            yearFrom: yearFrom || undefined,
-            yearTo: yearTo || undefined,
-            studyType: studyType === "All Study Types" ? undefined : studyType,
-          }),
+      const data = await res.json().catch(() => ({}));
+      const rows: PerDatabaseRow[] = Array.isArray(data.perDatabaseResults) ? data.perDatabaseResults : [];
+      setPerDatabaseResults(rows);
+
+      if (!res.ok) {
+        setSearchFailed(true);
+        const detail = formatFailures(rows);
+        dispatch({
+          type: "SET_ERROR",
+          payload: data.error
+            ? `${data.error}${detail ? ` — ${detail}` : ""}`
+            : `Search failed with status ${res.status}.${detail ? ` ${detail}` : ""}`,
         });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data?.error || `Search failed with status ${res.status}`);
-        }
-        const data = await res.json();
-        papers = data.papers || [];
-        perDb = data.perDatabaseResults || [];
-        if (papers.length === 0) {
-          throw new Error("No papers returned from literature search.");
-        }
-      } catch (err: any) {
-        const msg = err?.message || String(err);
-        console.warn("[Step1Search] Primary search failed, trying web fallback:", msg);
-        try {
-          const webPapers = await webSearchPapers(localQuery, 20);
-          if (webPapers.length > 0) {
-            papers = webPapers;
-            const counts: Record<string, number> = {};
-            webPapers.forEach((p) => {
-              const db = p.database || "Web";
-              counts[db] = (counts[db] || 0) + 1;
-            });
-            perDb = Object.entries(counts).map(([database, count]) => ({ database, status: "success", count }));
-            dispatch({ type: "SET_ERROR", payload: `Live database search failed: ${msg}. Showing ${webPapers.length} results from web search fallback.` });
-          } else {
-            throw new Error("Web search returned 0 results");
-          }
-        } catch (webErr: any) {
-          const webMsg = webErr?.message || String(webErr);
-          console.warn("[Step1Search] Web search fallback failed:", webMsg);
-          const mock = generateMockLegacy(localQuery, selectedDbs);
-          papers = mock;
-          perDb = selectedDbs.map((db) => ({ database: db, status: "success", count: papers.filter((p) => p.database === db).length }));
-          dispatch({ type: "SET_ERROR", payload: `Live search failed: ${msg}. Web search fallback also failed: ${webMsg}. Showing ${mock.length} simulated results.` });
-        }
+        return;
       }
 
-      if (papers.length > 0) {
-        dispatch({ type: "SET_CITATION_STATUS", payload: "running" });
-        try {
-          const enrichedPapers = await enrichPapersWithDois(papers);
-          const citationResults = await verifyCitations(enrichedPapers);
-          dispatch({ type: "SET_CITATION_RESULTS", payload: Object.fromEntries(citationResults) });
-          dispatch({ type: "SET_PAPERS", payload: enrichedPapers });
-          let verified = 0, unverified = 0, noDoi = 0;
-          enrichedPapers.forEach((p) => {
-            if (!p.doi) { noDoi++; return; }
-            const k = p.doi.toLowerCase();
-            const r: any = citationResults.get(k);
-            if (r?.valid) verified++; else unverified++;
-          });
-          setCitationCounts({ verified, unverified, noDoi });
-        } catch {
-          dispatch({ type: "SET_CITATION_RESULTS", payload: {} });
-          dispatch({ type: "SET_PAPERS", payload: papers });
-          setCitationCounts({ verified: 0, unverified: 0, noDoi: papers.filter((p) => !p.doi).length });
-        } finally {
-          dispatch({ type: "SET_CITATION_STATUS", payload: "done" });
-        }
-        setPerDatabaseResults(perDb);
-      } else {
-        dispatch({ type: "SET_ERROR", payload: "No papers found. Try broader terms or more databases." });
+      const papers: Paper[] = Array.isArray(data.papers) ? data.papers : [];
+
+      if (papers.length === 0) {
+        setSearchFailed(true);
+        const failed = rows.filter((r) => r.status === "failed");
+        const empty = rows.filter((r) => r.status === "empty");
+        const parts: string[] = [];
+        if (failed.length) parts.push(`${failed.length} database(s) failed: ${failed.map((r) => r.database).join(", ")}.`);
+        if (empty.length) parts.push(`${empty.length} database(s) returned no matching records.`);
+        dispatch({
+          type: "SET_ERROR",
+          payload: `No records were retrieved. ${parts.join(" ")} Adjust the query, widen the year range, or select different databases.`.trim(),
+        });
+        return;
       }
+
+      await runCitationVerification(papers);
     } catch (err: any) {
-      dispatch({ type: "SET_ERROR", payload: err.message || "Search failed. Please try again." });
-      const mock = generateMockLegacy(localQuery, selectedDbs);
-      dispatch({ type: "SET_PAPERS", payload: mock });
-      setPerDatabaseResults(selectedDbs.map((db) => ({ database: db, status: "success", count: mock.filter((p) => p.database === db).length })));
+      setSearchFailed(true);
+      dispatch({ type: "SET_ERROR", payload: err?.message || "Search failed. Please try again." });
     } finally {
+      dispatch({ type: "SET_LOADING", payload: false });
+    }
+  };
+
+  const handleWebFallback = async () => {
+    if (!localQuery.trim()) return;
+    setWebFallbackBusy(true);
+    dispatch({ type: "SET_LOADING", payload: true });
+    dispatch({ type: "SET_ERROR", payload: "" });
+    try {
+      const webPapers = await webSearchPapers(localQuery, resultLimit);
+      if (webPapers.length === 0) {
+        dispatch({
+          type: "SET_ERROR",
+          payload: "The web fallback returned no records. Configure TAVILY_API_KEY for Tavily results, or retry the database search.",
+        });
+        return;
+      }
+      const counts: Record<string, number> = {};
+      webPapers.forEach((p) => {
+        const db = p.database || "Web Search";
+        counts[db] = (counts[db] || 0) + 1;
+      });
+      setPerDatabaseResults(
+        Object.entries(counts).map(([database, count]) => ({ database, status: "success", count }))
+      );
+      await runCitationVerification(webPapers);
+    } catch (err: any) {
+      dispatch({ type: "SET_ERROR", payload: `Web fallback failed: ${err?.message || String(err)}` });
+    } finally {
+      setWebFallbackBusy(false);
       dispatch({ type: "SET_LOADING", payload: false });
     }
   };
@@ -277,7 +321,7 @@ export default function Step1Search() {
       <div className="bg-[#0d1b3e] border border-blue-900/50 rounded-lg p-6 shadow">
         <h2 className="text-xl font-bold text-white mb-1">Step 1: Broad Area of Research</h2>
         <p className="text-sm text-blue-300 mb-6">
-          Enter your research topic with boolean logic, filters, and select databases for semantic search. Results are shown on this page grouped by database — select individual papers or all papers in a database, then proceed to Step 2.
+          Enter your research topic with boolean logic, filters, and select databases for live search. Results are shown on this page grouped by database — select individual papers or all papers in a database, then proceed to Step 2. All records come from the live publisher APIs; nothing is simulated.
         </p>
 
         <div className="space-y-4">
@@ -313,7 +357,7 @@ export default function Step1Search() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
               <label className="block text-sm font-medium text-blue-200 mb-1">Year From</label>
               <input
@@ -346,11 +390,33 @@ export default function Step1Search() {
                 ))}
               </select>
             </div>
+            <div>
+              <label className="block text-sm font-medium text-blue-200 mb-1">Max Records / Database</label>
+              <select
+                value={resultLimit}
+                onChange={(e) => setResultLimit(Number(e.target.value))}
+                className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2 text-sm"
+              >
+                {RESULT_LIMITS.map((limit) => (
+                  <option key={limit} value={limit}>{limit}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {state.error && (
-            <div className="bg-red-900/30 border border-red-700 text-red-300 rounded-lg px-4 py-3 text-sm">
-              {state.error}
+            <div className="bg-red-900/30 border border-red-700 text-red-300 rounded-lg px-4 py-3 text-sm space-y-2">
+              <p>{state.error}</p>
+              {searchFailed && (
+                <button
+                  onClick={handleWebFallback}
+                  disabled={webFallbackBusy || state.isLoading}
+                  className="text-xs bg-blue-900/60 text-blue-100 px-3 py-1.5 rounded hover:bg-blue-900/80 disabled:opacity-50 inline-flex items-center gap-1.5"
+                >
+                  <Globe size={12} />
+                  {webFallbackBusy ? "Searching the web..." : "Search the open web instead"}
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -362,7 +428,7 @@ export default function Step1Search() {
             <Database size={18} className="text-yellow-400" />
             <h3 className="text-lg font-bold text-white">Medical Databases</h3>
             <span className="text-xs bg-blue-800 text-blue-200 px-2 py-0.5 rounded-full">
-              🔬 Semantic Search Active
+              Live API search
             </span>
           </div>
           <div className="flex gap-2">
@@ -429,6 +495,48 @@ export default function Step1Search() {
         </div>
       )}
 
+      {perDatabaseResults.length > 0 && !state.isLoading && (
+        <div className="bg-[#0d1b3e] border border-blue-900/50 rounded-lg p-6 shadow">
+          <h3 className="text-sm font-bold text-white mb-3">Database-by-database outcome</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-blue-400 text-left border-b border-blue-900/50">
+                  <th className="py-1.5 pr-3 font-medium">Database</th>
+                  <th className="py-1.5 pr-3 font-medium">Status</th>
+                  <th className="py-1.5 pr-3 font-medium">Records</th>
+                  <th className="py-1.5 pr-3 font-medium">Time</th>
+                  <th className="py-1.5 font-medium">Detail</th>
+                </tr>
+              </thead>
+              <tbody>
+                {perDatabaseResults.map((r) => (
+                  <tr key={r.database} className="border-b border-blue-900/30">
+                    <td className="py-1.5 pr-3 text-white">{r.database}</td>
+                    <td className="py-1.5 pr-3">
+                      <span
+                        className={
+                          r.status === "success"
+                            ? "text-green-300"
+                            : r.status === "empty"
+                              ? "text-yellow-300"
+                              : "text-red-300"
+                        }
+                      >
+                        {r.status}
+                      </span>
+                    </td>
+                    <td className="py-1.5 pr-3 text-blue-200">{r.count}</td>
+                    <td className="py-1.5 pr-3 text-blue-400">{r.elapsedMs ? `${(r.elapsedMs / 1000).toFixed(1)}s` : "—"}</td>
+                    <td className="py-1.5 text-blue-400">{r.error || r.note || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {!state.isLoading && state.papers.length > 0 && (
         <div className="bg-[#0d1b3e] border border-blue-900/50 rounded-lg p-6 shadow">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
@@ -464,20 +572,6 @@ export default function Step1Search() {
               </button>
             </div>
           </div>
-
-          {perDatabaseResults.length > 0 && (
-            <div className="bg-blue-950/40 border border-blue-900/40 rounded-lg p-2 text-[10px] text-blue-300 mb-4">
-              <span className="font-semibold">Database summary:</span>{" "}
-              {perDatabaseResults.filter((r) => r.status === "success").length} succeeded,{" "}
-              {perDatabaseResults.filter((r) => r.status === "empty").length} returned 0 results,{" "}
-              {perDatabaseResults.filter((r) => r.status === "failed").length} failed out of {selectedDbs.length} selected
-              {perDatabaseResults.filter((r) => r.error).length > 0 && (
-                <span className="text-red-300">
-                  {" "}— failed: {perDatabaseResults.filter((r) => r.error).map((r) => `${r.database} (${r.error})`).join(", ")}
-                </span>
-              )}
-            </div>
-          )}
 
           <div className="space-y-4 max-h-[600px] overflow-y-auto">
             {Object.entries(visibleByDatabase)
@@ -525,6 +619,9 @@ export default function Step1Search() {
                             <div className="flex flex-wrap items-center gap-1 mt-1.5">
                               {paper.journal && (
                                 <span className="text-[10px] bg-blue-900/50 text-blue-200 px-1.5 py-0.5 rounded">{paper.journal}</span>
+                              )}
+                              {paper.doi && (
+                                <span className="text-[10px] bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded">DOI {paper.doi}</span>
                               )}
                               {getCitationBadge(paper)}
                             </div>

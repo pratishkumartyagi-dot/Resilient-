@@ -37,7 +37,7 @@ src/
 │   └── AppContext.tsx           # Global state
 └── lib/
     ├── ai.ts                   # Gemini / OpenRouter wrappers
-    ├── database-apis.ts        # Live scholarly DB fetchers
+    ├── database-apis.ts        # Live scholarly DB registry + fetchers (no mock data path)
     ├── document-parser.ts      # <-- NEW: Word/PDF/text parsing
     ├── local-synthesis.ts      # Local evidence-synthesis engine
     ├── research-skills.ts      # AIPOCH Long-CoT prompt builders
@@ -110,6 +110,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   );
 }
 ```
+
+## Scholarly Search Architecture (Step 1)
+
+```
+src/lib/database-apis.ts
+├── httpRequest/httpJson/httpText   # timeout + backoff (Retry-After capped) + UA
+├── DATABASE_DEFINITIONS[]          # one entry per live source (id, url, keys, hints)
+├── searchDatabases(databases, opts) # concurrent fan-out → { papers, outcomes, errors }
+├── applyFilters()                  # central year + study-type filtering
+└── per-database fetchers           # one function per source, real API only
+```
+
+`/api/literature-search` is the only server entry point for Step 1. It returns HTTP 502 with
+per-database failure reasons when no source could be reached, 200 with an empty `papers` array
+for a genuine zero-hit search, and never substitutes simulated records.
 
 ## Styling Conventions
 

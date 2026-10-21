@@ -1,23 +1,5 @@
 import { NextResponse } from "next/server";
-import {
-  fetchPaperSearchMcp,
-  fetchPubMedBrowserless,
-  fetchEuropePMC,
-  fetchOpenAlex,
-  fetchDoaj,
-  fetchBioRxiv,
-  fetchMedRxiv,
-  fetchCrossref,
-  fetcharXiv,
-  fetchOpenAIRE,
-  fetchDblp,
-  fetchZenodo,
-  fetchGoogleScholarBrowserless,
-  fetchSemanticScholarBrowserless,
-  fetchClinicalTrialsGov,
-  deduplicatePapers,
-  generateMockLegacy,
-} from "@/lib/database-apis";
+import { searchDatabases, DATABASE_IDS, type Paper } from "@/lib/database-apis";
 
 export const runtime = "nodejs";
 
@@ -27,6 +9,7 @@ interface LiteratureSearchRequestBody {
   yearFrom?: string;
   yearTo?: string;
   studyType?: string;
+  maxResults?: number;
 }
 
 function corsHeaders() {
@@ -44,205 +27,97 @@ export async function OPTIONS() {
   });
 }
 
-interface PerDatabaseResult {
-  database: string;
-  status: "success" | "empty" | "failed";
-  count: number;
-  error?: string;
-}
+const DEFAULT_DATABASES = ["PubMed", "OpenAlex", "Europe PMC", "Crossref", "arXiv"];
 
 export async function POST(request: Request) {
+  const started = Date.now();
   try {
     const body = (await request.json().catch(() => ({}))) as LiteratureSearchRequestBody;
     const query = (body.query || "").trim();
-    const databases = Array.isArray(body.databases) ? body.databases : [];
-    const yearFrom = body.yearFrom;
-    const yearTo = body.yearTo;
-    const studyType = body.studyType;
+    const databases = Array.isArray(body.databases) ? body.databases.filter((d) => typeof d === "string" && d.trim()) : [];
+    const yearFrom = body.yearFrom?.trim() || undefined;
+    const yearTo = body.yearTo?.trim() || undefined;
+    const studyType = body.studyType && body.studyType !== "All Study Types" ? body.studyType : undefined;
+    const maxResults = typeof body.maxResults === "number" ? body.maxResults : undefined;
 
     if (!query) {
       return NextResponse.json({ error: "Missing query parameter" }, { status: 400, headers: corsHeaders() });
     }
 
-    // Default databases if none selected
-    const defaultDbs = ["PubMed", "OpenAlex", "Semantic Scholar", "Crossref", "arXiv", "bioRxiv"];
-    const dbsToSearch = databases.length > 0 ? databases : defaultDbs;
+    const dbsToSearch = databases.length > 0 ? databases : DEFAULT_DATABASES;
 
-    const apiMap: Record<string, (() => Promise<any[]>) | undefined> = {
-      "PubMed": () => fetchPubMedBrowserless(query, yearFrom, yearTo, studyType),
-      "OpenAlex": () => fetchOpenAlex(query, yearFrom, yearTo, studyType),
-      "Europe PMC": () => fetchEuropePMC(query, yearFrom, yearTo, studyType),
-      "DOAJ": () => fetchDoaj(query, yearFrom, yearTo, studyType),
-      "bioRxiv": () => fetchBioRxiv(query, yearFrom, yearTo, studyType),
-      "medRxiv": () => fetchMedRxiv(query, yearFrom, yearTo, studyType),
-      "Crossref": () => fetchCrossref(query, yearFrom, yearTo, studyType),
-      "arXiv": () => fetcharXiv(query, yearFrom, yearTo, studyType),
-      "OpenAIRE": () => fetchOpenAIRE(query, yearFrom, yearTo, studyType),
-      "dblp": () => fetchDblp(query, yearFrom, yearTo, studyType),
-      "Zenodo": () => fetchZenodo(query, yearFrom, yearTo, studyType),
-      "Google Scholar": () => fetchGoogleScholarBrowserless(query, yearFrom, yearTo, studyType),
-      "Semantic Scholar": () => fetchSemanticScholarBrowserless(query, yearFrom, yearTo, studyType),
-      "ClinicalTrials.gov": () => fetchClinicalTrialsGov(query, yearFrom, yearTo, studyType),
-      "paper-search-mcp": () => fetchPaperSearchMcp(query, "all", yearFrom, yearTo, studyType),
-    };
+    const outcome = await searchDatabases(dbsToSearch, {
+      query,
+      yearFrom,
+      yearTo,
+      studyType,
+      limitPerDatabase: maxResults,
+    });
 
-    const selectedApis = dbsToSearch.filter((db) => apiMap[db]);
-    const skippedDatabases = dbsToSearch.filter((db) => !apiMap[db]);
-
-    const allPapers: any[] = [];
-    const perDatabaseResults: PerDatabaseResult[] = [];
-    const perDatabaseErrors: Record<string, string> = {};
-    const succeeded: string[] = [];
-    const failed: string[] = [];
-
-    if (skippedDatabases.length > 0) {
-      skippedDatabases.forEach((db) => {
-        perDatabaseResults.push({ database: db, status: "failed", count: 0, error: "No fetcher mapped" });
-        perDatabaseErrors[db] = "No fetcher mapped for this database";
-        failed.push(db);
-      });
-    }
-
-    const results = await Promise.allSettled(
-      selectedApis.map(async (db): Promise<PerDatabaseResult & { papers?: any[] }> => {
-        const fetchFn = apiMap[db];
-        if (!fetchFn) {
-          return { database: db, status: "failed", count: 0, error: "No fetcher mapped" };
-        }
-        try {
-          const papers = await fetchFn();
-          return {
-            database: db,
-            status: papers.length > 0 ? "success" : "empty",
-            count: papers.length,
-            papers,
-          };
-        } catch (err: any) {
-          const message = err?.message || String(err);
-          return {
-            database: db,
-            status: "failed",
-            count: 0,
-            error: message,
-          };
-        }
-      })
-    );
-
-    for (const result of results) {
-      if (result.status === "fulfilled") {
-        const { database, status, count, papers, error } = result.value;
-        perDatabaseResults.push({ database, status, count, error });
-        if (status === "success") {
-          succeeded.push(database);
-          (papers || []).forEach((p: any) => {
-            if (!p.database) p.database = database;
-            p.sourceBackend = p.sourceBackend || database;
-            p.sources = Array.from(new Set([...(p.sources || []), database]));
-          });
-          allPapers.push(...(papers || []));
-        } else if (status === "empty") {
-          succeeded.push(database);
-        } else {
-          failed.push(database);
-          perDatabaseErrors[database] = error || "Unknown error";
-        }
-      } else if (result.status === "rejected") {
-        const reason = result.reason;
-        const dbName = reason?.database || "unknown";
-        const errorMsg = reason?.message || String(reason);
-        perDatabaseResults.push({ database: dbName, status: "failed", count: 0, error: errorMsg });
-        perDatabaseErrors[dbName] = errorMsg;
-        failed.push(dbName);
-      }
-    }
-
-    const selectedWithResults = perDatabaseResults.filter((r) => r.status === "success");
-    const selectedWithoutResults = perDatabaseResults.filter((r) => r.status === "empty");
-    const selectedFailed = perDatabaseResults.filter((r) => r.status === "failed");
-
-    const totalBeforeDedup = allPapers.length;
-    const deduped = deduplicatePapers(allPapers);
-    const dedupedCount = totalBeforeDedup - deduped.length;
-
-    const enriched = deduped.map((p) => ({
+    const enriched: Paper[] = outcome.papers.map((p) => ({
       ...p,
-      citationStatus: p.doi ? "unverified" as const : "no-doi" as const,
+      citationStatus: p.doi ? ("unverified" as const) : ("no-doi" as const),
       citationMessage: p.doi ? "Pending verification in Step 2" : "No DOI available",
     }));
 
-    const verifiedCount = 0;
-    const unverifiedCount = enriched.filter((p) => p.citationStatus === "unverified").length;
-    const noDoiCount = enriched.filter((p) => p.citationStatus === "no-doi").length;
+    const succeeded = outcome.outcomes.filter((o) => o.status === "success");
+    const empty = outcome.outcomes.filter((o) => o.status === "empty");
+    const failed = outcome.outcomes.filter((o) => o.status === "failed");
+    const skipped = dbsToSearch.filter((db) => !DATABASE_IDS.includes(db));
+    // Databases that answered the request (with or without hits).
+    const responded = succeeded.length + empty.length;
 
-    // If no papers were returned, provide mock data as fallback
-    if (enriched.length === 0 && succeeded.length === 0) {
-      const mockPapers = generateMockLegacy(query, dbsToSearch);
-      const mockEnriched = mockPapers.map((p) => ({
-        ...p,
-        citationStatus: "unverified" as const,
-        citationMessage: "Simulated paper - live database unavailable",
-      }));
+    const payload = {
+      query,
+      total: enriched.length,
+      papers: enriched,
+      sourceBreakdown: Object.fromEntries(succeeded.map((o) => [o.database, o.count])),
+      sourcesUsed: [...succeeded.map((o) => o.database), ...empty.map((o) => o.database)],
+      errors: outcome.errors,
+      failedDatabases: failed.map((o) => o.database).filter((db) => !skipped.includes(db)),
+      skippedDatabases: skipped,
+      perDatabaseResults: outcome.outcomes.map((o) => ({
+        database: o.database,
+        status: o.status,
+        count: o.count,
+        rawCount: o.rawCount,
+        error: o.error,
+        note: o.note,
+        elapsedMs: o.elapsedMs,
+      })),
+      databasesRequested: dbsToSearch.length,
+      databasesProcessed: outcome.outcomes.length,
+      databasesSucceeded: succeeded.length,
+      databasesEmpty: empty.length,
+      databasesFailed: failed.length,
+      databasesSkipped: skipped.length,
+      dedupedCount: outcome.dedupedCount,
+      totalBeforeDedup: outcome.totalBeforeDedup,
+      elapsedMs: Date.now() - started,
+      citationValidation: {
+        verified: 0,
+        unverified: enriched.filter((p) => p.citationStatus === "unverified").length,
+        noDoi: enriched.filter((p) => p.citationStatus === "no-doi").length,
+        results: {},
+      },
+    };
+
+    // No database could be reached at all: the search could not be performed.
+    // No substitute data is returned — the client gets the real failure detail.
+    if (responded === 0 && dbsToSearch.length > 0) {
       return NextResponse.json(
         {
-          query,
-          total: mockEnriched.length,
-          papers: mockEnriched,
-          sourceBreakdown: {},
-          sourcesUsed: [],
-          errors: {
-            message: `All ${selectedApis.length} database searches failed. Showing ${mockEnriched.length} simulated results.`,
-            ...perDatabaseErrors,
-          },
-          failedDatabases: failed,
-          skippedDatabases,
-          perDatabaseResults: perDatabaseResults.map((r) => ({ database: r.database, status: r.status, count: r.count, error: r.error })),
-          databasesRequested: dbsToSearch.length,
-          databasesProcessed: selectedApis.length,
-          databasesSucceeded: 0,
-          databasesEmpty: 0,
-          databasesFailed: selectedApis.length,
-          databasesSkipped: 0,
-          dedupedCount: 0,
-          totalBeforeDedup: 0,
-          citationValidation: { verified: 0, unverified: mockEnriched.length, noDoi: 0, results: {} },
+          ...payload,
+          error: `All ${dbsToSearch.length} selected database(s) failed. No records could be retrieved — see perDatabaseResults for the upstream reason.`,
         },
-        { headers: corsHeaders() }
+        { status: 502, headers: corsHeaders() }
       );
     }
 
-    return NextResponse.json(
-      {
-        query,
-        total: enriched.length,
-        papers: enriched,
-        sourceBreakdown: Object.fromEntries(selectedWithResults.map((r) => [r.database, r.count])),
-        sourcesUsed: succeeded,
-        errors: perDatabaseErrors,
-        failedDatabases: failed,
-        skippedDatabases,
-        skippedReason: skippedDatabases.length > 0 ? "No fetcher mapped for selected database(s)" : undefined,
-        perDatabaseResults: perDatabaseResults.map((r) => ({ database: r.database, status: r.status, count: r.count, error: r.error })),
-        databasesRequested: databases.length,
-        databasesProcessed: selectedApis.length + skippedDatabases.length,
-        databasesSucceeded: selectedWithResults.length,
-        databasesEmpty: selectedWithoutResults.length,
-        databasesFailed: selectedFailed.length,
-        databasesSkipped: skippedDatabases.length,
-        dedupedCount,
-        totalBeforeDedup,
-        citationValidation: {
-          verified: verifiedCount,
-          unverified: unverifiedCount,
-          noDoi: noDoiCount,
-          results: {},
-        },
-      },
-      { headers: corsHeaders() }
-    );
+    return NextResponse.json(payload, { headers: corsHeaders() });
   } catch (err: any) {
     return NextResponse.json(
-      { error: err.message || "Internal server error" },
+      { error: err?.message || "Internal server error" },
       { status: 500, headers: corsHeaders() }
     );
   }

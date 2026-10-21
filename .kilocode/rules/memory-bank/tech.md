@@ -146,3 +146,9 @@ bun typecheck      # Run TypeScript type checking
 - None required for base template
 - Add as needed for features
 - Use `.env.local` for local development
+- Step 1 search works with no keys. Optional keys (see `.env.example`) only raise rate limits:
+  - `OPENALEX_API_KEY` — OpenAlex shared-IP daily budget is shared per network; without a key OpenAlex can answer HTTP 429
+  - `SEMANTIC_SCHOLAR_API_KEY` — same for the Semantic Scholar Graph API quota
+  - `NCBI_API_KEY` — raises PubMed E-utilities from 3 to 10 requests/second
+  - `TAVILY_API_KEY` — enables the open-web fallback and the Cochrane Library source (no public API)
+  - `RESEARCH_CONTACT_EMAIL` — contact e-mail used in polite-pool parameters and the User-Agent
