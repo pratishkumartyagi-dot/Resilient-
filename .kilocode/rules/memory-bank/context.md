@@ -86,6 +86,14 @@ Sources that could not return a single record in this environment were switched 
 - **Version is now presented in the build**: `src/lib/version.ts` exports `APP_VERSION` (from package.json) and the header shows `v0.2.10` next to the platform tagline, so the running build states its version.
 - `package.json` version → **0.2.10** (electron-builder stamps this into the installers).
 
+## GitHub release v0.2.10 (published 2026-10-21 16:10 UTC)
+
+- Tag `v0.2.10` → commit `a85792e`; `origin/main` and `kilo/atomic-forge-da7` both point at it.
+- GitHub Actions "Build Desktop App" (run 39632055324) succeeded for Windows, Linux and macOS; the macOS job was cancelled on the first attempt (runner capacity) and produced the DMG after `gh run rerun --failed`.
+- Release assets, all stamped with the version: `Resilient.Research.App.0.2.10.exe`, `Resilient.Research.App.Setup.0.2.10.exe`, `Resilient.Research.App-0.2.10.AppImage`, `Resilient.Research.App-0.2.10-arm64.dmg`.
+- Release marked as **Latest** (v0.2.9 remains published as the previous release).
+- The build states its own version in the UI: `src/lib/version.ts` → `APP_VERSION`, shown in the header as `v0.2.10`.
+
 ## Current State
 
 **App Status**: ✅ Fully functional prototype built
