@@ -10,6 +10,7 @@ interface LiteratureSearchRequestBody {
   yearTo?: string;
   studyType?: string;
   maxResults?: number;
+  timeoutMs?: number;
 }
 
 function corsHeaders() {
@@ -39,6 +40,7 @@ export async function POST(request: Request) {
     const yearTo = body.yearTo?.trim() || undefined;
     const studyType = body.studyType && body.studyType !== "All Study Types" ? body.studyType : undefined;
     const maxResults = typeof body.maxResults === "number" ? body.maxResults : undefined;
+    const timeoutMs = typeof body.timeoutMs === "number" ? body.timeoutMs : undefined;
 
     if (!query) {
       return NextResponse.json({ error: "Missing query parameter" }, { status: 400, headers: corsHeaders() });
@@ -52,6 +54,7 @@ export async function POST(request: Request) {
       yearTo,
       studyType,
       limitPerDatabase: maxResults,
+      timeoutMs,
     });
 
     const enriched: Paper[] = outcome.papers.map((p) => ({

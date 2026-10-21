@@ -55,6 +55,8 @@ export interface SearchOptions {
   yearTo?: string;
   studyType?: string;
   limitPerDatabase?: number;
+  /** Overall wall-clock budget for the whole multi-database search. */
+  timeoutMs?: number;
 }
 
 const STUDY_TYPE_KEYWORDS: Record<string, string[]> = {
@@ -88,6 +90,9 @@ const DEFAULT_LIMIT_PER_DATABASE = 200;
 const MAX_LIMIT_PER_DATABASE = 500;
 /** Hard ceiling for a single database, so one slow upstream cannot stall the search. */
 const DATABASE_TIMEOUT_MS = 90000;
+/** Overall wall-clock budget for one multi-database search. */
+const DEFAULT_SEARCH_BUDGET_MS = 30000;
+const MAX_SEARCH_BUDGET_MS = 120000;
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1478,6 +1483,10 @@ export async function searchDatabases(databases: string[], options: SearchOption
     }
 
     const started = Date.now();
+    const budgetMs = Math.min(Math.max(options.timeoutMs ?? DEFAULT_SEARCH_BUDGET_MS, 5000), MAX_SEARCH_BUDGET_MS);
+    // Every database is bounded by the overall search budget, so the total
+    // wall-clock time of a search is predictable.
+    const perDatabaseTimeout = Math.min(DATABASE_TIMEOUT_MS, budgetMs);
     try {
       const raw = await withTimeout(
         definition.search({
@@ -1486,8 +1495,8 @@ export async function searchDatabases(databases: string[], options: SearchOption
           yearTo: options.yearTo,
           limit,
         }),
-        DATABASE_TIMEOUT_MS,
-        `${definition.label} search timed out after ${DATABASE_TIMEOUT_MS / 1000}s`
+        perDatabaseTimeout,
+        `${definition.label} search timed out after ${(perDatabaseTimeout / 1000).toFixed(0)}s`
       );
       const filtered = applyFilters(raw, options);
       const elapsedMs = Date.now() - started;

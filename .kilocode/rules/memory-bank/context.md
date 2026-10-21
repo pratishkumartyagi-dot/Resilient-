@@ -38,6 +38,16 @@
 - Environment-limited failures reported honestly: OpenAlex + Semantic Scholar HTTP 429 (shared-IP daily budget → set an API key), DOAJ HTTP 502, dblp bot-protection.
 - `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
 
+## Step 1 search budget (time-boxed search) (2026-10-21)
+
+- `searchDatabases()` now takes `timeoutMs` (overall wall-clock budget, default **30 s**, clamped 5–120 s) and bounds **every** database by `min(90 s, budget)`; a database that overruns is reported as `status: "failed"` with `"<Db> search timed out after Ns"` instead of stalling the search.
+- `/api/literature-search` accepts `timeoutMs` in the request body; `Step1Search.tsx` exposes a **Search Budget** selector (15 s / 30 s / 60 s / 120 s) next to "Max Records / Database".
+- Measured (query "latent tuberculosis infection healthcare workers", 14 databases, 200 records/db):
+  - **15 s** → 837 papers; OpenAIRE + OpenAlex cut off as timed out
+  - **30 s** → 910 papers (wall 26 s); OpenAIRE 71 records
+  - **60 s** → 907 papers (wall 25 s) — no extra records, because the remaining failures are hard HTTP errors (OpenAlex/S2 429, DOAJ 502, dblp bot-protection), not timeouts
+- Practical implication: beyond ~30 s the extra wall clock buys nothing without API keys; a longer budget only matters for a slow-but-healthy source such as OpenAIRE.
+
 ## Current State
 
 **App Status**: ✅ Fully functional prototype built

@@ -57,6 +57,7 @@ const DATABASE_URLS: Record<string, string> = {
 };
 
 const RESULT_LIMITS = [50, 100, 200, 500];
+const SEARCH_BUDGETS = [15, 30, 60, 120];
 
 interface PerDatabaseRow {
   database: string;
@@ -81,6 +82,7 @@ export default function Step1Search() {
   const [perDatabaseResults, setPerDatabaseResults] = useState<PerDatabaseRow[]>([]);
   const [citationCounts, setCitationCounts] = useState<{ verified: number; unverified: number; noDoi: number }>({ verified: 0, unverified: 0, noDoi: 0 });
   const [resultLimit, setResultLimit] = useState(200);
+  const [searchBudget, setSearchBudget] = useState(30);
   const [searchFailed, setSearchFailed] = useState(false);
   const [webFallbackBusy, setWebFallbackBusy] = useState(false);
 
@@ -158,6 +160,7 @@ export default function Step1Search() {
           yearTo: yearTo || undefined,
           studyType: studyType === "All Study Types" ? undefined : studyType,
           maxResults: resultLimit,
+          timeoutMs: searchBudget * 1000,
         }),
       });
 
@@ -357,7 +360,7 @@ export default function Step1Search() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div>
               <label className="block text-sm font-medium text-blue-200 mb-1">Year From</label>
               <input
@@ -399,6 +402,18 @@ export default function Step1Search() {
               >
                 {RESULT_LIMITS.map((limit) => (
                   <option key={limit} value={limit}>{limit}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-blue-200 mb-1">Search Budget</label>
+              <select
+                value={searchBudget}
+                onChange={(e) => setSearchBudget(Number(e.target.value))}
+                className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2 text-sm"
+              >
+                {SEARCH_BUDGETS.map((seconds) => (
+                  <option key={seconds} value={seconds}>{seconds}s</option>
                 ))}
               </select>
             </div>
