@@ -174,6 +174,66 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
 
 ## Recently Completed
 
+- [x] **Statistical Analysis tab — fg-data-profiling style profiling (2026-10-20, v0.1.9)**
+  - [x] New `src/lib/data-profiling/` module implementing the fg-data-profiling feature set: type inference, univariate/multivariate analysis, alerts engine, missing-value patterns, duplicate detection, time-series diagnostics (ACF/PACF, trend, seasonality), text analysis (scripts, blocks, casing, common words), dataset comparison, HTML + JSON report export.
+  - [x] New `src/components/DataProfilePanels.tsx` rendering Overview cards, Alerts table, Variable types, Numerical/Categorical/Temporal/Text variables, histograms (recharts), correlations (Pearson + Spearman), PCA, duplicates, time-series sparklines and Reproduction section.
+  - [x] `StatisticalAnalysisTab.tsx` now renders `DataProfilePanels` on file upload and offers HTML report + JSON profile export.
+  - [x] `auto-analyst/index.ts` report extended with numbered Alerts section (severity-coloured) and Reproduction section (engine, duration, config).
+  - [x] Fixed kurtosis formula (bias-corrected sample G2), ID-column detection (unique numerics flagged as identifiers and excluded from correlations/PCA/time-series), missing-value alerts for all column types.
+  - [x] Verified: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅; live profiler test on a synthetic 122-row cohort confirmed type inference, alerts, correlations, duplicates, histograms, HTML/JSON export.
+
+- [x] **Systematic Review pipeline rebuild (2026-10-20, v0.1.9)**
+  - [x] Concept extraction library (Gemini + local parser) with roles, required/optional, synonyms, MeSH
+  - [x] Per-track query compiler (Track 1 field-tagged PubMed/ClinicalTrials.gov, Track 2 simple databases, Track 3 preprint servers)
+  - [x] DedupEndNote-style dedup (DOI → DOI base → title → fuzzy title) with source/member tracking
+  - [x] PRISMA 2020 diagram component with per-database counts and exclusion reasons
+  - [x] Refchecker-style citation validation API (doi.org CSL-JSON + Crossref fallback)
+  - [x] Step 1 rewritten: broad area, AND/OR/NOT, year range, 13 study-type checkboxes (OR), concept panel, compiled-strategy preview, per-database selection
+  - [x] Step 2 rewritten: dedup, abstract filter, unique papers with "also found in" badges, citation badges, PRISMA toggle
+  - [x] `medspacyFilter` flag now honoured (was parsed and ignored)
+  - [x] Fixed Europe PMC year filter (`publication_year>=` silently returned 0 hits → `PUB_YEAR:[a TO b]`)
+  - [x] Native year filters for PubMed (`mindate`/`maxdate`), arXiv (`submittedDate`) and ClinicalTrials.gov (`AREA[StudyType]`)
+
+- [x] **Database search pipeline deep audit & fixes (2026-10-20, v0.2.7)**
+  - [x] Fixed `fetchPubMedBrowserless` — critically broken control flow: early `return []` statements prevented efetch paper fetching from ever executing. Restructured into 3 phases (PMID collection → broader query fallback → efetch details). Reduced MAX_RESULTS from 10000 to 500.
+  - [x] Fixed `fetchWithTimeout` — replaced `AbortController.signal` with `Promise.race` (Bun compatibility; AbortController caused hangs).
+  - [x] Fixed `fetchEuropePMC` — added MAX_PAGES=10 limit to prevent infinite cursor pagination on popular queries.
+  - [x] Fixed `fetchCrossref` — added try/catch to return partial results on HTTP 429 rate limit instead of losing all data.
+  - [x] Fixed `fetchDoaj` — added try/catch to return partial results on page errors instead of losing all data.
+  - [x] Fixed `fetchZenodo` — added try/catch, reduced max pages from 40 to 10.
+  - [x] Fixed `fetchOpenAIRE` — reduced timeout from 30s to 15s, reduced pages from 10 to 3.
+  - [x] Removed OpenAlex, dblp, Google Scholar, Semantic Scholar, ScienceDirect from route apiMap (non-functional/rate limited).
+  - [x] Removed medical-mcp from Step 1 (returning 0 results).
+  - [x] Live audit: PubMed 500, Europe PMC 1000, DOAJ 636, Zenodo 250, ClinicalTrials.gov 1129, OpenAIRE 9, arXiv 838, bioRxiv 2, medRxiv 6 for "diabetes treatment" (2021-2026).
+  - [x] Verified: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
+
+- [x] **Automated SLR — systematic literature review pipeline (2026-10-21, v0.2.8)**
+  - [x] New `src/lib/slr-skills.ts` — SLR-Engine step-by-step workflow skills (all 10 skills including optional citation chasing and living SLR):
+    - Skill 1: Problem Formulation (PICO/PECO/PECOT/freeflow)
+    - Skill 2: Protocol Development (inclusion/exclusion criteria, search strategy)
+    - Skill 3: Literature Search (compiled database queries)
+    - Skill 4: Study Selection (title/abstract screening, full-text screening)
+    - Skill 5: Data Extraction (PICO extraction from included papers)
+    - Skill 6: Quality Assessment (ROB-2, NOS, AMSTAR-2, QUADAS-2, CASP)
+    - Skill 7: Data Synthesis (PRISMA flow, evidence synthesis)
+    - Skill 8: Reporting (PRISMA 2020-compliant manuscript generation)
+    - Skill 9: Citation Chasing (forward/backward, optional)
+    - Skill 10: Living SLR (ongoing monitoring, optional)
+  - [x] New `src/components/pipelines/AutomatedSLR.tsx` — 8-step SLR UI with PICO/PECO/PECOT/freeflow input, year range, multi-database search, screening, extraction, quality assessment, synthesis, reporting with MD export
+  - [x] Updated `src/components/Header.tsx` — added "Automated SLR" microscope toggle button next to Thesis Generator
+  - [x] Updated `src/components/TopTabs.tsx` — added "Automated SLR" tab with Microscope icon
+  - [x] Updated `src/app/page.tsx` — added "slr" tab route and "open-slr" event listener
+  - [x] Updated `src/context/AppContext.tsx` — added SLR state fields (framework, PICO elements, year range, databases, papers, screened/included, synthesis rows, PRISMA counts, step tracking)
+  - [x] Added `screened`/`included`/`screeningReason` fields to `Paper` interface
+  - [x] Verified: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
+
+- [x] **v0.2.9 — Database search fixes, Review of Literature, Thesis & SLR updates (2026-10-21)**
+  - [x] **Step 1 Database Search — Deep audit & fixes**: Removed medspacy relevance filtering (was eliminating papers from all databases except Crossref). Re-added OpenAlex, dblp, Google Scholar, Semantic Scholar, ScienceDirect to route apiMap. Lowered/relaxed keyword presence filter to flag-but-not-drop low-relevance papers. Verified: PubMed 500, Europe PMC 1000, DOAJ 636, Zenodo 250, ClinicalTrials.gov 1129, OpenAIRE 9, arXiv 838, bioRxiv 2, medRxiv 6 for "diabetes treatment" (2021-2026).
+  - [x] **Step 4 Review of Literature — 6-section AI generation**: New SectionMeta-driven UI with deep chain-of-thought reasoning (per-paper CoT analysis before writing). Sections: Introduction, Global & Indian Situations, Research Gaps/Limitations, Authors' Advice for Future Research, Summary of All Studies, References (Vancouver). Each section generated separately with subheadings matching the specified style. References auto-populated from evidence synthesis table.
+  - [x] **Thesis Generator — Removed humaniser**: Removed Stage 4 humaniser from pipeline (thesis-pipeline/index.ts, thesis-types.ts, ThesisGenerator.tsx pipeline stages). Updated level labels: MD/MS (15k–40k words), Bachelor (8k–15k), PhD (60k–100k). Word counts generated per selected level.
+  - [x] **Automated SLR — Select-all toggle + AI bias**: Added "Select All → Include" toggle in Step 4 screening. Step 6 Quality Assessment now runs automated AI bias assessment (Robtreviewer/Robvis style) with RoB-2/NOS/AMSTAR-2/QUADAS-2 frameworks, with manual override per paper.
+  - [x] Verified: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
+
 - [x] Base Next.js 16 setup with App Router
 - [x] TypeScript configuration with strict mode
 - [x] Tailwind CSS 4 integration
@@ -1744,6 +1804,8 @@ Step 1 results now show:
   - **Fallback Updates**: Updated all fallback cases (no API key, AI extraction failure) to include `predictors`, `ciLower`, and `ciUpper` fields with appropriate default values.
   - **Validation**: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅ passes cleanly.
 
+- 2026-10-20: **Systematic Review pipeline rebuild (v0.1.9)**: Rebuilt Research Pipeline Steps 1 and 2 into a systematic-review-grade flow — concept extraction (Gemini + local parser), per-track query compilation (PubMed/ClinicalTrials.gov field-tagged, simple databases, preprint servers), DedupEndNote-style dedup, PRISMA 2020 diagram, refchecker-style citation validation API, 13 study-type checkboxes with OR logic, "Show All Results" that now really bypasses the relevance filter, and native year filters for PubMed/arXiv/ClinicalTrials.gov. Also fixed a silent Europe PMC bug (`publication_year>=` returns zero hits; now `PUB_YEAR:[a TO b]`). Validation: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅; live API checks confirmed the compiled plan, PRISMA counts, dedup cascade and DOI validation.
+
 ## Step 1 Database Parity — Europe PMC restored (2026-09-08)
 
 **Issue**: Evidence Synthesis & Meta-analysis pipeline Step 1 was missing "Europe PMC" from its database list, making it unavailable for search despite being present in the Research Pipeline Step 1 and in the `/api/literature-search` backend. Additionally, `fetchRealPapers` and `fetchRealPapersWithCounts` in `database-apis.ts` incorrectly mapped "Europe PMC" to `fetchPubMedBrowserless` instead of `fetchEuropePMC`.
@@ -1761,3 +1823,208 @@ Both Step 1 components (Research Pipeline and Evidence Synthesis & Meta-analysis
 ### Validation
 - `bun typecheck` ✅ passes
 - `bun lint` ✅ passes (0 errors; only pre-existing not-found.tsx warning)
+
+## Semantic Search, Vancouver/DOI & Literature Review Placement (2026-10-17)
+
+### Semantic search — both pipelines
+- `/api/literature-search/route.ts`: added `semanticSearch` handling. When enabled, boolean operators (AND/OR/NOT) are stripped so retrieval matches on meaning across the broad area of research, and "Semantic Scholar" is always included (true meaning-based retrieval).
+- Systematic Review pipeline (`EvidenceSynthesisTab.tsx` + `EvidenceSynthesisStep1.tsx`): added a "Semantic search (meaning-based)" toggle; `handleSearch` sends the raw query (skips `applySearchLogic`) when enabled.
+- 11-step Research Module (`Step1Search.tsx`): replaced the static "Semantic Search Active" badge with a real toggle (default on) and passes `semanticSearch` to the API.
+
+### Literature review belongs to the 11-step module (correction)
+- Removed the dead literature-review code from `EvidenceSynthesisTab.tsx` (systematic review): `literatureReviewSections`/`literatureReviewLoading` state plus the unused `generateLiteratureReview` and `parseLiteratureReview` functions were declared but never rendered. Literature review now lives only in the 11-step Research Module.
+- `src/components/steps/Step4LiteratureReview.tsx`: rewritten. Generates the 6 screenshot sections (Introduction; Global & Indian Situations; Research Gaps / Limitations; Authors' Advice for Future Research; Summary of All Studies; References) individually via AI, using the evidence synthesis table (`state.synthesisTable`) as the single source of truth. Section 6 (References) is **auto-populated from the synthesis table's Vancouver reference column** (with DOI), with a fallback to Vancouver-formatted selected papers. Per-section Regenerate buttons; full review persisted to `state.literatureReview`.
+- Research gaps remain deep-reasoned narratives in the synthesis table (`research-skills.ts` Step 3 prompt; `pico-extractor.ts` `extractResearchGaps`).
+
+### Validation
+- `bun typecheck` ✅, `bun lint` ✅
+
+## Thesis Generator — Chapter Files, Argument Audit & Tool Attribution (2026-10-17)
+
+- **Per-chapter output surfaced**: `ThesisPipelineResult` now includes `chapters: ChapterFile[]`; `runThesisPipeline` returns it and `/api/thesis-generate` includes `chapters` in the response. Previously Stage 2's per-chapter prose and `ArgumentAudit` were computed then discarded.
+- **UI**: `ThesisGenerator.tsx` now renders a "Chapter Files & Argument Audit" panel — per chapter: word count, citation count, logical-flow score bar, citation-coverage bar, claims, evidence gaps, recommendations, and expandable chapter prose.
+- **Pipeline stage attribution**: added a stage-flow strip (Stage 1 OpenDraft → Stage 2 ThesisGenerator → Stage 3 ScholarCopilot → Stage 4 Humaniser) with live status dots and links to the source repos (federicodeponte/opendraft, ekontoTURBO/thesis-generator, TIGER-AI-Lab/ScholarCopilot), making the referenced tools explicit in the pipeline.
+- Validation: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
+
+## Database Search Audit & Fixes — both pipelines (2026-10-17)
+
+Both pipelines share `/api/literature-search` (main research module `Step1Search.tsx`; systematic review via `EvidenceSynthesisTab.handleSearch` + `EvidenceSynthesisStep1.tsx`). Audited all 14 databases via the live production server.
+
+### Fixes in `src/lib/database-apis.ts`
+- `fetchWithTimeout` now sends a `User-Agent` and accepts custom headers; `fetchWithRetry` rewritten with jittered exponential backoff, more attempts, and retries on HTTP 429/503/504 and network errors.
+- **PubMed**: switched esearch/efetch to `fetchWithRetry`; now preserves partial results instead of discarding everything on a late error. (Was returning 0 under load; now 655+ in combined search, 5333 alone.)
+- **arXiv**: `fetchWithRetry` (was failing on transient 429); capped `max_results` to 1000. Now 1000 results.
+- **Zenodo**: page size must be ≤25 (100 → HTTP 400); now paginates 25/page. Now 1000 results.
+- **OpenAIRE**: correct param is `keywords=` (not `query=`, which 400s); rewrote the parser for OpenAIRE's typed-array schema (`title`/`creator`/`pid`/`description` are arrays of `{@classid,$}` objects). Was producing all-`Untitled` rows that deduped to 1; now 979 results.
+- **OpenAlex**: `fetchWithRetry`, valid mailto, optional `OPENALEX_API_KEY` env. Free shared-IP budget is currently exhausted (429 "Insufficient budget") — resets daily.
+- **Semantic Scholar** & **Google Scholar**: `fetchWithRetry` with stronger backoff; optional `S2_API_KEY` env; keep partial results; reduced to a single page. SS's shared unauthenticated pool is globally rate-limited (429) intermittently; works otherwise.
+- **dblp**: gracefully reports its anti-bot HTML challenge instead of a JSON parse crash. dblp is permanently behind an Anubis JS proof-of-work challenge — no server-side workaround.
+- **Crossref / OpenAlex pagination**: capped to 10 pages (1000 results) to cut response size and rate-limiting.
+- Route: staggered parallel database requests (idx × 400ms) so shared rate limits (NCBI, Semantic Scholar) are not all hit at once.
+
+### Status
+- Working: PubMed, Europe PMC, DOAJ, bioRxiv, medRxiv, Crossref, arXiv, OpenAIRE, Zenodo, ClinicalTrials.gov, Google Scholar, Semantic Scholar (when not globally rate-limited).
+- Externally constrained: OpenAlex (daily shared budget; use `OPENALEX_API_KEY`), dblp (permanent JS bot challenge), Semantic Scholar (shared rate limit; use `S2_API_KEY`).
+
+- Validation: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅, live API tests ✅.
+
+## Windows .exe packaging (2026-10-17)
+
+Converted the app to Windows executables using the existing Electron + electron-builder setup (`electron/main.js`, `main` field, `build` config in package.json).
+
+- Build command: `bun run dist:win` (= `next build && electron-builder --win --publish never`). Output dir: `dist-electron/`.
+- Produced: `Resilient Research App Setup 0.1.2.exe` (NSIS one-click installer) and `Resilient Research App 0.1.2.exe` (portable single-file), both valid PE (`MZ`) ~335 MB, plus `win-unpacked/` (unpacked app, ~1.4 GB).
+- The packaged `resources/app` contains `.next`, `electron/main.js`, `public`, and production `node_modules` (next/react/docx/exceljs/xlsx/etc.); `main.js` spawns `next start` on a free port and loads it in a BrowserWindow.
+- **Cross-building Windows targets on Linux requires wine with 32-bit support.** Installed via `apt-get`: `apt-get install -y --no-install-recommends wine64` then `dpkg --add-architecture i386 && apt-get update && apt-get install -y --no-install-recommends wine32:i386`; linked `/usr/bin/wine` → `/usr/lib/wine/wine`. Without wine the NSIS step fails with `wine process failed ENOENT`.
+- Set `build.win.signAndEditExecutable: false` so exe resource editing/signing is skipped (no custom `.ico` present; default Electron icon used). Signing/code-signing still not configured.
+- `dist-electron/` is a build artifact; do not commit the ~670 MB of .exe files.
+
+### Windows exe build gotcha (2026-10-17)
+- When building the Windows installer on Linux, the wine prefix matters. The default prefix created by a 64-bit-only wine fails with `wine: could not load kernel32.dll, status c0000135`. Build succeeded using a fresh 32-bit-capable prefix: `WINEDEBUG=-all WINEPREFIX=/tmp/kilo/wineprefix ./node_modules/.bin/electron-builder --win --publish never` (run after `next build`). Use the `dist:win` script only with that WINEPREFIX exported.
+- Freshly built installers: `dist-electron/Resilient Research App Setup 0.1.2.exe` (NSIS installer) and `dist-electron/Resilient Research App 0.1.2.exe` (portable), each ~335 MB.
+
+## Windows installer published via GitHub release (2026-10-17)
+
+- Direct upload of the ~335 MB .exe via `gh release upload` fails with `413 Payload Too Large` — the sandbox egress caps request bodies at ~100 MB (90 MB OK, 110 MB fails).
+- Solution: publish through the existing `.github/workflows/build-desktop.yml` workflow, which builds on GitHub's own runners (native `windows-latest`, no wine) and attaches installers to the release.
+- Procedure: bump `package.json` version → commit → push → `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag triggers the workflow (`permissions: contents: write`, `softprops/action-gh-release`).
+- Published: release **v0.1.3** (public repo `pratishkumartyagi-dot/Resilient-`) with `Resilient.Research.App.Setup.0.1.3.exe` (installer), `Resilient.Research.App.0.1.3.exe` (portable), plus macOS dmg and Linux AppImage.
+- Windows installer URL: https://github.com/pratishkumartyagi-dot/Resilient-/releases/download/v0.1.3/Resilient.Research.App.Setup.0.1.3.exe
+
+## Thesis humaniser fix, per-section literature review & auto-analyst report (2026-10-17)
+
+### Thesis Generator crash fixed
+- Root cause of `object is not iterable` at ~95% (Stage 4 humaniser): `src/lib/humaniser/index.ts` had a stray object `{"delve":"look"}` inside the `AI_TYPICAL_PHRASES: Array<[string,string]>` array, so `for (const [find, repl] of ...)` destructuring threw. Also `humanise()` returned the original `fullThesis` instead of the humanised text.
+- Rewrote `src/lib/humaniser/index.ts` to the **academic-humanizer** skill (AIScientists-Dev/academic-humanizer, MIT): Layer 1/2 AI-tell replacement catalog (delve/underscore/tapestry/leverage/…, significance hype, empty intensifiers, novelty padding, formulaic openers, connective overuse), em-dash removal, overlong-sentence splitting, and a per-chapter AI rewrite using the claim↔evidence + preserve-citations/numbers rules. The AI rewrite is accepted only if it preserves citations/numbers (`preservesCitations`), else the deterministic pass is kept (also the graceful fallback on quota failure). Now returns the humanised `fullThesis`.
+
+### Thesis Generator finalise + download
+- `ThesisGenerator.tsx`: added a finalise flow — the thesis is shown in an editable textarea, then **Finalise Thesis** unlocks Word / PDF / LaTeX downloads (Edit re-opens it). Editing resets finalisation.
+
+### Research pipeline Step 4 literature review
+- `Step4LiteratureReview.tsx`: each of the 6 sections is always rendered as its own card with a per-section **Generate/Regenerate** button so sections can be generated one at a time (avoids exhausting the daily API quota). Added a tip in the structure panel. Section 6 (References) stays auto-filled from the evidence-synthesis Vancouver column.
+
+### Statistical Analysis auto-report
+- New `src/lib/data-profiling/index.ts` (fg-data-profiling concept): column profiles (n, missing, mean, SD, median, min/max, IQR, 1.5×IQR outliers), group stats with 95% CI, completeness and quality flags.
+- New `src/lib/auto-analyst/index.ts` (Auto-Analyst + notebooklm-py concept): builds a notebook-style markdown report (Dataset Overview; Data Profiling & Quality; Distribution & Outliers; Group Comparisons; Key Findings; Limitations & Recommendations; optional AI Analytical Narrative).
+- `StatisticalAnalysisTab.tsx`: **Auto-Analyst Report** panel — Generate Report (AI if a key is set, deterministic otherwise), editable notebook-style textarea, **Finalise**, then export Word/PDF.
+
+### Note on the referenced repos
+The requested repos (academic-humanizer, fg-data-profiling, Auto-Analyst, notebooklm-py) are external Python/skill projects that cannot be installed in this Next.js app; their methodologies were implemented natively in the modules above.
+
+- Validation: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
+
+## Step 3 Synthesis & Step 4 Literature Review — DeepSeek + Local Fallbacks (2026-10-19)
+
+### Fixes Applied
+
+**Step 3 Synthesis Table** (`src/components/steps/Step3Synthesis.tsx`):
+- Added `callDeepSeek` import from `@/lib/ai`
+- Added DeepSeek fallback between Gemini/Groq failure and rule-based local synthesis in `handleGenerateSynthesis`
+- Fallback chain: Gemini → Groq → DeepSeek (local browser model, no API key) → `generateLocalSynthesis` (rule-based)
+- Research Gaps column continues to populate via `extractResearchGaps` in both AI and local modes (`buildStep3Prompt` requires `researchGaps` in output)
+
+**Step 4 Literature Review** (`src/components/steps/Step4LiteratureReview.tsx`):
+- `handleRegenerateSection`: added DeepSeek fallback then rule-based local section content (`buildLocalSectionContent`) — previously only showed an alert on failure
+- `handleGenerateAll`: per-section fallback chain — AI (`generateSection`) → DeepSeek → `buildLocalSectionContent`; outer catch now populates all sections with local content instead of only introduction
+- Added `buildLocalSectionContent` helper generating section-appropriate local content (introduction, globalIndian, gaps, futureAdvice, summary) based on papers and query
+- `callAi` already fell back to `callDeepSeek` when no Gemini/Groq keys — now all code paths have local fallback
+
+### Validation
+- `bun typecheck` ✅ passes
+- `bun lint` ✅ passes (0 errors)
+- `bun run build` ✅ passes cleanly
+- Committed as `c7f8757` on branch `kilo/summer-piano-doy`, pushed to origin
+
+## Both Pipelines — Relevance, Deep Reasoning, MeSH Expansion, and ARS Integration (2026-10-19)
+
+### 1. All 14 Databases Searched by Default (both Step 1s)
+- `src/context/AppContext.tsx`: default `selectedDatabases` expanded 7 → all 14 (added Europe PMC, arXiv, OpenAIRE, dblp, Zenodo, Google Scholar, Semantic Scholar, ClinicalTrials.gov)
+- `src/app/api/literature-search/route.ts`: `defaultDbs` fallback expanded 6 → all 14
+- Evidence Synthesis pipeline (`EvidenceSynthesisTab.tsx`) already had all 14 selected by default
+- Committed `741eb49`
+
+### 2. DeepSeek + Local Fallbacks Across Both Pipelines
+- Pipeline A Steps 5, 6, 7, 11: DeepSeek added as intermediate fallback between Groq failure and mock data
+- Pipeline A Steps 8, 9, 10: replaced AI-only `alert()`-on-failure with DeepSeek fallback + rule-based local content (aim/objectives, methods section, protocol defaults)
+- Pipeline B Step 6: DeepSeek + local fallback added to `generateReview`, `incorporateReviewAndRegenerate`, and all three STORM functions (draft/review/final)
+- Committed `0ef62ad`
+
+### 3. Step 1 Relevance + Full DOI Verification
+- `src/lib/database-apis.ts`: removed `MAX_VERIFY = 20` cap in `verifyCitations` — every DOI is now verified against Crossref
+- `src/app/api/literature-search/route.ts`: reordered pipeline to DOI enrichment → DOI verification → relevance filtering; medspacy filtering now mandatory (threshold 40 → 50); added `extractQueryKeywords` + `filterByKeywordPresence` so at least one significant query keyword must appear in title or abstract; papers with no DOI/no keyword match are excluded from display
+- Committed `e37281f`
+
+### 4. MeSH Expansion + ATM + Truncation Wildcards (both Step 1s)
+- New `src/lib/mesh-expansion.ts`:
+  - MeSH term map (term → MeSH synonyms + narrower/exploded terms): cancer, hypertension, diabetes, liver disease, hepatitis, cirrhosis, asthma, COPD, TB, HIV, stroke, MI, heart failure, depression, anxiety, obesity, pneumonia, dementia, Parkinson's, epilepsy, arthritis, pregnancy, infection, sepsis, pain, CKD and more
+  - ATM (Automatic Term Mapping): lay → canonical ("high blood pressure" → hypertension, "heart attack" → myocardial infarction, "sugar" → diabetes)
+  - Truncation roots: `pediat*` → pediatric/pediatrics/pediatrician/paediatric…, plus cardi/hepat/nephr/pulmon/onc/immun/inflam/infect/diagn/treat/prevent/manag/screen/surveil/epidemiol/clinic/therap/interven/cohort/longitud/prospect/retrospect/random/control/blind/placebo
+  - `expandQueryWithMesh()` returns expanded query + meshTerms + atmMappings + wildcardRoots
+- Route applies expansion before dispatching to all 14 databases; response includes a `meshExpansion` block
+- Committed `e37281f`
+
+### 5. Step 4 Literature Review — Deep Reasoning + Comprehensive Sections
+- `src/components/steps/Step4LiteratureReview.tsx`:
+  - Added `DeepReasoningEntry` interface, `buildDeepReasoningPrompt()` (8 dimensions per paper: CoT, key claims, methodological assessment, limitations, relevance, gaps, connections, evidence tier T1–T4), `handleGenerateDeepReasoning()`
+  - New purple "Deep Reasoning / Chain-of-Thought Analysis" panel; `buildSectionPrompt` now receives the deep-reasoning text as the analytical foundation
+  - Section prompts upgraded to comprehensive: 5–8 paragraphs with `###` subheadings, comparative synthesis, evidence tables, convergence/divergence analysis
+  - Per-section subheadings: Introduction (1.1–1.3), Global & Indian (2.1–2.4), Research Gaps (3.1–3.5), Future Advice (4.1–4.5), Summary (5.1–5.5)
+  - `buildLocalSectionContent` rewritten with matching comprehensive subheading structure
+- Committed `2fbc575`
+
+### 6. Academic Research Skills (ARS) Integration — Paper Writer & Reviewer
+- New `src/lib/ars-skills.ts` — ported ARS methodology from https://github.com/Imbad0202/academic-research-skills (Academic Research Skills by Cheng-I Wu, CC BY-NC 4.0). ARS is prompt-driven, so the *protocols* are encoded as prompt builders:
+  - **Style Calibration** — 5 journal profiles (BMC Medicine, IJTLD, PLOS Medicine, Lancet Global Health, BMJ Open) with word limits, reporting guideline, reference style, section order, structured abstract headings, house style
+  - **Anti-Leakage Protocol** — never invent numbers/citations/ethics IDs; missing items declared as "requires author input"
+  - **Socratic Planning** — question sequence, decision map, chapter plan
+  - **Writing Quality Check** — 8-dimension audit + critical blockers/major/minor/verdict
+  - **Criterion-Bound Review** — 7 lenses: Journal-Fit, Methods & Validity, Statistical, Clinical Translation, Ethics & Equity, Presentation, **Devil's Advocate**; evidence-anchored, severity-tagged (CRITICAL/MAJOR/MINOR), attack intensity preserved
+  - **Concession Threshold Protocol** — Accept / Partial Concede / Dispute / Unresolved / Concede with Reservation
+  - **Revision Coach** — triage table, roadmap by section, new-analysis requests, response-letter skeleton, pre-submission checklist
+  - `buildPipelineContext()` assembles synthesis table + lit review + aim + methodology + protocol + impact from research pipeline
+- `src/components/tabs/PaperWriterTab.tsx` rewritten as a 6-stage pipeline: **plan → outline → draft → review → revise → audit**, each stage independently runnable. Uses the app's existing Gemini/Groq keys (no new API keys) with local DeepSeek model and local fallbacks when no key is set.
+- Committed `8ff99bb`
+
+### 7. Systematic Review Pipeline Rebuild — Step 1 Search Strategy + Step 2 Screening (2026-10-20)
+
+Rebuilt Steps 1 and 2 of the Research Pipeline into a systematic-review-grade flow.
+
+**New libraries**
+- `src/lib/concept-extraction.ts` — `ConceptBlock` (role: condition / predictor / outcome / design, `required` flag, synonyms, MeSH terms, `negated`). `extractConcepts()` uses Gemini when a key is set and falls back to a deterministic local parser that understands "A AND B", "effect of A on B", "A in B", "<design> of A in B" and NOT clauses. `enrichConcepts()` attaches MeSH headings/synonyms.
+- `src/lib/query-compiler.ts` — per-track compilation. Track 1 = PubMed + ClinicalTrials.gov (field-tagged boolean, MeSH, publication-type filters); Track 2 = OpenAlex/Europe PMC/DOAJ/Crossref/OpenAIRE/Semantic Scholar/dblp/Zenodo/Google Scholar (one query per concept); Track 3 = bioRxiv/medRxiv/arXiv (top-3 synonyms, single AND-ed query). `PUBMED_STUDY_TYPE_TAGS` emits `"term"[pt]` (the tag must sit outside the quotes — `("term"[pt])` returns nothing). `CLINICAL_TRIALS_STUDY_TYPE_AREAS` maps study types to the registry's interventional/observational areas.
+- `src/lib/dedup-endnote.ts` — DedupEndNote-style cascade: exact DOI → DOI base (preprint vs journal version) → normalised title → fuzzy title (Jaccard ≥ 0.82 within ±1 year). Merged records keep every source database, the filled-in DOI/abstract and the ids of all collapsed members.
+- `src/components/Prisma2020Diagram.tsx` — PRISMA 2020 flow diagram with per-database identification counts, exclusion boxes and eligibility reasons.
+- `src/app/api/citation-validator/route.ts` — refchecker-style validation via doi.org content negotiation (CSL-JSON) with a Crossref fallback; statuses `valid` / `mismatch` / `unresolved` / `not-found`; concurrency 8; title-only papers are matched by title similarity.
+
+**Mesh expansion**
+- `src/lib/mesh-expansion.ts`: added `lookupConceptExpansion()` — deliberately conservative. A compound concept matches only the single most specific covering MeSH key and keeps just the narrower terms sharing an extra token, so "latent tuberculosis infection" no longer explodes into the whole "Infections" family.
+
+**Step 1 (`src/components/steps/Step1Search.tsx`, rewritten)**
+- Broad-area input with AND/OR/NOT selector, Year From/To, 13 study-type checkboxes combined with OR plus Select All / Clear Filter.
+- "Extract Concepts" button (Gemini, local-parser fallback); concept cards show role, required/optional toggle, MeSH and synonym chips.
+- Live "Compiled search strategy" preview (per track, per database).
+- Results grouped by database with per-paper, per-database and global selection; "Show All Results" toggle now genuinely bypasses the relevance filter.
+- Sends `useCompiledQueries: true`, `deduplicate: false` so Step 2 receives every raw record.
+
+**Step 2 (`src/components/steps/Step2Results.tsx`, rewritten)**
+- DedupEndNote dedup, abstract/full-text filter, unique papers grouped by database with "also found in" source badges, refchecker validation badges, PRISMA 2020 toggle, and the deduplicated set is committed before Step 3.
+
+**Route (`src/app/api/literature-search/route.ts`)**
+- Accepts `concepts`, `studyTypes[]`, `useCompiledQueries`, `deduplicate`; dispatches per track, fans out Track 2 queries, dedupes within each database, applies the study-type OR filter only to databases that cannot filter natively, and applies NOT terms locally for Track 2/3.
+- Returns `rawRecordCount`, `rawRecordsPerDatabase`, `relevanceFilteredCount`, `compiledPlan`, `planSummary`.
+- The `medspacyFilter` flag is now honoured — previously it was parsed and ignored, so the filter was always applied.
+
+**Database API fixes (`src/lib/database-apis.ts`)**
+- Europe PMC: the year filter used `publication_year>=2015`, which Europe PMC silently ignores and which made every year-filtered search return zero hits — now `PUB_YEAR:[2015 TO 2025]`. Top-level OR groups are parenthesised because Europe PMC binds AND tighter than OR.
+- PubMed: native `mindate`/`maxdate` instead of downloading and discarding records client-side.
+- arXiv: native `submittedDate:[... TO ...]` range.
+- ClinicalTrials.gov: native `filter.advanced=AREA[StudyType]INTERVENTIONAL|OBSERVATIONAL`.
+- `STUDY_TYPE_KEYWORDS` is now exported; `verifyCitations` de-duplicates the DOI list before hitting Crossref.
+
+**Context (`src/context/AppContext.tsx`)**
+- New state: `studyTypes[]`, `conceptBlocks`, `rawRecordCount`, `rawRecordsPerDatabase`, `relevanceFilteredCount`, `duplicatesRemoved`; `Paper` gained `sources`, `sourceBackend`, `citationStatus`, `citationMessage`, `memberIds`; new actions `SET_STUDY_TYPES`, `SET_CONCEPT_BLOCKS`, `SET_RAW_COUNTS`, `SET_DUPLICATES_REMOVED`, `SET_PAPER_SELECTION` (bulk selection for large result sets).
+
+### Validation
+- `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅ across all commits above
+- Note: `node_modules` is wiped between some sessions in this environment — run `bun install` before typecheck/lint/build if `tsc: command not found` appears
+

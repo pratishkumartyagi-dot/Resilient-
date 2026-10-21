@@ -82,23 +82,35 @@ export default function Step10Protocol() {
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: state.searchQuery };
 
       let responseText: string = "";
-      if (state.geminiApiKey) {
-        responseText = await callGemini(state.geminiApiKey, prompt, searchOptions);
-      } else if (state.groqApiKey) {
-        responseText = await callGroq(state.groqApiKey, prompt, searchOptions);
-      } else {
-        responseText = await callDeepSeek(prompt, searchOptions);
+      try {
+        responseText = await callGemini(state.geminiApiKey || "", prompt, searchOptions);
+      } catch {
+        try {
+          responseText = await callGroq(state.groqApiKey || "", prompt, searchOptions);
+        } catch {
+          try {
+            responseText = await callDeepSeek(prompt, searchOptions);
+          } catch {
+            responseText = "";
+          }
+        }
       }
 
-      const cleaned = responseText.replace(/```markdown/g, "").replace(/```/g, "").trim();
-      setGeneratedProtocol(cleaned);
+      if (!responseText.trim()) {
+        loadAllDefaults();
+        setGeneratedProtocol(`# Research Protocol (local fallback — no AI key available)\n\n## Structured Sections\n\nThe protocol sections below are pre-populated with default content. Edit each section to reflect your study design, then proceed to Impact Assessment.\n\n> Configure a Gemini or Groq API key in Settings for AI-generated protocol draft.`);
+      } else {
+        const cleaned = responseText.replace(/```markdown/g, "").replace(/```/g, "").trim();
+        setGeneratedProtocol(cleaned);
 
-      const parsed = parseProtocolSections(cleaned);
-      setLocalProtocol((prev) => ({ ...prev, ...parsed }));
-      dispatch({ type: "SET_PROTOCOL", payload: parsed });
+        const parsed = parseProtocolSections(cleaned);
+        setLocalProtocol((prev) => ({ ...prev, ...parsed }));
+        dispatch({ type: "SET_PROTOCOL", payload: parsed });
+      }
     } catch (err: any) {
       console.error("Protocol generation failed:", err);
-      alert(err.message || "Failed to generate protocol. Please try again.");
+      loadAllDefaults();
+      setGeneratedProtocol(`# Research Protocol (local fallback)\n\n## Structured Sections\n\nDefault protocol sections are loaded below. Edit each section to reflect your study design.\n\n> Configure a Gemini or Groq API key in Settings for AI-generated protocol draft.`);
     } finally {
       setIsGenerating(false);
     }

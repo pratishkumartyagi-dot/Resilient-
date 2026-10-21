@@ -101,12 +101,18 @@ export default function Step5Themes() {
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: state.searchQuery };
 
       let responseText: string = "";
-      if (state.geminiApiKey) {
-        responseText = await callGemini(state.geminiApiKey, prompt, searchOptions);
-      } else if (state.groqApiKey) {
-        responseText = await callGroq(state.groqApiKey, prompt, searchOptions);
-      } else {
-        responseText = await callDeepSeek(prompt, searchOptions);
+      try {
+        responseText = await callGemini(state.geminiApiKey || "", prompt, searchOptions);
+      } catch {
+        try {
+          responseText = await callGroq(state.groqApiKey || "", prompt, searchOptions);
+        } catch {
+          try {
+            responseText = await callDeepSeek(prompt, searchOptions);
+          } catch {
+            responseText = "";
+          }
+        }
       }
 
       const cleaned = responseText.replace(/```json/g, "").replace(/```/g, "").replace(/```markdown/g, "").trim();

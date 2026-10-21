@@ -1,9 +1,11 @@
 "use client";
 
 import Image from "next/image";
-import { Settings } from "lucide-react";
+import { Settings, BookOpen, Microscope } from "lucide-react";
+import { useApp } from "@/context/AppContext";
 
 export default function Header() {
+  const { dispatch } = useApp();
   return (
     <header className="bg-gradient-to-r from-[#0a1a3a] to-[#0d2080] text-white shadow-lg">
       <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -25,7 +27,27 @@ export default function Header() {
           </h1>
           <p className="text-xs text-blue-200">AI-Powered Research Intelligence Platform</p>
         </div>
-        <div className="flex items-center justify-end">
+        <div className="flex items-center justify-end gap-2">
+          <button
+            onClick={() => {
+              const event = new CustomEvent("open-thesis");
+              window.dispatchEvent(event);
+            }}
+            className="p-2 rounded-lg bg-blue-900/40 text-blue-300 hover:bg-blue-900/60"
+            title="Thesis Generator"
+          >
+            <BookOpen size={20} />
+          </button>
+          <button
+            onClick={() => {
+              const event = new CustomEvent("open-slr");
+              window.dispatchEvent(event);
+            }}
+            className="p-2 rounded-lg bg-emerald-900/40 text-emerald-300 hover:bg-emerald-900/60"
+            title="Automated SLR"
+          >
+            <Microscope size={20} />
+          </button>
           <button
             onClick={() => {
               const event = new CustomEvent("open-settings");

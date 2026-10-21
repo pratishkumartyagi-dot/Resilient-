@@ -1,171 +1,352 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef } from "react";
-import { CheckSquare, Square, Trash2, FileText, Search, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  CheckSquare,
+  Square,
+  FileText,
+  Search,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  Copy,
+} from "lucide-react";
 import { useApp, type Paper } from "@/context/AppContext";
+import {
+  deduplicatePapers as deduplicateEndNote,
+  hasAbstract,
+  type DedupResult,
+} from "@/lib/dedup-endnote";
+import Prisma2020Diagram, {
+  EMPTY_PRISMA_COUNTS,
+  type Prisma2020Counts,
+} from "@/components/Prisma2020Diagram";
 
-const deduplicatePapers = (papers: Paper[]): Paper[] => {
-  const seen = new Map<string, Paper>();
-  papers.forEach((p) => {
-    const doiKey = p.doi?.toLowerCase().trim();
-    const titleKey = p.title.toLowerCase().trim().slice(0, 80);
-    const key = doiKey || titleKey;
+type ValidationStatus =
+  | "valid"
+  | "mismatch"
+  | "unresolved"
+  | "no-doi"
+  | "not-found"
+  | "unchecked";
 
-    if (!key) {
-      seen.set(`${p.id}-${p.database}`, p);
-      return;
-    }
-
-    if (seen.has(key)) {
-      const existing = seen.get(key)!;
-      if (!existing.doi && p.doi) existing.doi = p.doi;
-      if (!existing.abstract && p.abstract) existing.abstract = p.abstract;
-      if (!existing.url && p.url) existing.url = p.url;
-    } else {
-      seen.set(key, { ...p });
-    }
-  });
-  return Array.from(seen.values());
-};
+interface ValidationInfo {
+  status: ValidationStatus;
+  message: string;
+  source?: string;
+  similarity?: number;
+}
 
 export default function Step2Results() {
   const { state, dispatch } = useApp();
   const [searchFilter, setSearchFilter] = useState("");
+  const [onlyWithAbstract, setOnlyWithAbstract] = useState(true);
+  const [validations, setValidations] = useState<Record<string, ValidationInfo>>({});
+  const [isValidating, setIsValidating] = useState(false);
   const validationStartedRef = useRef(false);
 
-  const selectedCount = state.papers.filter((p) => p.selected).length;
+  // -------------------------------------------------------------------------
+  // Deduplication (DedupEndNote-style) and abstract/full-paper filtering
+  // -------------------------------------------------------------------------
 
-  const uniquePapers = useMemo(() => deduplicatePapers(state.papers), [state.papers]);
-
-  const filteredPapers = useMemo(
-    () =>
-      uniquePapers.filter(
-        (p) =>
-          p.title.toLowerCase().includes(searchFilter.toLowerCase()) ||
-          p.authors.toLowerCase().includes(searchFilter.toLowerCase())
-      ),
-    [uniquePapers, searchFilter]
+  const dedup: DedupResult = useMemo(
+    () => deduplicateEndNote(state.papers),
+    [state.papers]
   );
 
-  const papersByDatabase = useMemo(
+  const abstractFiltered = useMemo(
     () =>
-      filteredPapers.reduce((acc, paper) => {
-        const db = paper.database || "Unknown";
-        if (!acc[db]) acc[db] = [];
-        acc[db].push(paper);
-        return acc;
-      }, {} as Record<string, Paper[]>),
-    [filteredPapers]
+      onlyWithAbstract
+        ? dedup.unique.filter((p) => hasAbstract(p))
+        : dedup.unique,
+    [dedup.unique, onlyWithAbstract]
   );
+
+  const filteredPapers = useMemo(() => {
+    const q = searchFilter.trim().toLowerCase();
+    if (!q) return abstractFiltered;
+    return abstractFiltered.filter(
+      (p) =>
+        (p.title || "").toLowerCase().includes(q) ||
+        (p.authors || "").toLowerCase().includes(q)
+    );
+  }, [abstractFiltered, searchFilter]);
+
+  // Group the unique papers by the database they are displayed under. A paper
+  // found in several databases is shown once, under its primary database, with
+  // the other sources listed.
+  const papersByDatabase = useMemo(() => {
+    const acc: Record<string, Paper[]> = {};
+    for (const paper of filteredPapers) {
+      const db = (paper.database as string) || "Unknown";
+      if (!acc[db]) acc[db] = [];
+      acc[db].push(paper as Paper);
+    }
+    return acc;
+  }, [filteredPapers]);
+
+  // Papers that could not be screened because they have no abstract.
+  const excludedNoAbstract = useMemo(
+    () => dedup.unique.filter((p) => !hasAbstract(p)).length,
+    [dedup.unique]
+  );
+
+  // Count unique papers, not raw records — a unique paper may stand for
+  // several records that were collapsed during deduplication.
+  const selectedCount = useMemo(
+    () => dedup.unique.filter((p) => p.selected).length,
+    [dedup.unique]
+  );
+
+  // -------------------------------------------------------------------------
+  // Citation validation
+  // -------------------------------------------------------------------------
+
+  const validateCitations = useCallback(async () => {
+    if (dedup.unique.length === 0) return;
+    if (state.citationValidationStatus === "running") return;
+    if (validationStartedRef.current) return;
+    validationStartedRef.current = true;
+
+    dispatch({ type: "SET_CITATION_STATUS", payload: "running" });
+    setIsValidating(true);
+
+    try {
+      const res = await fetch("/api/citation-validator", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          papers: dedup.unique.slice(0, 100).map((p) => ({
+            id: p.id as string,
+            doi: (p.doi as string) || "",
+            title: p.title as string,
+            authors: (p.authors as string) || "",
+            year: p.year as number,
+            journal: p.journal as string,
+          })),
+        }),
+      });
+
+      if (!res.ok) throw new Error(`Verification failed: ${res.status}`);
+
+      const data = await res.json();
+      const map: Record<string, ValidationInfo> = {};
+      (data.results || []).forEach((r: any) => {
+        const key = (r.doi || r.title || "").toLowerCase();
+        if (!key) return;
+        map[key] = {
+          status: r.status as ValidationStatus,
+          message: r.message,
+          source: r.source,
+          similarity: r.similarity,
+        };
+      });
+      setValidations(map);
+      dispatch({ type: "SET_CITATION_STATUS", payload: "done" });
+    } catch (err: any) {
+      console.warn("[Step2Results] Citation validation failed:", err?.message);
+      dispatch({ type: "SET_CITATION_STATUS", payload: "done" });
+    } finally {
+      setIsValidating(false);
+    }
+  }, [dedup.unique, state.citationValidationStatus, dispatch]);
 
   useEffect(() => {
-    const validateCitations = async () => {
-      if (state.papers.length === 0) return;
-      if (state.citationValidationStatus === "running" || state.citationValidationStatus === "done") return;
-      if (validationStartedRef.current) return;
-      validationStartedRef.current = true;
-
-      dispatch({ type: "SET_CITATION_STATUS", payload: "running" });
-
-      try {
-        const papersToValidate = uniquePapers.slice(0, 100).map((p) => ({
-          doi: p.doi || "",
-          title: p.title,
-          authors: p.authors || "",
-          year: p.year,
-          journal: p.journal,
-        }));
-
-        const res = await fetch("/api/doi-verification", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ papers: papersToValidate }),
-        });
-
-        if (!res.ok) throw new Error(`Verification failed: ${res.status}`);
-
-        const data = await res.json();
-        const results: Record<string, { valid: boolean; title?: string; message: string; source?: string }> = {};
-
-        if (data.results) {
-          data.results.forEach((r: any, idx: number) => {
-            const paper = uniquePapers[idx];
-            if (paper) {
-              const key = paper.doi?.toLowerCase() || paper.title.toLowerCase();
-              results[key] = {
-                valid: r.valid,
-                title: r.verified_title,
-                message: r.message,
-                source: r.source,
-              };
-            }
-          });
-        }
-
-        dispatch({ type: "SET_CITATION_RESULTS", payload: results });
-        dispatch({ type: "SET_CITATION_STATUS", payload: "done" });
-      } catch (err: any) {
-        console.warn("[Step2Results] DOI verification failed:", err?.message);
-        dispatch({ type: "SET_CITATION_STATUS", payload: "done" });
-      }
-    };
-
     validateCitations();
-  }, [state.papers, state.citationValidationStatus, dispatch, uniquePapers]);
+  }, [validateCitations]);
+
+  // Record the duplicate count so the PRISMA diagram and other steps can use it.
+  useEffect(() => {
+    if (state.duplicatesRemoved !== dedup.duplicatesRemoved) {
+      dispatch({
+        type: "SET_DUPLICATES_REMOVED",
+        payload: dedup.duplicatesRemoved,
+      });
+    }
+  }, [dedup.duplicatesRemoved, state.duplicatesRemoved, dispatch]);
+
+  // -------------------------------------------------------------------------
+  // Selection
+  // -------------------------------------------------------------------------
 
   const toggleAll = () => {
-    const allSelected = uniquePapers.every((p) => p.selected);
-    dispatch({ type: "SELECT_ALL_PAPERS", payload: !allSelected });
+    const allSelected =
+      filteredPapers.length > 0 && filteredPapers.every((p) => p.selected);
+    const ids: string[] = [];
+    for (const p of filteredPapers) {
+      for (const id of (p.memberIds as string[]) || [p.id]) {
+        ids.push(id);
+      }
+    }
+    dispatch({ type: "SET_PAPER_SELECTION", payload: { ids, selected: !allSelected } });
   };
-  
+
   const toggleDatabase = (database: string) => {
     const dbPapers = papersByDatabase[database] || [];
+    if (dbPapers.length === 0) return;
     const allSelected = dbPapers.every((p) => p.selected);
-    dbPapers.forEach((p) => {
-      if (p.selected !== !allSelected) {
-        dispatch({ type: "TOGGLE_PAPER", payload: p.id });
+    const ids: string[] = [];
+    for (const p of dbPapers) {
+      for (const id of (p.memberIds as string[]) || [p.id]) {
+        ids.push(id);
       }
+    }
+    dispatch({ type: "SET_PAPER_SELECTION", payload: { ids, selected: !allSelected } });
+  };
+
+  const handleSelectUnique = (paper: Paper) => {
+    // A unique paper may collapse several raw records across databases — all of
+    // them are toggled so the selection stays consistent.
+    const memberIds = (paper.memberIds as string[]) || [paper.id];
+    dispatch({
+      type: "SET_PAPER_SELECTION",
+      payload: { ids: memberIds, selected: !paper.selected },
     });
   };
 
-  const handleSelectUnique = (paper: any) => {
-    dispatch({ type: "TOGGLE_PAPER", payload: paper.id });
-  };
-
   const proceedToSynthesis = () => {
-    const selected = state.papers.filter((p) => p.selected);
-    if (selected.length === 0) {
-      alert("Please select at least one paper to proceed.");
+    // Commit the deduplicated set so downstream steps do not count the same
+    // article once per source database.
+    const uniqueSelected = dedup.unique.filter((p) => p.selected);
+    if (uniqueSelected.length === 0) {
+      dispatch({
+        type: "SET_ERROR",
+        payload: "Please select at least one paper to proceed.",
+      });
       return;
     }
+    dispatch({ type: "SET_ERROR", payload: "" });
+
+    dispatch({ type: "SET_PAPERS", payload: uniqueSelected as unknown as Paper[] });
     dispatch({ type: "SET_STEP", payload: 3 });
   };
 
-  const getCitationBadge = (paper: any) => {
-    if (state.citationValidationStatus === "running") {
-      return <span className="text-[10px] bg-blue-900/40 text-blue-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"><Loader2 size={10} className="animate-spin" /> verifying</span>;
+  // -------------------------------------------------------------------------
+  // PRISMA 2020 counts
+  // -------------------------------------------------------------------------
+
+  const prismaCounts: Prisma2020Counts = useMemo(() => {
+    if (dedup.totalRecords === 0) return EMPTY_PRISMA_COUNTS;
+
+    // "Records identified" is the number of records the databases returned for
+    // the search strategy, before any screening.
+    const identified = state.rawRecordCount || dedup.totalRecords;
+    // Records removed by the automated relevance filter (medspacy concepts +
+    // keyword presence) — counted as automation removals in PRISMA.
+    const automationRemoved = Math.max(
+      0,
+      identified - (state.relevanceFilteredCount || dedup.totalRecords)
+    );
+    const duplicatesRemoved = dedup.duplicatesRemoved;
+    // Records that survive deduplication and go forward to screening.
+    const screened = dedup.unique.length;
+    // Records excluded at screening because they have no abstract/full text.
+    const excludedNoAbstractCount = excludedNoAbstract;
+    const assessedForEligibility = abstractFiltered.length;
+    const included = dedup.unique.filter((p) => p.selected).length;
+
+    return {
+      identified,
+      duplicatesRemoved,
+      automationRemoved,
+      otherRemoved: 0,
+      screened,
+      screenedExcluded: excludedNoAbstractCount,
+      soughtForRetrieval: screened,
+      notRetrieved: 0,
+      assessedForEligibility,
+      eligibilityExcluded: {
+        "No abstract or full text available": excludedNoAbstractCount,
+      },
+      included,
+      perDatabase: state.rawRecordsPerDatabase || {},
+    };
+  }, [
+    dedup.totalRecords,
+    dedup.duplicatesRemoved,
+    dedup.unique,
+    excludedNoAbstract,
+    abstractFiltered.length,
+    state.rawRecordCount,
+    state.relevanceFilteredCount,
+    state.rawRecordsPerDatabase,
+  ]);
+
+  const getCitationBadge = (paper: Paper) => {
+    if (isValidating) {
+      return (
+        <span className="text-[10px] bg-blue-900/40 text-blue-300 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+          <Loader2 size={10} className="animate-spin" /> verifying
+        </span>
+      );
     }
-    const key = paper.doi?.toLowerCase() || paper.title.toLowerCase();
-    const result = state.citationValidationResults[key];
-    if (!result) return <span className="text-[10px] bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded">unchecked</span>;
-    if (result.valid) return <span className="text-[10px] bg-green-900/50 text-green-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"><CheckCircle2 size={10} /> Verified via {result.source || "DOI"}</span>;
-    return <span className="text-[10px] bg-red-900/40 text-red-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"><AlertCircle size={10} /> Not verified</span>;
+    const key = (paper.doi || paper.title || "").toLowerCase();
+    const info = validations[key];
+    if (!info) {
+      return (
+        <span className="text-[10px] bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded">
+          unchecked
+        </span>
+      );
+    }
+    if (info.status === "valid") {
+      return (
+        <span
+          className="text-[10px] bg-green-900/50 text-green-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"
+          title={info.message}
+        >
+          <CheckCircle2 size={10} /> DOI verified
+        </span>
+      );
+    }
+    if (info.status === "mismatch") {
+      return (
+        <span
+          className="text-[10px] bg-amber-900/40 text-amber-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"
+          title={info.message}
+        >
+          <AlertCircle size={10} /> DOI mismatch
+        </span>
+      );
+    }
+    if (info.status === "unresolved") {
+      return (
+        <span
+          className="text-[10px] bg-red-900/40 text-red-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"
+          title={info.message}
+        >
+          <AlertCircle size={10} /> DOI unresolved
+        </span>
+      );
+    }
+    return (
+      <span
+        className="text-[10px] bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded"
+        title={info.message}
+      >
+        no DOI
+      </span>
+    );
   };
 
   return (
     <div className="space-y-6">
       <div className="bg-[#0d1b3e] border border-blue-900/50 rounded-lg p-6 shadow">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <div>
-            <h2 className="text-xl font-bold text-white">Step 2: Results & Deduplication</h2>
+            <h2 className="text-xl font-bold text-white">
+              Step 2: Screening, Deduplication &amp; Eligibility
+            </h2>
             <p className="text-sm text-blue-300">
-              Total: {state.papers.length} papers | Unique: {uniquePapers.length} | Selected: {selectedCount}
-              {state.citationValidationStatus === "running" && " | Verifying citations..."}
-              {state.citationValidationStatus === "done" && (
-                <span className="ml-2 text-green-300">
-                  · Citations checked: {Object.values(state.citationValidationResults).filter((r: any) => r.valid).length}/{uniquePapers.length} verified
-                </span>
-              )}
+              Records: {dedup.totalRecords} · Duplicates removed:{" "}
+              {dedup.duplicatesRemoved} · Unique: {dedup.unique.length} · With
+              abstract: {abstractFiltered.length} · Selected: {selectedCount}
+            </p>
+            <p className="text-[11px] text-blue-400 mt-0.5">
+              Duplicates matched by DOI (
+              {dedup.matchBreakdown.doi + dedup.matchBreakdown.doiPrefix}), title (
+              {dedup.matchBreakdown.title}), fuzzy title (
+              {dedup.matchBreakdown.fuzzyTitle})
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -179,9 +360,13 @@ export default function Step2Results() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 mb-4">
-          <div className="relative flex-1">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-400" />
+        {/* Filters */}
+        <div className="flex items-center gap-2 mb-4 flex-wrap">
+          <div className="relative flex-1 min-w-[220px]">
+            <Search
+              size={16}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-400"
+            />
             <input
               type="text"
               value={searchFilter}
@@ -190,98 +375,142 @@ export default function Step2Results() {
               className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg pl-10 pr-4 py-2 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500"
             />
           </div>
+          <label className="flex items-center gap-2 text-xs text-blue-200 cursor-pointer bg-blue-950/60 border border-blue-800 rounded-lg px-3 py-2">
+            <input
+              type="checkbox"
+              checked={onlyWithAbstract}
+              onChange={(e) => setOnlyWithAbstract(e.target.checked)}
+              className="w-3.5 h-3.5 rounded border-blue-700 bg-blue-950 text-yellow-500 focus:ring-yellow-500"
+            />
+            Only papers with abstract / full text
+            {excludedNoAbstract > 0 && (
+              <span className="text-blue-400">({excludedNoAbstract} excluded)</span>
+            )}
+          </label>
           <button
             onClick={toggleAll}
             className="text-sm bg-blue-900/50 text-blue-200 px-4 py-2 rounded hover:bg-blue-900/70"
           >
-            {uniquePapers.every((p) => p.selected) ? "Deselect All" : "Select All"}
+            {filteredPapers.length > 0 && filteredPapers.every((p) => p.selected)
+              ? "Deselect All"
+              : "Select All"}
           </button>
         </div>
 
         {state.showPrisma && (
-          <div className="bg-white rounded-lg p-4 mb-4">
-            <h3 className="font-bold text-gray-800 text-center mb-2">PRISMA 2020 Flow Diagram</h3>
-            <div className="flex items-center justify-center gap-4 text-xs text-gray-600">
-              <div className="border-2 border-gray-800 rounded p-2 text-center">
-                <div className="font-bold">Identification</div>
-                <div>Records identified from: {state.selectedDatabases.length} databases</div>
-                <div className="font-bold mt-1">n = {state.papers.length}</div>
-              </div>
-              <div className="text-xl">→</div>
-              <div className="border-2 border-gray-800 rounded p-2 text-center">
-                <div className="font-bold">Screening</div>
-                <div>Duplicates removed</div>
-                <div className="font-bold mt-1">n = {uniquePapers.length}</div>
-              </div>
-              <div className="text-xl">→</div>
-              <div className="border-2 border-gray-800 rounded p-2 text-center">
-                <div className="font-bold">Included</div>
-                <div>Studies included in synthesis</div>
-                <div className="font-bold mt-1">n = {selectedCount}</div>
-              </div>
-            </div>
+          <div className="mb-4">
+            <Prisma2020Diagram counts={prismaCounts} />
           </div>
         )}
 
+        {/* Unique papers grouped by database */}
         <div className="space-y-4 max-h-[600px] overflow-y-auto">
-          {Object.entries(papersByDatabase).map(([database, dbPapers]) => {
-            const dbSelectedCount = dbPapers.filter((p) => p.selected).length;
-            const allDbSelected = dbPapers.every((p) => p.selected);
-            
-            return (
-              <div key={database} className="bg-blue-950/30 border border-blue-900 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-bold text-white">{database}</h3>
-                    <span className="text-xs text-blue-400">({dbPapers.length} papers)</span>
-                    <span className="text-xs text-green-300">({dbSelectedCount} selected)</span>
-                  </div>
-                  <button
-                    onClick={() => toggleDatabase(database)}
-                    className="text-xs bg-blue-900/50 text-blue-200 px-3 py-1 rounded hover:bg-blue-900/70"
-                  >
-                    {allDbSelected ? "Deselect All" : "Select All"}
-                  </button>
-                </div>
-                <div className="space-y-2">
-                  {dbPapers.map((paper) => (
-                    <div
-                      key={paper.id}
-                      className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                        paper.selected
-                          ? "bg-yellow-900/20 border-yellow-600/50"
-                          : "bg-blue-950/50 border-blue-900 hover:border-blue-700"
-                      }`}
-                      onClick={() => handleSelectUnique(paper)}
-                    >
-                      <div className="mt-1">
-                        {paper.selected ? (
-                          <CheckSquare size={20} className="text-yellow-400" />
-                        ) : (
-                          <Square size={20} className="text-blue-400" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="text-sm font-semibold text-white truncate">{paper.title}</h4>
-                        <p className="text-xs text-blue-300">{paper.authors}</p>
-                        <div className="flex items-center gap-2 mt-1 flex-wrap">
-                          <span className="text-xs bg-blue-900/50 text-blue-200 px-2 py-0.5 rounded">
-                            {paper.journal}
-                          </span>
-                          <span className="text-xs text-blue-400">{paper.year}</span>
-                          <span className="text-xs bg-teal-900/40 text-teal-300 px-2 py-0.5 rounded">
-                            {paper.studyType}
-                          </span>
-                          {getCitationBadge(paper)}
-                        </div>
-                      </div>
+          {Object.entries(papersByDatabase)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([database, dbPapers]) => {
+              const dbSelectedCount = dbPapers.filter((p) => p.selected).length;
+              const allDbSelected =
+                dbPapers.length > 0 && dbPapers.every((p) => p.selected);
+
+              return (
+                <div
+                  key={database}
+                  className="bg-blue-950/30 border border-blue-900 rounded-lg p-4"
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-sm font-bold text-white">{database}</h3>
+                      <span className="text-xs text-blue-400">
+                        ({dbPapers.length} unique papers)
+                      </span>
+                      <span className="text-xs text-green-300">
+                        ({dbSelectedCount} selected)
+                      </span>
                     </div>
-                  ))}
+                    <button
+                      onClick={() => toggleDatabase(database)}
+                      className="text-xs bg-blue-900/50 text-blue-200 px-3 py-1 rounded hover:bg-blue-900/70"
+                    >
+                      {allDbSelected ? "Deselect All" : "Select All from this database"}
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {dbPapers.map((paper) => {
+                      const sources = (paper.sources as string[]) || [];
+                      const otherSources = sources.filter(
+                        (s) => s && s !== database
+                      );
+                      return (
+                        <div
+                          key={paper.id}
+                          className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                            paper.selected
+                              ? "bg-yellow-900/20 border-yellow-600/50"
+                              : "bg-blue-950/50 border-blue-900 hover:border-blue-700"
+                          }`}
+                          onClick={() => handleSelectUnique(paper)}
+                        >
+                          <div className="mt-1">
+                            {paper.selected ? (
+                              <CheckSquare size={20} className="text-yellow-400" />
+                            ) : (
+                              <Square size={20} className="text-blue-400" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="text-sm font-semibold text-white">
+                              {paper.title}
+                            </h4>
+                            <p className="text-xs text-blue-300">{paper.authors}</p>
+                            <div className="flex items-center gap-2 mt-1 flex-wrap">
+                              {paper.journal && (
+                                <span className="text-xs bg-blue-900/50 text-blue-200 px-2 py-0.5 rounded">
+                                  {paper.journal}
+                                </span>
+                              )}
+                              <span className="text-xs text-blue-400">{paper.year}</span>
+                              <span className="text-xs bg-teal-900/40 text-teal-300 px-2 py-0.5 rounded">
+                                {paper.studyType}
+                              </span>
+                              {getCitationBadge(paper)}
+                              {otherSources.length > 0 && (
+                                <span
+                                  className="text-[10px] bg-indigo-900/40 text-indigo-300 px-2 py-0.5 rounded"
+                                  title={`Also found in: ${otherSources.join(", ")}`}
+                                >
+                                  <Copy size={9} className="inline mr-1" />
+                                  also in {otherSources.length} other database
+                                  {otherSources.length === 1 ? "" : "s"}
+                                </span>
+                              )}
+                            </div>
+                            {otherSources.length > 0 && (
+                              <p className="text-[10px] text-blue-400 mt-1">
+                                Also found in: {otherSources.join(", ")}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          {filteredPapers.length === 0 && (
+            <p className="text-xs text-blue-400 py-6 text-center">
+              {onlyWithAbstract
+                ? "No papers with an abstract match the current filter."
+                : "No papers match the current filter."}
+            </p>
+          )}
         </div>
+
+        {state.error && (
+          <div className="bg-red-900/30 border border-red-700 text-red-300 rounded-lg px-4 py-3 text-sm mt-3">
+            {state.error}
+          </div>
+        )}
 
         <div className="mt-6 flex justify-end">
           <button

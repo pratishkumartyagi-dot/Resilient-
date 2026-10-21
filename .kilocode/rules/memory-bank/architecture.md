@@ -162,3 +162,46 @@ For simple needs:
 For complex needs (add when necessary):
 - Zustand for client state
 - React Query for server state
+
+## Systematic Review Search Architecture (2026-10-20)
+
+Steps 1 and 2 of the Research Pipeline follow a systematic-review pipeline. The
+flow is deliberately separated so each stage can be tested in isolation:
+
+```
+Step 1 UI
+  └─ extractConcepts()            src/lib/concept-extraction.ts
+       └─ enrichConcepts()        MeSH + synonyms (mesh-expansion.lookupConceptExpansion)
+  └─ compileQueryPlan()           src/lib/query-compiler.ts   (preview only, client-side)
+  └─ POST /api/literature-search  src/app/api/literature-search/route.ts
+       ├─ compileQueryPlan()      server-side, authoritative
+       ├─ per-database fetch       database-apis.ts (Track 1 / 2 / 3 dispatch)
+       ├─ filterByStudyTypes()    local OR filter, non-native databases only
+       ├─ filterNegatedConcepts() local NOT filter, non-Track-1 databases
+       ├─ medspacy + keyword filter  (skipped when medspacyFilter === false)
+       └─ response: rawRecordCount, rawRecordsPerDatabase,
+                    relevanceFilteredCount, compiledPlan, planSummary
+  └─ dispatch SET_RAW_COUNTS / SET_CONCEPT_BLOCKS / SET_STUDY_TYPES / SET_PAPERS
+
+Step 2 UI
+  └─ deduplicatePapers()           src/lib/dedup-endnote.ts
+  └─ hasAbstract()                 abstract / full-text screening filter
+  └─ POST /api/citation-validator src/app/api/citation-validator/route.ts
+  └─ <Prisma2020Diagram />         src/components/Prisma2020Diagram.tsx
+  └─ dispatch SET_PAPERS (unique set) before advancing to Step 3
+```
+
+Conventions:
+
+- **Track 1** databases (PubMed, ClinicalTrials.gov) express the study-type
+  filter and NOT clauses inside the query, so no local filter is applied to
+  them; **Track 2/3** databases get both filters applied locally with OR
+  semantics.
+- PubMed field tags must sit **outside** the quotes: `"term"[pt]`, never
+  `("term"[pt])`.
+- `rawRecordCount` (records identified) → relevance filter →
+  `relevanceFilteredCount` → dedup → `duplicatesRemoved` → unique records
+  screened. PRISMA counts are derived from these three numbers, so they must
+  stay consistent with what the route actually did.
+- Step 1 requests `deduplicate: false` on purpose: duplicates are collapsed
+  once, in Step 2, by the DedupEndNote pass.

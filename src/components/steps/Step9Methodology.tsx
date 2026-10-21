@@ -117,19 +117,37 @@ export default function Step9Methodology() {
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: state.searchQuery };
 
       let responseText: string = "";
-      if (state.geminiApiKey) {
-        responseText = await callGemini(state.geminiApiKey, prompt, searchOptions);
-      } else if (state.groqApiKey) {
-        responseText = await callGroq(state.groqApiKey, prompt, searchOptions);
-      } else {
-        responseText = await callDeepSeek(prompt, searchOptions);
+      try {
+        responseText = await callGemini(state.geminiApiKey || "", prompt, searchOptions);
+      } catch {
+        try {
+          responseText = await callGroq(state.groqApiKey || "", prompt, searchOptions);
+        } catch {
+          try {
+            responseText = await callDeepSeek(prompt, searchOptions);
+          } catch {
+            responseText = "";
+          }
+        }
       }
 
-      const cleaned = responseText.replace(/```markdown/g, "").replace(/```/g, "").trim();
-      setGeneratedMethods(cleaned);
+      if (!responseText.trim()) {
+        const topic = state.searchQuery || "the research topic";
+        const aim = state.aimObjectives.aim || `To investigate interventions related to ${topic}.`;
+        const pop = localMethod.population || "adult participants meeting study inclusion criteria";
+        const site = localMethod.studySite || "tertiary care setting";
+        const design = localMethod.hypothesis ? "mixed-methods design" : "observational cohort design";
+        const localMethods = `# Methods (local fallback — no AI key available)\n\n## Study Design\nA ${design} will be conducted to investigate ${topic}.\n\n## Setting\n${site}.\n\n## Population\n${pop}.\n\n## Inclusion Criteria\n${localMethod.inclusionCriteria || "Age ≥18 years; able to provide informed consent; meets study-specific eligibility criteria."}\n\n## Exclusion Criteria\n${localMethod.exclusionCriteria || "Active contraindications to the study intervention; inability to complete follow-up."}\n\n## Study Aim\n${aim}\n\n## Hypothesis\n${localMethod.hypothesis || "The study intervention will demonstrate a measurable effect on the primary outcome compared with standard care."}\n\n## Outcomes\n${state.methodology.outcomes.map((o, i) => `${i + 1}. ${o}`).join("\n") || "- Primary outcome: as defined in the study protocol.\n- Secondary outcomes: safety, tolerability, and exploratory endpoints."}\n\n## Data Analysis\nDescriptive statistics will summarize baseline characteristics. Inferential analyses will use appropriate regression models adjusting for prespecified covariates. Significance threshold: α = 0.05 (two-tailed).`;
+        setGeneratedMethods(localMethods);
+      } else {
+        const cleaned = responseText.replace(/```markdown/g, "").replace(/```/g, "").trim();
+        setGeneratedMethods(cleaned);
+      }
     } catch (err: any) {
       console.error("Methods generation failed:", err);
-      alert(err.message || "Failed to generate methods. Please try again.");
+      const topic = state.searchQuery || "the research topic";
+      const localMethods = `# Methods (local fallback)\n\n## Study Design\nAn observational cohort design will be used to investigate ${topic}.\n\n## Setting\n${localMethod.studySite || "tertiary care setting"}.\n\n## Population\n${localMethod.population || "eligible participants"}.\n\n## Hypothesis\n${localMethod.hypothesis || "The study intervention will demonstrate a measurable effect."}\n\n## Outcomes\n${state.methodology.outcomes.map((o, i) => `${i + 1}. ${o}`).join("\n") || "- Primary outcome as defined in protocol."}\n\n> Generated locally without an AI key. Configure Gemini or Groq in Settings for AI-assisted methods writing.`;
+      setGeneratedMethods(localMethods);
     } finally {
       dispatch({ type: "SET_LOADING", payload: false });
     }

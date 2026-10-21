@@ -6,8 +6,16 @@ import {
   LineChart, Line, Scatter, PieChart, Pie, Cell, ComposedChart,
   AreaChart, Area, Legend
 } from "recharts";
-import { Download, Play, RefreshCw, Type } from "lucide-react";
-import { downloadMarkdownAsWord } from "@/lib/exporters";
+import { Download, Play, RefreshCw, Type, FileText, Sparkles, Loader2, CheckCircle2, Upload, File, Edit3, Copy } from "lucide-react";
+import { downloadMarkdownAsWord, downloadMarkdownAsPDF, downloadMarkdownAsLaTeX } from "@/lib/exporters";
+import { profileDataset, type ProfileRow, type DataProfile } from "@/lib/data-profiling";
+import { buildHtmlReport } from "@/lib/data-profiling/html-report";
+import { profileToJson } from "@/lib/data-profiling/json-report";
+import DataProfilePanels from "@/components/DataProfilePanels";
+import { buildAutoAnalystReportAsync } from "@/lib/auto-analyst";
+import { useApp } from "@/context/AppContext";
+import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
+import * as XLSX from "xlsx";
 
 const CHART_TYPES = [
   "Histogram", "Density Plot", "Bar Chart", "Pie Chart",
@@ -150,12 +158,87 @@ function deriveChartData(type: string, rows: ParsedRow[]): ChartDatum[] {
   }
 }
 
+function excelRowsToProfileRows(rows: Array<Record<string, any>>): ProfileRow[] {
+  return rows.map((row) => {
+    const profileRow: ProfileRow = {};
+    for (const [key, value] of Object.entries(row)) {
+      if (value === null || value === undefined || value === "") {
+        profileRow[key] = null;
+        continue;
+      }
+      const num = Number(value);
+      profileRow[key] = Number.isFinite(num) && String(value).trim() !== "" ? num : String(value);
+    }
+    return profileRow;
+  });
+}
+
+function parseExcelFile(file: File): Promise<ProfileRow[]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const arrayBuffer = event.target?.result as ArrayBuffer;
+        const workbook = XLSX.read(arrayBuffer, { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const json = XLSX.utils.sheet_to_json(worksheet, { defval: null, raw: true });
+        resolve(excelRowsToProfileRows(json as Array<Record<string, any>>));
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function parseCsvFile(file: File): Promise<ProfileRow[]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+        if (lines.length === 0) return resolve([]);
+        const header = lines[0].split(",").map((h) => h.trim());
+        const rows: ProfileRow[] = [];
+        for (let i = 1; i < lines.length; i++) {
+          const parts = lines[i].split(",");
+          const row: ProfileRow = {};
+          header.forEach((h, idx) => {
+            const raw = parts[idx]?.trim();
+            if (raw === null || raw === undefined || raw === "") {
+              row[h] = null;
+            } else {
+              const num = Number(raw);
+              row[h] = Number.isFinite(num) ? num : raw;
+            }
+          });
+          rows.push(row);
+        }
+        resolve(rows);
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsText(file);
+  });
+}
+
 export default function StatisticalAnalysisTab() {
   const [chartType, setChartType] = useState("Bar Chart");
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>(() => parseDataInput(DEFAULT_DATA_INPUT));
   const [chartData, setChartData] = useState<ChartDatum[]>(() => deriveChartData("Bar Chart", parseDataInput(DEFAULT_DATA_INPUT)));
   const [dataInput, setDataInput] = useState(DEFAULT_DATA_INPUT);
   const chartRef = useRef<HTMLDivElement>(null);
+  const { state } = useApp();
+  const [autoReport, setAutoReport] = useState("");
+  const [autoReportLoading, setAutoReportLoading] = useState(false);
+  const [autoReportFinalized, setAutoReportFinalized] = useState(false);
+  const [profile, setProfile] = useState<DataProfile | null>(null);
+  const [fileUploaded, setFileUploaded] = useState<{ name: string; size: number } | null>(null);
 
   const applyData = (type: string, text: string) => {
     const rows = parseDataInput(text);
@@ -257,6 +340,61 @@ export default function StatisticalAnalysisTab() {
     await downloadMarkdownAsWord(md, "statistical-analysis.docx");
   };
 
+  const handleFileUpload = async (file: File) => {
+    const isExcel = file.name.endsWith(".xlsx") || file.name.endsWith(".xls");
+    try {
+      const profileRows = isExcel ? await parseExcelFile(file) : await parseCsvFile(file);
+      if (profileRows.length === 0) {
+        alert("No data rows found in the uploaded file.");
+        return;
+      }
+      setParsedRows([]);
+      setChartData([]);
+      setDataInput("");
+      setFileUploaded({ name: file.name, size: file.size });
+      const prof = profileDataset(profileRows);
+      setProfile(prof);
+    } catch (err: any) {
+      alert(`Failed to parse file: ${err?.message || "unknown error"}`);
+    }
+  };
+
+  const handleGenerateAutoReport = async () => {
+    setAutoReportLoading(true);
+    setAutoReportFinalized(false);
+    try {
+      const dataForProfile = profile ? undefined : parsedRows as unknown as ProfileRow[];
+      const prof = profile || profileDataset(dataForProfile!);
+      setProfile(prof);
+      const aiFn = state.geminiApiKey
+        ? (p: string) => callGemini(state.geminiApiKey!, p)
+        : state.groqApiKey
+          ? (p: string) => callGroq(state.groqApiKey!, p)
+          : (p: string) => callDeepSeek(p);
+      const report = await buildAutoAnalystReportAsync(prof, {
+        aiFn,
+        title: `Automated Statistical Report — ${fileUploaded?.name || chartType}`,
+        datasetName: fileUploaded?.name || chartType,
+      });
+      setAutoReport(report);
+    } catch (err: any) {
+      setAutoReport(`# Automated Statistical Report\n\n> Could not generate the report: ${err?.message || "unknown error"}.`);
+    } finally {
+      setAutoReportLoading(false);
+    }
+  };
+
+  const handleExportReport = (kind: "word" | "pdf" | "latex") => {
+    if (!autoReport) return;
+    if (!autoReportFinalized) {
+      alert("Please finalise the report before downloading.");
+      return;
+    }
+    if (kind === "word") downloadMarkdownAsWord(autoReport, "statistical-report.docx");
+    else if (kind === "pdf") downloadMarkdownAsPDF(autoReport, "statistical-report.pdf");
+    else downloadMarkdownAsLaTeX(autoReport, "statistical-report.tex");
+  };
+
   const renderChart = () => {
     switch (chartType) {
       case "Histogram":
@@ -352,11 +490,46 @@ export default function StatisticalAnalysisTab() {
       <div className="bg-[#0d1b3e] border border-blue-900/50 rounded-lg p-6 shadow">
         <h2 className="text-xl font-bold text-white mb-1">Statistical Analysis</h2>
         <p className="text-sm text-blue-300 mb-6">
-          Visualize and analyze your research data with interactive statistical charts.
+          Visualize and analyze your research data with interactive statistical charts. Upload Excel/CSV files for multivariate profiling.
         </p>
 
         <div className="flex flex-wrap items-center gap-3 mb-6">
           <div className="relative">
+            <label className="flex items-center gap-2 cursor-pointer bg-blue-900/50 text-blue-200 px-4 py-2.5 rounded-lg hover:bg-blue-900/70 text-sm">
+              <Upload size={14} />
+              Upload Excel/CSV
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="sr-only"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleFileUpload(f);
+                }}
+              />
+            </label>
+          </div>
+          {fileUploaded && (
+            <div className="bg-emerald-900/20 border border-emerald-800 text-emerald-300 text-xs px-3 py-1.5 rounded-lg flex items-center gap-2">
+              <File size={14} className="shrink-0" />
+              <span>{fileUploaded.name}</span>
+              <span>({(fileUploaded.size / 1024).toFixed(1)} KB)</span>
+              <button
+                onClick={() => {
+                  setFileUploaded(null);
+                  setProfile(null);
+                  setParsedRows(parseDataInput(DEFAULT_DATA_INPUT));
+                  setChartData(deriveChartData("Bar Chart", parseDataInput(DEFAULT_DATA_INPUT)));
+                  setDataInput(DEFAULT_DATA_INPUT);
+                }}
+                className="text-emerald-400 hover:text-emerald-300 ml-2 text-sm"
+              >
+                <Edit3 size={12} />
+                Clear
+              </button>
+            </div>
+          )}
+          <div className="relative ml-4">
             <select
               value={chartType}
               onChange={(e) => { setChartType(e.target.value); applyData(e.target.value, dataInput); }}
@@ -417,6 +590,123 @@ export default function StatisticalAnalysisTab() {
             One row per line: <span className="font-mono">Label: mean=78.5, SD=12.3, n=165</span>,{" "}
             <span className="font-mono">Label: 42</span>, or <span className="font-mono">Label,42</span>. Lines starting with # are ignored.
           </p>
+        </div>
+
+        {/* Data Profiling Results */}
+        {profile && (
+          <div className="mt-6 border-t border-blue-900/50 pt-6">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <FileText size={16} className="text-yellow-400" /> Data Profile
+                </h3>
+                <p className="text-xs text-blue-300">
+                  Full exploratory data analysis in the fg-data-profiling style:
+                  type inference, univariate/multivariate analysis, alerts,
+                  missing-value patterns, duplicates, time-series diagnostics
+                  and text analysis.
+                </p>
+              </div>
+            </div>
+            <DataProfilePanels profile={profile} />
+            <div className="mt-3 flex gap-2 flex-wrap">
+              <button
+                onClick={() => {
+                  const html = buildHtmlReport(profile, {
+                    title: `Profiling Report — ${fileUploaded?.name || "dataset"}`,
+                  });
+                  const blob = new Blob([html], { type: "text/html" });
+                  const url = URL.createObjectURL(blob);
+                  const link = document.createElement("a");
+                  link.href = url;
+                  link.download = `${(fileUploaded?.name || "profile").replace(/\.[^/.]+$/, "")}-profile.html`;
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                  URL.revokeObjectURL(url);
+                }}
+                className="text-sm bg-blue-900/50 text-blue-200 px-3 py-2 rounded hover:bg-blue-900/70 flex items-center gap-1"
+              >
+                <Download size={12} /> Export HTML report
+              </button>
+              <button
+                onClick={() => {
+                  const json = profileToJson(profile);
+                  const blob = new Blob([json], { type: "application/json" });
+                  const url = URL.createObjectURL(blob);
+                  const link = document.createElement("a");
+                  link.href = url;
+                  link.download = `${(fileUploaded?.name || "profile").replace(/\.[^/.]+$/, "")}-profile.json`;
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                  URL.revokeObjectURL(url);
+                }}
+                className="text-sm bg-blue-900/50 text-blue-200 px-3 py-2 rounded hover:bg-blue-900/70 flex items-center gap-1"
+              >
+                <Copy size={12} /> Export JSON profile
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Auto-Analyst Report (notebook-style, editable) */}
+        <div className="mt-6 border-t border-blue-900/50 pt-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+            <div>
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <FileText size={16} className="text-yellow-400" /> Auto-Analyst Report
+              </h3>
+              <p className="text-xs text-blue-300">
+                Automatic data profiling and analytical narrative in a notebook-style editor. Finalise to download Word / PDF / LaTeX.
+              </p>
+            </div>
+            <div className="flex gap-2 flex-wrap items-center">
+              <button
+                onClick={handleGenerateAutoReport}
+                disabled={autoReportLoading}
+                className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-4 py-2 rounded-lg flex items-center gap-2 disabled:opacity-50"
+              >
+                {autoReportLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                {autoReport ? "Regenerate Report" : "Generate Report"}
+              </button>
+              {autoReport && !autoReportFinalized && (
+                <button
+                  onClick={() => setAutoReportFinalized(true)}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-lg flex items-center gap-2"
+                >
+                  <CheckCircle2 size={14} /> Finalise
+                </button>
+              )}
+              {autoReportFinalized && (
+                <>
+                  <span className="text-xs text-emerald-300 flex items-center gap-1"><CheckCircle2 size={14} /> Finalised</span>
+                  <button onClick={() => setAutoReportFinalized(false)} className="text-sm bg-blue-900/50 text-blue-200 px-3 py-2 rounded-lg hover:bg-blue-900/70">Edit</button>
+                  <button onClick={() => handleExportReport("word")} className="text-sm bg-purple-900/50 text-purple-300 px-3 py-2 rounded-lg hover:bg-purple-900/70 flex items-center gap-1"><Download size={14} /> Word</button>
+                  <button onClick={() => handleExportReport("pdf")} className="text-sm bg-emerald-900/50 text-emerald-300 px-3 py-2 rounded-lg hover:bg-emerald-900/70 flex items-center gap-1"><Download size={14} /> PDF</button>
+                  <button onClick={() => handleExportReport("latex")} className="text-sm bg-blue-900/50 text-blue-300 px-3 py-2 rounded-lg hover:bg-blue-900/70 flex items-center gap-1"><Download size={14} /> LaTeX</button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {autoReportLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <div className="text-center">
+                <div className="w-9 h-9 border-4 border-yellow-400 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                <p className="text-blue-200 text-sm">Profiling data and writing the report…</p>
+              </div>
+            </div>
+          ) : autoReport ? (
+            <textarea
+              value={autoReport}
+              onChange={(e) => { setAutoReport(e.target.value); setAutoReportFinalized(false); }}
+              rows={18}
+              className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-3 text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-yellow-500 resize-y"
+            />
+          ) : (
+            <p className="text-sm text-blue-400 italic">No report yet. Upload a file or edit the data input above, then click “Generate Report”.</p>
+          )}
         </div>
       </div>
     </div>
