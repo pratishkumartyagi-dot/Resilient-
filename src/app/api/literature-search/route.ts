@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   fetchPubMedBrowserless,
+  fetchOpenAlex,
   fetchEuropePMC,
   fetchDoaj,
   fetchBioRxiv,
@@ -8,6 +9,10 @@ import {
   fetchCrossref,
   fetcharXiv,
   fetchOpenAIRE,
+  fetchDblp,
+  fetchGoogleScholarBrowserless,
+  fetchSemanticScholarBrowserless,
+  fetchScienceDirectBrowserless,
   fetchZenodo,
   fetchClinicalTrialsGov,
   deduplicatePapers,
@@ -16,7 +21,6 @@ import {
   generateMockLegacy,
   STUDY_TYPE_KEYWORDS,
 } from "@/lib/database-apis";
-import { filterPapersByMedspacyRelevance } from "@/lib/medspacy-relevance";
 import { expandQueryWithMesh } from "@/lib/mesh-expansion";
 import {
   compileQueryPlan,
@@ -38,7 +42,6 @@ interface LiteratureSearchRequestBody {
   studyTypes?: string[];
   searchLogic?: string;
   semanticSearch?: boolean;
-  medspacyFilter?: boolean;
   /** Concepts extracted from the broad research area. */
   concepts?: ConceptBlock[];
   /** Use the per-track compiled query plan instead of one flat query. */
@@ -164,7 +167,6 @@ export async function POST(request: Request) {
     const yearFrom = body.yearFrom;
     const yearTo = body.yearTo;
     const semanticSearch = body.semanticSearch === true;
-    const medspacyFilter = body.medspacyFilter === true;
     const shouldDeduplicate = body.deduplicate !== false;
     const useCompiledQueries = body.useCompiledQueries === true;
     const concepts: ConceptBlock[] = Array.isArray(body.concepts) ? body.concepts : [];
@@ -243,6 +245,7 @@ export async function POST(request: Request) {
 
     const apiMap: Record<string, Fetcher | undefined> = {
       "PubMed": (q, o) => fetchPubMedBrowserless(q, o.yearFrom, o.yearTo, o.studyType),
+      "OpenAlex": (q, o) => fetchOpenAlex(q, o.yearFrom, o.yearTo, o.studyType),
       "Europe PMC": (q, o) => fetchEuropePMC(q, o.yearFrom, o.yearTo, o.studyType),
       "pyEuropePMC": (q, o) => fetchEuropePMC(q, o.yearFrom, o.yearTo, o.studyType),
       "DOAJ": (q, o) => fetchDoaj(q, o.yearFrom, o.yearTo, o.studyType),
@@ -251,6 +254,10 @@ export async function POST(request: Request) {
       "Crossref": (q, o) => fetchCrossref(q, o.yearFrom, o.yearTo, o.studyType),
       "arXiv": (q, o) => fetcharXiv(q, o.yearFrom, o.yearTo, o.studyType),
       "OpenAIRE": (q, o) => fetchOpenAIRE(q, o.yearFrom, o.yearTo, o.studyType),
+      "dblp": (q, o) => fetchDblp(q, o.yearFrom, o.yearTo, o.studyType),
+      "Google Scholar": (q, o) => fetchGoogleScholarBrowserless(q, o.yearFrom, o.yearTo, o.studyType),
+      "Semantic Scholar": (q, o) => fetchSemanticScholarBrowserless(q, o.yearFrom, o.yearTo, o.studyType),
+      "ScienceDirect": (q, o) => fetchScienceDirectBrowserless(q, o.yearFrom, o.yearTo, o.studyType),
       "Zenodo": (q, o) => fetchZenodo(q, o.yearFrom, o.yearTo, o.studyType),
       "ClinicalTrials.gov": (q, o) =>
         fetchClinicalTrialsGov(q, o.yearFrom, o.yearTo, o.studyType, o.studyTypeArea),
@@ -410,66 +417,8 @@ export async function POST(request: Request) {
       return { ...p, citationStatus: "unverified" as const, citationMessage: r?.message || "DOI not verified via Crossref" };
     });
 
-    // Automated clinical relevance filtering (medspacy-inspired).
-    // Only applied when the user keeps the filter enabled — "Show All Results"
-    // must genuinely return every record the databases returned.
-    let medspacyMeta: {
-      enabled: boolean;
-      queryConcepts: string[];
-      negationTerms: string[];
-      filteredCount: number;
-      totalCount: number;
-      keywordFilteredCount?: number;
-    };
-    let relevanceFiltered: any[];
-
-    if (medspacyFilter) {
-      const medResult = filterPapersByMedspacyRelevance(verifiedPapers, query, {
-        threshold: 50,
-        respectNegation: true,
-        respectUncertainty: true,
-      });
-      medspacyMeta = {
-        enabled: true,
-        queryConcepts: medResult.queryConcepts,
-        negationTerms: medResult.negationTerms,
-        filteredCount: medResult.filteredCount,
-        totalCount: medResult.totalCount,
-      };
-      relevanceFiltered = medResult.papers.length > 0 ? medResult.papers : verifiedPapers;
-
-      // Strict keyword-in-title/abstract filter: at least one significant
-      // query keyword must appear in the paper's title or abstract.
-      const keywords = extractQueryKeywords(query);
-      if (keywords.length > 0) {
-        const beforeKeywordCount = relevanceFiltered.length;
-        relevanceFiltered = filterByKeywordPresence(relevanceFiltered, keywords);
-        const keywordFilteredCount = beforeKeywordCount - relevanceFiltered.length;
-        if (keywordFilteredCount > 0) {
-          medspacyMeta.keywordFilteredCount = keywordFilteredCount;
-        }
-      }
-    } else {
-      medspacyMeta = {
-        enabled: false,
-        queryConcepts: [],
-        negationTerms: [],
-        filteredCount: 0,
-        totalCount: verifiedPapers.length,
-      };
-      relevanceFiltered = verifiedPapers;
-    }
-
-    // If no papers survived relevance filtering, fall back to verified papers so
-    // users aren't left with nothing, but mark them as low-relevance.
-    let finalPapers: any[];
-    if (medspacyFilter && relevanceFiltered.length === 0 && verifiedPapers.length > 0) {
-      finalPapers = verifiedPapers.map((p) => ({ ...p, _lowRelevance: true }));
-    } else {
-      finalPapers = relevanceFiltered;
-    }
-
-    const relevanceFilteredCount = finalPapers.length;
+    // All verified papers pass through — no relevance filtering.
+    const finalPapers = verifiedPapers;
 
     const verifiedCount = finalPapers.filter((p) => p.citationStatus === "verified").length;
     const unverifiedCount = finalPapers.filter((p) => p.citationStatus === "unverified").length;
@@ -520,9 +469,7 @@ export async function POST(request: Request) {
           totalBeforeDedup: 0,
           rawRecordCount: 0,
           rawRecordsPerDatabase: {},
-          relevanceFilteredCount: mockEnriched.length,
           citationValidation: { verified: 0, unverified: mockEnriched.length, noDoi: 0, results: {} },
-          medspacy: medspacyMeta,
           compiledPlan,
           planSummary,
           meshExpansion: {
@@ -559,14 +506,12 @@ export async function POST(request: Request) {
         totalBeforeDedup,
         rawRecordCount,
         rawRecordsPerDatabase,
-        relevanceFilteredCount,
         citationValidation: {
           verified: verifiedCount,
           unverified: unverifiedCount,
           noDoi: noDoiCount,
           results: citationValidationResults,
         },
-        medspacy: medspacyMeta,
         compiledPlan,
         planSummary,
         meshExpansion: {

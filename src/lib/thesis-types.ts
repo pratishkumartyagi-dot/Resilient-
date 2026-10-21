@@ -94,14 +94,12 @@ export interface ThesisPipelineResult {
     outline: boolean;
     prose: boolean;
     refine: boolean;
-    humanise: boolean;
     complete: boolean;
   };
   subResults: {
     outline: ThesisStageSubResult;
     prose: ThesisStageSubResult;
     refine: ThesisStageSubResult;
-    humanise: ThesisStageSubResult;
   };
 }
 

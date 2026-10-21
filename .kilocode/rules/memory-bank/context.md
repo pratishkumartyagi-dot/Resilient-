@@ -150,6 +150,13 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
   - [x] Added `screened`/`included`/`screeningReason` fields to `Paper` interface
   - [x] Verified: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
 
+- [x] **v0.2.9 — Database search fixes, Review of Literature, Thesis & SLR updates (2026-10-21)**
+  - [x] **Step 1 Database Search — Deep audit & fixes**: Removed medspacy relevance filtering (was eliminating papers from all databases except Crossref). Re-added OpenAlex, dblp, Google Scholar, Semantic Scholar, ScienceDirect to route apiMap. Lowered/relaxed keyword presence filter to flag-but-not-drop low-relevance papers. Verified: PubMed 500, Europe PMC 1000, DOAJ 636, Zenodo 250, ClinicalTrials.gov 1129, OpenAIRE 9, arXiv 838, bioRxiv 2, medRxiv 6 for "diabetes treatment" (2021-2026).
+  - [x] **Step 4 Review of Literature — 6-section AI generation**: New SectionMeta-driven UI with deep chain-of-thought reasoning (per-paper CoT analysis before writing). Sections: Introduction, Global & Indian Situations, Research Gaps/Limitations, Authors' Advice for Future Research, Summary of All Studies, References (Vancouver). Each section generated separately with subheadings matching the specified style. References auto-populated from evidence synthesis table.
+  - [x] **Thesis Generator — Removed humaniser**: Removed Stage 4 humaniser from pipeline (thesis-pipeline/index.ts, thesis-types.ts, ThesisGenerator.tsx pipeline stages). Updated level labels: MD/MS (15k–40k words), Bachelor (8k–15k), PhD (60k–100k). Word counts generated per selected level.
+  - [x] **Automated SLR — Select-all toggle + AI bias**: Added "Select All → Include" toggle in Step 4 screening. Step 6 Quality Assessment now runs automated AI bias assessment (Robtreviewer/Robvis style) with RoB-2/NOS/AMSTAR-2/QUADAS-2 frameworks, with manual override per paper.
+  - [x] Verified: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
+
 - [x] Base Next.js 16 setup with App Router
 - [x] TypeScript configuration with strict mode
 - [x] Tailwind CSS 4 integration

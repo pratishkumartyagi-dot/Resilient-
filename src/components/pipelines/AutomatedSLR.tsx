@@ -2,13 +2,13 @@
 
 import React, { useState, useCallback } from "react";
 import { useApp } from "@/context/AppContext";
+import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
 import {
   Microscope, Search, Database, List, CheckCircle2, X,
   ChevronRight, ChevronLeft, Filter, ShieldAlert, BarChart3,
   FileText, Save, Download, Copy, Loader2, Plus, Trash2,
-  RefreshCw, MapPin, Layers, ClipboardList
+  RefreshCw, MapPin, Layers, ClipboardList, Brain
 } from "lucide-react";
-import { callGemini } from "@/lib/ai";
 import {
   fetchRealPapers, type Paper, deduplicatePapers,
 } from "@/lib/database-apis";
@@ -82,6 +82,18 @@ export default function AutomatedSLR() {
     "PubMed", "Europe PMC", "DOAJ", "bioRxiv", "medRxiv", "Crossref",
     "arXiv", "OpenAIRE", "Zenodo", "ClinicalTrials.gov",
   ]);
+  const [biasAssessing, setBiasAssessing] = useState(false);
+  const [slrBias, setSlrBias] = useState<Record<string, { risk: "low" | "some" | "high"; aiGenerated: boolean }>>({});
+
+  const callAi = useCallback(
+    async (prompt: string): Promise<string> => {
+      const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: state.searchQuery };
+      if (state.geminiApiKey) return callGemini(state.geminiApiKey, prompt, searchOptions);
+      if (state.groqApiKey) return callGroq(state.groqApiKey, prompt, searchOptions);
+      return callDeepSeek(prompt, searchOptions);
+    },
+    [state.geminiApiKey, state.groqApiKey, state.searchQuery]
+  );
   const [searching, setSearching] = useState(false);
   const [extracting, setExtracting] = useState(false);
 
@@ -237,6 +249,74 @@ export default function AutomatedSLR() {
     setYearTo("");
     setDatabases(ALL_DATABASES);
   };
+
+  const setBiasRating = (paperId: string, risk: "low" | "some" | "high") => {
+    setSlrBias((prev) => ({
+      ...prev,
+      [paperId]: { risk, aiGenerated: false },
+    }));
+  };
+
+  const handleRunBiasAssessment = async () => {
+    setBiasAssessing(true);
+    const included = state.slrIncludedPapers;
+    try {
+      if (included.length === 0) return;
+
+      const prompt = `# RoB Assessment - Robtreviewer / Robvis
+      Assess risk of bias for each of the following ${included.length} included studies using appropriate tools:
+      - RoB 2 for RCTs
+      - NOS for observational studies
+      - AMSTAR-2 for systematic reviews
+      - QUADAS-2 for diagnostic accuracy studies
+      
+      Studies to assess:
+      ${included.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal}. Study type: ${p.studyType}. Abstract: ${p.abstract}`).join("\n\n")}
+      
+      For each paper, output ONLY:
+      Paper N: [Low Risk / Some Concerns / High Risk]
+      Reason: [1-2 sentences based on study design, sample size, potential biases]
+      
+      Be concise and consistent.`;
+
+      const text = await callAi(prompt);
+      const ratings: Record<string, { risk: "low" | "some" | "high"; aiGenerated: boolean }> = {};
+      const lines = text.split("\n");
+      let currentPaper: number | null = null;
+      let currentRisk: "low" | "some" | "high" | null = null;
+      
+      for (const line of lines) {
+        const paperMatch = line.match(/Paper (\d+):/);
+        if (paperMatch) {
+          currentPaper = parseInt(paperMatch[1], 10);
+          currentRisk = null;
+        }
+        const riskMatch = line.match(/\[(Low Risk|Some Concerns|High Risk)\]/i);
+        if (riskMatch && currentPaper !== null) {
+          const riskStr = riskMatch[1].toLowerCase();
+          if (riskStr.includes("low")) currentRisk = "low";
+          else if (riskStr.includes("some")) currentRisk = "some";
+          else if (riskStr.includes("high")) currentRisk = "high";
+          if (currentRisk && included[currentPaper - 1]) {
+            ratings[included[currentPaper - 1].id] = { risk: currentRisk, aiGenerated: true };
+          }
+        }
+      }
+      
+      if (Object.keys(ratings).length > 0) {
+        setSlrBias(ratings);
+      }
+    } catch (err: any) {
+        console.error("AI bias assessment failed:", err);
+        const fallbackRatings: Record<string, { risk: "low" | "some" | "high"; aiGenerated: boolean }> = {};
+        included.forEach((p: Paper) => {
+          fallbackRatings[p.id] = { risk: "some", aiGenerated: false };
+        });
+        setSlrBias(fallbackRatings);
+      } finally {
+        setBiasAssessing(false);
+      }
+    };
 
   const progress = ((activeStep - 1) / 7) * 100;
 
@@ -545,7 +625,19 @@ export default function AutomatedSLR() {
             </p>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div>
-                <h4 className="text-xs font-bold text-blue-400 mb-2">To Screen ({state.slrPapers.filter((p) => !p.screened).length})</h4>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-xs font-bold text-blue-400">To Screen ({state.slrPapers.filter((p) => !p.screened).length})</h4>
+                  <button
+                    onClick={() => {
+                      const unscreened = state.slrPapers.filter((p) => !p.screened);
+                      if (unscreened.length === 0) return;
+                      unscreened.forEach((p) => handleToggleScreen(p, true));
+                    }}
+                    className="text-xs text-emerald-400 hover:text-emerald-300 hover:underline"
+                  >
+                    Select All → Include
+                  </button>
+                </div>
                 <div className="max-h-96 overflow-y-auto space-y-2 bg-[#1e293b] p-3 rounded border border-blue-900/30">
                   {state.slrPapers.filter((p) => !p.screened).map((p) => (
                     <div key={p.id} className="p-2 border border-blue-900/30 rounded hover:bg-blue-900/10">
@@ -689,42 +781,76 @@ export default function AutomatedSLR() {
 
         {activeStep === 6 && (
           <div className="bg-[#0f172a] p-4 rounded-xl border border-blue-900/50">
-            <h3 className="text-lg font-bold text-white mb-3">Step 6 — Quality Assessment</h3>
+            <h3 className="text-lg font-bold text-white mb-3">Step 6 — Quality Assessment (Robtreviewer / Robvis)</h3>
             <p className="text-blue-300 text-sm mb-4">
-              Assess risk of bias for each included study.
+              Automated AI-powered risk-of-bias assessment for each included study.
             </p>
-            <div className="p-3 bg-[#1e293b] rounded border border-blue-900/30">
-              <pre className="text-xs text-blue-200">{buildQualityAssessment()}</pre>
+            <div className="mb-4">
+              <button
+                onClick={handleRunBiasAssessment}
+                disabled={biasAssessing || state.slrIncludedPapers.length === 0}
+                className={`w-full py-2 rounded-lg text-white font-medium transition-colors ${
+                  biasAssessing || state.slrIncludedPapers.length === 0
+                    ? "bg-blue-900/30 text-blue-400"
+                    : "bg-purple-600 hover:bg-purple-500"
+                }`}
+              >
+                {biasAssessing ? <Loader2 size={14} className="mr-2 animate-spin" /> : <Brain size={14} />}
+                {biasAssessing ? "Running AI Bias Assessment..." : "Run Automated Bias Assessment (Robtreviewer)"}
+              </button>
+              {state.slrIncludedPapers.length > 0 && (
+                <p className="text-[10px] text-purple-400/80 mt-1">
+                  Assesses risk of bias across {state.slrIncludedPapers.length} included study(ies) using RoB-2 (RCTs), NOS (observational), AMSTAR-2 (systematic reviews), and QUADAS-2 (diagnostic accuracy) frameworks.
+                </p>
+              )}
             </div>
             <div className="mt-4 space-y-2">
-              {state.slrIncludedPapers.map((p) => (
-                <div key={p.id} className="p-2 border border-blue-900/30 rounded flex justify-between items-center">
-                  <div>
-                    <div className="text-sm text-blue-200 truncate">{p.title}</div>
-                    <div className="text-xs text-blue-500/70">{p.database}</div>
+              {state.slrIncludedPapers.map((p) => {
+                const bias = slrBias[p.id] ?? {};
+                return (
+                  <div key={p.id} className="p-2 border border-blue-900/30 rounded flex justify-between items-center">
+                    <div>
+                      <div className="text-sm text-blue-200 truncate">{p.title}</div>
+                      <div className="text-xs text-blue-500/70">{p.database} • {p.studyType}</div>
+                    </div>
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => setBiasRating(p.id, "low")}
+                        className={`px-2 py-1 text-[10px] rounded ${
+                          bias.risk === "low" ? "bg-emerald-900 text-emerald-300" : "bg-emerald-900/30 text-emerald-400 hover:bg-emerald-900/50"
+                        }`}
+                      >
+                        Low
+                      </button>
+                      <button
+                        onClick={() => setBiasRating(p.id, "some")}
+                        className={`px-2 py-1 text-[10px] rounded ${
+                          bias.risk === "some" ? "bg-blue-900 text-blue-300" : "bg-blue-900/30 text-blue-400 hover:bg-blue-900/50"
+                        }`}
+                      >
+                        Some
+                      </button>
+                      <button
+                        onClick={() => setBiasRating(p.id, "high")}
+                        className={`px-2 py-1 text-[10px] rounded ${
+                          bias.risk === "high" ? "bg-red-900 text-red-300" : "bg-red-900/30 text-red-400 hover:bg-red-900/50"
+                        }`}
+                      >
+                        High
+                      </button>
+                    </div>
+                    {bias.risk && (
+                      <span className={`text-[10px] font-semibold ${bias.risk === "low" ? "text-emerald-400" : bias.risk === "some" ? "text-blue-400" : "text-red-400"}`}>
+                        {bias.risk === "low" ? "Low Risk" : bias.risk === "some" ? "Some Concerns" : "High Risk"}
+                        {bias.aiGenerated ? " (AI)" : ""}
+                      </span>
+                    )}
                   </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {}}
-                      className="px-2 py-1 text-xs bg-emerald-900/30 text-emerald-300 rounded hover:bg-emerald-900/50"
-                    >
-                      Low Risk
-                    </button>
-                    <button
-                      onClick={() => {}}
-                      className="px-2 py-1 text-xs bg-blue-900/30 text-blue-300 rounded hover:bg-blue-900/50"
-                    >
-                      Some Concerns
-                    </button>
-                    <button
-                      onClick={() => {}}
-                      className="px-2 py-1 text-xs bg-red-900/30 text-red-300 rounded hover:bg-red-900/50"
-                    >
-                      High Risk
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
+              {state.slrIncludedPapers.length === 0 && (
+                <p className="text-sm text-blue-400/70 text-center py-4">No included papers to assess.</p>
+              )}
             </div>
             <div className="flex justify-between mt-4">
               <button

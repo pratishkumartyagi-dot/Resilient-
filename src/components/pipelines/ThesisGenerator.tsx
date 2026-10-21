@@ -27,7 +27,7 @@ const LEVELS: { value: Level; label: string }[] = [
   { value: "research_paper", label: "Research Paper (3k–5k words)" },
   { value: "case_series", label: "Case Series (1.5k–2.5k words)" },
   { value: "bachelor", label: "Bachelor Thesis (8k–15k words)" },
-  { value: "master", label: "Master Thesis (15k–40k words)" },
+  { value: "master", label: "MD/MS Thesis (15k–40k words)" },
   { value: "phd", label: "PhD Thesis (60k–100k words)" },
 ];
 
@@ -215,7 +215,6 @@ export default function ThesisGenerator() {
     { n: 1, name: "OpenDraft", role: "Outline & chapter structure", href: "https://github.com/federicodeponte/opendraft", stageKey: "outline" },
     { n: 2, name: "ThesisGenerator", role: "Per-chapter prose + argument audit", href: "https://github.com/ekontoTURBO/thesis-generator", stageKey: "prose" },
     { n: 3, name: "ScholarCopilot", role: "Refine/expand + citation validation", href: "https://github.com/TIGER-AI-Lab/ScholarCopilot", stageKey: "refine" },
-    { n: 4, name: "Humaniser", role: "Anti-AI-detection rewrite", href: "", stageKey: "humanise" },
   ];
 
   return (

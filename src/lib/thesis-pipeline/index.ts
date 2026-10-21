@@ -10,7 +10,6 @@ import { LEVEL_WORD_RANGES } from "@/lib/thesis-types";
 import { openDraft } from "@/lib/opendraft";
 import { generateThesis } from "@/lib/thesis-generator";
 import { scholarCopilot } from "@/lib/scholar-copilot";
-import { humanise } from "@/lib/humaniser";
 import { formatVancouverList } from "@/lib/references";
 
 export interface PipelineDeps {
@@ -30,7 +29,6 @@ export async function runThesisPipeline(
     outline: { ok: false },
     prose: { ok: false },
     refine: { ok: false },
-    humanise: { ok: false },
   };
 
   // Stage 1: Outline
@@ -95,18 +93,7 @@ export async function runThesisPipeline(
   });
   subResults.refine = refineResult.subResult;
   chapters = refineResult.chapters;
-  const fullThesisAfterRefine = refineResult.fullThesis;
-
-  // Stage 4: Humanise
-  onProgress?.("humanise", "Applying anti-AI-detection prose rewrite...");
-  const humaniseResult = await humanise({
-    chapters,
-    fullThesis: fullThesisAfterRefine,
-    aiFn: (p) => aiFn(p, { searchEnabled: false }),
-  });
-  subResults.humanise = humaniseResult.subResult;
-  chapters = humaniseResult.chapters;
-  const fullThesis = humaniseResult.fullThesis;
+  const fullThesis = refineResult.fullThesis;
 
   // Build references (Vancouver) from grounding papers
   const references = papers.slice(0, config.maxReferences || 150);
@@ -123,8 +110,7 @@ export async function runThesisPipeline(
     outline: subResults.outline.ok,
     prose: subResults.prose.ok,
     refine: subResults.refine.ok,
-    humanise: subResults.humanise.ok,
-    complete: subResults.outline.ok && subResults.prose.ok && subResults.refine.ok && subResults.humanise.ok,
+    complete: subResults.outline.ok && subResults.prose.ok && subResults.refine.ok,
   };
 
   return {
@@ -140,7 +126,6 @@ export async function runThesisPipeline(
       outline: subResults.outline,
       prose: subResults.prose,
       refine: subResults.refine,
-      humanise: subResults.humanise,
     },
   };
 }
