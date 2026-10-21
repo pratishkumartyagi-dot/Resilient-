@@ -601,11 +601,12 @@ async function fetchEuropePmcQuery(
       const pmid = r.pmid || "";
       const year = parseInt(r.pubYear) || parseInt((r.firstPublicationDate || "").slice(0, 4)) || new Date().getFullYear();
       const publisher = r.bookOrReportDetails?.publisher || r.publisher || "";
+      const journalTitle = r.journalTitle || r.journalInfo?.journal?.title || r.journalInfo?.journal?.medlineAbbreviation || "";
       papers.push({
         id: `europepmc-${pmid || r.id || Math.random().toString(36).slice(2, 8)}`,
         title,
         authors: (r.authorString || "Unknown authors").substring(0, 300),
-        journal: r.journalTitle || publisher || label,
+        journal: journalTitle || publisher || label,
         year,
         doi,
         abstract,
