@@ -77,6 +77,15 @@ Sources that could not return a single record in this environment were switched 
 - Explicitly requesting a removed source returns instantly (0.00 s) with the reason, without touching the network.
 - `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
 
+## GitHub update — v0.2.10 integration & release (2026-10-21)
+
+- v0.2.9 had been published 5 h earlier from `kilo/summer-piano-doy`, so `main` was fast-forwarded to the present build and then **merged with v0.2.9** instead of shipping a "newer" version that was missing its features.
+- Merge result: every new v0.2.9 module is in (thesis pipeline, automated SLR pipeline, data profiling, opendraft, query compiler, MeSH expansion, medspacy relevance, scholar-copilot, references, humaniser, auto-analyst, citation-validator + thesis-generate API routes) and the **verified real-only Step 1 data layer is kept** for the conflicting files (`src/lib/database-apis.ts`, `/api/literature-search`, `Step1Search.tsx`, `EvidenceSynthesisTab.tsx`).
+- v0.2.9 features re-wired onto the new data layer: `semanticSearch` (MeSH/ATM expansion + boolean stripping) and `medspacyFilter` (clinical relevance filter) are now supported by `/api/literature-search` and exposed as toggles in Step 1 and in the SR pipeline; the response carries `medspacy` and `meshExpansion` metadata. Verified live: 539 records, 69 filtered as irrelevant, 608 retrieved.
+- `src/context/AppContext.tsx` taken from v0.2.9 (it holds the SLR state) with the working default source list re-applied.
+- **Version is now presented in the build**: `src/lib/version.ts` exports `APP_VERSION` (from package.json) and the header shows `v0.2.10` next to the platform tagline, so the running build states its version.
+- `package.json` version → **0.2.10** (electron-builder stamps this into the installers).
+
 ## Current State
 
 **App Status**: ✅ Fully functional prototype built

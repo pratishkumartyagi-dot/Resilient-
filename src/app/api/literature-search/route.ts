@@ -7,6 +7,8 @@ import {
   getUnavailableReason,
   type Paper,
 } from "@/lib/database-apis";
+import { expandQueryWithMesh } from "@/lib/mesh-expansion";
+import { filterPapersByMedspacyRelevance } from "@/lib/medspacy-relevance";
 
 export const runtime = "nodejs";
 
@@ -18,6 +20,8 @@ interface LiteratureSearchRequestBody {
   studyType?: string;
   maxResults?: number;
   timeoutMs?: number;
+  semanticSearch?: boolean;
+  medspacyFilter?: boolean;
 }
 
 function corsHeaders() {
@@ -77,15 +81,26 @@ export async function POST(request: Request) {
     const studyType = body.studyType && body.studyType !== "All Study Types" ? body.studyType : undefined;
     const maxResults = typeof body.maxResults === "number" ? body.maxResults : undefined;
     const timeoutMs = typeof body.timeoutMs === "number" ? body.timeoutMs : undefined;
+    const semanticSearch = body.semanticSearch === true;
+    const medspacyFilter = body.medspacyFilter === true;
 
     if (!query) {
       return NextResponse.json({ error: "Missing query parameter" }, { status: 400, headers: corsHeaders() });
     }
 
+    // Semantic mode broadens the query with MeSH/ATM concept expansion and drops
+    // boolean operators, so retrieval matches on meaning instead of exact
+    // keyword co-occurrence.
+    const meshResult = expandQueryWithMesh(query);
+    const meshExpandedQuery = meshResult.expandedQuery || query;
+    const effectiveQuery = semanticSearch
+      ? meshExpandedQuery.replace(/\b(AND|OR|NOT)\b/gi, " ").replace(/\s+/g, " ").trim() || meshExpandedQuery
+      : query;
+
     const dbsToSearch = databases.length > 0 ? databases : DEFAULT_DATABASES;
 
     const outcome = await searchDatabases(dbsToSearch, {
-      query,
+      query: effectiveQuery,
       yearFrom,
       yearTo,
       studyType,
@@ -93,7 +108,28 @@ export async function POST(request: Request) {
       timeoutMs,
     });
 
-    const enriched: Paper[] = outcome.papers.map((p) => ({
+    let papers = outcome.papers;
+    let medspacyMeta: {
+      enabled: boolean;
+      queryConcepts: string[];
+      negationTerms: string[];
+      filteredCount: number;
+      totalCount: number;
+    } | null = null;
+
+    if (medspacyFilter) {
+      const relevance = filterPapersByMedspacyRelevance(papers, query, { threshold: 40 });
+      papers = relevance.papers as Paper[];
+      medspacyMeta = {
+        enabled: true,
+        queryConcepts: relevance.queryConcepts,
+        negationTerms: relevance.negationTerms,
+        filteredCount: relevance.filteredCount,
+        totalCount: relevance.totalCount,
+      };
+    }
+
+    const enriched: Paper[] = papers.map((p) => ({
       ...p,
       citationStatus: p.doi ? ("unverified" as const) : ("no-doi" as const),
       citationMessage: p.doi ? "Pending verification in Step 2" : "No DOI available",
@@ -133,6 +169,13 @@ export async function POST(request: Request) {
       dedupedCount: outcome.dedupedCount,
       totalBeforeDedup: outcome.totalBeforeDedup,
       elapsedMs: Date.now() - started,
+      medspacy: medspacyMeta,
+      meshExpansion: {
+        expandedQuery: meshExpandedQuery,
+        meshTerms: meshResult.meshTerms,
+        atmMappings: meshResult.atmMappings,
+        wildcardRoots: meshResult.wildcardRoots,
+      },
       citationValidation: {
         verified: 0,
         unverified: enriched.filter((p) => p.citationStatus === "unverified").length,

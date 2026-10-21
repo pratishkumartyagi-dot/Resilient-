@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useReducer, ReactNode } from "react";
+import type { ConceptBlock } from "@/lib/concept-extraction";
 
 export interface Paper {
   id: string;
@@ -15,6 +16,19 @@ export interface Paper {
   selected: boolean;
   url?: string;
   pmid?: string;
+  /** Every database the record was found in. */
+  sources?: string[];
+  /** Backend that actually served the record. */
+  sourceBackend?: string;
+  /** Result of the citation check performed in Step 2. */
+  citationStatus?: "verified" | "unverified" | "no-doi";
+  citationMessage?: string;
+  /** IDs of all raw records collapsed into this unique paper. */
+  memberIds?: string[];
+  /** SLR screening fields */
+  screened?: boolean;
+  included?: boolean;
+  screeningReason?: string;
 }
 
 export interface SynthesisRow {
@@ -88,6 +102,18 @@ export interface AppState {
   yearFrom: string;
   yearTo: string;
   studyType: string;
+  /** Selected study types — empty means "no restriction". */
+  studyTypes: string[];
+  /** Concepts extracted from the broad research area. */
+  conceptBlocks: ConceptBlock[];
+  /** Records returned by the database searches before any filtering. */
+  rawRecordCount: number;
+  /** Records returned by each database before any filtering. */
+  rawRecordsPerDatabase: Record<string, number>;
+  /** Records that survived the automated relevance filter. */
+  relevanceFilteredCount: number;
+  /** Duplicates collapsed by the DedupEndNote pass in Step 2. */
+  duplicatesRemoved: number;
   papers: Paper[];
   selectedPapers: Paper[];
   synthesisTable: SynthesisRow[];
@@ -139,14 +165,37 @@ export interface AppState {
   predictionReportNotes: string;
   predictionCaptumEnabled: boolean;
   predictionCaptumResults: string;
+  /** Automated SLR state */
+  slrFramework: "PICO" | "PECO" | "PECOT" | "freeflow";
+  slrPopulation: string;
+  slrIntervention: string;
+  slrComparator: string;
+  slrOutcome: string;
+  slrTimeframe: string;
+  slrFreeQuery: string;
+  slrYearFrom: string;
+  slrYearTo: string;
+  slrDatabases: string[];
+  slrPapers: Paper[];
+  slrScreenedPapers: Paper[];
+  slrIncludedPapers: Paper[];
+  slrSynthesisRows: SynthesisRow[];
+  slrStep: number;
+  slrResults: string;
+  slrPrismaCounts: { identified: number; screened: number; eligible: number; included: number };
 }
 
 type Action =
   | { type: "SET_TAB"; payload: string }
   | { type: "SET_STEP"; payload: number }
   | { type: "SET_SEARCH"; payload: { query?: string; logic?: string; yearFrom?: string; yearTo?: string; studyType?: string } }
+  | { type: "SET_STUDY_TYPES"; payload: string[] }
+  | { type: "SET_CONCEPT_BLOCKS"; payload: ConceptBlock[] }
+  | { type: "SET_RAW_COUNTS"; payload: { total?: number; perDatabase?: Record<string, number>; relevanceFiltered?: number } }
+  | { type: "SET_DUPLICATES_REMOVED"; payload: number }
   | { type: "SET_PAPERS"; payload: Paper[] }
   | { type: "TOGGLE_PAPER"; payload: string }
+  | { type: "SET_PAPER_SELECTION"; payload: { ids: string[]; selected: boolean } }
   | { type: "SELECT_ALL_PAPERS"; payload: boolean }
   | { type: "SET_SYNTHESIS"; payload: SynthesisRow[] }
   | { type: "SET_LITERATURE_REVIEW"; payload: string }
@@ -203,7 +252,19 @@ type Action =
   | { type: "SET_PREDICTION_IMPORTANCE_METHOD"; payload: "shap" | "permutation" | "captum" | "both" | "all" | null }
   | { type: "SET_PREDICTION_REPORT_NOTES"; payload: string }
   | { type: "SET_PREDICTION_CAPTUM_ENABLED"; payload: boolean }
-  | { type: "SET_PREDICTION_CAPTUM_RESULTS"; payload: string };
+  | { type: "SET_PREDICTION_CAPTUM_RESULTS"; payload: string }
+  /** Automated SLR actions */
+  | { type: "SET_SLR_FRAMEWORK"; payload: "PICO" | "PECO" | "PECOT" | "freeflow" }
+  | { type: "SET_SLR_FIELD"; payload: { field: "slrPopulation" | "slrIntervention" | "slrComparator" | "slrOutcome" | "slrTimeframe" | "slrFreeQuery" | "slrYearFrom" | "slrYearTo"; value: string } }
+  | { type: "SET_SLR_DATABASES"; payload: string[] }
+  | { type: "SET_SLR_PAPERS"; payload: Paper[] }
+  | { type: "SET_SLR_SCREENED"; payload: Paper[] }
+  | { type: "SET_SLR_INCLUDED"; payload: Paper[] }
+  | { type: "SET_SLR_SYNTHESIS"; payload: SynthesisRow[] }
+  | { type: "SET_SLR_STEP"; payload: number }
+  | { type: "SET_SLR_RESULTS"; payload: string }
+  | { type: "SET_SLR_PRISMA"; payload: { identified: number; screened: number; eligible: number; included: number } }
+  | { type: "RESET_SLR" };
 
 const initialState: AppState = {
   currentTab: "main",
@@ -214,6 +275,12 @@ const initialState: AppState = {
   yearFrom: "",
   yearTo: "",
   studyType: "All Study Types",
+  studyTypes: [],
+  conceptBlocks: [],
+  rawRecordCount: 0,
+  rawRecordsPerDatabase: {},
+  relevanceFilteredCount: 0,
+  duplicatesRemoved: 0,
   papers: [],
   selectedPapers: [],
   synthesisTable: [],
@@ -258,6 +325,10 @@ const initialState: AppState = {
     "bioRxiv",
     "medRxiv",
     "Crossref",
+    "arXiv",
+    "OpenAIRE",
+    "Zenodo",
+    "ClinicalTrials.gov",
   ],
   geminiApiKey: "",
   groqApiKey: "",
@@ -289,7 +360,47 @@ const initialState: AppState = {
   predictionReportNotes: "",
   predictionCaptumEnabled: false,
   predictionCaptumResults: "",
+  /** Automated SLR initial state */
+  slrFramework: "PICO",
+  slrPopulation: "",
+  slrIntervention: "",
+  slrComparator: "",
+  slrOutcome: "",
+  slrTimeframe: "",
+  slrFreeQuery: "",
+  slrYearFrom: "",
+  slrYearTo: "",
+  slrDatabases: [],
+  slrPapers: [],
+  slrScreenedPapers: [],
+  slrIncludedPapers: [],
+  slrSynthesisRows: [],
+  slrStep: 1,
+  slrResults: "",
+  slrPrismaCounts: { identified: 0, screened: 0, eligible: 0, included: 0 },
 };
+
+function getInitialSLRState(): Partial<AppState> {
+  return {
+    slrFramework: "PICO",
+    slrPopulation: "",
+    slrIntervention: "",
+    slrComparator: "",
+    slrOutcome: "",
+    slrTimeframe: "",
+    slrFreeQuery: "",
+    slrYearFrom: "",
+    slrYearTo: "",
+    slrDatabases: [],
+    slrPapers: [],
+    slrScreenedPapers: [],
+    slrIncludedPapers: [],
+    slrSynthesisRows: [],
+    slrStep: 1,
+    slrResults: "",
+    slrPrismaCounts: { identified: 0, screened: 0, eligible: 0, included: 0 },
+  };
+}
 
 function appReducer(state: AppState, action: Action): AppState {
   switch (action.type) {
@@ -306,6 +417,28 @@ function appReducer(state: AppState, action: Action): AppState {
         yearTo: action.payload.yearTo ?? state.yearTo,
         studyType: action.payload.studyType ?? state.studyType,
       };
+    case "SET_STUDY_TYPES":
+      return {
+        ...state,
+        studyTypes: action.payload,
+        studyType:
+          action.payload.length === 0
+            ? "All Study Types"
+            : action.payload.length === 1
+              ? action.payload[0]
+              : `${action.payload.length} study types`,
+      };
+    case "SET_CONCEPT_BLOCKS":
+      return { ...state, conceptBlocks: action.payload };
+    case "SET_RAW_COUNTS":
+      return {
+        ...state,
+        rawRecordCount: action.payload.total ?? state.rawRecordCount,
+        rawRecordsPerDatabase: action.payload.perDatabase ?? state.rawRecordsPerDatabase,
+        relevanceFilteredCount: action.payload.relevanceFiltered ?? state.relevanceFilteredCount,
+      };
+    case "SET_DUPLICATES_REMOVED":
+      return { ...state, duplicatesRemoved: action.payload };
     case "SET_PAPERS":
       return { ...state, papers: action.payload, selectedPapers: action.payload.filter((p) => p.selected) };
     case "TOGGLE_PAPER":
@@ -318,6 +451,18 @@ function appReducer(state: AppState, action: Action): AppState {
           p.id === action.payload ? { ...p, selected: !p.selected } : p
         ).filter((p) => p.selected),
       };
+    case "SET_PAPER_SELECTION": {
+      const ids = new Set(action.payload.ids);
+      const selected = action.payload.selected;
+      const papers = state.papers.map((p) =>
+        ids.has(p.id) ? { ...p, selected } : p
+      );
+      return {
+        ...state,
+        papers,
+        selectedPapers: papers.filter((p) => p.selected),
+      };
+    }
     case "SELECT_ALL_PAPERS": {
       const papers = state.papers.map((p) => ({ ...p, selected: action.payload }));
       return {
@@ -472,6 +617,29 @@ function appReducer(state: AppState, action: Action): AppState {
       return { ...state, predictionCaptumEnabled: action.payload };
     case "SET_PREDICTION_CAPTUM_RESULTS":
       return { ...state, predictionCaptumResults: action.payload };
+    /** Automated SLR actions */
+    case "SET_SLR_FRAMEWORK":
+      return { ...state, slrFramework: action.payload };
+    case "SET_SLR_FIELD":
+      return { ...state, [action.payload.field]: action.payload.value };
+    case "SET_SLR_DATABASES":
+      return { ...state, slrDatabases: action.payload };
+    case "SET_SLR_PAPERS":
+      return { ...state, slrPapers: action.payload };
+    case "SET_SLR_SCREENED":
+      return { ...state, slrScreenedPapers: action.payload };
+    case "SET_SLR_INCLUDED":
+      return { ...state, slrIncludedPapers: action.payload };
+    case "SET_SLR_SYNTHESIS":
+      return { ...state, slrSynthesisRows: action.payload };
+    case "SET_SLR_STEP":
+      return { ...state, slrStep: action.payload };
+    case "SET_SLR_RESULTS":
+      return { ...state, slrResults: action.payload };
+    case "SET_SLR_PRISMA":
+      return { ...state, slrPrismaCounts: action.payload };
+    case "RESET_SLR":
+      return { ...state, ...getInitialSLRState() };
     case "RESET_STATE":
       return { ...initialState };
     default:

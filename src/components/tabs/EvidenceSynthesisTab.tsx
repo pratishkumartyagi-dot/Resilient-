@@ -356,6 +356,9 @@ export default function EvidenceSynthesisTab() {
   const [perDatabaseResults, setPerDatabaseResults] = useState<Array<{ database: string; status: string; count: number; error?: string }>>([]);
   const [citationValidationResults, setCitationValidationResults] = useState<Record<string, { valid: boolean; title?: string; message: string }>>({});
   const [showVerifiedOnly, setShowVerifiedOnly] = useState(false);
+  const [semanticSearch, setSemanticSearch] = useState(false);
+  const [medspacyFilter, setMedspacyFilter] = useState(true);
+  const [medspacyMeta, setMedspacyMeta] = useState<{ enabled: boolean; queryConcepts: string[]; negationTerms: string[]; filteredCount: number; totalCount: number } | null>(null);
 
   const toggleDb = (db: string) => {
     setSelectedDbs((prev) =>
@@ -407,7 +410,9 @@ export default function EvidenceSynthesisTab() {
     setPerDatabaseResults([]);
     try {
       const dbs = selectedDbs.length > 0 ? selectedDbs : ["PubMed", "Europe PMC", "Crossref"];
-      const effectiveQuery = applySearchLogic(query, searchLogic);
+      // In semantic mode the raw query is sent so retrieval matches on meaning
+      // across the broad area of research instead of exact boolean co-occurrence.
+      const effectiveQuery = semanticSearch ? query : applySearchLogic(query, searchLogic);
       const res = await fetch("/api/literature-search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -418,6 +423,8 @@ export default function EvidenceSynthesisTab() {
           yearTo: yearTo || undefined,
           studyType: studyTypeFilter === "All Study Types" ? undefined : studyTypeFilter,
           searchLogic,
+          semanticSearch,
+          medspacyFilter,
         }),
       });
 
@@ -448,6 +455,7 @@ export default function EvidenceSynthesisTab() {
       // records remaining after deduplication instead so PRISMA math is correct.
       setDedupedCount(uniqueCount);
       setCitationValidationResults(data.citationValidation?.results || {});
+      setMedspacyMeta(data.medspacy || null);
 
       // Report partial failures without hiding the records that were retrieved.
       const hasErrors = Object.keys(data.errors || {}).length > 0;
@@ -2446,8 +2454,13 @@ ${stormReview}
             }}
             onClearFilters={() => { setYearFrom(""); setYearTo(""); setStudyTypeFilter("All Study Types"); }}
             showVerifiedOnly={showVerifiedOnly}
-             onShowVerifiedOnlyChange={setShowVerifiedOnly}
-             citationValidationCounts={{
+            onShowVerifiedOnlyChange={setShowVerifiedOnly}
+            semanticSearch={semanticSearch}
+            onSemanticSearchChange={setSemanticSearch}
+            medspacyFilter={medspacyFilter}
+            onMedspacyFilterChange={setMedspacyFilter}
+            medspacyMeta={medspacyMeta}
+            citationValidationCounts={{
                verified: papers.filter((p) => !!p.doi).length,
                unverified: papers.filter((p) => !!p.doi && p.citationStatus !== "verified").length,
                noDoi: papers.filter((p) => !p.doi).length,

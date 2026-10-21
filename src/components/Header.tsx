@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { Settings, BookOpen, Microscope } from "lucide-react";
 import { useApp } from "@/context/AppContext";
+import { APP_VERSION } from "@/lib/version";
 
 export default function Header() {
   const { dispatch } = useApp();
@@ -25,7 +26,10 @@ export default function Header() {
           <h1 className="text-2xl font-bold text-yellow-300 tracking-wider">
             Resilient Research App
           </h1>
-          <p className="text-xs text-blue-200">AI-Powered Research Intelligence Platform</p>
+          <p className="text-xs text-blue-200">
+            AI-Powered Research Intelligence Platform ·{" "}
+            <span className="text-blue-300/80">v{APP_VERSION}</span>
+          </p>
         </div>
         <div className="flex items-center justify-end gap-2">
           <button

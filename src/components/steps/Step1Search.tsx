@@ -97,6 +97,8 @@ export default function Step1Search() {
   const [citationCounts, setCitationCounts] = useState<{ verified: number; unverified: number; noDoi: number }>({ verified: 0, unverified: 0, noDoi: 0 });
   const [resultLimit, setResultLimit] = useState(200);
   const [searchBudget, setSearchBudget] = useState(30);
+  const [semanticSearch, setSemanticSearch] = useState(false);
+  const [medspacyFilter, setMedspacyFilter] = useState(false);
   const [searchFailed, setSearchFailed] = useState(false);
   const [webFallbackBusy, setWebFallbackBusy] = useState(false);
 
@@ -204,6 +206,8 @@ export default function Step1Search() {
           studyType: studyType === "All Study Types" ? undefined : studyType,
           maxResults: resultLimit,
           timeoutMs: searchBudget * 1000,
+          semanticSearch,
+          medspacyFilter,
         }),
       });
 
@@ -489,7 +493,25 @@ export default function Step1Search() {
               Live API search
             </span>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            <label className="flex items-center gap-1.5 text-[10px] text-blue-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={semanticSearch}
+                onChange={(e) => setSemanticSearch(e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-blue-700 bg-blue-950 text-yellow-500 focus:ring-yellow-500"
+              />
+              {semanticSearch ? "Semantic Search (MeSH-expanded)" : "Keyword Search"}
+            </label>
+            <label className="flex items-center gap-1.5 text-[10px] text-blue-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={medspacyFilter}
+                onChange={(e) => setMedspacyFilter(e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-blue-700 bg-blue-950 text-yellow-500 focus:ring-yellow-500"
+              />
+              {medspacyFilter ? "Medspacy relevance filter" : "Show all results"}
+            </label>
             <button
               onClick={selectAllDbs}
               className="text-xs bg-green-900/50 text-green-300 px-3 py-1 rounded hover:bg-green-900/70"
