@@ -3,7 +3,7 @@
 import React, { useState, useCallback, useMemo } from "react";
 import {
   Sparkles, BookOpen, RotateCcw, Loader2, Copy, Check,
-  Brain, ArrowRight, FileText, Download, Trash2,
+  Brain, ArrowRight, FileText, Download, Trash2, Link,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callAiWithFallback, type AICallOptions } from "@/lib/ai";
@@ -148,56 +148,135 @@ function buildDeepReasoningPrompt(
     )
     .join("\n\n");
 
-  return `You are an expert evidence-synthesis researcher performing DEEP REASONING (chain-of-thought) over each included paper before any literature-review section is written.
+  return `You are an expert evidence-synthesis researcher performing LONG CHAIN-OF-THOUGHT (long CoT) deep reasoning over each included paper, following the decipher-research-agent methodology, before any literature-review section is written.
 
 RESEARCH TOPIC: ${query || "the research topic"}
 
 INCLUDED PAPERS:
 ${paperList}
 
-TASK: For EACH paper above, produce a thorough chain-of-thought analysis covering:
+TASK: For EACH paper above, produce a thorough long chain-of-thought analysis. Reason explicitly through these phases in order, writing out your thinking rather than jumping to conclusions:
 
-1. Chain-of-thought reasoning: Walk through your thinking step-by-step — what the paper claims, how it supports or contradicts the research topic, what evidence it provides, the strength of that evidence, and how it relates to other papers in the set.
-2. Key claims: 3-5 specific claims made by the paper, with supporting evidence from the abstract.
-3. Methodological assessment: Study design quality, sample size, potential biases, appropriateness of methods for the research question, statistical approaches, and validity concerns.
-4. Limitations: Specific limitations, exclusions, unanswered questions, and methodological weaknesses identified in the paper.
-5. Relevance to query: How directly relevant is this paper to "${query || "the research topic"}"? (High/Medium/Low with detailed justification)
-6. Identified gaps: What gaps does this paper reveal or leave unaddressed? What questions remain unanswered?
-7. Connections to other papers: How does this paper agree, disagree, or complement other papers in the set? Where are there convergences and divergences?
-8. Evidence tier classification: Classify evidence strength (T1 = highest: RCT/systematic review/meta-analysis; T2 = functional: cohort/case-control; T3 = associational: cross-sectional/observational; T4 = mention: case report/editorial).
+PHASE 1 — Evidence Inventory (what does this paper actually report?)
+- Primary claim / main finding
+- Population studied, setting, time period
+- Key quantitative results or qualitative conclusions
+- Evidence strength indicator (mechanistic, functional, associational, mention)
 
-Format your output as a structured analysis per paper, clearly numbered with headings for each of the 8 dimensions above. Be thorough and analytical — this analysis will be the sole analytical foundation for writing all literature-review sections. Do NOT write the review sections yet; only produce the deep-reasoning analysis.`;
+PHASE 2 — Claim Extraction & Cross-Study Comparison (how does this paper relate to the others?)
+- Which findings overlap with or conflict with other papers in the set?
+- Which papers address the same question with different methods?
+- Where does this paper add unique evidence vs. duplicate what others say?
+
+PHASE 3 — Evidence Grading (how strong is this paper's evidence?)
+- T1 (Mechanistic): in-target study with direct experimental evidence
+- T2 (Functional): functional study showing role in pathway context
+- T3 (Associational): screen hit, correlation, observational association
+- T4 (Mention): review mention, peripheral reference, editorial
+- Justify the grade with specific references to the abstract/study design.
+
+PHASE 4 — Feasible Reflection (self-critique before writing)
+- Is each claim directly supported by the abstract? If not, mark as inferred.
+- Have I acknowledged contradictions or limitations mentioned by the authors?
+- Is the research gap plausible given the study design?
+
+OUTPUT — for each paper, clearly numbered with these headings:
+Paper N: <title>
+Phase 1 Evidence Inventory: <your reasoning>
+Phase 2 Cross-Study Comparison: <your reasoning>
+Phase 3 Evidence Grade: T1/T2/T3/T4 — <justification>
+Phase 4 Feasible Reflection: <your self-critique>
+Key Claims: 3-5 specific claims with supporting evidence
+Limitations: Specific limitations and unanswered questions
+Relevance to Query: High/Medium/Low with justification
+Identified Gaps: gaps this paper reveals or leaves unaddressed
+Connections to Other Papers: agreement, disagreement, complementarity
+
+Be thorough and analytical — this long CoT analysis will be the sole analytical foundation for writing all literature-review sections. Do NOT write the review sections yet; only produce the deep-reasoning analysis.`;
+}
+
+function buildCrossPaperSynthesisPrompt(
+  deepReasoning: string,
+  papers: {
+    authors: string;
+    year: number;
+    title: string;
+    journal: string;
+    abstract: string;
+    doi?: string;
+    studyType: string;
+    database: string;
+  }[],
+  query: string,
+): string {
+  const paperList = papers
+    .map(
+      (p, i) =>
+        `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal}${p.doi ? ` doi:${p.doi}` : ""} [${p.studyType}]`,
+    )
+    .join("\n");
+
+  return `You are an expert evidence-synthesis researcher performing LONG CHAIN-OF-THOUGHT cross-paper synthesis (decipher-research-agent methodology) before writing literature-review sections.
+
+RESEARCH TOPIC: ${query || "the research topic"}
+
+INCLUDED PAPERS:
+${paperList}
+
+DEEP REASONING ANALYSIS (per-paper long CoT):
+${deepReasoning}
+
+TASK: Produce a cross-paper synthesis trace that will be the analytical foundation for writing Sections 1–5. Reason through and output:
+
+1. THEMATIC CLUSTERS: Group papers into 3–6 coherent themes (NOT individual study summaries). For each theme: which papers belong, what they converge on, where they diverge, and the strongest evidence tier present.
+
+2. EVIDENCE LANDSCAPE: Overall distribution of evidence tiers (T1/T2/T3/T4 counts), study designs, populations, settings, and time periods covered.
+
+3. CONVERGENCES & DIVERGENCES: Where studies agree, where they contradict, and how to reconcile contradictions in the review narrative.
+
+4. KEY CLAIMS BY STRENGTH: Rank the most important claims across all papers by evidence tier, noting which are well-supported vs. evidence-limited.
+
+5. RESEARCH GAPS: Synthesized gaps across the whole set — under-studied populations, unmeasured outcomes, methodological weaknesses, contradictions needing resolution.
+
+6. SECTION PLAN: How Sections 1–5 (Introduction, Global & Indian Situations, Research Gaps, Future Advice, Summary) should draw on the above synthesis — which themes/claims/gaps feed each section.
+
+Format as a structured synthesis trace with clear headings. This will be used as the analytical foundation for writing all literature-review sections, alongside the per-paper deep reasoning. Do NOT write the review sections yet; only produce the cross-paper synthesis trace.`;
 }
 
 function buildSectionPrompt(
   meta: SectionMeta,
   evidenceBase: string,
   deepReasoning: string,
+  crossPaperSynthesis: string,
   query: string,
 ): string {
-  const common = `You are an expert academic writer producing ONE section of a publication-ready, COMPREHENSIVE narrative literature review.
+  const common = `You are an expert academic writer producing ONE section of a publication-ready, COMPREHENSIVE narrative literature review, using the LONG CHAIN-OF-THOUGHT (decipher-research-agent) analytical foundation.
 
 RESEARCH TOPIC: ${query || "the research topic"}
 
 EVIDENCE SYNTHESIS TABLE (single source of truth — cite ONLY these studies):
 ${evidenceBase}
 
-DEEP REASONING / CHAIN-OF-THOUGHT ANALYSIS (per-paper deep reasoning — use this as the analytical foundation):
+PER-PAPER DEEP REASONING (long CoT — use this as the analytical foundation):
 ${deepReasoning}
 
-CITATION RULES:
-- Cite papers inline using author-year, e.g. (Smith 2020), (Jones et al 2022).
-- Every inline citation MUST map to a paper in the evidence synthesis table.
+CROSS-PAPER SYNTHESIS TRACE (thematic clusters, evidence landscape, convergences/divergences, key claims by strength, research gaps, section plan — use this to structure the section):
+${crossPaperSynthesis}
+
+CITATION RULES (Vancouver style):
+- Cite papers inline using Vancouver numbered citations, e.g. (1), (2, 3), (4–6), mapped to the numbered reference list in Section 6.
+- Every inline citation number MUST map to a paper in the evidence synthesis table (in the order listed there).
 - Aim for 3-6 inline citations per paragraph.
-- Include a brief evidence summary table where helpful (Author, Year, Design, Key Finding, Relevance).
+- Do NOT use author-year citations; use Vancouver numeric style only.
+- Do NOT include a reference list in this section (references are handled separately in Section 6).
 
 STRUCTURAL REQUIREMENTS:
-- Write 6-10 substantial paragraphs minimum.
+- Write 6-10 substantial paragraphs of flowing academic prose (continuous narrative), NOT bullet-point paper-by-paper analysis.
 - Use subheadings (###) to organize content within the section.
-- Include comparative synthesis, not just paper-by-paper summaries.
+- Write comparative thematic synthesis — weave multiple studies together within each paragraph rather than discussing one paper at a time.
 - Discuss convergence, divergence, strengths, weaknesses, and clinical/policy implications.
-- Ground every claim in the deep-reasoning analysis above.
-- Do NOT include a reference list (references are handled separately in Section 6).
+- Ground every claim in the deep-reasoning analysis AND the cross-paper synthesis trace above.
+- The per-paper deep reasoning and cross-paper synthesis are your analytical foundation (behind the scenes); the OUTPUT must be seamless prose, not a list of individual paper summaries.
 
 SECTION: ${meta.number}. ${meta.title}
 SECTION FOCUS: ${meta.blurb}
@@ -257,6 +336,7 @@ export default function Step4LiteratureReview() {
   const [copied, setCopied] = useState(false);
   const [deepReasoning, setDeepReasoning] = useState<string>("");
   const [deepReasoningLoading, setDeepReasoningLoading] = useState(false);
+  const [crossPaperSynthesis, setCrossPaperSynthesis] = useState<string>("");
 
   const selectedPapers = useMemo(() => state.papers.filter((p) => p.selected), [
     state.papers,
@@ -348,11 +428,11 @@ export default function Step4LiteratureReview() {
     }
   }, [selectedPapers, state.searchQuery]);
 
-  const generateSection = useCallback(    async (meta: SectionMeta): Promise<string> => {
+  const generateSection = useCallback(async (meta: SectionMeta): Promise<string> => {
       if (meta.key === "references") return referencesText;
       try {
         const text = await callAi(
-          buildSectionPrompt(meta, evidenceBase, deepReasoning, state.searchQuery),
+          buildSectionPrompt(meta, evidenceBase, deepReasoning, crossPaperSynthesis, state.searchQuery),
         );
         return stripQuotesAndFences(text);
       } catch (err: any) {
@@ -363,7 +443,7 @@ export default function Step4LiteratureReview() {
         return `${local}\n\n*Section "${meta.title}" was written by the local generator because the AI providers were unavailable (${err?.message || "unknown error"}).*`;
       }
     },
-    [callAi, referencesText, evidenceBase, deepReasoning, state.searchQuery, buildLocalReviewFallback],
+    [callAi, referencesText, evidenceBase, deepReasoning, crossPaperSynthesis, state.searchQuery, buildLocalReviewFallback],
   );
 
   const persist = useCallback(
@@ -385,6 +465,64 @@ export default function Step4LiteratureReview() {
     const next: Record<SectionKey, string> = { ...EMPTY_SECTIONS, references: referencesText };
     setSections(next);
     try {
+      // Step A — Deep reasoning (chain-of-thought) over every included paper.
+      // This is the analytical foundation for all sections 1–5 (decipher-research-agent
+      // methodology: reason deeply per paper before writing any review section).
+      if (!deepReasoning) {
+        setSectionLoading(null);
+        const papersForReasoning = selectedPapers;
+        setDeepReasoningLoading(true);
+        setDeepReasoning("");
+        try {
+          const prompt = buildDeepReasoningPrompt(papersForReasoning, state.searchQuery);
+          const text = await callAi(prompt);
+          setDeepReasoning(stripQuotesAndFences(text));
+        } catch (err: any) {
+          console.error("Deep reasoning generation failed:", err);
+          const localReasoning = papersForReasoning.map((p, i) => {
+            return `Paper ${i + 1}: ${p.authors} (${p.year}). ${p.title}. ${p.journal}${
+              p.doi ? ` doi:${p.doi}` : ""
+            }
+
+Chain-of-thought reasoning: This study by ${p.authors} (${p.year}) addresses ${state.searchQuery || "the research topic"} using a ${p.studyType} design. The abstract reports findings related to the topic, though specific methodological details are limited to what is available in the abstract. The paper's relevance to the research question should be assessed in context of the full evidence base.
+
+Key claims: ${p.abstract ? p.abstract.substring(0, 200) : "No abstract available"}...
+
+Methodological assessment: Study type is ${p.studyType}. Limitations cannot be fully assessed from abstract-level data alone.
+
+Limitations: Reliance on abstract-level data; potential selection and measurement bias; limited longitudinal follow-up may not be evident from abstract.
+
+Relevance to query: The paper appears relevant to "${state.searchQuery || "the research topic"}" based on title and abstract keyword overlap, but full-text review would be needed for definitive assessment.
+
+Identified gaps: Gaps in evidence cannot be fully determined from abstract-level data; further research needed.
+
+Connections to other papers: This paper contributes to the evidence base on ${state.searchQuery || "the research topic"} and should be synthesized alongside other included studies.
+
+---`;
+          }).join("\n\n");
+          setDeepReasoning(localReasoning);
+        } finally {
+          setDeepReasoningLoading(false);
+        }
+      }
+
+      // Step A.5 — Cross-paper synthesis trace (thematic clusters, evidence landscape,
+      // convergences/divergences, key claims by strength, research gaps, section plan).
+      // This is the second pillar of the long CoT analytical foundation.
+      if (!crossPaperSynthesis) {
+        setSectionLoading(null);
+        setCrossPaperSynthesis("");
+        try {
+          const crossPrompt = buildCrossPaperSynthesisPrompt(deepReasoning, selectedPapers, state.searchQuery);
+          const crossText = await callAi(crossPrompt);
+          setCrossPaperSynthesis(stripQuotesAndFences(crossText));
+        } catch (err: any) {
+          console.error("Cross-paper synthesis generation failed:", err);
+          setCrossPaperSynthesis(`Cross-paper synthesis trace could not be generated (${err?.message || "unknown error"}). Sections will proceed using per-paper deep reasoning only.`);
+        }
+      }
+
+      // Step B — Generate sections 1–5 from deep reasoning + cross-paper synthesis + evidence synthesis table.
       for (const meta of REVIEW_STRUCTURE) {
         if (meta.key === "references") continue;
         setSectionLoading(meta.key);
@@ -414,6 +552,7 @@ export default function Step4LiteratureReview() {
     const papersForReasoning = selectedPapers;
     setDeepReasoningLoading(true);
     setDeepReasoning("");
+    setCrossPaperSynthesis("");
     try {
       const prompt = buildDeepReasoningPrompt(papersForReasoning, state.searchQuery);
       const text = await callAi(prompt);
@@ -508,7 +647,7 @@ Connections to other papers: This paper contributes to the evidence base on ${st
 
   const hasContent = REVIEW_STRUCTURE.some(
     (s) => s.key !== "references" && sections[s.key],
-  ) || !!deepReasoning;
+  ) || !!deepReasoning || !!crossPaperSynthesis;
 
   return (
     <div className="space-y-6">
@@ -588,6 +727,33 @@ Connections to other papers: This paper contributes to the evidence base on ${st
         </div>
         <p className="text-[11px] text-purple-300/80 mt-2">
           This per-paper chain-of-thought analysis is used as the analytical foundation for all literature-review sections.
+        </p>
+      </div>
+
+      {/* Cross-Paper Synthesis Trace panel */}
+      <div className="bg-[#1e1b4b]/50 border border-purple-900/40 rounded-lg p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Link size={14} className="text-purple-400" />
+            <h3 className="text-sm font-bold text-purple-200">
+              Cross-Paper Synthesis Trace
+            </h3>
+          </div>
+          <span className="text-[10px] text-purple-400">
+            {crossPaperSynthesis ? "Generated" : "Pending"}
+          </span>
+        </div>
+        {crossPaperSynthesis ? (
+          <div className="text-sm text-purple-100 font-serif leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto">
+            {crossPaperSynthesis}
+          </div>
+        ) : (
+          <p className="text-sm text-purple-400/70">
+            Generated automatically with deep reasoning — thematic clusters, evidence landscape, convergences/divergences, key claims by strength, research gaps, and section plan.
+          </p>
+        )}
+        <p className="text-[11px] text-purple-300/80 mt-2">
+          This cross-paper synthesis trace structures how Sections 1–5 draw on themes, claims, and gaps across the full evidence base.
         </p>
       </div>
 
