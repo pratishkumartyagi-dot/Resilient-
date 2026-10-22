@@ -117,6 +117,21 @@ Sources that could not return a single record in this environment were switched 
 - `src/lib/thesis-pipeline/index.ts` — new stages: the NurseStack plan is built first and the CASP appraisal of the evidence base runs last; the appraisal table is appended to the written thesis.
 - `src/components/pipelines/ThesisGenerator.tsx` — shows the NurseStack plan (methodology fit, PICO, chapter structure, appraisal plan) and the CASP appraisal table of the evidence base.
 
+## AI provider fallback: exhausted Gemini/Groq → local backup (2026-10-22)
+
+- `src/lib/ai.ts` is now the single AI entry point with a backup chain:
+  **Gemini → Groq → local in-browser model (Qwen2.5 0.5B) → (per-feature deterministic local generator)**.
+  - `AiProviderError` keeps the upstream HTTP status; `isExhaustedMessage()` recognises quota exhaustion (429/402, "quota exceeded", "rate limit", "resource exhausted", billing errors).
+  - `callGemini()` / `callGroq()` no longer fail outright: on exhaustion the request is retried with the other provider, then with the local model.
+  - `callAiWithFallback(prompt, options, { order, keys })` is the generic chain; `configureAiKeys()` registers the keys that are configured in the app.
+  - A provider that is exhausted is put in a 5-minute cooldown so later calls skip it immediately (`getAiProviderStatus()`).
+  - Every fallback emits an `ai-fallback` event (also dispatched on `window`) so the UI can say what happened.
+- `AppContext` registers the configured keys with the AI layer on every key change, so the fallback knows about the other provider.
+- The Header shows an amber badge for 20 s: "Gemini quota exhausted → local model used".
+- `src/lib/thesis-ai.ts` now uses the shared chain (Gemini/Groq → local model → the existing deterministic local thesis generator), so the thesis pipeline never stops on an exhausted key.
+- All 60 `callGemini`/`callGroq` call sites in 21 files inherit the fallback without any change.
+- Verified with a simulated exhausted provider: Gemini 429 → Groq serves the request and a fallback event is emitted; with both providers exhausted the error states exactly which provider failed and why.
+
 ## Current State
 
 **App Status**: ✅ Fully functional prototype built

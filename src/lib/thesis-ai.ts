@@ -1,4 +1,4 @@
-import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
+import { callAiWithFallback, type AICallOptions, type AiProviderName } from "@/lib/ai";
 import { fetchRealPapersWithCounts, type Paper } from "@/lib/database-apis";
 import { formatVancouverReference } from "@/lib/references";
 import type { ThesisPaper } from "@/lib/thesis-types";
@@ -225,34 +225,30 @@ export function buildThesisAiFn(
   apiKey: string,
   enableLocalFallback: boolean = true,
 ): (prompt: string, opts?: AICallOptions) => Promise<string> {
-  const callGeminiFn = (p: string, o?: AICallOptions) => callGemini(apiKey, p, o);
-  const callGroqFn = (p: string, o?: AICallOptions) => callGroq(apiKey, p, o);
-  const callQwenFn = (p: string, o?: AICallOptions) => callDeepSeek(p, o);
   const localFn = buildLocalThesisAiFn();
 
-  const chain: Array<() => Promise<(p: string, o?: AICallOptions) => Promise<string>>> = [
-    async () => callGeminiFn,
-    async () => callGroqFn,
-    async () => callQwenFn,
-  ];
-
-  if (enableLocalFallback) {
-    chain.push(async () => localFn);
-  }
-
   return async (prompt: string, opts?: AICallOptions): Promise<string> => {
-    let lastError: unknown;
-    for (const getFn of chain) {
-      try {
-        const fn = await getFn();
-        return await fn(prompt, opts);
-      } catch (err) {
-        lastError = err;
-        continue;
+    // Gemini -> Groq -> in-browser local model. An exhausted quota on one
+    // provider never stops the thesis pipeline: the request is retried with
+    // the next backup.
+    const order: AiProviderName[] = provider === "groq" ? ["groq", "gemini", "local"] : ["gemini", "groq", "local"];
+    const keys = {
+      gemini: provider === "gemini" ? apiKey : undefined,
+      groq: provider === "groq" ? apiKey : undefined,
+    };
+
+    try {
+      return await callAiWithFallback(prompt, opts, { order, keys });
+    } catch (err) {
+      if (enableLocalFallback) {
+        try {
+          return await localFn(prompt, opts);
+        } catch {
+          /* fall through to the original error */
+        }
       }
+      throw err;
     }
-    // If local fallback is enabled, it won't throw, so reaching here means no fallback
-    throw lastError || new Error("All AI providers failed");
   };
 }
 

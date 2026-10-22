@@ -1,12 +1,30 @@
 "use client";
 
 import Image from "next/image";
-import { Settings, BookOpen, Microscope, ClipboardCheck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Settings, BookOpen, Microscope, ClipboardCheck, Cpu } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { APP_VERSION } from "@/lib/version";
+import type { AiFallbackEvent } from "@/lib/ai";
 
 export default function Header() {
   const { dispatch } = useApp();
+  const [aiFallback, setAiFallback] = useState<AiFallbackEvent | null>(null);
+
+  // Show when an exhausted Gemini/Groq quota was covered by a backup provider.
+  useEffect(() => {
+    const onFallback = (event: Event) => {
+      setAiFallback((event as CustomEvent<AiFallbackEvent>).detail || null);
+    };
+    window.addEventListener("ai-fallback", onFallback);
+    return () => window.removeEventListener("ai-fallback", onFallback);
+  }, []);
+
+  useEffect(() => {
+    if (!aiFallback) return;
+    const timer = setTimeout(() => setAiFallback(null), 20000);
+    return () => clearTimeout(timer);
+  }, [aiFallback]);
   return (
     <header className="bg-gradient-to-r from-[#0a1a3a] to-[#0d2080] text-white shadow-lg">
       <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -32,6 +50,17 @@ export default function Header() {
           </p>
         </div>
         <div className="flex items-center justify-end gap-2">
+          {aiFallback && (
+            <span
+              className="hidden md:inline-flex items-center gap-1.5 text-[10px] px-2 py-1 rounded bg-amber-900/50 text-amber-200 border border-amber-700"
+              title={aiFallback.reason || "A provider was unavailable and a backup was used"}
+            >
+              <Cpu size={12} />
+              {aiFallback.exhausted
+                ? `${aiFallback.failedProvider ?? "Provider"} quota exhausted → ${aiFallback.provider === "local" ? "local model" : aiFallback.provider} used`
+                : `${aiFallback.failedProvider ?? "Provider"} unavailable → ${aiFallback.provider} used`}
+            </span>
+          )}
           <button
             onClick={() => {
               const event = new CustomEvent("open-thesis");

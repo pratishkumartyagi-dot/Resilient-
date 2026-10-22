@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useReducer, ReactNode } from "react";
 import type { ConceptBlock } from "@/lib/concept-extraction";
+import { configureAiKeys } from "@/lib/ai";
 
 export interface Paper {
   id: string;
@@ -656,6 +657,13 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(appReducer, initialState);
+
+  // Keep the AI layer informed about the configured keys so that an exhausted
+  // Gemini/Groq quota automatically falls back to the other provider and then
+  // to the local in-browser model.
+  React.useEffect(() => {
+    configureAiKeys({ gemini: state.geminiApiKey, groq: state.groqApiKey });
+  }, [state.geminiApiKey, state.groqApiKey]);
 
   return (
     <AppContext.Provider value={{ state, dispatch }}>

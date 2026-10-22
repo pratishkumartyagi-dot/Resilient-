@@ -5,6 +5,119 @@ export interface AICallOptions {
   searchEnabled?: boolean;
 }
 
+export type AiProviderName = "gemini" | "groq" | "local";
+
+export interface AiFallbackEvent {
+  /** Provider whose output was actually used. */
+  provider: AiProviderName;
+  /** Provider that failed first (undefined when the first choice worked). */
+  failedProvider?: AiProviderName;
+  /** The upstream error message. */
+  reason?: string;
+  /** True when the failure looked like an exhausted quota / rate limit. */
+  exhausted: boolean;
+  at: number;
+}
+
+/**
+ * Error raised by a provider call. It keeps the upstream HTTP status so the
+ * caller can tell "the quota is used up" from "the request was malformed".
+ */
+export class AiProviderError extends Error {
+  provider: AiProviderName;
+  status?: number;
+  exhausted: boolean;
+
+  constructor(provider: AiProviderName, message: string, status?: number) {
+    super(message);
+    this.name = "AiProviderError";
+    this.provider = provider;
+    this.status = status;
+    this.exhausted = isExhaustedMessage(message, status);
+  }
+}
+
+const EXHAUSTED_PATTERN =
+  /(quota|rate[ _-]?limit|resource[ _]?exhausted|exceeded your current quota|insufficient[ _]quota|billing|credit balance|payment required|too many requests|quota exceeded|free tier|daily limit|429|402)/i;
+
+/** True when the message/status looks like an exhausted quota or rate limit. */
+export function isExhaustedMessage(message: string, status?: number): boolean {
+  if (status === 429 || status === 402) return true;
+  return EXHAUSTED_PATTERN.test(message || "");
+}
+
+export function isProviderExhausted(error: unknown): boolean {
+  if (error instanceof AiProviderError) return error.exhausted;
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return isExhaustedMessage(message);
+}
+
+// ---------------------------------------------------------------------------
+// Provider registry + fallback bookkeeping
+// ---------------------------------------------------------------------------
+
+interface AiKeys {
+  gemini?: string;
+  groq?: string;
+}
+
+let registeredKeys: AiKeys = {};
+
+/**
+ * Registers the API keys that are configured in the app so that a failing
+ * provider can be replaced by the other one (and finally by the local model).
+ */
+export function configureAiKeys(keys: AiKeys): void {
+  registeredKeys = { ...keys };
+}
+
+/** Providers that recently ran out of quota are skipped for a while. */
+const PROVIDER_COOLDOWN_MS = 5 * 60 * 1000;
+const cooldowns = new Map<AiProviderName, number>();
+
+function isCoolingDown(provider: AiProviderName): boolean {
+  const until = cooldowns.get(provider);
+  if (!until) return false;
+  if (Date.now() < until) return true;
+  cooldowns.delete(provider);
+  return false;
+}
+
+function markExhausted(provider: AiProviderName): void {
+  cooldowns.set(provider, Date.now() + PROVIDER_COOLDOWN_MS);
+}
+
+export function getAiProviderStatus(): Record<AiProviderName, "ok" | "exhausted" | "unknown"> {
+  const status: Record<AiProviderName, "ok" | "exhausted" | "unknown"> = { gemini: "unknown", groq: "unknown", local: "ok" };
+  for (const provider of ["gemini", "groq"] as const) {
+    if (isCoolingDown(provider)) status[provider] = "exhausted";
+    else if (registeredKeys[provider]) status[provider] = "ok";
+  }
+  return status;
+}
+
+const fallbackListeners = new Set<(event: AiFallbackEvent) => void>();
+
+export function subscribeAiFallback(listener: (event: AiFallbackEvent) => void): () => void {
+  fallbackListeners.add(listener);
+  return () => {
+    fallbackListeners.delete(listener);
+  };
+}
+
+function emitFallback(event: AiFallbackEvent): void {
+  fallbackListeners.forEach((listener) => {
+    try {
+      listener(event);
+    } catch {
+      /* a broken listener must not break the AI call */
+    }
+  });
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("ai-fallback", { detail: event }));
+  }
+}
+
 // NOTE: Always use a relative URL so API calls follow whatever host/port the
 // preview is actually served on (3000, custom --port, LAN IP, hosted preview
 // URL). A hardcoded "http://localhost:3000" breaks the preview whenever the
@@ -22,27 +135,31 @@ async function postChat(provider: "gemini" | "groq", apiKey: string, prompt: str
       signal: controller.signal,
     });
   } catch (e) {
-    if (controller.signal.aborted) throw new Error("AI request timed out");
-    throw e;
+    if (controller.signal.aborted) throw new AiProviderError(provider, "AI request timed out");
+    throw new AiProviderError(provider, e instanceof Error ? e.message : "AI request failed");
   } finally {
     clearTimeout(timeout);
   }
   if (!res.ok) {
     let message = `AI request failed: ${res.status}`;
     try { const data = await res.json(); message = data?.error || message; } catch { /* ignore parse errors */ }
-    throw new Error(message);
+    throw new AiProviderError(provider, message, res.status);
   }
   const data = await res.json();
   return { content: data.content as string, searchPerformed: data.searchPerformed || false };
 }
 
-export async function callGemini(apiKey: string, prompt: string, options?: AICallOptions): Promise<string> {
-  const result = await postChat("gemini", apiKey, prompt, options);
-  return result.content;
-}
-
-export async function callGroq(apiKey: string, prompt: string, options?: AICallOptions): Promise<string> {
-  const result = await postChat("groq", apiKey, prompt, options);
+/** Raw provider call — no fallback. Used for key testing. */
+async function callProvider(
+  provider: "gemini" | "groq",
+  apiKey: string,
+  prompt: string,
+  options?: AICallOptions
+): Promise<string> {
+  if (!apiKey) {
+    throw new AiProviderError(provider, `No ${provider} API key is configured`);
+  }
+  const result = await postChat(provider, apiKey, prompt, options);
   return result.content;
 }
 
@@ -60,9 +177,143 @@ export async function callDeepSeek(prompt: string, options?: AICallOptions): Pro
   });
 }
 
+export interface FallbackOptions {
+  /** Provider order to try. Defaults to gemini -> groq -> local. */
+  order?: AiProviderName[];
+  /** Skip the in-browser model and fail instead (used by key tests). */
+  noFallback?: boolean;
+  /** Keys to use instead of the registered ones. */
+  keys?: AiKeys;
+}
+
+/**
+ * Calls the AI with a backup chain.
+ *
+ * When Gemini or Groq runs out of quota (HTTP 429 / "quota exceeded") the
+ * request is automatically retried with the other provider and finally with
+ * the local in-browser model, so an AI job never simply dies on an exhausted
+ * key. The fallback that was used is reported to the UI.
+ */
+export async function callAiWithFallback(
+  prompt: string,
+  options?: AICallOptions,
+  config?: FallbackOptions
+): Promise<string> {
+  const order: AiProviderName[] = config?.order ?? ["gemini", "groq", "local"];
+  const keys: AiKeys = { ...registeredKeys, ...(config?.keys || {}) };
+  const failures: Array<{ provider: AiProviderName; error: AiProviderError }> = [];
+
+  for (const provider of order) {
+    if (provider !== "local" && isCoolingDown(provider)) {
+      failures.push({
+        provider,
+        error: new AiProviderError(provider, `${provider} is in a cooldown after an exhausted quota`),
+      });
+      continue;
+    }
+
+    try {
+      let content: string;
+      if (provider === "gemini") {
+        content = await callProvider("gemini", keys.gemini || "", prompt, options);
+      } else if (provider === "groq") {
+        content = await callProvider("groq", keys.groq || "", prompt, options);
+      } else {
+        content = await callDeepSeek(prompt, options);
+      }
+
+      if (failures.length > 0) {
+        const first = failures[0]!;
+        emitFallback({
+          provider,
+          failedProvider: first.provider,
+          reason: first.error.message,
+          exhausted: first.error.exhausted,
+          at: Date.now(),
+        });
+      }
+      return content;
+    } catch (error) {
+      const providerError =
+        error instanceof AiProviderError
+          ? error
+          : new AiProviderError(provider, error instanceof Error ? error.message : String(error));
+      if (providerError.exhausted) markExhausted(provider);
+      failures.push({ provider, error: providerError });
+    }
+  }
+
+  const summary = failures
+    .map((f) => `${f.provider}: ${f.error.message}`)
+    .join(" | ");
+  const exhausted = failures.some((f) => f.error.exhausted);
+  throw new AiProviderError(
+    "local",
+    exhausted
+      ? `Every AI provider is exhausted and the local backup could not be used. ${summary}`
+      : `All AI providers failed. ${summary}`,
+    failures[0]?.error.status
+  );
+}
+
+/**
+ * Gemini call. If Gemini fails (most often: the quota is used up) the request
+ * is served by Groq and finally by the local in-browser model.
+ */
+export async function callGemini(apiKey: string, prompt: string, options?: AICallOptions): Promise<string> {
+  try {
+    return await callProvider("gemini", apiKey, prompt, options);
+  } catch (error) {
+    const providerError =
+      error instanceof AiProviderError ? error : new AiProviderError("gemini", error instanceof Error ? error.message : String(error));
+    if (providerError.exhausted) markExhausted("gemini");
+    const backupOrder: AiProviderName[] = ["groq", "local"];
+    if (!registeredKeys.groq) backupOrder.splice(0, 1);
+    try {
+      const content = await callAiWithFallback(prompt, options, { order: backupOrder });
+      emitFallback({
+        provider: backupOrder.find((p) => p !== "local") || "local",
+        failedProvider: "gemini",
+        reason: providerError.message,
+        exhausted: providerError.exhausted,
+        at: Date.now(),
+      });
+      return content;
+    } catch {
+      throw providerError;
+    }
+  }
+}
+
+/** Groq call, with the same backup chain (Groq -> Gemini -> local). */
+export async function callGroq(apiKey: string, prompt: string, options?: AICallOptions): Promise<string> {
+  try {
+    return await callProvider("groq", apiKey, prompt, options);
+  } catch (error) {
+    const providerError =
+      error instanceof AiProviderError ? error : new AiProviderError("groq", error instanceof Error ? error.message : String(error));
+    if (providerError.exhausted) markExhausted("groq");
+    const backupOrder: AiProviderName[] = ["gemini", "local"];
+    if (!registeredKeys.gemini) backupOrder.splice(0, 1);
+    try {
+      const content = await callAiWithFallback(prompt, options, { order: backupOrder });
+      emitFallback({
+        provider: backupOrder.find((p) => p !== "local") || "local",
+        failedProvider: "groq",
+        reason: providerError.message,
+        exhausted: providerError.exhausted,
+        at: Date.now(),
+      });
+      return content;
+    } catch {
+      throw providerError;
+    }
+  }
+}
+
 export async function testGeminiKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    await callGemini(apiKey, "Hello, this is a test message. Please respond with OK.");
+    await callProvider("gemini", apiKey, "Hello, this is a test message. Please respond with OK.");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error" };
@@ -71,7 +322,7 @@ export async function testGeminiKey(apiKey: string): Promise<{ ok: boolean; erro
 
 export async function testGroqKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    await callGroq(apiKey, "Hello, this is a test message. Please respond with OK.");
+    await callProvider("groq", apiKey, "Hello, this is a test message. Please respond with OK.");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Unknown error" };
