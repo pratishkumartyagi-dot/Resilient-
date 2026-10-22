@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { Settings, BookOpen, Microscope } from "lucide-react";
+import { Settings, BookOpen, Microscope, ClipboardCheck } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { APP_VERSION } from "@/lib/version";
 
@@ -41,6 +41,17 @@ export default function Header() {
             title="Thesis Generator"
           >
             <BookOpen size={20} />
+          </button>
+          <button
+            onClick={() => {
+              const event = new CustomEvent("open-appraisal");
+              window.dispatchEvent(event);
+            }}
+            className="p-2 rounded-lg bg-amber-900/40 text-amber-300 hover:bg-amber-900/60"
+            title="Critical Appraisal"
+            aria-label="Critical Appraisal"
+          >
+            <ClipboardCheck size={20} />
           </button>
           <button
             onClick={() => {

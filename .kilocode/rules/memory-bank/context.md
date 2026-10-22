@@ -94,6 +94,29 @@ Sources that could not return a single record in this environment were switched 
 - Release marked as **Latest** (v0.2.9 remains published as the previous release).
 - The build states its own version in the UI: `src/lib/version.ts` → `APP_VERSION`, shown in the header as `v0.2.10`.
 
+## Critical Appraisal pipeline (CASP) + NurseStack thesis upgrade (2026-10-22)
+
+### New: Critical Appraisal tab (header toggle)
+- Header now has an amber **Critical Appraisal** button (ClipboardCheck icon) dispatching the `open-appraisal` window event → `SET_TAB "appraisal"`; the tab is registered in `TopTabs` and rendered lazily in `src/app/page.tsx`.
+- `src/components/pipelines/CriticalAppraisal.tsx`: upload PDF/DOCX/TXT/MD (parsed client-side with the existing `parseUploadedDocument` helper: mammoth for Word, pdf.js for PDF), metadata fields (title, authors, year, journal, reviewer), automatic or manual CASP checklist selection, per-criterion judgement list with the evidence quoted from the document, summary (validity / results / applicability / quality score / strengths / limitations / inclusion recommendation), and export as markdown, Word, PDF or clipboard.
+
+### CASP data (official 2024 checklists)
+- `src/lib/casp-checklists.ts` is generated from the nine official CASP UK 2024 documents downloaded from casp-uk.net (`/casp-checklists/*.docx`): RCT, systematic review, qualitative, cohort, case-control, cross-sectional, diagnostic, economic evaluation, clinical prediction rule — 104 criteria with their "Consider" prompts, transcribed verbatim (generator kept at `/tmp/kilo/gen-casp.ts`).
+
+### Appraisal engine
+- `src/lib/casp-evidence.ts`: 45 evidence concepts (randomisation, blinding, attrition, power calculation, CIs, reflexivity, saturation, confounding, reference standard, sensitivity analysis, …) that map a CASP question to the phrases that demonstrate it.
+  - YES = the paper states it (evidence quoted), NO = the paper explicitly contradicts it, CAN'T TELL = not reported (never an assumption, as CASP requires).
+  - Guard against false judgements: matches must be about *this* study (self/topic markers), sentences about other research are rejected, and negatives are only accepted from the authors' own text.
+- `src/lib/critical-appraisal.ts`: study-design detection (RCT / SR / qualitative / cohort / case-control / cross-sectional / diagnostic / economic / prediction rule) using title + self-attributed signals, the appraisal runner, and the report builder that produces the CASP report in the format of the CASP template and the NurseStack `review-casp` command (validity, results, applicability, quality score, strengths, limitations, inclusion recommendation, Harvard referencing).
+- Optional AI critical reading: when a Gemini/Groq key is configured, the document is sent to the model for a per-criterion judgement (`buildCaspAiPrompt`) and merged with the rule engine; without a key the rule engine alone is used, so the pipeline always works.
+- Verified on real open-access papers: an RCT → 8 yes / 0 no / 5 can't tell with real quotes; a qualitative study → detected at 100 % confidence, validity "Strong"; a systematic review → detected as SR (not RCT).
+
+### NurseStack upgrade of the thesis generator
+- `src/lib/nursestack-commands.ts` — TypeScript port of the NurseStack commands (MIT © 2025 Clinical Quality AI): `/plan-pico`, `/plan-literature-review`, `/plan-dissertation`, `/review-casp`, `/review-evidence`, plus the methodology-fit table (question type → methodology → CASP checklist → reporting guideline → ethics position) and the dissertation chapter structure with word targets.
+- `src/lib/thesis-nursestack.ts` — `buildNursestackThesisPlan()` (methodology fit, PICO(S), chapter structure with word targets, search strategy, appraisal plan) and `appraiseEvidenceBase()` (CASP appraisal of every retrieved study at title/abstract level, with an explicit "too little reported to judge" verdict when almost nothing can be judged).
+- `src/lib/thesis-pipeline/index.ts` — new stages: the NurseStack plan is built first and the CASP appraisal of the evidence base runs last; the appraisal table is appended to the written thesis.
+- `src/components/pipelines/ThesisGenerator.tsx` — shows the NurseStack plan (methodology fit, PICO, chapter structure, appraisal plan) and the CASP appraisal table of the evidence base.
+
 ## Current State
 
 **App Status**: ✅ Fully functional prototype built

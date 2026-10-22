@@ -94,13 +94,21 @@ export interface ThesisPipelineResult {
     outline: boolean;
     prose: boolean;
     refine: boolean;
+    appraise: boolean;
     complete: boolean;
   };
   subResults: {
     outline: ThesisStageSubResult;
     prose: ThesisStageSubResult;
     refine: ThesisStageSubResult;
+    appraise: ThesisStageSubResult;
   };
+  /** NurseStack plan: methodology fit, PICO, chapter structure, appraisal plan. */
+  nursestackPlan?: import("./thesis-nursestack").NursestackThesisPlan;
+  /** CASP appraisal of the retrieved literature base. */
+  evidenceAppraisal?: import("./thesis-nursestack").EvidenceAppraisalRow[];
+  /** Markdown section with the CASP appraisal of the evidence base. */
+  evidenceAppraisalMarkdown?: string;
 }
 
 export interface ThesisGeneratorConfig {

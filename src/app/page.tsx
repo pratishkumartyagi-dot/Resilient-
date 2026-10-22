@@ -37,6 +37,7 @@ const GrantWritingTab = lazy(() => import("@/components/tabs/GrantWritingTab"));
 const OmicsBioinformaticsTab = lazy(() => import("@/components/tabs/OmicsBioinformaticsTab"));
 const ThesisGenerator = lazy(() => import("@/components/pipelines/ThesisGenerator"));
 const AutomatedSLR = lazy(() => import("@/components/pipelines/AutomatedSLR"));
+const CriticalAppraisal = lazy(() => import("@/components/pipelines/CriticalAppraisal"));
 
 function withSuspense(node: React.ReactNode, label?: string) {
   return <Suspense fallback={<TabLoadingSkeleton label={label} />}>{node}</Suspense>;
@@ -88,6 +89,8 @@ function AppContent() {
         return withSuspense(<ThesisGenerator />, "Thesis Generator");
       case "slr":
         return withSuspense(<AutomatedSLR />, "Automated SLR");
+      case "appraisal":
+        return withSuspense(<CriticalAppraisal />, "Critical Appraisal");
       default:
         return withSuspense(<GrantWritingTab />, "Grant Writing");
     }
@@ -98,6 +101,13 @@ function AppContent() {
     const onOpenThesis = () => dispatch({ type: "SET_TAB", payload: "thesis" });
     window.addEventListener("open-thesis", onOpenThesis);
     return () => window.removeEventListener("open-thesis", onOpenThesis);
+  }, [dispatch]);
+
+  // Header dispatches "open-appraisal" to switch directly to the Critical Appraisal tab.
+  useEffect(() => {
+    const onOpenAppraisal = () => dispatch({ type: "SET_TAB", payload: "appraisal" });
+    window.addEventListener("open-appraisal", onOpenAppraisal);
+    return () => window.removeEventListener("open-appraisal", onOpenAppraisal);
   }, [dispatch]);
 
   // Header dispatches "open-slr" to switch directly to the Automated SLR tab.

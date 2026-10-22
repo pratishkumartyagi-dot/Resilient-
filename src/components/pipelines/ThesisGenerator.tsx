@@ -3,7 +3,7 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   Sparkles, Save, RotateCcw, Download, FileText, BookOpen, ChevronRight,
-  Loader2, CircleHelp, X, Copy, Edit2, Check, CheckCircle2,
+  Loader2, CircleHelp, X, Copy, Edit2, Check, CheckCircle2, ClipboardCheck,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { runThesisPipeline, buildDefaultConfig } from "@/lib/thesis-pipeline";
@@ -519,6 +519,112 @@ export default function ThesisGenerator() {
               </span>
             ))}
           </div>
+
+          {/* NurseStack plan */}
+          {result.nursestackPlan && (
+            <div className="bg-blue-950 border border-blue-800 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-xs font-bold text-white flex items-center gap-2">
+                  <ClipboardCheck size={13} className="text-yellow-400" />
+                  NurseStack thesis plan
+                </h4>
+                <span className="text-[10px] text-blue-400">nursestack /plan-dissertation • /plan-pico</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px]">
+                <div className="bg-blue-900/30 border border-blue-900 rounded p-2.5">
+                  <p className="text-blue-300 font-semibold mb-1">Methodology fit</p>
+                  <p className="text-blue-200">Question type: {result.nursestackPlan.methodology.questionType}</p>
+                  <p className="text-blue-200">Recommended: {result.nursestackPlan.methodology.methodology}</p>
+                  <p className="text-blue-200">Reporting guideline: {result.nursestackPlan.methodology.reportingGuideline}</p>
+                  <p className="text-blue-200">CASP checklist: {result.nursestackPlan.methodology.caspChecklistId.replace(/_/g, " ")}</p>
+                  <p className="text-blue-400 mt-1">{result.nursestackPlan.methodology.ethicsNote}</p>
+                </div>
+                <div className="bg-blue-900/30 border border-blue-900 rounded p-2.5">
+                  <p className="text-blue-300 font-semibold mb-1">PICO(S)</p>
+                  <p className="text-blue-200">{result.nursestackPlan.pico.population}</p>
+                  <p className="text-blue-200">{result.nursestackPlan.pico.intervention}</p>
+                  <p className="text-blue-200">{result.nursestackPlan.pico.comparison}</p>
+                  <p className="text-blue-200">{result.nursestackPlan.pico.outcome}</p>
+                </div>
+              </div>
+              <div className="mt-3">
+                <p className="text-blue-300 font-semibold text-[11px] mb-1">Chapter structure</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                  {result.nursestackPlan.chapters.map((c: { number: number; title: string; wordTarget: number }) => (
+                    <div key={c.number} className="bg-blue-900/20 border border-blue-900/60 rounded px-2 py-1.5 text-[10px] text-blue-200">
+                      <span className="text-yellow-300 font-semibold">Ch {c.number}</span> {c.title}
+                      <span className="text-blue-500"> — ~{c.wordTarget.toLocaleString()} words</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="mt-3">
+                <p className="text-blue-300 font-semibold text-[11px] mb-1">Critical appraisal plan (CASP)</p>
+                <ul className="space-y-0.5 text-[10px] text-blue-300">
+                  {result.nursestackPlan.appraisalPlan.map((s: string, i: number) => (
+                    <li key={i}>- {s}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+
+          {/* CASP appraisal of the evidence base */}
+          {result.evidenceAppraisal && result.evidenceAppraisal.length > 0 && (
+            <div className="bg-blue-950 border border-blue-800 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-xs font-bold text-white flex items-center gap-2">
+                  <ClipboardCheck size={13} className="text-yellow-400" />
+                  Critical appraisal of the evidence base (CASP)
+                </h4>
+                <span className="text-[10px] text-blue-400">{result.evidenceAppraisal.length} studies appraised</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-[10px]">
+                  <thead>
+                    <tr className="text-blue-400 text-left border-b border-blue-900/60">
+                      <th className="py-1 pr-2 font-medium">Study</th>
+                      <th className="py-1 pr-2 font-medium">Design</th>
+                      <th className="py-1 pr-2 font-medium">CASP checklist</th>
+                      <th className="py-1 pr-2 font-medium">Yes</th>
+                      <th className="py-1 pr-2 font-medium">No</th>
+                      <th className="py-1 pr-2 font-medium">Can&apos;t tell</th>
+                      <th className="py-1 pr-2 font-medium">Judged</th>
+                      <th className="py-1 pr-2 font-medium">Score</th>
+                      <th className="py-1 font-medium">Verdict</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.evidenceAppraisal.slice(0, 40).map((row: { paperId: string; title: string; year?: number; design: string; checklist: string; yes: number; no: number; cantTell: number; assessable: number; score: number | null; verdict: string }) => (
+                      <tr key={row.paperId} className="border-b border-blue-900/30 align-top">
+                        <td className="py-1 pr-2 text-blue-200">{row.title.length > 90 ? `${row.title.slice(0, 90)}…` : row.title}</td>
+                        <td className="py-1 pr-2 text-blue-300">{row.design}</td>
+                        <td className="py-1 pr-2 text-blue-400">{row.checklist}</td>
+                        <td className="py-1 pr-2 text-emerald-300">{row.yes}</td>
+                        <td className="py-1 pr-2 text-red-300">{row.no}</td>
+                        <td className="py-1 pr-2 text-yellow-300">{row.cantTell}</td>
+                        <td className="py-1 pr-2 text-blue-300">{row.assessable}</td>
+                        <td className="py-1 pr-2 text-white">{row.score === null ? "—" : `${row.score}%`}</td>
+                        <td className="py-1 text-blue-200">
+                          {row.verdict === "fit"
+                            ? "Fit"
+                            : row.verdict === "caveats"
+                              ? "With caveats"
+                              : row.verdict === "insufficient"
+                                ? "Too little reported"
+                                : "Not fit"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[10px] text-blue-500 mt-2">
+                Appraisal is based on the title and abstract; criteria that need the full text are recorded as
+                &ldquo;Can&rsquo;t tell&rdquo;. Use the Critical Appraisal tab for a full-text appraisal.
+              </p>
+            </div>
+          )}
 
           <div className="bg-blue-950 border border-blue-800 rounded-lg p-4">
             <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">

@@ -11,6 +11,7 @@ import { openDraft } from "@/lib/opendraft";
 import { generateThesis } from "@/lib/thesis-generator";
 import { scholarCopilot } from "@/lib/scholar-copilot";
 import { formatVancouverList } from "@/lib/references";
+import { appraiseEvidenceBase, buildEvidenceAppraisalMarkdown, buildNursestackThesisPlan } from "@/lib/thesis-nursestack";
 
 export interface PipelineDeps {
   aiFn: (prompt: string, opts?: { searchEnabled?: boolean; searchQuery?: string }) => Promise<string>;
@@ -29,7 +30,21 @@ export async function runThesisPipeline(
     outline: { ok: false },
     prose: { ok: false },
     refine: { ok: false },
+    appraise: { ok: false },
   };
+
+  // Stage 0: NurseStack plan (methodology fit, PICO, chapter structure, appraisal plan)
+  onProgress?.("outline", "Building the NurseStack thesis plan...");
+  const nursestackPlan = buildNursestackThesisPlan({
+    topic: config.topic,
+    level: config.level,
+    targetWordCount: config.targetWordCount || 15000,
+    studyDesign: config.studyDesign,
+    databases: [],
+    yearFrom: config.yearFrom,
+    yearTo: config.yearTo,
+  });
+  subResults.outline = { ok: false };
 
   // Stage 1: Outline
   onProgress?.("outline", "Generating thesis outline...");
@@ -93,7 +108,24 @@ export async function runThesisPipeline(
   });
   subResults.refine = refineResult.subResult;
   chapters = refineResult.chapters;
-  const fullThesis = refineResult.fullThesis;
+  let fullThesis = refineResult.fullThesis;
+
+  // Stage 4: CASP appraisal of the evidence base (NurseStack /review-evidence)
+  onProgress?.("appraise", "Appraising the evidence base with CASP...");
+  let evidenceAppraisal: ReturnType<typeof appraiseEvidenceBase> = [];
+  let evidenceAppraisalMarkdown = "";
+  try {
+    evidenceAppraisal = appraiseEvidenceBase(papers);
+    evidenceAppraisalMarkdown = buildEvidenceAppraisalMarkdown(evidenceAppraisal);
+    subResults.appraise = { ok: true, data: { studies: evidenceAppraisal.length } };
+  } catch (err: any) {
+    subResults.appraise = { ok: false, error: err?.message || "Evidence appraisal failed" };
+  }
+
+  // The CASP appraisal of the evidence base is part of the written thesis.
+  if (evidenceAppraisalMarkdown) {
+    fullThesis = `${fullThesis}\n\n---\n\n${evidenceAppraisalMarkdown}`;
+  }
 
   // Build references (Vancouver) from grounding papers
   const references = papers.slice(0, config.maxReferences || 150);
@@ -110,6 +142,7 @@ export async function runThesisPipeline(
     outline: subResults.outline.ok,
     prose: subResults.prose.ok,
     refine: subResults.refine.ok,
+    appraise: subResults.appraise.ok,
     complete: subResults.outline.ok && subResults.prose.ok && subResults.refine.ok,
   };
 
@@ -126,7 +159,11 @@ export async function runThesisPipeline(
       outline: subResults.outline,
       prose: subResults.prose,
       refine: subResults.refine,
+      appraise: subResults.appraise,
     },
+    nursestackPlan,
+    evidenceAppraisal,
+    evidenceAppraisalMarkdown,
   };
 }
 
