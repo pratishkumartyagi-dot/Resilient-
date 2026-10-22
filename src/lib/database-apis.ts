@@ -660,8 +660,15 @@ function pubmedMeshGroupForPhrase(phrase: string): string {
     }
 
     case id === "doaj": {
-      // DOAJ uses Lucene syntax over the bibjson fields.
-      const term = terms.map((t) => `(bibjson.title:${quote(t)} OR bibjson.abstract:${quote(t)})`).join(joiner);
+      // DOAJ uses Lucene syntax over the bibjson fields, with an optional
+      // publication-date range so the requested year window (e.g. 2021-2026)
+      // is enforced upstream rather than only client-side.
+      let term = terms.map((t) => `(bibjson.title:${quote(t)} OR bibjson.abstract:${quote(t)})`).join(joiner);
+      if (options.yearFrom || options.yearTo) {
+        const from = options.yearFrom ? `${options.yearFrom}-01-01` : "1800-01-01";
+        const to = options.yearTo ? `${options.yearTo}-12-31` : `${new Date().getFullYear()}-12-31`;
+        term = `(${term}) AND date:[${from} TO ${to}]`;
+      }
       return { term, scheme: "doaj", searchString: term };
     }
 
@@ -1123,9 +1130,10 @@ export async function fetcharXiv(query: string, yearFrom?: string, yearTo?: stri
 export async function fetchDoaj(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
   const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
   const papers: Paper[] = [];
+  const search = buildDatabaseSearch("DOAJ", query, { yearFrom, yearTo });
   for (let page = 1; page <= 5 && papers.length < maxResults; page++) {
-    const url = `https://doaj.org/api/v2/search/articles/${encodeURIComponent(buildDatabaseSearch("DOAJ", query).term)}?pageSize=100&page=${page}`;
-    const data = await httpJson<any>(url, { timeoutMs: 30000, retries: 1 });
+    const url = `https://doaj.org/api/v2/search/articles/${encodeURIComponent(search.term)}?pageSize=100&page=${page}`;
+    const data = await httpJson<any>(url, { timeoutMs: 30000, retries: 3 });
     const results = data.results || [];
     if (results.length === 0) break;
 
@@ -1156,8 +1164,6 @@ export async function fetchDoaj(query: string, yearFrom?: string, yearTo?: strin
     await sleep(200);
   }
 
-  void yearFrom;
-  void yearTo;
   void studyType;
   return papers.slice(0, maxResults);
 }
@@ -1621,8 +1627,6 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "DOAJ",
     url: "https://doaj.org/",
     description: "Directory of Open Access Journals",
-    disabled: true,
-    disabledReason: "The DOAJ API answers HTTP 502 for automated access from this environment. Re-enable (disabled: false) once doaj.org serves the API again.",
     search: (ctx) => fetchDoaj(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
   },
   {
@@ -1630,6 +1634,8 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "bioRxiv",
     url: "https://www.biorxiv.org/",
     description: "bioRxiv preprints (via the Europe PMC preprint index)",
+    disabled: true,
+    disabledReason: "Excluded from database search per configuration.",
     search: (ctx) => fetchBioRxiv(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
   },
   {
@@ -1651,6 +1657,8 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "arXiv",
     url: "https://arxiv.org/",
     description: "arXiv preprint repository",
+    disabled: true,
+    disabledReason: "Excluded from database search per configuration.",
     search: (ctx) => fetcharXiv(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
   },
   {
