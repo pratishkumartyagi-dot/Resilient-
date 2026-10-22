@@ -36,6 +36,21 @@ export interface SynthesisReportOptions {
   totalRecordsRaw?: number;
 }
 
+/**
+ * UTF-8 safe base64 encoder. The report is generated in the browser, where
+ * `Buffer` is not available, so `btoa` is used when present and Node's Buffer
+ * is the fallback for server-side use.
+ */
+function toBase64(input: string): string {
+  if (typeof btoa === "function") {
+    const bytes = new TextEncoder().encode(input);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+    return btoa(binary);
+  }
+  return Buffer.from(input, "utf8").toString("base64");
+}
+
 function escapeXml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -283,20 +298,20 @@ export function generateSynthesisReport(opts: SynthesisReportOptions): string {
 
 ### Forest Plot (embedded)
 
-![Forest Plot — ${reviewType}](data:image/svg+xml;base64,${Buffer.from(
-        generateForestChartSVG(
-          `Forest Plot: ${reviewType}`,
-          robToolName,
-          metaforResult.forestData.map((r) => ({
-            study: r.study,
-            effect: r.effect,
-            ciLower: r.ciLower,
-            ciUpper: r.ciUpper,
-            weightPercent: r.weightPercent,
-            robColor: r.isPooled ? "#facc15" : robColorFor(papersForSynthesis.find((p) => p.title === r.study)?.robOverall),
-          }))
-        ) || ""
-      ).toString("base64")})
+![Forest Plot — ${reviewType}](data:image/svg+xml;base64,${toBase64(
+          generateForestChartSVG(
+            `Forest Plot: ${reviewType}`,
+            robToolName,
+            metaforResult.forestData.map((r) => ({
+              study: r.study,
+              effect: r.effect,
+              ciLower: r.ciLower,
+              ciUpper: r.ciUpper,
+              weightPercent: r.weightPercent,
+              robColor: r.isPooled ? "#facc15" : robColorFor(papersForSynthesis.find((p) => p.title === r.study)?.robOverall),
+            }))
+          ) || ""
+        )})
 
 > **Note:** Forest plot data is suitable for import into **forestplot** (R), **OpenMEE**, **JASP**, or **RevMan** for publication-quality visualisation.
 
@@ -350,7 +365,7 @@ Effect estimates were extracted for ${effectSizes.length || k} studies. After en
 
   const robSummarySvg = generateRobSummarySVG(robSummary, robToolName);
   const robSummaryImgTag = robSummarySvg
-    ? `![Risk-of-Bias Summary — ${robToolName}](data:image/svg+xml;base64,${Buffer.from(robSummarySvg).toString("base64")})`
+    ? `![Risk-of-Bias Summary — ${robToolName}](data:image/svg+xml;base64,${toBase64(robSummarySvg)})`
     : "";
 
   const cerSection = isMeta
@@ -563,20 +578,20 @@ ${effectTable}
 ${isMeta && metaforResult ? `
 ### Embedded Forest Plot (analysis result)
 
-![Forest Plot — ${reviewType}](data:image/svg+xml;base64,${Buffer.from(
-      generateForestChartSVG(
-        `Forest Plot: ${reviewType} — ${metaforResult.model}-effects`,
-        robToolName,
-        metaforResult.forestData.map((r) => ({
-          study: r.study,
-          effect: r.effect,
-          ciLower: r.ciLower,
-          ciUpper: r.ciUpper,
-          weightPercent: r.weightPercent,
-          robColor: r.isPooled ? "#facc15" : robColorFor(papersForSynthesis.find((p) => p.title === r.study)?.robOverall),
-        }))
-      ) || ""
-    ).toString("base64")})
+![Forest Plot — ${reviewType}](data:image/svg+xml;base64,${toBase64(
+        generateForestChartSVG(
+          `Forest Plot: ${reviewType} — ${metaforResult.model}-effects`,
+          robToolName,
+          metaforResult.forestData.map((r) => ({
+            study: r.study,
+            effect: r.effect,
+            ciLower: r.ciLower,
+            ciUpper: r.ciUpper,
+            weightPercent: r.weightPercent,
+            robColor: r.isPooled ? "#facc15" : robColorFor(papersForSynthesis.find((p) => p.title === r.study)?.robOverall),
+          }))
+        ) || ""
+      )})
 ` : ""}
 
 ---

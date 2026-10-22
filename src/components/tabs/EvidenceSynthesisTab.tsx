@@ -19,6 +19,31 @@ import {
   type EffectSizeRow,
 } from "@/lib/metafor-compute";
 import { extractPICOForPapers, type ExtractedPICO } from "@/lib/pico-extractor";
+import {
+  buildSynthesisToolReference,
+  buildMetaAnalysisToolReference,
+  buildReportingToolReference,
+  EVIDENCE_SYNTHESIS_TOOLS,
+  getToolsByCategory,
+  getToolsForSynthesis,
+  type EvidenceSynthesisTool,
+} from "@/lib/evidence-synthesis-tools";
+import {
+  generateSynthesisReport,
+  downloadSynthesisReport,
+} from "@/lib/synthesis-report-generator";
+import { gradeEvidence, formatGradeForPrompt } from "@/lib/medical-skills/evidence-grading";
+import {
+  buildPRISMAFlowDiagram,
+  buildSearchStrategyDocument,
+  buildInclusionExclusionCriteria,
+  buildQualityAssessment,
+  buildEvidenceGradingSummary,
+  type PRISMAFlowData,
+  type SearchStrategy,
+  type IncludedStudy,
+  type QualityAssessment,
+} from "@/lib/medical-skills/prisma-utils";
 import { marked } from "marked";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
 import {
@@ -41,6 +66,19 @@ import {
 import EvidenceSynthesisStep1, { type EvidenceSynthesisStep1Props } from "./EvidenceSynthesisStep1";
 
 const INTEGRATED_EVIDENCE_SKILLS = getIntegratedSkills().filter(s => ["literature-review", "literature-deep-research", "clinical-trials-database"].includes(s.id));
+
+const EVIDENCE_SYNTHESIS_TOOL_CATEGORIES: EvidenceSynthesisTool["category"][] = [
+  "literature-search",
+  "screening",
+  "data-extraction",
+  "risk-of-bias",
+  "statistics",
+  "meta-analysis",
+  "visualization",
+  "reference-management",
+  "workflow",
+  "text-mining",
+];
 
 const FALLBACK_SR_DATABASES = [
   "PubMed",
@@ -556,6 +594,27 @@ export default function EvidenceSynthesisTab() {
   };
 
   const displayPapers = getFilteredPapers();
+
+  // Evidence grading (T1 mechanistic → T4 mention) for every extracted study,
+  // so the synthesis can rank the body of evidence instead of treating every
+  // record as equal.
+  const gradedStudies = useMemo(
+    () =>
+      extractedData.map((p) => {
+        const grade = gradeEvidence({
+          studyType: p.studyType,
+          abstract: p.abstract || p.outcome || p.keyFindings || "",
+          journal: p.journal,
+          year: p.year,
+          isPrimaryResearch: true,
+          isReview: /review|meta-?analysis/i.test(p.studyType || ""),
+          isScreenHit: false,
+          qualityScore: robAssessments[p.id]?.overall ? 3 : robAssessments[p.id] ? 2 : 1,
+        });
+        return { ...p, evidenceGrade: formatGradeForPrompt(grade) };
+      }),
+    [extractedData, robAssessments]
+  );
 
   // PRISMA 2020 flow counts. "deduped" is the unique record set remaining after
   // duplicate removal (the search route reports duplicates *removed*, while
@@ -1330,7 +1389,10 @@ For each paper, extract:
 ${papersContext}
 
 Return ONLY a markdown table with these exact columns:
-| Study reference | Year | Setting | Population | Intervention / exposure | Comparison | Outcome | Sample size | Effect estimate | Risk Ratio (95% CI) | Study type/Design | Research Gaps |`;
+| Study reference | Year | Setting | Population | Intervention / exposure | Comparison | Outcome | Sample size | Effect estimate | Risk Ratio (95% CI) | Study type/Design | Research Gaps |
+
+Extraction and synthesis tooling you may reference in the notes column (awesome-evidence-synthesis):
+${buildSynthesisToolReference()}`;
 
       const response = state.geminiApiKey ? await callGemini(state.geminiApiKey, prompt) : state.groqApiKey ? await callGroq(state.groqApiKey!, prompt) : await callDeepSeek(prompt);
 
@@ -1661,7 +1723,10 @@ SYNTHESIS INSTRUCTIONS:
 ${synthesisInstructions || "Use standard systematic review methodology appropriate for the review type."}
 
 EXTRACTED STUDIES:
-${papersForSynthesis.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. Type: ${p.studyType}. Outcome: ${p.outcome}. RoB (${robMode === "probast" ? "PROBAST+AI" : "robvis"}): ${robForPrompt(p)}.${p.notes ? ` Notes: ${p.notes}` : ""}`).join("\n\n")}
+${papersForSynthesis.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. Type: ${p.studyType}. Outcome: ${p.outcome}. Evidence grade: ${gradedStudies.find((g) => g.id === p.id)?.evidenceGrade || "not graded"}. RoB (${robMode === "probast" ? "PROBAST+AI" : "robvis"}): ${robForPrompt(p)}.${p.notes ? ` Notes: ${p.notes}` : ""}`).join("\n\n")}
+
+EVIDENCE GRADING KEY (grade the body of evidence, and say which tier each theme rests on):
+T1 Mechanistic (direct experimental evidence) · T2 Functional (pathway/measurement evidence) · T3 Associational · T4 Mention/background only.
 
 REQUIREMENTS:
 1. Summarize the body of evidence thematically or narratively as appropriate for the review type
@@ -1672,6 +1737,12 @@ REQUIREMENTS:
 6. Include PRISMA-compliant narrative structure (for reviews where PRISMA applies)
 7. Reference tools: metafor, meta, metaumbrella, robvis, forestplot, PRISMA 2020
 ${isMeta ? "8. Provide meta-analysis interpretation: fixed vs random effects, heterogeneity statistics (I², τ²), certainty of evidence" : ""}
+
+AVAILABLE EVIDENCE SYNTHESIS TOOLS (awesome-evidence-synthesis) — name the tool you would use for each step, and cite the ones that match your method:
+${buildSynthesisToolReference()}
+
+META-ANALYSIS TOOLING (for the effect-size table and pooled estimates):
+${buildMetaAnalysisToolReference()}
 
 OUTPUT FORMAT:
 ${isNarrative ? `## Evidence Synthesis
@@ -1973,7 +2044,7 @@ ${isNarrative ? `## Evidence Synthesis
     };
     try {
       const papersForSynthesis = extractedData.filter((p) => selectedPaperIds.has(p.id));
-      const prompt = buildAcademicWritingManuscriptPrompt({
+      const manuscriptPrompt = buildAcademicWritingManuscriptPrompt({
         topic: query || "the research topic",
         reviewType,
         papersForSynthesis: papersForSynthesis.map((p) => ({
@@ -1998,6 +2069,10 @@ ${isNarrative ? `## Evidence Synthesis
         selectedDbs,
         query,
       });
+      const prompt = `${manuscriptPrompt}
+
+REPORTING AND VISUALISATION TOOLING (awesome-evidence-synthesis) — name the tools that match the reporting and figures you produce:
+${buildReportingToolReference()}`;
 
       const apiKey = state.geminiApiKey || state.groqApiKey;
       if (!apiKey) {
@@ -2035,7 +2110,10 @@ ${isNarrative ? `## Evidence Synthesis
     setReviewReport("");
     setFinalManuscript("");
     try {
-      const prompt = buildAcademicWritingReviewPrompt({ manuscript });
+      const prompt = `${buildAcademicWritingReviewPrompt({ manuscript })}
+
+REPORTING STANDARDS AND TOOLING TO CHECK THE MANUSCRIPT AGAINST (awesome-evidence-synthesis):
+${buildReportingToolReference()}`;
       const apiKey = state.geminiApiKey || state.groqApiKey;
       if (!apiKey) {
         setReviewReport("No API key configured. Please add your Gemini or Groq API key in Settings to run the Academic Writing Agents review.");
@@ -2252,6 +2330,246 @@ ${stormReview}
     const link = document.createElement("a");
     link.href = url;
     link.download = `manuscript-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  /**
+   * Builds the full, publication-ready synthesis report (PRISMA flow, RoB
+   * table, forest plot SVG, meta-analysis results, GRADE-style conclusions)
+   * and downloads it as a markdown document.
+   */
+  const downloadFullSynthesisReport = () => {
+    const template = getRobToolTemplate();
+    const robToolName = robMode === "probast" ? "PROBAST + AI" : (template ? template.label : robTool);
+    const included = extractedData.filter((p) => selectedPaperIds.has(p.id));
+    const years = included
+      .map((p) => (typeof p.year === "number" ? p.year : parseInt(String(p.year), 10)))
+      .filter((y): y is number => Number.isFinite(y));
+    const studyTypes = Array.from(new Set(included.map((p) => p.studyType).filter(Boolean)));
+
+    const robSummary = included.reduce(
+      (acc, row) => {
+        const judgement = (
+          robMode === "probast" ? probastAssessments[row.id]?.overallRob : robAssessments[row.id]?.overall
+        ) || "";
+        const jl = judgement.toLowerCase();
+        if (!jl) acc.pending += 1;
+        else if (jl.includes("low") && !jl.includes("high")) acc.low += 1;
+        else if (jl.includes("high") || jl.includes("critical") || jl.includes("very high")) acc.high += 1;
+        else acc.some += 1;
+        return acc;
+      },
+      { low: 0, some: 0, high: 0, pending: 0 }
+    );
+
+    const report = generateSynthesisReport({      reviewType,
+      query: query || "the research topic",
+      totalRecords: prismaCounts.identification,
+      totalRecordsRaw: totalIdentified || prismaCounts.identification,
+      deduped: prismaCounts.deduped,
+      screened: prismaCounts.screened,
+      excluded: prismaCounts.excluded,
+      included: prismaCounts.included,
+      databases: selectedDbs.length ? selectedDbs : ["—"],
+      yearMin: years.length ? Math.min(...years) : new Date().getFullYear(),
+      yearMax: years.length ? Math.max(...years) : new Date().getFullYear(),
+      yearFrom,
+      yearTo,
+      studyTypes,
+      papersForSynthesis: included.map((p) => ({
+        id: p.id,
+        title: p.title,
+        authors: p.authors,
+        year: p.year,
+        studyType: p.studyType,
+        outcome: p.outcome,
+        intervention: p.intervention,
+        population: p.population,
+        robOverall:
+          (robMode === "probast" ? probastAssessments[p.id]?.overallRob : robAssessments[p.id]?.overall) || "",
+      })),
+      robSummary,
+      robToolName,
+      effectSizes,
+      metaforResult: metaAnalysis.random || metaAnalysis.fixed || null,
+      synthesisExcerpt: (synthesisOutput || Object.values(literatureReviewSections).join("\n\n")).slice(0, 12000),
+      generatedDate: new Date().toISOString().split("T")[0],
+      screeningMethod: "Title/abstract screening with automated DOI + normalised-title deduplication",
+      extractionMethod: "Structured PICO extraction (deterministic first, AI-assisted refinement)",
+    });
+
+    downloadSynthesisReport(`${report}\n\n${buildReportAppendices(included, template, robSummary)}`, reviewType);
+  };
+
+  /**
+   * The reporting appendices (PRISMA flow, per-database search strategy,
+   * inclusion/exclusion criteria, risk-of-bias table and evidence grading)
+   * built with the medical-skills PRISMA utilities.
+   */
+  const buildReportAppendices = (
+    included: any[],
+    template: any,
+    robSummary: { low: number; some: number; high: number; pending: number }
+  ): string => {
+    const flow: PRISMAFlowData = {
+      identification: {
+        recordsFromDatabases: prismaCounts.identification,
+        additionalRecordsFromOtherSources: 0,
+        totalRecordsIdentified: prismaCounts.identification,
+      },
+      screening: {
+        recordsAfterDuplicatesRemoved: prismaCounts.deduped,
+        recordsScreenedByTitleAbstract: prismaCounts.screened,
+        recordsExcludedByTitleAbstract: prismaCounts.excluded,
+        fullTextArticlesAssessed: prismaCounts.assessed,
+        fullTextArticlesExcludedWithReasons: Math.max(0, prismaCounts.assessed - prismaCounts.included),
+        studiesIncludedInQualitativeSynthesis: prismaCounts.included,
+        studiesIncludedInMetaAnalysis: reviewType.includes("Meta") ? effectSizes.length || prismaCounts.included : undefined,
+      },
+      excludedFullTextReasons: [
+        { reason: "Did not meet the inclusion criteria", count: Math.max(0, prismaCounts.assessed - prismaCounts.included) },
+      ],
+    };
+
+    const strategies: SearchStrategy[] = (selectedDbs.length ? selectedDbs : ["—"]).map((db) => ({
+      database: db,
+      dateSearched: new Date().toISOString().split("T")[0],
+      dateRange: `${yearFrom || "no lower limit"} to ${yearTo || "present"}`,
+      searchString: `${query || "unspecified query"}${searchLogic && searchLogic !== "AND" ? ` [${searchLogic} logic]` : ""}`,
+      results: dbSearchStatus[db] ?? 0,
+    }));
+
+    const criteria = buildInclusionExclusionCriteria({
+      inclusion: [
+        studyTypeFilter !== "All Study Types" ? `Study design: ${studyTypeFilter}` : "Any study design",
+        yearFrom || yearTo ? `Publication year between ${yearFrom || "earliest"} and ${yearTo || "latest"}` : "Any publication year",
+        "Peer-reviewed primary research, systematic reviews and qualitative studies",
+        "English-language full text available",
+      ],
+      exclusion: [
+        "Editorials, commentaries, letters, case reports and conference abstracts",
+        "Non-empirical or secondary opinion pieces",
+        "Studies outside the scope of the research question",
+        "Duplicate records of the same study",
+      ],
+    });
+
+    const quality: QualityAssessment = {
+      tool: robMode === "probast" ? "PROBAST + AI" : (template ? template.label : robTool),
+      overallRating: `Low risk: ${robSummary.low} · Some concerns: ${robSummary.some} · High risk: ${robSummary.high} · Not assessed: ${robSummary.pending}`,
+      domains: (template?.domains || []).map((d: any) => {
+        const counts = { low: 0, some: 0, high: 0, pending: 0 };
+        included.forEach((row) => {
+          const j = getRobJudgmentForPaper(row.id, d.id).toLowerCase();
+          if (!j || j.includes("no information")) counts.pending += 1;
+          else if (j.includes("low") && !j.includes("high")) counts.low += 1;
+          else if (j.includes("high")) counts.high += 1;
+          else counts.some += 1;
+        });
+        return {
+          id: d.id,
+          label: `${d.id}: ${d.label}`,
+          judgment: `Low ${counts.low} · Some ${counts.some} · High ${counts.high} · Not assessed ${counts.pending}`,
+          notes: "",
+        };
+      }),
+    };
+
+    const gradedStudiesForReport: IncludedStudy[] = included.map((p) => {
+      const grade = gradedStudies.find((g) => g.id === p.id)?.evidenceGrade || "";
+      return {
+        id: p.id,
+        authors: p.authors || "",
+        year: typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || new Date().getFullYear(),
+        title: p.title || "",
+        journal: p.journal || "",
+        doi: p.doi || "",
+        studyType: p.studyType || "",
+        population: p.population || "Not specified",
+        intervention: p.intervention || "Not specified",
+        comparator: p.comparison || "Not specified",
+        outcomes: p.outcome || "Not specified",
+        keyFindings: p.keyFindings || p.outcome || "Not reported",
+        qualityRating:
+          robSummary.high > 0 && (robMode === "probast" ? probastAssessments[p.id]?.overallRob : robAssessments[p.id]?.overall)?.toLowerCase().includes("high")
+            ? "Low"
+            : (robMode === "probast" ? probastAssessments[p.id]?.overallRob : robAssessments[p.id]?.overall)?.toLowerCase().includes("low")
+              ? "High"
+              : (robMode === "probast" ? probastAssessments[p.id]?.overallRob : robAssessments[p.id]?.overall)
+                ? "Moderate"
+                : "Very Low",
+        biasAssessment: (robMode === "probast" ? probastAssessments[p.id]?.overallRob : robAssessments[p.id]?.overall) || "Not assessed",
+      };
+    });
+
+    const grading = buildEvidenceGradingSummary(gradedStudiesForReport);
+    const gradeTiers = gradedStudies.map((g) => `- ${g.authors || g.title} (${g.year}) — ${g.evidenceGrade}`);
+
+    return [
+      "## Appendices",
+      "",
+      "### PRISMA 2020 flow",
+      "",
+      buildPRISMAFlowDiagram(flow),
+      "",
+      buildSearchStrategyDocument(strategies),
+      criteria,
+      buildQualityAssessment(quality),
+      "### Evidence grading",
+      "",
+      `High: ${grading.high} · Moderate: ${grading.moderate} · Low: ${grading.low} · Very low: ${grading.veryLow}`,
+      "",
+      ...gradeTiers,
+      "",
+    ].join("\n");
+  };
+
+  /** PRISMA 2020 flow diagram as markdown (reporting guideline text). */
+  const downloadPrismaMarkdown = () => {
+    const text = buildPRISMAFlowDiagram({
+      identification: {
+        recordsFromDatabases: prismaCounts.identification,
+        additionalRecordsFromOtherSources: 0,
+        totalRecordsIdentified: prismaCounts.identification,
+      },
+      screening: {
+        recordsAfterDuplicatesRemoved: prismaCounts.deduped,
+        recordsScreenedByTitleAbstract: prismaCounts.screened,
+        recordsExcludedByTitleAbstract: prismaCounts.excluded,
+        fullTextArticlesAssessed: prismaCounts.assessed,
+        fullTextArticlesExcludedWithReasons: Math.max(0, prismaCounts.assessed - prismaCounts.included),
+        studiesIncludedInQualitativeSynthesis: prismaCounts.included,
+        studiesIncludedInMetaAnalysis: reviewType.includes("Meta") ? effectSizes.length || prismaCounts.included : undefined,
+      },
+      excludedFullTextReasons: [
+        { reason: "Did not meet the inclusion criteria", count: Math.max(0, prismaCounts.assessed - prismaCounts.included) },
+      ],
+    });
+    const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `prisma-flow-${reviewType.toLowerCase().replace(/\s+/g, "-")}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  /** Per-database search strategy appendix (PRISMA-S style). */
+  const downloadSearchStrategyMarkdown = () => {
+    const strategies: SearchStrategy[] = (selectedDbs.length ? selectedDbs : ["—"]).map((db) => ({
+      database: db,
+      dateSearched: new Date().toISOString().split("T")[0],
+      dateRange: `${yearFrom || "no lower limit"} to ${yearTo || "present"}`,
+      searchString: `${query || "unspecified query"}${searchLogic && searchLogic !== "AND" ? ` [${searchLogic} logic]` : ""}`,
+      results: dbSearchStatus[db] ?? 0,
+    }));
+    const text = buildSearchStrategyDocument(strategies);
+    const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `search-strategy-${reviewType.toLowerCase().replace(/\s+/g, "-")}.md`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -3485,9 +3803,50 @@ ${stormReview}
                     <button onClick={downloadRobCsv} className="flex items-center gap-1 text-[10px] bg-purple-900/50 text-purple-200 px-2 py-1 rounded hover:bg-purple-800/60">
                       <Download size={10} /> RoB CSV (robvis)
                     </button>
+                    <button onClick={downloadFullSynthesisReport} className="flex items-center gap-1 text-[10px] bg-yellow-500/90 text-[#0a1a3a] font-bold px-2 py-1 rounded hover:bg-yellow-500">
+                      <Download size={10} /> Full synthesis report (Markdown, forest plot + PRISMA)
+                    </button>
+                    <button onClick={downloadPrismaMarkdown} className="flex items-center gap-1 text-[10px] bg-blue-900/50 text-blue-200 px-2 py-1 rounded hover:bg-blue-800/60">
+                      <Download size={10} /> PRISMA flow (MD)
+                    </button>
+                    <button onClick={downloadSearchStrategyMarkdown} className="flex items-center gap-1 text-[10px] bg-blue-900/50 text-blue-200 px-2 py-1 rounded hover:bg-blue-800/60">
+                      <Download size={10} /> Search strategy (MD)
+                    </button>
                   </div>
                 </div>
               )}
+
+              {/* Methods toolkit — the awesome-evidence-synthesis tools this pipeline is aligned with */}
+              <details className="mt-4 bg-blue-950/50 border border-blue-900/60 rounded-lg p-3">
+                <summary className="text-xs font-bold text-white cursor-pointer hover:text-yellow-300">
+                  Methods toolkit — {EVIDENCE_SYNTHESIS_TOOLS.length} awesome-evidence-synthesis tools ({getToolsForSynthesis().length} used in synthesis)
+                </summary>
+                <p className="text-[10px] text-blue-400 mt-2 mb-2">
+                  These tools are the reference set handed to the AI at each stage (search, extraction, risk of bias,
+                  synthesis, meta-analysis and reporting) and are the tools named in the generated manuscript.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1.5">
+                  {EVIDENCE_SYNTHESIS_TOOL_CATEGORIES.map((category) => {
+                    const tools = getToolsByCategory(category);
+                    if (tools.length === 0) return null;
+                    return (
+                      <div key={category}>
+                        <p className="text-[10px] font-semibold text-yellow-300/90 uppercase tracking-wide">{category.replace(/-/g, " ")}</p>
+                        <ul className="space-y-0.5">
+                          {tools.map((tool: EvidenceSynthesisTool) => (
+                            <li key={tool.id} className="text-[10px] text-blue-300">
+                              <a href={tool.url} target="_blank" rel="noreferrer" className="text-blue-200 hover:text-yellow-300 underline">
+                                {tool.name}
+                              </a>
+                              <span className="text-blue-500"> — {tool.description.slice(0, 90)}{tool.description.length > 90 ? "…" : ""}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  })}
+                </div>
+              </details>
             </div>
             <div className="flex justify-end gap-3">
               <button onClick={() => setPipelineStep(6)} className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg flex items-center gap-2">

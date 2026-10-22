@@ -132,6 +132,30 @@ Sources that could not return a single record in this environment were switched 
 - All 60 `callGemini`/`callGroq` call sites in 21 files inherit the fallback without any change.
 - Verified with a simulated exhausted provider: Gemini 429 → Groq serves the request and a fallback event is emitted; with both providers exhausted the error states exactly which provider failed and why.
 
+## Dead modules wired into the Evidence Synthesis pipeline (2026-10-22)
+
+Four modules that were written but never imported are now live in `src/components/tabs/EvidenceSynthesisTab.tsx`:
+
+1. **`src/lib/evidence-synthesis-tools.ts`** (50 awesome-evidence-synthesis tools)
+   - `buildSynthesisToolReference()` → appended to the synthesis prompt (`:1728`) and the extraction-table prompt (`:1345`).
+   - `buildMetaAnalysisToolReference()` → appended to the synthesis prompt for the effect-size table.
+   - `buildReportingToolReference()` → appended to the manuscript prompt and the academic-review prompt.
+   - A **Methods toolkit** panel in Step 5 lists all 50 tools grouped by category with links, so the reviewer can see the toolchain the pipeline is aligned with.
+2. **`src/lib/synthesis-report-generator.ts`**
+   - `generateSynthesisReport()` is now produced by `downloadFullSynthesisReport()` and downloaded as a markdown document (PRISMA flow, RoB table, embedded forest-plot SVG, meta-analysis results, GRADE-style conclusions, attribution).
+   - **Bug fixed while wiring it**: the module used `Buffer.from(...).toString("base64")` for the embedded SVGs, which does not exist in the browser → the report would have crashed on click. Replaced with a UTF-8 safe `toBase64()` helper (btoa + TextEncoder, Buffer only as a Node fallback).
+3. **`src/lib/medical-skills/prisma-utils.ts`**
+   - `buildPRISMAFlowDiagram()` → the "PRISMA flow (MD)" export and the report appendix.
+   - `buildSearchStrategyDocument()` → the "Search strategy (MD)" export (per database, date searched, date range, search string, hit count) and the report appendix.
+   - `buildInclusionExclusionCriteria()` → report appendix.
+   - `buildQualityAssessment()` → report appendix (per-domain RoB table).
+   - `buildEvidenceGradingSummary()` → report appendix (High/Moderate/Low/Very low counts).
+4. **`src/lib/medical-skills/evidence-grading.ts`**
+   - `gradeEvidence()` + `formatGradeForPrompt()` → every extracted study is graded T1 Mechanistic / T2 Functional / T3 Associational / T4 Mention; the grade is shown in the synthesis prompt (with the grading key) and listed in the report.
+   - `annotateFindingsWithGrades()` remains available for the findings text.
+
+Also: the synthesis prompt now states the evidence grade of every study, and Step 5 gained three new exports (full synthesis report, PRISMA flow MD, search strategy MD).
+
 ## Current State
 
 **App Status**: ✅ Fully functional prototype built
