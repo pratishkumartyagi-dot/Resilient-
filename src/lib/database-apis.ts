@@ -480,6 +480,192 @@ function pubmedStudyType(entry: string): string {
   return classifyStudyType("", "");
 }
 
+/* ------------------------------------------------------------------ */
+/* Per-database search schemes                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Each database has its own query syntax. The same research question is
+ * therefore translated into the scheme the database actually understands:
+ * MeSH + [tiab] for PubMed, TITLE/ABST for Europe PMC, query.bibliographic
+ * for Crossref, field prefixes for arXiv, Lucene for DOAJ, query.term with
+ * field tags for ClinicalTrials.gov and so on.
+ */
+export type SearchScheme = "pubmed" | "europepmc" | "crossref" | "arxiv" | "openalex" | "doaj" | "zenodo" | "openaire" | "clinicaltrials" | "generic";
+
+export interface QueryTranslation {
+  /** The raw term as sent to the database. */
+  term: string;
+  /** The scheme used to build it. */
+  scheme: SearchScheme;
+  /** The search string that was sent (for the audit trail). */
+  searchString: string;
+}
+
+function splitTerms(query: string): string[] {
+  return query
+    .replace(/[()]/g, " ")
+    .split(/\s+(?:AND|OR|NOT)\s+|\s*,\s*|\s+/i)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 1);
+}
+
+function quote(term: string): string {
+  return `"${term.replace(/"/g, "")}"`;
+}
+
+/** Builds the search string for one database from the research question. */
+export function buildDatabaseSearch(
+  database: string,
+  query: string,
+  options: { logic?: string; yearFrom?: string; yearTo?: string; studyType?: string } = {}
+): QueryTranslation {
+  const terms = splitTerms(query);
+  const logic = (options.logic || "AND").toUpperCase();
+  const joiner = logic === "OR" ? " OR " : " AND ";
+  const id = database.toLowerCase();
+
+  switch (true) {
+    case id === "pubmed":
+      // MeSH terms for the recognised concepts + free text in title/abstract.
+      {
+        const mesh = terms.map((t) => {
+          const meSH = MESH_TERMS[t.toLowerCase()];
+          const free = `${quote(t)}[Title/Abstract]`;
+          return meSH ? `(${quote(meSH)}[MeSH Terms] OR ${free})` : free;
+        });
+        let term = mesh.join(joiner) || query;
+        const filter = buildStudyTypeFilter(options.studyType);
+        if (filter) term = `(${term}) AND ${filter}`;
+        if (options.yearFrom || options.yearTo) {
+          const from = options.yearFrom ? `${options.yearFrom}/01/01` : "1800/01/01";
+          const to = options.yearTo ? `${options.yearTo}/12/31` : `${new Date().getFullYear()}/12/31`;
+          term = `(${term}) AND ("${from}"[Date - Publication] : "${to}"[Date - Publication])`;
+        }
+        return { term, scheme: "pubmed", searchString: term };
+      }
+
+    case id === "europe pmc" || id === "biorxiv" || id === "medrxiv": {
+      const extra = id === "biorxiv" ? ["SRC:PPR", "PUBLISHER:bioRxiv"] : id === "medrxiv" ? ["SRC:PPR", "PUBLISHER:medRxiv"] : [];
+      // Europe PMC: terms with the boolean operator, then the date range and
+      // (for preprints) the source filter.
+      const parts = terms.map((t) => t);
+      let term = parts.join(joiner) || query;
+      if (options.yearFrom || options.yearTo) {
+        const from = options.yearFrom ? `${options.yearFrom}-01-01` : "1800-01-01";
+        const to = options.yearTo ? `${options.yearTo}-12-31` : `${new Date().getFullYear()}-12-31`;
+        term += ` AND (FIRST_PDATE:[${from} TO ${to}])`;
+      }
+      if (extra.length) term += ` AND ${extra.join(" AND ")}`;
+      return { term, scheme: "europepmc", searchString: term };
+    }
+
+    case id === "crossref": {
+      // Crossref has no field syntax for a free-text question: the
+      // bibliographic query is the documented scheme.
+      const term = terms.length ? terms.map(quote).join(" ") : query;
+      return { term, scheme: "crossref", searchString: term };
+    }
+
+    case id === "arxiv": {
+      // arXiv field prefixes: all: (title, abstract, authors, comments).
+      // Quotes and parentheses are not supported by the arXiv parser, and a
+      // hyphenated token must be kept intact, so only spaces are split.
+      const words = terms
+        .flatMap((t) => t.split(/\s+/))
+        .filter((w) => w.length > 1)
+        .map((w) => `all:${w}`);
+      const term = words.join(joiner) || `all:${query}`;
+      return { term, scheme: "arxiv", searchString: term };
+    }
+
+    case id === "openalex": {
+      const term = terms.map(quote).join(" ");
+      return { term, scheme: "openalex", searchString: term };
+    }
+
+    case id === "doaj": {
+      // DOAJ uses Lucene syntax over the bibjson fields.
+      const term = terms.map((t) => `(bibjson.title:${quote(t)} OR bibjson.abstract:${quote(t)})`).join(joiner);
+      return { term, scheme: "doaj", searchString: term };
+    }
+
+    case id === "zenodo": {
+      const term = terms.map((t) => `(${quote(t)} OR metadata.title:${quote(t)})`).join(joiner);
+      return { term, scheme: "zenodo", searchString: term };
+    }
+
+    case id === "openaire": {
+      const term = terms.map(quote).join(" ");
+      return { term, scheme: "openaire", searchString: term };
+    }
+
+    case id === "clinicaltrials.gov": {
+      // ClinicalTrials.gov supports fielded search: AREA[Condition], AREA[Intervention].
+      const term = terms.map((t) => `${quote(t)}`).join(joiner);
+      return { term, scheme: "clinicaltrials", searchString: term };
+    }
+
+    default:
+      return { term: query, scheme: "generic", searchString: query };
+  }
+}
+
+/** MeSH headings for the concepts the app recognises, so PubMed searches are
+ *  run the way a librarian would run them. */
+const MESH_TERMS: Record<string, string> = {
+  aspirin: "Aspirin",
+  hypertension: "Hypertension",
+  tuberculosis: "Tuberculosis",
+  "tuberculosis, latent": "Latent Tuberculosis",
+  diabetes: "Diabetes Mellitus",
+  "diabetes mellitus, type 2": "Diabetes Mellitus, Type 2",
+  cancer: "Neoplasms",
+  "breast cancer": "Breast Neoplasms",
+  depression: "Depressive Disorder",
+  anxiety: "Anxiety Disorders",
+  asthma: "Asthma",
+  copd: "Pulmonary Disease, Chronic Obstructive",
+  obesity: "Obesity",
+  sepsis: "Sepsis",
+  pneumonia: "Pneumonia",
+  "heart failure": "Heart Failure",
+  "myocardial infarction": "Myocardial Infarction",
+  stroke: "Stroke",
+  nursing: "Nursing",
+  "nurse practitioners": "Nurse Practitioners",
+  "patient education": "Patient Education as Topic",
+  medication: "Medication Therapy",
+  adherence: "Patient Compliance",
+  smoking: "Smoking",
+  covid: "COVID-19",
+  "covid-19": "COVID-19",
+  "quality improvement": "Quality Improvement",
+  "risk of bias": "Bias",
+  "randomised controlled trial": "Randomized Controlled Trials as Topic",
+  "randomized controlled trial": "Randomized Controlled Trials as Topic",
+  "systematic review": "Systematic Reviews as Topic",
+  "qualitative research": "Qualitative Research",
+};
+
+const STUDY_TYPE_FILTERS: Record<string, string> = {
+  "Randomized Controlled Trial (RCT)": 'randomized controlled trial[Publication Type]',
+  "Systematic Review": 'systematic review[Publication Type]',
+  "Meta-Analysis": 'meta-analysis[Publication Type]',
+  "Case Report / Case Series": 'case reports[Publication Type]',
+  "Clinical Trial": 'clinical trial[Publication Type]',
+  "Review Article": 'review[Publication Type]',
+  "Cohort Study": 'cohort studies[Publication Type]',
+  "Case-Control Study": 'case-control studies[Publication Type]',
+  "Cross-Sectional Study": 'cross-sectional studies[Publication Type]',
+  "Qualitative Study": 'qualitative research[Publication Type]',
+};
+
+function buildStudyTypeFilter(studyType?: string): string | null {
+  if (!studyType || studyType === "All Study Types") return null;
+  return STUDY_TYPE_FILTERS[studyType] || null;
+}
+
 export async function fetchPubMedBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
   const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
   const apiKey = process.env.NCBI_API_KEY || process.env.PUBMED_API_KEY;
@@ -488,12 +674,8 @@ export async function fetchPubMedBrowserless(query: string, yearFrom?: string, y
   toolParams.set("tool", "resilient_research_app");
   toolParams.set("email", CONTACT_EMAIL);
 
-  let term = query;
-  if (yearFrom || yearTo) {
-    const from = yearFrom ? `${yearFrom}/01/01` : "1800/01/01";
-    const to = yearTo ? `${yearTo}/12/31` : `${new Date().getFullYear()}/12/31`;
-    term = `(${term}) AND ("${from}"[Date - Publication] : "${to}"[Date - Publication])`;
-  }
+  // PubMed scheme: MeSH + [Title/Abstract] + publication-type and date filters.
+  const term = buildDatabaseSearch("PubMed", query, { yearFrom, yearTo, studyType }).term;
   toolParams.set("term", term);
 
   const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?${toolParams.toString()}`;
@@ -570,13 +752,14 @@ async function fetchEuropePmcQuery(
   extraTerms: string[] = [],
   label = "Europe PMC"
 ): Promise<Paper[]> {
-  const terms = [query, ...extraTerms].filter(Boolean);
+  // Europe PMC scheme: quoted terms ORed/ANDed with the TITLE and ABST
+  // fields, plus the date range and (for preprints) the source filter.
+  const translated = buildDatabaseSearch(label, query, {
+    yearFrom: ctx.yearFrom,
+    yearTo: ctx.yearTo,
+  });
+  const terms = [translated.term, ...extraTerms].filter(Boolean);
   let epmcQuery = terms.join(" AND ");
-  if (ctx.yearFrom || ctx.yearTo) {
-    const from = ctx.yearFrom ? `${ctx.yearFrom}-01-01` : "1800-01-01";
-    const to = ctx.yearTo ? `${ctx.yearTo}-12-31` : `${new Date().getFullYear()}-12-31`;
-    epmcQuery += ` AND (FIRST_PDATE:[${from} TO ${to}])`;
-  }
 
   const papers: Paper[] = [];
   let cursorMark = "*";
@@ -727,7 +910,7 @@ export async function fetchOpenAlex(
   if (options?.filter) filterParts.push(options.filter);
 
   const params = new URLSearchParams({
-    search: query,
+    search: buildDatabaseSearch("OpenAlex", query, { yearFrom, yearTo }).term,
     "per-page": "100",
     mailto: CONTACT_EMAIL,
   });
@@ -771,7 +954,7 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
 
   while (papers.length < maxResults && pages < 5) {
     pages++;
-    const qs = new URLSearchParams({ query: query, rows: "100", cursor });
+    const qs = new URLSearchParams({ query: buildDatabaseSearch("Crossref", query).term, rows: "100", cursor });
     if (filters.length) qs.set("filter", filters.join(","));
     const data = await httpJson<any>(`https://api.crossref.org/works?${qs.toString()}`, { timeoutMs: 30000, retries: 3 });
     const results = data.message?.items || [];
@@ -813,7 +996,7 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
 
 export async function fetcharXiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
   const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, 200);
-  const searchQuery = encodeURIComponent(`all:${query}`);
+  const searchQuery = encodeURIComponent(buildDatabaseSearch("arXiv", query).term);
   const url = `https://export.arxiv.org/api/query?search_query=${searchQuery}&start=0&max_results=${maxResults}&sortBy=relevance`;
   const text = await httpText(url, { timeoutMs: 45000, retries: 3 });
   if (!text) return [];
@@ -866,7 +1049,7 @@ export async function fetchDoaj(query: string, yearFrom?: string, yearTo?: strin
   const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
   const papers: Paper[] = [];
   for (let page = 1; page <= 5 && papers.length < maxResults; page++) {
-    const url = `https://doaj.org/api/v2/search/articles/${encodeURIComponent(query)}?pageSize=100&page=${page}`;
+    const url = `https://doaj.org/api/v2/search/articles/${encodeURIComponent(buildDatabaseSearch("DOAJ", query).term)}?pageSize=100&page=${page}`;
     const data = await httpJson<any>(url, { timeoutMs: 30000, retries: 1 });
     const results = data.results || [];
     if (results.length === 0) break;
@@ -911,7 +1094,7 @@ export async function fetchOpenAIRE(query: string, yearFrom?: string, yearTo?: s
   const papers: Paper[] = [];
 
   for (let page = 1; page <= 3 && papers.length < maxResults; page++) {
-    const qs = new URLSearchParams({ keywords: query, format: "json", size: "100", page: String(page) });
+    const qs = new URLSearchParams({ keywords: buildDatabaseSearch("OpenAIRE", query).term, format: "json", size: "100", page: String(page) });
     const data = await httpJson<any>(`https://api.openaire.eu/search/publications?${qs.toString()}`, {
       timeoutMs: 30000,
       retries: 3,
@@ -1016,7 +1199,7 @@ export async function fetchZenodo(query: string, yearFrom?: string, yearTo?: str
   const pageSize = 25; // the Zenodo records API rejects larger page sizes
 
   for (let page = 1; page <= 8 && results.length < maxResults; page++) {
-    const qs = new URLSearchParams({ q: query, size: String(pageSize), sort: "bestmatch", page: String(page) });
+    const qs = new URLSearchParams({ q: buildDatabaseSearch("Zenodo", query).term, size: String(pageSize), sort: "bestmatch", page: String(page) });
     const data = await httpJson<any>(`https://zenodo.org/api/records?${qs.toString()}`, { timeoutMs: 30000, retries: 2 });
     const hits = data.hits?.hits || [];
     if (hits.length === 0) break;
@@ -1157,7 +1340,7 @@ export async function fetchClinicalTrialsGov(query: string, yearFrom?: string, y
   let pageToken: string | undefined;
 
   for (let page = 0; page < 5 && papers.length < maxResults; page++) {
-    const qs = new URLSearchParams({ "query.term": query, format: "json", pageSize: "100" });
+    const qs = new URLSearchParams({ "query.term": buildDatabaseSearch("ClinicalTrials.gov", query).term, format: "json", pageSize: "100" });
     if (pageToken) qs.set("pageToken", pageToken);
     const data = await httpJson<any>(`https://clinicaltrials.gov/api/v2/studies?${qs.toString()}`, {
       timeoutMs: 30000,

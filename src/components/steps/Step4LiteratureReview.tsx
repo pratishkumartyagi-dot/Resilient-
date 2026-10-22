@@ -6,8 +6,9 @@ import {
   Brain, ArrowRight, FileText, Download, Trash2,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
+import { callAiWithFallback, type AICallOptions } from "@/lib/ai";
 import { formatVancouverReference } from "@/lib/references";
+import { generateLocalLiteratureReview } from "@/lib/local-synthesis";
 
 type SectionKey =
   | "introduction"
@@ -290,11 +291,12 @@ export default function Step4LiteratureReview() {
         searchEnabled: true,
         searchQuery: state.searchQuery,
       };
-      if (state.geminiApiKey) return callGemini(state.geminiApiKey, prompt, searchOptions);
-      if (state.groqApiKey) return callGroq(state.groqApiKey, prompt, searchOptions);
-      return callDeepSeek(prompt, searchOptions);
+      // Gemini -> Groq -> the in-browser local model. When the cloud providers
+      // are missing or their quota is exhausted the review is still produced by
+      // the local backup instead of failing.
+      return callAiWithFallback(prompt, searchOptions);
     },
-    [state.geminiApiKey, state.groqApiKey, state.searchQuery],
+    [state.searchQuery]
   );
 
   // Evidence synthesis table used as the single source of truth for every section.
@@ -320,15 +322,48 @@ export default function Step4LiteratureReview() {
       .join("\n\n");
   }, [state.synthesisTable, selectedPapers]);
 
-  const generateSection = useCallback(
-    async (meta: SectionMeta): Promise<string> => {
-      if (meta.key === "references") return referencesText;
-      const text = await callAi(
-        buildSectionPrompt(meta, evidenceBase, deepReasoning, state.searchQuery),
+  /**
+   * Deterministic local review (no API key, no model download): themes, PRISMA
+   * checklist scoring, GRADE judgement and Vancouver references. Used whenever
+   * the AI providers are unavailable or their quota is exhausted.
+   */
+  const buildLocalReviewFallback = useCallback((): string => {
+    try {
+      return generateLocalLiteratureReview(
+        selectedPapers.map((p) => ({
+          authors: p.authors,
+          year: p.year,
+          title: p.title,
+          journal: p.journal,
+          abstract: p.abstract,
+          doi: p.doi,
+          studyType: p.studyType,
+          database: p.database,
+        })),
+        state.searchQuery,
+        { enableRobustReview: true }
       );
-      return stripQuotesAndFences(text);
+    } catch (err: any) {
+      return `*The local review generator could not build this section (${err?.message || "unknown error"}).*`;
+    }
+  }, [selectedPapers, state.searchQuery]);
+
+  const generateSection = useCallback(    async (meta: SectionMeta): Promise<string> => {
+      if (meta.key === "references") return referencesText;
+      try {
+        const text = await callAi(
+          buildSectionPrompt(meta, evidenceBase, deepReasoning, state.searchQuery),
+        );
+        return stripQuotesAndFences(text);
+      } catch (err: any) {
+        // Every AI provider (including the local model) failed: the section is
+        // written by the deterministic local review generator so the review is
+        // never left empty.
+        const local = buildLocalReviewFallback();
+        return `${local}\n\n*Section "${meta.title}" was written by the local generator because the AI providers were unavailable (${err?.message || "unknown error"}).*`;
+      }
     },
-    [callAi, referencesText, evidenceBase, deepReasoning, state.searchQuery],
+    [callAi, referencesText, evidenceBase, deepReasoning, state.searchQuery, buildLocalReviewFallback],
   );
 
   const persist = useCallback(

@@ -23,6 +23,27 @@ export interface ThesisGeneratorOutput {
   subResult: { ok: boolean; error?: string };
 }
 
+/**
+ * Time budget for one chapter. A provider that never answers must not stall
+ * the whole thesis: the chapter fails, the deterministic local generator takes
+ * over and the pipeline moves on.
+ */
+const CHAPTER_TIMEOUT_MS = 180_000;
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 const REPORTING_GUIDELINES: Record<string, string> = {
   rct: "CONSORT",
   observational: "STROBE",
@@ -95,13 +116,20 @@ export async function generateThesis(input: ThesisGeneratorInput): Promise<Thesi
   const chapterList: any[] = outline.chapters || [];
   for (let i = 0; i < chapterList.length; i++) {
     const chapter = chapterList[i];
-    onProgress?.(`Writing chapter ${i + 1} of ${chapterList.length}: ${chapter.title}`);
+    const target = chapter.wordTarget || 2000;
+    onProgress?.(
+      `Writing chapter ${i + 1} of ${chapterList.length}: ${chapter.title} (target ${target.toLocaleString()} words)`
+    );
 
     let retries = 0;
     let chapterContent: any = null;
     while (retries < 2) {
       try {
-        const text = await aiFn(chapterPrompt(chapter, papers, config, i + 1));
+        const text = await withTimeout(
+          aiFn(chapterPrompt(chapter, papers, config, i + 1)),
+          CHAPTER_TIMEOUT_MS,
+          `Chapter ${chapter.title} timed out after ${Math.round(CHAPTER_TIMEOUT_MS / 1000)}s`
+        );
         const cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
         let parsed: any;
         try {
@@ -112,7 +140,6 @@ export async function generateThesis(input: ThesisGeneratorInput): Promise<Thesi
           parsed = JSON.parse(jsonMatch[0]);
         }
 
-        const target = chapter.wordTarget || 2000;
         const wordCount = typeof parsed.wordCount === "number" ? parsed.wordCount : (parsed.content || "").split(/\s+/).length;
 
         // Word-count retry: if under 85% of target, retry demanding ≥ target words.

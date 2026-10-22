@@ -1,4 +1,6 @@
 const CHAT_TIMEOUT_MS = 60_000;
+/** Time budget for the in-browser model (including the one-off model load). */
+const LOCAL_MODEL_TIMEOUT_MS = 120_000;
 
 export interface AICallOptions {
   searchQuery?: string;
@@ -168,6 +170,13 @@ export async function callDeepSeek(prompt: string, options?: AICallOptions): Pro
   // so @huggingface/transformers never enters the initial preview bundle.
   const { generateLocal, isModelLoaded, loadModel } = await import("./local-llm");
   if (!isModelLoaded()) {
+    emitFallback({
+      provider: "local",
+      failedProvider: "local",
+      reason: "Loading the in-browser model (Qwen2.5 0.5B) — this happens once and is then cached",
+      exhausted: false,
+      at: Date.now(),
+    });
     await loadModel();
   }
   return await generateLocal(prompt, {
@@ -175,6 +184,33 @@ export async function callDeepSeek(prompt: string, options?: AICallOptions): Pro
     temperature: 0.7,
     topP: 0.9,
   });
+}
+
+/**
+ * Runs the in-browser model with a hard time limit. Loading the model can take
+ * minutes on a slow connection, and a long-form generation would exceed any
+ * sensible budget, so the local model is only used when it answers in time —
+ * otherwise the caller falls back to a deterministic local generator.
+ */
+export async function callDeepSeekWithTimeout(
+  prompt: string,
+  timeoutMs = LOCAL_MODEL_TIMEOUT_MS,
+  options?: AICallOptions
+): Promise<string> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      callDeepSeek(prompt, options),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new AiProviderError("local", `The local model did not answer within ${Math.round(timeoutMs / 1000)}s`)),
+          timeoutMs
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export interface FallbackOptions {
@@ -219,7 +255,7 @@ export async function callAiWithFallback(
       } else if (provider === "groq") {
         content = await callProvider("groq", keys.groq || "", prompt, options);
       } else {
-        content = await callDeepSeek(prompt, options);
+        content = await callDeepSeekWithTimeout(prompt, LOCAL_MODEL_TIMEOUT_MS, options);
       }
 
       if (failures.length > 0) {

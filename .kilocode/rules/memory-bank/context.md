@@ -173,6 +173,32 @@ The dissertation is now written **to the number of words the NurseStack plan all
   - The finalised badge now reports the total word count and how many chapters are on target; the existing Finalise → Word/PDF/LaTeX download flow is unchanged.
 - Verified with a mock AI: the plan allocated 1500/4500/3000/3000/2250/750 words, the outline inherited those targets (overriding the outline's own numbers), the generator wrote each chapter to target, and the copilot expanded every deliberately short chapter to exactly its target (15 044 words total, `wordBudgetMet: true`).
 
+## Thesis hang fix + per-database search schemes + medspacy removal (2026-10-22)
+
+### 1. Thesis generator was stuck at "Generating · prose 60%"
+Three causes, all fixed:
+- **No visible progress.** The pipeline forwarded per-chapter messages but the UI only rendered the stage name and added a flat 10 % per event. The stage message is now shown ("Writing chapter 3 of 6: Methodology (target 3,000 words)") and the progress is stage-aware (outline 5–15 %, prose 15–55 % mapped from the chapter index, refine 55–80 %, appraise 80–92 %).
+- **A hung provider could stall the pipeline.** `generateThesis` now wraps every chapter call in a 180 s timeout; the chapter then fails, the deterministic local generator takes over and the pipeline moves on.
+- **The local fallback could stall the pipeline.** `callDeepSeek` loads a ~500 MB in-browser model, so it is now bounded by `callDeepSeekWithTimeout` (120 s) and long-form chapter prose (> 4 000 chars) skips the in-browser model entirely and goes straight to the deterministic local thesis generator. The local model is kept for short prompts (outline, refine, audit).
+- The thesis search now uses the live working sources (PubMed, Europe PMC, bioRxiv, medRxiv, Crossref, arXiv, OpenAIRE, Zenodo) instead of the three sources that are switched off.
+
+### 2. Per-database search schemes (`buildDatabaseSearch`)
+`src/lib/database-apis.ts` now translates the research question into the syntax each database actually understands, and every fetcher uses it:
+- **PubMed**: `("Hypertension"[MeSH Terms] OR "hypertension"[Title/Abstract])` + publication-type and `[Date - Publication]` filters (MeSH headings are mapped for ~25 common concepts).
+- **Europe PMC / bioRxiv / medRxiv**: boolean terms + `FIRST_PDATE:[y TO y]` + `SRC:PPR AND PUBLISHER:bioRxiv|medRxiv`.
+- **Crossref / OpenAlex / OpenAIRE**: quoted bibliographic terms.
+- **arXiv**: `all:<term>` per word (the arXiv parser rejects quotes and parentheses, hyphenated tokens stay intact).
+- **DOAJ**: Lucene over `bibjson.title` / `bibjson.abstract`.
+- **Zenodo**: `("term" OR metadata.title:"term")`.
+- **ClinicalTrials.gov**: quoted terms in `query.term`.
+- Verified live: every scheme returns real records (e.g. "hypertension" → 18 arXiv, 25 bioRxiv, 25 medRxiv); a genuine zero-hit query is reported as empty, not as an error.
+
+### 3. medspacy removed from the research pipeline
+- `src/lib/medspacy-relevance.ts` deleted; the route, `Step1Search.tsx`, `EvidenceSynthesisTab.tsx` and `EvidenceSynthesisStep1.tsx` no longer send, accept or display it. The route payload no longer contains a `medspacy` key.
+
+### 4. Literature review uses the local AI backup
+- `Step4LiteratureReview.tsx` now calls `callAiWithFallback` (Gemini → Groq → in-browser local model) instead of picking one provider, and if every provider fails the section is written by the deterministic `generateLocalLiteratureReview` (themes, PRISMA 2020 checklist scoring, GRADE judgement, Vancouver references) with a note saying the local generator produced it. Verified: the local review generator produces a complete 5.5 k-character review with no API key.
+
 ## Current State
 
 **App Status**: ✅ Fully functional prototype built

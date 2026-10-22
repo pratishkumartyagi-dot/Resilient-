@@ -231,7 +231,14 @@ export function buildThesisAiFn(
     // Gemini -> Groq -> in-browser local model. An exhausted quota on one
     // provider never stops the thesis pipeline: the request is retried with
     // the next backup.
-    const order: AiProviderName[] = provider === "groq" ? ["groq", "gemini", "local"] : ["gemini", "groq", "local"];
+    //
+    // Long-form chapter prose is never handed to the 0.5B in-browser model
+    // (it cannot write a coherent 3 000-word chapter and loading it would
+    // stall the pipeline); those prompts go straight to the deterministic
+    // local generator instead.
+    const isLongForm = prompt.length > 4000;
+    const order: AiProviderName[] = provider === "groq" ? ["groq", "gemini"] : ["gemini", "groq"];
+    if (!isLongForm) order.push("local");
     const keys = {
       gemini: provider === "gemini" ? apiKey : undefined,
       groq: provider === "groq" ? apiKey : undefined,
@@ -241,6 +248,8 @@ export function buildThesisAiFn(
       return await callAiWithFallback(prompt, opts, { order, keys });
     } catch (err) {
       if (enableLocalFallback) {
+        // Deterministic local generator: always available, never needs a key
+        // or a model download, so the pipeline always produces a thesis.
         try {
           return await localFn(prompt, opts);
         } catch {

@@ -203,7 +203,6 @@ export default function PaperWriterTab() {
           studyType: state.studyType === "All Study Types" ? undefined : state.studyType,
           searchLogic: state.searchLogic,
           semanticSearch: false,
-          medspacyFilter: false,
         }),
       });
       if (!res.ok) {

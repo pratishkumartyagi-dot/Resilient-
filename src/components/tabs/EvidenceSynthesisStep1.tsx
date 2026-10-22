@@ -39,9 +39,6 @@ export interface EvidenceSynthesisStep1Props {
   citationValidationCounts?: { verified: number; unverified: number; noDoi: number };
   semanticSearch: boolean;
   onSemanticSearchChange: (value: boolean) => void;
-  medspacyFilter: boolean;
-  onMedspacyFilterChange: (value: boolean) => void;
-  medspacyMeta?: { enabled: boolean; queryConcepts: string[]; negationTerms: string[]; filteredCount: number; totalCount: number } | null;
 }
 
 export default function EvidenceSynthesisStep1({
@@ -78,9 +75,6 @@ export default function EvidenceSynthesisStep1({
   citationValidationCounts,
   semanticSearch,
   onSemanticSearchChange,
-  medspacyFilter,
-  onMedspacyFilterChange,
-  medspacyMeta,
 }: EvidenceSynthesisStep1Props) {
   const getFilteredPapers = () => {
     return papers.filter((p) => {
@@ -163,16 +157,6 @@ export default function EvidenceSynthesisStep1({
             />
             <span className="text-blue-300 group-hover:text-blue-200">Semantic search (meaning-based)</span>
             <Zap size={12} className="text-yellow-500/70 group-hover:text-yellow-400" />
-          </label>
-          <label className="flex items-center gap-2 text-xs cursor-pointer select-none group ml-3">
-            <input
-              type="checkbox"
-              checked={medspacyFilter}
-              onChange={(e) => onMedspacyFilterChange(e.target.checked)}
-              className="w-3 h-3 rounded border-purple-600 text-purple-400 focus:ring-purple-500 bg-blue-950"
-            />
-            <span className="text-blue-300 group-hover:text-blue-200">Medspacy relevance filter</span>
-            <span className="text-purple-400">🧬</span>
           </label>
           <span className="text-xs text-blue-300 ml-2">Year:</span>
           <input
@@ -336,21 +320,6 @@ export default function EvidenceSynthesisStep1({
             </div>
           )}
 
-          {medspacyMeta && medspacyMeta.enabled && (
-            <div className="bg-purple-900/20 border border-purple-800/50 rounded-lg p-3 mb-3">
-              <div className="flex items-center gap-2 text-xs text-purple-300 mb-1">
-                <span className="font-semibold">🧬 Medspacy Relevance Filter</span>
-                <span className="bg-purple-900/50 text-purple-400 px-1.5 py-0.5 rounded">active</span>
-              </div>
-              <p className="text-[10px] text-purple-200">
-                Query concepts: {medspacyMeta.queryConcepts.join(", ") || "none detected"} •
-                Papers filtered: {medspacyMeta.filteredCount} of {medspacyMeta.totalCount} removed as irrelevant
-                {medspacyMeta.negationTerms.length > 0 && (
-                  <span className="block mt-0.5">Negation terms detected: {medspacyMeta.negationTerms.join(", ")}</span>
-                )}
-              </p>
-            </div>
-          )}
           <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
             {Object.entries(papersByDatabase)
               .sort(([a], [b]) => a.localeCompare(b))

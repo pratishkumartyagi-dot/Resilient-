@@ -231,7 +231,7 @@ export default function Step2Results() {
     // "Records identified" is the number of records the databases returned for
     // the search strategy, before any screening.
     const identified = state.rawRecordCount || dedup.totalRecords;
-    // Records removed by the automated relevance filter (medspacy concepts +
+    // Records removed by the automated relevance filter (keyword + concept
     // keyword presence) — counted as automation removals in PRISMA.
     const automationRemoved = Math.max(
       0,

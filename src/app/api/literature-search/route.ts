@@ -8,7 +8,6 @@ import {
   type Paper,
 } from "@/lib/database-apis";
 import { expandQueryWithMesh } from "@/lib/mesh-expansion";
-import { filterPapersByMedspacyRelevance } from "@/lib/medspacy-relevance";
 
 export const runtime = "nodejs";
 
@@ -21,7 +20,6 @@ interface LiteratureSearchRequestBody {
   maxResults?: number;
   timeoutMs?: number;
   semanticSearch?: boolean;
-  medspacyFilter?: boolean;
 }
 
 function corsHeaders() {
@@ -82,7 +80,6 @@ export async function POST(request: Request) {
     const maxResults = typeof body.maxResults === "number" ? body.maxResults : undefined;
     const timeoutMs = typeof body.timeoutMs === "number" ? body.timeoutMs : undefined;
     const semanticSearch = body.semanticSearch === true;
-    const medspacyFilter = body.medspacyFilter === true;
 
     if (!query) {
       return NextResponse.json({ error: "Missing query parameter" }, { status: 400, headers: corsHeaders() });
@@ -108,26 +105,7 @@ export async function POST(request: Request) {
       timeoutMs,
     });
 
-    let papers = outcome.papers;
-    let medspacyMeta: {
-      enabled: boolean;
-      queryConcepts: string[];
-      negationTerms: string[];
-      filteredCount: number;
-      totalCount: number;
-    } | null = null;
-
-    if (medspacyFilter) {
-      const relevance = filterPapersByMedspacyRelevance(papers, query, { threshold: 40 });
-      papers = relevance.papers as Paper[];
-      medspacyMeta = {
-        enabled: true,
-        queryConcepts: relevance.queryConcepts,
-        negationTerms: relevance.negationTerms,
-        filteredCount: relevance.filteredCount,
-        totalCount: relevance.totalCount,
-      };
-    }
+    const papers = outcome.papers;
 
     const enriched: Paper[] = papers.map((p) => ({
       ...p,
@@ -169,7 +147,6 @@ export async function POST(request: Request) {
       dedupedCount: outcome.dedupedCount,
       totalBeforeDedup: outcome.totalBeforeDedup,
       elapsedMs: Date.now() - started,
-      medspacy: medspacyMeta,
       meshExpansion: {
         expandedQuery: meshExpandedQuery,
         meshTerms: meshResult.meshTerms,

@@ -395,8 +395,6 @@ export default function EvidenceSynthesisTab() {
   const [citationValidationResults, setCitationValidationResults] = useState<Record<string, { valid: boolean; title?: string; message: string }>>({});
   const [showVerifiedOnly, setShowVerifiedOnly] = useState(false);
   const [semanticSearch, setSemanticSearch] = useState(false);
-  const [medspacyFilter, setMedspacyFilter] = useState(true);
-  const [medspacyMeta, setMedspacyMeta] = useState<{ enabled: boolean; queryConcepts: string[]; negationTerms: string[]; filteredCount: number; totalCount: number } | null>(null);
 
   const toggleDb = (db: string) => {
     setSelectedDbs((prev) =>
@@ -462,7 +460,6 @@ export default function EvidenceSynthesisTab() {
           studyType: studyTypeFilter === "All Study Types" ? undefined : studyTypeFilter,
           searchLogic,
           semanticSearch,
-          medspacyFilter,
         }),
       });
 
@@ -493,7 +490,6 @@ export default function EvidenceSynthesisTab() {
       // records remaining after deduplication instead so PRISMA math is correct.
       setDedupedCount(uniqueCount);
       setCitationValidationResults(data.citationValidation?.results || {});
-      setMedspacyMeta(data.medspacy || null);
 
       // Report partial failures without hiding the records that were retrieved.
       const hasErrors = Object.keys(data.errors || {}).length > 0;
@@ -2775,9 +2771,6 @@ ${stormReview}
             onShowVerifiedOnlyChange={setShowVerifiedOnly}
             semanticSearch={semanticSearch}
             onSemanticSearchChange={setSemanticSearch}
-            medspacyFilter={medspacyFilter}
-            onMedspacyFilterChange={setMedspacyFilter}
-            medspacyMeta={medspacyMeta}
             citationValidationCounts={{
                verified: papers.filter((p) => !!p.doi).length,
                unverified: papers.filter((p) => !!p.doi && p.citationStatus !== "verified").length,

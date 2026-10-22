@@ -83,6 +83,7 @@ export default function ThesisGenerator() {
   const [config, setConfig] = useState<ThesisGeneratorConfig>(initialConfig());
   const [status, setStatus] = useState<"idle" | "generating" | "completed" | "error">("idle");
   const [stage, setStage] = useState("");
+  const [stageMessage, setStageMessage] = useState("");
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
@@ -146,7 +147,7 @@ export default function ThesisGenerator() {
         searchFn: async (query, opts) => {
           const papers = await searchThesisPapers({
             query,
-            databases: ["PubMed", "OpenAlex", "Europe PMC", "DOAJ", "bioRxiv", "medRxiv", "Crossref", "arXiv", "OpenAIRE", "Semantic Scholar"],
+            databases: ["PubMed", "Europe PMC", "bioRxiv", "medRxiv", "Crossref", "arXiv", "OpenAIRE", "Zenodo"],
             yearFrom: opts?.yearFrom,
             yearTo: opts?.yearTo,
             studyDesign: opts?.studyDesign,
@@ -155,7 +156,22 @@ export default function ThesisGenerator() {
         },
         onProgress: (s, msg) => {
           setStage(s);
-          setProgress((p) => Math.min(p + 10, 95));
+          setStageMessage(msg || "");
+          setProgress((p) => {
+            if (s === "outline") return Math.min(Math.max(p, 5), 15);
+            if (s === "prose") {
+              const m = (msg || "").match(/chapter (\d+) of (\d+)/i);
+              if (m) {
+                const done = parseInt(m[1], 10);
+                const total = Math.max(parseInt(m[2], 10), 1);
+                return Math.round(15 + (done / total) * 40);
+              }
+              return Math.min(Math.max(p, 15), 55);
+            }
+            if (s === "refine") return Math.min(Math.max(p, 55), 80);
+            if (s === "appraise") return Math.min(Math.max(p, 80), 92);
+            return p;
+          });
         },
       });
 
@@ -526,6 +542,13 @@ export default function ThesisGenerator() {
           </span>
           <span>{progress}%</span>
         </div>
+
+        {status === "generating" && stageMessage && (
+          <p className="text-[10px] text-blue-300/90 bg-blue-950/60 border border-blue-900/60 rounded px-2.5 py-1.5 mt-1 flex items-center gap-2">
+            <Loader2 size={11} className="animate-spin shrink-0" />
+            {stageMessage}
+          </p>
+        )}
 
         {result && (
           <div className="flex gap-2 items-center flex-wrap">
