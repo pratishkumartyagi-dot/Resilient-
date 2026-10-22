@@ -9,6 +9,7 @@
  *    explain exactly which database failed and why.
  *  - Results are capped (per database) to keep searches fast and predictable.
  */
+import { expandKeyword, lookupConceptExpansion, MESH_MAP } from "./mesh-expansion";
 
 export interface Paper {
   id: string;
@@ -527,14 +528,16 @@ export function buildDatabaseSearch(
 
   switch (true) {
     case id === "pubmed":
-      // MeSH terms for the recognised concepts + free text in title/abstract.
+      // MeSH terms are auto-generated from the mesh-expansion dictionary. The
+      // query is scanned for multi-word MeSH concepts (longest match first),
+      // each becomes a (mesh[MeSH Terms] OR synonym[Title/Abstract] OR
+      // narrower[Title/Abstract]) group, and leftover words are expanded
+      // per-token or fall back to free text. All groups are ANDed. This
+      // dramatically widens retrieval for concepts such as "food preferences"
+      // or "psychological outcome" that were previously plain ANDed free text.
       {
-        const mesh = terms.map((t) => {
-          const meSH = MESH_TERMS[t.toLowerCase()];
-          const free = `${quote(t)}[Title/Abstract]`;
-          return meSH ? `(${quote(meSH)}[MeSH Terms] OR ${free})` : free;
-        });
-        let term = mesh.join(joiner) || query;
+        const groups = pubmedMeshGroups(query);
+        let term = groups.length ? groups.join(" AND ") : query;
         const filter = buildStudyTypeFilter(options.studyType);
         if (filter) term = `(${term}) AND ${filter}`;
         if (options.yearFrom || options.yearTo) {
@@ -544,6 +547,78 @@ export function buildDatabaseSearch(
         }
         return { term, scheme: "pubmed", searchString: term };
       }
+
+/** Returns the PubMed concept groups for a full query, with automatic MeSH
+ *  generation. Multi-word MeSH dictionary phrases are matched (longest first,
+ *  non-overlapping) and expanded into MeSH groups; remaining words are
+ *  expanded per-token or fall back to free-text [Title/Abstract]. */
+function pubmedMeshGroups(query: string): string[] {
+  const normalized = query.toLowerCase();
+  const groups: string[] = [];
+  const covered = new Set<number>(); // character indices already claimed by a phrase
+
+  // 1. Match multi-word MeSH phrases, longest first, non-overlapping.
+  const phraseKeys = Object.keys(MESH_MAP).filter((k) => k.includes(" ")).sort((a, b) => b.length - a.length);
+  for (const key of phraseKeys) {
+    let idx = normalized.indexOf(key);
+    while (idx !== -1) {
+      const end = idx + key.length;
+      const overlap = Array.from({ length: end - idx }, (_, i) => idx + i).some((i) => covered.has(i));
+      if (!overlap) {
+        for (let i = idx; i < end; i++) covered.add(i);
+        groups.push(pubmedMeshGroupForPhrase(key));
+        break; // take one occurrence per phrase key
+      }
+      idx = normalized.indexOf(key, idx + 1);
+    }
+  }
+
+  // 2. Leftover words (not covered by a phrase) -> per-token expansion or free text.
+  const words = normalized.split(/\s+/).filter((w) => w.length > 0);
+  let charCursor = 0;
+  for (const w of words) {
+    const wIdx = normalized.indexOf(w, charCursor);
+    const wEnd = wIdx + w.length;
+    const alreadyCovered = Array.from({ length: wEnd - wIdx }, (_, i) => wIdx + i).some((i) => covered.has(i));
+    charCursor = wEnd;
+    if (alreadyCovered) continue;
+
+    const expansion = lookupConceptExpansion(w);
+    if (expansion.meshTerms.length > 0) {
+      const parts: string[] = [];
+      for (const m of expansion.meshTerms) parts.push(`${quote(m)}[MeSH Terms]`);
+      for (const s of expansion.synonyms) parts.push(`${quote(s)}[Title/Abstract]`);
+      for (const n of expansion.narrowerTerms) parts.push(`${quote(n)}[Title/Abstract]`);
+      parts.push(`${quote(w)}[Title/Abstract]`);
+      groups.push(`(${parts.join(" OR ")})`);
+      continue;
+    }
+    const localMesh = MESH_TERMS[w];
+    if (localMesh) {
+      groups.push(`(${quote(localMesh)}[MeSH Terms] OR ${quote(w)}[Title/Abstract])`);
+      continue;
+    }
+    const kw = expandKeyword(w);
+    if (kw.length > 1) {
+      groups.push(`(${kw.map((k: string) => `${quote(k)}[Title/Abstract]`).join(" OR ")})`);
+    } else {
+      groups.push(`${quote(w)}[Title/Abstract]`);
+    }
+  }
+
+  return groups;
+}
+
+/** Builds one PubMed MeSH group for a multi-word phrase from its expansion. */
+function pubmedMeshGroupForPhrase(phrase: string): string {
+  const expansion = lookupConceptExpansion(phrase);
+  const parts: string[] = [];
+  for (const m of expansion.meshTerms) parts.push(`${quote(m)}[MeSH Terms]`);
+  for (const s of expansion.synonyms) parts.push(`${quote(s)}[Title/Abstract]`);
+  for (const n of expansion.narrowerTerms) parts.push(`${quote(n)}[Title/Abstract]`);
+  parts.push(`${quote(phrase)}[Title/Abstract]`);
+  return `(${parts.join(" OR ")})`;
+}
 
     case id === "europe pmc" || id === "biorxiv" || id === "medrxiv": {
       const extra = id === "biorxiv" ? ["SRC:PPR", "PUBLISHER:bioRxiv"] : id === "medrxiv" ? ["SRC:PPR", "PUBLISHER:medRxiv"] : [];

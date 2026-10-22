@@ -11,7 +11,7 @@
 // MeSH concept dictionaries (term -> { mesh: string[], narrower: string[], synonyms: string[] })
 // ---------------------------------------------------------------------------
 
-const MESH_MAP: Record<string, { mesh: string[]; narrower: string[]; synonyms: string[] }> = {
+export const MESH_MAP: Record<string, { mesh: string[]; narrower: string[]; synonyms: string[] }> = {
   cancer: {
     mesh: ["Neoplasms", "Carcinoma", "Malignancy"],
     narrower: ["tumor", "tumour", "carcinoma", "sarcoma", "leukemia", "lymphoma", "melanoma", "glioblastoma", "astrocytoma"],
@@ -172,6 +172,56 @@ const MESH_MAP: Record<string, { mesh: string[]; narrower: string[]; synonyms: s
     narrower: ["ischemic stroke", "hemorrhagic stroke", "tia", "cerebral infarction"],
     synonyms: ["stroke", "cerebrovascular accident", "cva"],
   },
+  "food preferences": {
+    mesh: ["Feeding Behavior", "Food"],
+    narrower: ["food preference", "food preferences", "dietary preference", "eating behavior", "eating behaviour", "selective eating"],
+    synonyms: ["food preference", "food preferences", "dietary preference", "eating habit", "eating habits"],
+  },
+  feeding: {
+    mesh: ["Feeding Behavior"],
+    narrower: ["infant feeding", "bottle feeding", "breast feeding", "complementary feeding", "enteral feeding"],
+    synonyms: ["feeding", "feed", "eating"],
+  },
+  nutrition: {
+    mesh: ["Nutrition"],
+    narrower: ["enteral nutrition", "parenteral nutrition", "clinical nutrition", "sports nutrition", "pediatric nutrition", "geriatric nutrition"],
+    synonyms: ["nutrition", "nutritional", "nutrient", "nutrients"],
+  },
+  diet: {
+    mesh: ["Diet"],
+    narrower: ["weight reduction diets", "ketogenic diet", "mediterranean diet", "vegetarian diet", "vegan diet", "low carbohydrate diet", "dietary fiber"],
+    synonyms: ["diet", "diets", "dieting", "dietary", "eating pattern"],
+  },
+  "dietary intake": {
+    mesh: ["Dietary Intake"],
+    narrower: ["energy intake", "caloric intake", "fluid intake", "food intake"],
+    synonyms: ["dietary intake", "food intake", "caloric intake", "energy intake"],
+  },
+  "mental health": {
+    mesh: ["Mental Health"],
+    narrower: ["mental disorders", "mood disorders", "anxiety disorders", "depressive disorder", "psychological stress"],
+    synonyms: ["mental health", "mental wellbeing", "mental well-being", "psychological health"],
+  },
+  "psychological outcome": {
+    mesh: ["Outcome Assessment", "Quality of Life", "Psychological Tests"],
+    narrower: ["psychological outcome", "psychological outcomes", "mental health outcome", "emotional outcome", "behavioral outcome", "behavioural outcome"],
+    synonyms: ["psychological outcome", "psychological outcomes", "mental health outcome", "emotional outcome"],
+  },
+  "quality of life": {
+    mesh: ["Quality of Life"],
+    narrower: ["health related quality of life", "hrqol"],
+    synonyms: ["quality of life", "hrqol", "health-related quality of life"],
+  },
+  emotion: {
+    mesh: ["Emotions"],
+    narrower: ["fear", "anger", "sadness", "joy", "disgust", "mood"],
+    synonyms: ["emotion", "emotions", "emotional", "mood"],
+  },
+  stress: {
+    mesh: ["Stress, Psychological"],
+    narrower: ["posttraumatic stress disorder", "chronic stress", "acute stress", "occupational stress"],
+    synonyms: ["stress", "psychological stress", "emotional stress"],
+  },
 };
 
 // Terms that should trigger truncation/wildcard expansion (common clinical roots)
@@ -259,6 +309,21 @@ const ATM_MAP: Record<string, string> = {
   "drug": "pharmaceutical preparations",
   "surgery": "surgical procedures",
   "operation": "surgical procedures",
+  "food preference": "food preferences",
+  "food preferences": "food preferences",
+  "eating habit": "food preferences",
+  "eating habits": "food preferences",
+  "dietary preference": "food preferences",
+  "feeding behavior": "feeding",
+  "feeding behaviour": "feeding",
+  "nutritional": "nutrition",
+  "nutrient": "nutrition",
+  "dieting": "diet",
+  "dietary": "diet",
+  "emotional": "emotion",
+  "mood": "emotion",
+  "psychological": "mental health",
+  "psychology": "mental health",
 };
 
 // ---------------------------------------------------------------------------
@@ -308,7 +373,7 @@ function applyAtm(query: string): string {
 }
 
 /** Expand a single keyword with MeSH synonyms and narrower terms */
-function expandKeyword(keyword: string): string[] {
+export function expandKeyword(keyword: string): string[] {
   const results = new Set<string>();
   results.add(keyword);
 
