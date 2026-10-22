@@ -156,6 +156,23 @@ Four modules that were written but never imported are now live in `src/component
 
 Also: the synthesis prompt now states the evidence grade of every study, and Step 5 gained three new exports (full synthesis report, PRISMA flow MD, search strategy MD).
 
+## Thesis generator: NurseStack word budget enforced by Scholar Copilot (2026-10-22)
+
+The dissertation is now written **to the number of words the NurseStack plan allocates per chapter**, using the two engines that were already in the pipeline (OpenDraft for the outline, Scholar Copilot for the refinement pass), and the result is editable per chapter and finalisable.
+
+- `src/lib/thesis-nursestack.ts`
+  - `applyNursestackPlanToOutline(outline, plan)` — the plan is authoritative for the chapter structure, titles and word budget; the OpenDraft outline is aligned to it (sections merged, every section gets an explicit word share).
+  - `wordTargetsFromPlan(plan)` — chapter number → word target.
+- `src/lib/thesis-pipeline/index.ts` — the plan is built first, the outline is aligned to it, the aligned `wordTarget` drives `generateThesis` (which already retries a chapter below 85 % of target), and the targets are handed to the Scholar Copilot.
+- `src/lib/scholar-copilot/index.ts`
+  - New `wordTargets` input and a **word-budget pass**: after the editorial refine, a chapter that is short (< 88 %) or bloated (> 112 %) of its target gets one extra pass that expands/condenses it to ±5 % of the target, with the "expand with evidence-linked analysis, never padding" instruction and a hard rule against inventing citations.
+  - New output `wordBudget[]` (target, actual, status) and `wordBudgetMet`.
+- `src/components/pipelines/ThesisGenerator.tsx`
+  - **Word budget panel**: per chapter target vs actual with a bar and status (on target / short / over), recomputed live from the document as the user edits.
+  - **Per-chapter editing**: "Edit this chapter" opens a chapter-only editor; saving rewrites that chapter inside the full thesis and updates the chapter file and the budget.
+  - The finalised badge now reports the total word count and how many chapters are on target; the existing Finalise → Word/PDF/LaTeX download flow is unchanged.
+- Verified with a mock AI: the plan allocated 1500/4500/3000/3000/2250/750 words, the outline inherited those targets (overriding the outline's own numbers), the generator wrote each chapter to target, and the copilot expanded every deliberately short chapter to exactly its target (15 044 words total, `wordBudgetMet: true`).
+
 ## Current State
 
 **App Status**: ✅ Fully functional prototype built

@@ -105,6 +105,10 @@ export interface ThesisPipelineResult {
   };
   /** NurseStack plan: methodology fit, PICO, chapter structure, appraisal plan. */
   nursestackPlan?: import("./thesis-nursestack").NursestackThesisPlan;
+  /** Per-chapter word budget (target from the NurseStack plan vs achieved). */
+  wordBudget?: import("./scholar-copilot").ChapterWordBudget[];
+  /** True when every chapter landed within ±12% of its planned word target. */
+  wordBudgetMet?: boolean;
   /** CASP appraisal of the retrieved literature base. */
   evidenceAppraisal?: import("./thesis-nursestack").EvidenceAppraisalRow[];
   /** Markdown section with the CASP appraisal of the evidence base. */

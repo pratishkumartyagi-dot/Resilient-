@@ -49,6 +49,51 @@ export interface NursestackThesisPlan {
   markdown: string;
 }
 
+/**
+ * Aligns an OpenDraft outline with the NurseStack dissertation plan.
+ *
+ * The plan is authoritative for the chapter structure, the chapter titles and
+ * the word budget: every chapter gets the word target the plan allocates, and
+ * the plan's sections are merged with the ones the outline produced.
+ */
+export function applyNursestackPlanToOutline<T extends { number: number; title: string; sections: any[]; wordTarget?: number }>(
+  outline: { chapters: T[] },
+  plan: NursestackThesisPlan
+): T[] {
+  const planChapters = plan.chapters;
+  if (planChapters.length === 0) return outline.chapters;
+
+  return planChapters.map((planChapter, index) => {
+    const outlineChapter = outline.chapters[index];
+    const outlineSections = Array.isArray(outlineChapter?.sections) ? outlineChapter!.sections : [];
+
+    // Keep the outline's section titles when they exist, otherwise use the
+    // plan's section list, and give every section an explicit word share.
+    const sections = (outlineSections.length ? outlineSections : planChapter.sections).map((section: any, sIndex: number) => {
+      const title = typeof section === "string" ? section : section.title || planChapter.sections[sIndex] || `Section ${sIndex + 1}`;
+      return {
+        id: (typeof section === "object" && section.id) || `ch${planChapter.number}-s${sIndex + 1}`,
+        title,
+        wordTarget: Math.round(planChapter.wordTarget / Math.max((outlineSections.length || planChapter.sections.length), 1)),
+        content: typeof section === "object" ? section.content : undefined,
+      };
+    });
+
+    return {
+      ...(outlineChapter || ({} as T)),
+      number: planChapter.number,
+      title: planChapter.title,
+      wordTarget: planChapter.wordTarget,
+      sections,
+    } as T;
+  });
+}
+
+/** Chapter number -> word target, for the Scholar Copilot word-budget pass. */
+export function wordTargetsFromPlan(plan: NursestackThesisPlan): Record<number, number> {
+  return Object.fromEntries(plan.chapters.map((c) => [c.number, c.wordTarget]));
+}
+
 export function buildNursestackThesisPlan(options: {
   topic: string;
   level: string;

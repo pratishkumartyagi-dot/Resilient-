@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import {
   Sparkles, Save, RotateCcw, Download, FileText, BookOpen, ChevronRight,
-  Loader2, CircleHelp, X, Copy, Edit2, Check, CheckCircle2, ClipboardCheck,
+  Loader2, CircleHelp, X, Copy, Edit2, Check, CheckCircle2, ClipboardCheck, Calculator,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { runThesisPipeline, buildDefaultConfig } from "@/lib/thesis-pipeline";
@@ -88,6 +88,8 @@ export default function ThesisGenerator() {
   const [error, setError] = useState<string | null>(null);
   const [fullThesis, setFullThesis] = useState("");
   const [finalized, setFinalized] = useState(false);
+  const [editingChapter, setEditingChapter] = useState<number | null>(null);
+  const [chapterDraft, setChapterDraft] = useState("");
   const generatingRef = useRef(false);
 
   // Load saved session on mount
@@ -204,6 +206,72 @@ export default function ThesisGenerator() {
   const handleCopy = () => {
     navigator.clipboard.writeText(fullThesis || "");
   };
+
+  // ---- per-chapter editing ------------------------------------------------
+  // The thesis is stored as "# Chapter N: Title\n\n<content>" blocks joined by
+  // a horizontal rule, so a single chapter can be edited and written back
+  // without touching the rest of the document.
+  const openChapterEditor = (chapter: any) => {
+    setEditingChapter(chapter.chapterNumber);
+    setChapterDraft(chapter.content || "");
+    setFinalized(false);
+  };
+
+  const cancelChapterEdit = () => {
+    setEditingChapter(null);
+    setChapterDraft("");
+  };
+
+  const saveChapterEdit = () => {
+    if (editingChapter === null || !result) return;
+    const number = editingChapter;
+    const parts = fullThesis.split("\n---\n\n");
+    const updated = parts.map((part) => {
+      const headerMatch = part.match(/^#\s*Chapter\s+(\d+)\s*:/i);
+      if (!headerMatch || parseInt(headerMatch[1], 10) !== number) return part;
+      const newlineIndex = part.indexOf("\n");
+      const header = newlineIndex >= 0 ? part.slice(0, newlineIndex) : part;
+      return `${header}\n\n${chapterDraft.trim()}`;
+    });
+    const nextThesis = updated.join("\n---\n\n");
+    setFullThesis(nextThesis);
+    setResult({
+      ...result,
+      fullThesis: nextThesis,
+      chapters: (result.chapters || []).map((ch: any) =>
+        ch.chapterNumber === number
+          ? { ...ch, content: chapterDraft.trim(), wordCount: chapterDraft.trim().split(/\s+/).filter(Boolean).length }
+          : ch
+      ),
+    });
+    setEditingChapter(null);
+    setChapterDraft("");
+  };
+
+  const countWords = (text: string) => text.split(/\s+/).filter(Boolean).length;
+
+  /** Live word budget: planned target vs the words actually in the document. */
+  const liveWordBudget = useMemo(() => {
+    if (!result) return [];
+    const plan = result.nursestackPlan;
+    if (!plan?.chapters) return [];
+    const parts = fullThesis.split("\n---\n\n");
+    return plan.chapters.map((c: { number: number; title: string; wordTarget: number }) => {
+      const part = parts.find((p: string) => {
+        const m = p.match(/^#\s*Chapter\s+(\d+)\s*:/i);
+        return m && parseInt(m[1], 10) === c.number;
+      });
+      const actual = part ? countWords(part.split("\n").slice(1).join(" ")) : 0;
+      const ratio = c.wordTarget > 0 ? actual / c.wordTarget : 0;
+      return {
+        number: c.number,
+        title: c.title,
+        target: c.wordTarget,
+        actual,
+        status: ratio === 0 ? "pending" : ratio < 0.88 ? "short" : ratio > 1.12 ? "over" : "on-target",
+      };
+    });
+  }, [result, fullThesis]);
 
   const refsList = result?.references || [];
   const stats = result?.stats || {};
@@ -634,6 +702,12 @@ export default function ThesisGenerator() {
               {finalized && (
                 <span className="text-[11px] text-emerald-300 flex items-center gap-1">
                   <CheckCircle2 size={12} /> Finalised — ready to download
+                  {liveWordBudget.length > 0 && (
+                    <span className="text-blue-400">
+                      · {countWords(fullThesis).toLocaleString()} words ·{" "}
+                      {liveWordBudget.filter((w: { status: string }) => w.status === "on-target").length}/{liveWordBudget.length} chapters on target
+                    </span>
+                  )}
                 </span>
               )}
             </div>
@@ -646,6 +720,83 @@ export default function ThesisGenerator() {
               disabled={status === "generating"}
             />
           </div>
+
+          {/* Word budget — the NurseStack plan allocates words per chapter */}
+          {liveWordBudget.length > 0 && (
+            <div className="bg-[#0a1530] border border-blue-800 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Calculator size={14} className="text-yellow-400" />
+                  Word budget (NurseStack plan)
+                </h4>
+                <span className="text-[10px] text-blue-400">
+                  {liveWordBudget.filter((w: { status: string }) => w.status === "on-target").length}/{liveWordBudget.length} chapters on target
+                </span>
+              </div>
+              <div className="space-y-1.5">
+                {liveWordBudget.map((w: { number: number; title: string; target: number; actual: number; status: string }) => {
+                  const pct = w.target > 0 ? Math.min((w.actual / w.target) * 100, 130) : 0;
+                  const colour =
+                    w.status === "on-target"
+                      ? "bg-emerald-500"
+                      : w.status === "short"
+                        ? "bg-yellow-500"
+                        : w.status === "over"
+                          ? "bg-orange-500"
+                          : "bg-blue-800";
+                  return (
+                    <div key={w.number} className="bg-blue-950/40 border border-blue-900 rounded px-2.5 py-1.5">
+                      <div className="flex items-center justify-between text-[10px]">
+                        <span className="text-blue-200">
+                          Ch {w.number}: {w.title}
+                        </span>
+                        <span className={w.status === "on-target" ? "text-emerald-300" : w.status === "pending" ? "text-blue-400" : "text-yellow-300"}>
+                          {w.actual.toLocaleString()} / {w.target.toLocaleString()} words
+                          {w.status !== "pending" && w.status !== "on-target" ? ` (${w.status})` : ""}
+                        </span>
+                      </div>
+                      <div className="mt-1 h-1.5 bg-blue-950 rounded">
+                        <div className={`h-full rounded ${colour}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-[10px] text-blue-500 mt-2">
+                The Scholar Copilot expands or condenses each chapter to the word count the plan allocates (±12%). Edit a
+                chapter below and the budget updates live.
+              </p>
+            </div>
+          )}
+
+          {/* Per-chapter editor */}
+          {editingChapter !== null && (
+            <div className="bg-[#0a1530] border border-yellow-700/60 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Edit2 size={14} className="text-yellow-400" />
+                  Editing chapter {editingChapter}
+                </h4>
+                <div className="flex gap-2">
+                  <button onClick={cancelChapterEdit} className="text-[10px] bg-blue-900/50 text-blue-200 px-2.5 py-1 rounded hover:bg-blue-800/60">
+                    Cancel
+                  </button>
+                  <button onClick={saveChapterEdit} className="text-[10px] bg-yellow-500 text-[#0a1a3a] font-bold px-2.5 py-1 rounded hover:bg-yellow-600">
+                    Save chapter
+                  </button>
+                </div>
+              </div>
+              <textarea
+                value={chapterDraft}
+                onChange={(e) => setChapterDraft(e.target.value)}
+                rows={18}
+                className="w-full bg-blue-950/60 border border-blue-900 rounded p-3 text-white text-xs font-mono leading-relaxed focus:outline-none resize-y whitespace-pre-wrap"
+              />
+              <p className="text-[10px] text-blue-500 mt-1">
+                {countWords(chapterDraft).toLocaleString()} words in this chapter.
+              </p>
+            </div>
+          )}
 
           {/* References */}
           {refsList.length > 0 && (
@@ -689,6 +840,14 @@ export default function ThesisGenerator() {
                         <span className="text-[10px] text-blue-400 ml-2">{ch.wordCount || 0} words · {ch.citations?.length || 0} citations</span>
                       </summary>
                       <div className="mt-3 space-y-3">
+                        <div className="flex justify-end">
+                          <button
+                            onClick={() => openChapterEditor(ch)}
+                            className="text-[10px] bg-blue-900/50 text-blue-200 px-2.5 py-1 rounded hover:bg-blue-800/60 flex items-center gap-1"
+                          >
+                            <Edit2 size={10} /> Edit this chapter
+                          </button>
+                        </div>
                         {/* Audit scores */}
                         <div className="grid grid-cols-2 gap-2 text-[10px]">
                           <div className="bg-blue-900/40 rounded p-2">

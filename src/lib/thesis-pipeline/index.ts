@@ -11,7 +11,7 @@ import { openDraft } from "@/lib/opendraft";
 import { generateThesis } from "@/lib/thesis-generator";
 import { scholarCopilot } from "@/lib/scholar-copilot";
 import { formatVancouverList } from "@/lib/references";
-import { appraiseEvidenceBase, buildEvidenceAppraisalMarkdown, buildNursestackThesisPlan } from "@/lib/thesis-nursestack";
+import { appraiseEvidenceBase, buildEvidenceAppraisalMarkdown, buildNursestackThesisPlan, applyNursestackPlanToOutline, wordTargetsFromPlan } from "@/lib/thesis-nursestack";
 
 export interface PipelineDeps {
   aiFn: (prompt: string, opts?: { searchEnabled?: boolean; searchQuery?: string }) => Promise<string>;
@@ -61,7 +61,16 @@ export async function runThesisPipeline(
   });
   subResults.outline = outlineResult.subResult;
   const outline: ThesisOutline = outlineResult.outline;
-  onProgress?.("outline", `Outline ready: ${outline.chapters.length} chapters`);
+
+  // The NurseStack plan owns the chapter structure and the word budget: the
+  // OpenDraft outline is aligned to it so every chapter is written to the
+  // number of words the plan allocates.
+  outline.chapters = applyNursestackPlanToOutline(outline, nursestackPlan);
+  const wordTargets = wordTargetsFromPlan(nursestackPlan);
+  onProgress?.(
+    "outline",
+    `Outline ready: ${outline.chapters.length} chapters, ${Object.values(wordTargets).reduce((a, b) => a + b, 0).toLocaleString()} words planned`
+  );
 
   // Stage 2: Prose (search papers first for grounding)
   onProgress?.("prose", "Searching databases for grounding papers...");
@@ -103,6 +112,7 @@ export async function runThesisPipeline(
     chapters,
     papers,
     config: { topic: config.topic, level: config.level, style: config.style },
+    wordTargets,
     aiFn,
     onProgress: (msg) => onProgress?.("refine", msg),
   });
@@ -162,6 +172,8 @@ export async function runThesisPipeline(
       appraise: subResults.appraise,
     },
     nursestackPlan,
+    wordBudget: refineResult.wordBudget,
+    wordBudgetMet: refineResult.wordBudgetMet,
     evidenceAppraisal,
     evidenceAppraisalMarkdown,
   };
