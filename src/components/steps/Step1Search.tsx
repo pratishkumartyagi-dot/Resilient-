@@ -106,6 +106,9 @@ export default function Step1Search() {
 
   // The server owns the list of usable sources (it knows which API keys are
   // configured and which upstreams currently block automated access).
+  // We request ALL databases from the catalogue — available ones will return
+  // real records, unavailable ones will report their upstream reason as a
+  // failed outcome. This guarantees every database is searched, not just one.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -114,13 +117,13 @@ export default function Step1Search() {
         const data = await res.json();
         if (cancelled || !Array.isArray(data.databases)) return;
         setCatalogue(data.databases);
-        const available: string[] = data.databases.filter((d: CatalogueEntry) => d.available).map((d: CatalogueEntry) => d.id);
-        if (available.length === 0) return;
+        const allDbIds: string[] = data.databases.map((d: CatalogueEntry) => d.id);
+        if (allDbIds.length === 0) return;
         setSelectedDbs((prev) => {
-          const kept = prev.filter((d) => available.includes(d));
-          return kept.length > 0 ? kept : available;
+          const kept = prev.filter((d) => allDbIds.includes(d));
+          return kept.length > 0 ? kept : allDbIds;
         });
-        setActiveDbTab((prev) => (available.includes(prev) ? prev : available[0]));
+        setActiveDbTab((prev) => (allDbIds.includes(prev) ? prev : allDbIds[0]));
       } catch {
         /* keep the static fallback list */
       }
