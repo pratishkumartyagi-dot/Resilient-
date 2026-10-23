@@ -1,6 +1,6 @@
 const CHAT_TIMEOUT_MS = 60_000;
 /** Time budget for the in-browser model (including the one-off model load). */
-const LOCAL_MODEL_TIMEOUT_MS = 120_000;
+export const LOCAL_MODEL_TIMEOUT_MS = 120_000;
 
 export interface AICallOptions {
   searchQuery?: string;
