@@ -10,7 +10,7 @@ import {
   RefreshCw, MapPin, Layers, ClipboardList, Brain
 } from "lucide-react";
 import {
-  fetchRealPapers, type Paper, deduplicatePapers,
+  searchDatabases, type Paper, deduplicatePapers,
 } from "@/lib/database-apis";
 import { extractPICOForPapers } from "@/lib/pico-extractor";
 import {
@@ -102,6 +102,11 @@ export default function AutomatedSLR() {
     "arXiv", "OpenAIRE", "Zenodo", "ClinicalTrials.gov",
   ];
 
+  // Per-database search results + selection state for Step 3
+  const [searchResults, setSearchResults] = useState<Record<string, Paper[]>>({});
+  const [searchPerDatabase, setSearchPerDatabase] = useState<Record<string, { count: number; status: string; error?: string } | null>>({});
+  const [selectedSlrPaperIds, setSelectedSlrPaperIds] = useState<Set<string>>(new Set());
+
   const goToStep = (step: number) => {
     setActiveStep(step);
     dispatch({ type: "SET_SLR_STEP", payload: step });
@@ -135,40 +140,101 @@ export default function AutomatedSLR() {
 
   const handleRunSearch = async () => {
     setSearching(true);
+    setSearchResults({});
+    setSearchPerDatabase({});
+    setSelectedSlrPaperIds(new Set());
     try {
-      const queries = buildSearchQueries(question, databases);
-      const allPapers: Paper[] = [];
+      const query = question.freeQuery || `${population} ${intervention} ${comparator} ${outcome}`;
+      // Search ALL databases concurrently — not one at a time.
+      const searchOutcome = await searchDatabases(databases, {
+        query,
+        yearFrom,
+        yearTo,
+        studyType: "All Study Types",
+        limitPerDatabase: 500,
+        timeoutMs: 120000,
+      });
 
-      for (let i = 0; i < queries.length; i++) {
-        try {
-          const papers = await fetchRealPapers(
-            queries[i],
-            [databases[i % databases.length]],
-            yearFrom,
-            yearTo,
-            "All Study Types",
-          );
-          papers.forEach((p) => {
-            if (!p.database) p.database = databases[i % databases.length];
-          });
-          allPapers.push(...papers);
-        } catch (err) {
-          console.warn(`Search failed for ${databases[i % databases.length]}:`, err);
-        }
+      // Group papers by database for per-database display + selection.
+      const perDb: Record<string, Paper[]> = {};
+      const perDbStats: Record<string, { count: number; status: string; error?: string } | null> = {};
+      for (const o of searchOutcome.outcomes) {
+        perDbStats[o.database] = { count: o.count, status: o.status, error: o.error || undefined };
+      }
+      for (const p of searchOutcome.papers) {
+        const db = p.database || "Unknown";
+        if (!perDb[db]) perDb[db] = [];
+        perDb[db].push(p);
       }
 
-      const deduped = deduplicatePapers(allPapers);
-      dispatch({ type: "SET_SLR_PAPERS", payload: deduped });
+      // Default: select all retrieved papers.
+      const allIds = new Set(Object.values(perDb).flat().map((p) => p.id));
+      setSearchResults(perDb);
+      setSearchPerDatabase(perDbStats);
+      setSelectedSlrPaperIds(allIds);
+
+      // Store all papers in state for downstream steps.
+      dispatch({ type: "SET_SLR_PAPERS", payload: searchOutcome.papers });
       dispatch({ type: "SET_SLR_PRISMA", payload: {
-        identified: deduped.length,
+        identified: searchOutcome.totalBeforeDedup,
         screened: 0,
         eligible: 0,
         included: 0,
       }});
       goToStep(4);
+    } catch (err) {
+      console.error("SLR search failed:", err);
     } finally {
       setSearching(false);
     }
+  };
+
+  const toggleSlrPaper = (id: string) => {
+    setSelectedSlrPaperIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSlrDatabase = (database: string) => {
+    const papers = searchResults[database] || [];
+    setSelectedSlrPaperIds((prev) => {
+      const next = new Set(prev);
+      const allSelected = papers.length > 0 && papers.every((p) => prev.has(p.id));
+      if (allSelected) {
+        papers.forEach((p) => next.delete(p.id));
+      } else {
+        papers.forEach((p) => next.add(p.id));
+      }
+      return next;
+    });
+  };
+
+  const getSelectedPapers = () =>
+    Object.values(searchResults).flat().filter((p) => selectedSlrPaperIds.has(p.id));
+
+  const isDatabaseFullySelected = (database: string) => {
+    const papers = searchResults[database] || [];
+    return papers.length > 0 && papers.every((p) => selectedSlrPaperIds.has(p.id));
+  };
+
+  const handleProceedWithSelected = () => {
+    const selected = getSelectedPapers();
+    if (selected.length === 0) {
+      alert("Please select at least one paper before proceeding.");
+      return;
+    }
+    // Store only selected papers as the SLR papers for downstream steps.
+    dispatch({ type: "SET_SLR_PAPERS", payload: selected });
+    dispatch({ type: "SET_SLR_PRISMA", payload: {
+      identified: selected.length,
+      screened: 0,
+      eligible: 0,
+      included: 0,
+    }});
+    goToStep(4);
   };
 
   const handleToggleScreen = (paper: Paper, include: boolean) => {
@@ -546,54 +612,75 @@ export default function AutomatedSLR() {
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Loader2 size={16} className="animate-spin" />
-                  <span className="text-blue-300">Searching databases...</span>
+                  <span className="text-blue-300">Searching all databases concurrently...</span>
                 </div>
               </div>
             )}
-            {!searching && state.slrPapers.length > 0 && (
+            {!searching && Object.keys(searchResults).length > 0 && (
               <div className="space-y-3">
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center mb-2">
                   <span className="text-sm text-blue-300">Papers identified:</span>
-                  <span className="font-mono text-emerald-300">{state.slrPapers.length}</span>
+                  <span className="font-mono text-emerald-300">{Object.values(searchResults).flat().length}</span>
+                  <span className="text-xs text-blue-400/70">{getSelectedPapers().length} selected</span>
                 </div>
-                <div className="p-3 bg-[#1e293b] rounded border border-blue-900/30 overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-xs text-blue-400/70 border-b border-blue-900/50">
-                        <th className="text-left pb-2">Title</th>
-                        <th className="text-left pb-2">Database</th>
-                        <th className="text-left pb-2">Year</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {state.slrPapers.slice(0, 20).map((p) => (
-                        <tr key={p.id} className="border-b border-blue-900/20 hover:bg-blue-900/10">
-                          <td className="pb-2 truncate max-w-[300px]">{p.title}</td>
-                          <td className="pb-2">{p.database}</td>
-                          <td className="pb-2">{p.year}</td>
-                        </tr>
-                      ))}
-                      {state.slrPapers.length > 20 && (
-                        <tr>
-                          <td colSpan={3} className="pb-2 text-xs text-blue-500/70 italic">
-                            ...and {state.slrPapers.length - 20} more papers
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
+                <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                  {Object.entries(searchResults).map(([database, papers]) => {
+                    const stats = searchPerDatabase[database];
+                    const fullySelected = isDatabaseFullySelected(database);
+                    return (
+                      <div key={database} className="bg-[#1e293b] rounded border border-blue-900/30 p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={fullySelected}
+                              onChange={() => toggleSlrDatabase(database)}
+                              className="w-4 h-4 rounded border-blue-700 bg-[#0f172a] text-yellow-500 focus:ring-yellow-500"
+                            />
+                            <span className="text-sm font-semibold text-white">{database}</span>
+                            <span className="text-xs text-blue-400/70">({papers.length} papers)</span>
+                            {stats && stats.status !== "success" && (
+                              <span className="text-xs text-red-400/70">{stats.status}</span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-blue-400">{getSelectedPapers().filter((p) => p.database === database).length} selected</span>
+                        </div>
+                        <div className="space-y-1 mt-2">
+                          {papers.map((p) => (
+                            <div key={p.id} className="flex items-start gap-2 p-1.5 rounded hover:bg-blue-900/10 cursor-pointer" onClick={(e) => { if ((e.target as HTMLElement).tagName !== 'INPUT') toggleSlrPaper(p.id); }}>
+                              <input
+                                type="checkbox"
+                                checked={selectedSlrPaperIds.has(p.id)}
+                                onChange={(e) => { e.stopPropagation(); toggleSlrPaper(p.id); }}
+                                className="w-3.5 h-3.5 rounded border-blue-700 bg-[#0f172a] text-yellow-500 focus:ring-yellow-500 mt-0.5"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm text-blue-200 truncate">{p.title}</div>
+                                <div className="text-xs text-blue-500/70 mt-0.5">{p.authors?.split(",")[0] || "Unknown"} • {p.year} • {p.studyType}</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div className="flex justify-end">
+                <div className="flex justify-end mt-4">
                   <button
-                    onClick={() => goToStep(4)}
-                    className="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-500"
+                    onClick={handleProceedWithSelected}
+                    disabled={getSelectedPapers().length === 0}
+                    className={`ml-2 px-4 py-2 rounded-lg text-white font-medium transition-colors ${
+                      getSelectedPapers().length === 0
+                        ? "bg-blue-900/30 text-blue-400"
+                        : "bg-emerald-600 hover:bg-emerald-500"
+                    }`}
                   >
-                    Proceed to Study Selection
+                    {getSelectedPapers().length === 0 ? "Select papers to proceed" : `Proceed to Study Selection (${getSelectedPapers().length} selected)`}
                   </button>
                 </div>
               </div>
             )}
-            {!searching && state.slrPapers.length === 0 && (
+            {!searching && Object.keys(searchResults).length === 0 && state.slrPapers.length === 0 && (
               <div className="text-center py-8 text-blue-400/50">
                 <p>No papers found. Adjust your search terms or year range.</p>
               </div>
@@ -605,7 +692,7 @@ export default function AutomatedSLR() {
               >
                 ← Back
               </button>
-              {!searching && state.slrPapers.length === 0 && (
+              {!searching && Object.keys(searchResults).length === 0 && state.slrPapers.length === 0 && (
                 <button
                   onClick={handleRunSearch}
                   className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-500"

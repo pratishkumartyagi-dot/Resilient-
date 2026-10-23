@@ -337,6 +337,16 @@ export default function PaperWriterTab() {
       );
       return;
     }
+
+    // Require a real AI provider. Do not silently fall back to the deterministic
+    // local scaffold (mock manuscript) when no Gemini/Groq key is configured.
+    if (!state.geminiApiKey && !state.groqApiKey) {
+      setError(
+        "No AI provider configured. Please configure a Gemini or Groq API key in Settings to generate a manuscript. Local/deterministic fallback is disabled."
+      );
+      return;
+    }
+
     setError("");
     setIsGenerating(true);
     setStage("plan");
