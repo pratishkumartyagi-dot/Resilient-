@@ -11,7 +11,13 @@ import { openDraft } from "@/lib/opendraft";
 import { generateThesis } from "@/lib/thesis-generator";
 import { scholarCopilot } from "@/lib/scholar-copilot";
 import { formatVancouverList } from "@/lib/references";
-import { appraiseEvidenceBase, buildEvidenceAppraisalMarkdown, buildNursestackThesisPlan, applyNursestackPlanToOutline, wordTargetsFromPlan } from "@/lib/thesis-nursestack";
+import {
+  buildAipochConceptualization,
+  alignOutlineToAipochPlan,
+  aipochChapterTargets,
+  appraiseAipochEvidenceBase,
+  buildAipochEvidenceAppraisalMarkdown,
+} from "@/lib/aipoch-conceptualization";
 
 export interface PipelineDeps {
   aiFn: (prompt: string, opts?: { searchEnabled?: boolean; searchQuery?: string }) => Promise<string>;
@@ -33,9 +39,9 @@ export async function runThesisPipeline(
     appraise: { ok: false },
   };
 
-  // Stage 0: NurseStack plan (methodology fit, PICO, chapter structure, appraisal plan)
-  onProgress?.("outline", "Building the NurseStack thesis plan...");
-  const nursestackPlan = buildNursestackThesisPlan({
+  // Phase 1: Conceptualization — AIPoCH (PICO, methodology, chapter structure, appraisal plan)
+  onProgress?.("conceptualization", "Building the AIPoCH thesis conceptualization...");
+  const aipochPlan = buildAipochConceptualization({
     topic: config.topic,
     level: config.level,
     targetWordCount: config.targetWordCount || 15000,
@@ -46,8 +52,8 @@ export async function runThesisPipeline(
   });
   subResults.outline = { ok: false };
 
-  // Stage 1: Outline
-  onProgress?.("outline", "Generating thesis outline...");
+  // Phase 2: Drafting & Assembly — OpenDraft outline, then per-chapter prose
+  onProgress?.("outline", "Generating thesis outline (OpenDraft)...");
   const outlineResult = await openDraft({
     topic: config.topic,
     level: config.level,
@@ -60,19 +66,17 @@ export async function runThesisPipeline(
     aiFn: (p) => aiFn(p),
   });
   subResults.outline = outlineResult.subResult;
-  const outline: ThesisOutline = outlineResult.outline;
+  let outline: ThesisOutline = outlineResult.outline;
 
-  // The NurseStack plan owns the chapter structure and the word budget: the
-  // OpenDraft outline is aligned to it so every chapter is written to the
-  // number of words the plan allocates.
-  outline.chapters = applyNursestackPlanToOutline(outline, nursestackPlan);
-  const wordTargets = wordTargetsFromPlan(nursestackPlan);
+  // The AIPoCH plan owns the chapter structure and word budget: align the
+  // OpenDraft outline to it so every chapter is written to the allocated words.
+  outline.chapters = alignOutlineToAipochPlan(outline, aipochPlan);
+  const wordTargets = aipochChapterTargets(aipochPlan);
   onProgress?.(
     "outline",
     `Outline ready: ${outline.chapters.length} chapters, ${Object.values(wordTargets).reduce((a, b) => a + b, 0).toLocaleString()} words planned`
   );
 
-  // Stage 2: Prose (search papers first for grounding)
   onProgress?.("prose", "Searching databases for grounding papers...");
   let papers: ThesisPaper[] = [];
   if (searchFn) {
@@ -106,7 +110,7 @@ export async function runThesisPipeline(
   subResults.prose = proseResult.subResult;
   let chapters: ChapterFile[] = proseResult.chapters;
 
-  // Stage 3: Refine / citation validation
+  // Phase 3: Academic Refinement — ScholarCopilot (refine + citations + word budget)
   onProgress?.("refine", "Refining chapters and validating citations...");
   const refineResult = await scholarCopilot({
     chapters,
@@ -120,24 +124,22 @@ export async function runThesisPipeline(
   chapters = refineResult.chapters;
   let fullThesis = refineResult.fullThesis;
 
-  // Stage 4: CASP appraisal of the evidence base (NurseStack /review-evidence)
+  // CASP appraisal of the evidence base (part of Phase 3 refinement)
   onProgress?.("appraise", "Appraising the evidence base with CASP...");
-  let evidenceAppraisal: ReturnType<typeof appraiseEvidenceBase> = [];
+  let evidenceAppraisal: ReturnType<typeof appraiseAipochEvidenceBase> = [];
   let evidenceAppraisalMarkdown = "";
   try {
-    evidenceAppraisal = appraiseEvidenceBase(papers);
-    evidenceAppraisalMarkdown = buildEvidenceAppraisalMarkdown(evidenceAppraisal);
+    evidenceAppraisal = appraiseAipochEvidenceBase(papers);
+    evidenceAppraisalMarkdown = buildAipochEvidenceAppraisalMarkdown(evidenceAppraisal);
     subResults.appraise = { ok: true, data: { studies: evidenceAppraisal.length } };
   } catch (err: any) {
     subResults.appraise = { ok: false, error: err?.message || "Evidence appraisal failed" };
   }
 
-  // The CASP appraisal of the evidence base is part of the written thesis.
   if (evidenceAppraisalMarkdown) {
     fullThesis = `${fullThesis}\n\n---\n\n${evidenceAppraisalMarkdown}`;
   }
 
-  // Build references (Vancouver) from grounding papers
   const references = papers.slice(0, config.maxReferences || 150);
   const markdownOutline = outlineResult.markdownOutline;
 
@@ -171,7 +173,7 @@ export async function runThesisPipeline(
       refine: subResults.refine,
       appraise: subResults.appraise,
     },
-    nursestackPlan,
+    aipochConceptualization: aipochPlan,
     wordBudget: refineResult.wordBudget,
     wordBudgetMet: refineResult.wordBudgetMet,
     evidenceAppraisal,

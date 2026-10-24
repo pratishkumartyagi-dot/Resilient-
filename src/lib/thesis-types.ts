@@ -103,9 +103,9 @@ export interface ThesisPipelineResult {
     refine: ThesisStageSubResult;
     appraise: ThesisStageSubResult;
   };
-  /** NurseStack plan: methodology fit, PICO, chapter structure, appraisal plan. */
-  nursestackPlan?: import("./thesis-nursestack").NursestackThesisPlan;
-  /** Per-chapter word budget (target from the NurseStack plan vs achieved). */
+  /** Phase 1 Conceptualization (AIPoCH): PICO, methodology, chapter structure, appraisal plan. */
+  aipochConceptualization?: import("./aipoch-conceptualization").AipochConceptualization;
+  /** Per-chapter word budget (target from the AIPoCH plan vs achieved). */
   wordBudget?: import("./scholar-copilot").ChapterWordBudget[];
   /** True when every chapter landed within ±12% of its planned word target. */
   wordBudgetMet?: boolean;

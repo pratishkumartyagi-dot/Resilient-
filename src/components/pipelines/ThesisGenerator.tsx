@@ -158,6 +158,7 @@ export default function ThesisGenerator() {
           setStage(s);
           setStageMessage(msg || "");
           setProgress((p) => {
+            if (s === "conceptualization") return Math.min(Math.max(p, 0), 5);
             if (s === "outline") return Math.min(Math.max(p, 5), 15);
             if (s === "prose") {
               const m = (msg || "").match(/chapter (\d+) of (\d+)/i);
@@ -269,7 +270,7 @@ export default function ThesisGenerator() {
   /** Live word budget: planned target vs the words actually in the document. */
   const liveWordBudget = useMemo(() => {
     if (!result) return [];
-    const plan = result.nursestackPlan;
+    const plan = result.aipochConceptualization;
     if (!plan?.chapters) return [];
     const parts = fullThesis.split("\n---\n\n");
     return plan.chapters.map((c: { number: number; title: string; wordTarget: number }) => {
@@ -295,10 +296,10 @@ export default function ThesisGenerator() {
 
   const isApiKeyMissing = !config.apiKey && !apiKey;
 
-  const pipelineStages: Array<{ n: number; name: string; role: string; href: string; stageKey: string }> = [
-    { n: 1, name: "OpenDraft", role: "Outline & chapter structure", href: "https://github.com/federicodeponte/opendraft", stageKey: "outline" },
-    { n: 2, name: "ThesisGenerator", role: "Per-chapter prose + argument audit", href: "https://github.com/ekontoTURBO/thesis-generator", stageKey: "prose" },
-    { n: 3, name: "ScholarCopilot", role: "Refine/expand + citation validation", href: "https://github.com/TIGER-AI-Lab/ScholarCopilot", stageKey: "refine" },
+  const pipelineStages: Array<{ n: number; name: string; role: string; href: string; phase: string; stageKey: string }> = [
+    { n: 1, name: "AIPoCH", role: "PICO, research question, methodology, chapter structure", phase: "Phase 1 — Conceptualization", href: "https://github.com/aipoch/medical-research-skills", stageKey: "conceptualization" },
+    { n: 2, name: "OpenDraft", role: "Thesis outline + per-chapter prose drafting", phase: "Phase 2 — Drafting & Assembly", href: "https://github.com/federicodeponte/opendraft", stageKey: "outline" },
+    { n: 3, name: "ScholarCopilot", role: "Refine/expand + citation validation + word budget", phase: "Phase 3 — Academic Refinement", href: "https://github.com/TIGER-AI-Lab/ScholarCopilot", stageKey: "refine" },
   ];
 
   return (
@@ -310,7 +311,7 @@ export default function ThesisGenerator() {
           <div>
             <h2 className="text-xl font-bold text-white">Thesis Generator</h2>
             <p className="text-xs text-blue-300">
-              AI-powered thesis pipeline: outline → prose → citation validation → humaniser.
+              AI-powered thesis pipeline: AIPoCH conceptualization → OpenDraft drafting → ScholarCopilot refinement.
             </p>
           </div>
         </div>
@@ -338,6 +339,7 @@ export default function ThesisGenerator() {
                   <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${dot} ${status === "generating" && stage === s.stageKey ? "animate-pulse" : ""}`} />
                   <div className="min-w-0">
                     <div className="flex items-center gap-1">
+                      <span className="text-[10px] text-blue-400">{s.phase}</span>
                       <span className="text-xs font-semibold text-white">Stage {s.n}: {s.name}</span>
                       {s.href && (
                         <a href={s.href} target="_blank" rel="noreferrer" className="text-[10px] text-yellow-300 underline">repo</a>
@@ -611,37 +613,37 @@ export default function ThesisGenerator() {
             ))}
           </div>
 
-          {/* NurseStack plan */}
-          {result.nursestackPlan && (
+          {/* AIPoCH plan */}
+          {result.aipochConceptualization && (
             <div className="bg-blue-950 border border-blue-800 rounded-lg p-4">
               <div className="flex items-center justify-between mb-2">
                 <h4 className="text-xs font-bold text-white flex items-center gap-2">
                   <ClipboardCheck size={13} className="text-yellow-400" />
-                  NurseStack thesis plan
+                  AIPoCH thesis conceptualization
                 </h4>
-                <span className="text-[10px] text-blue-400">nursestack /plan-dissertation • /plan-pico</span>
+                <span className="text-[10px] text-blue-400">aipoch /plan-pico • /plan-dissertation</span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px]">
                 <div className="bg-blue-900/30 border border-blue-900 rounded p-2.5">
                   <p className="text-blue-300 font-semibold mb-1">Methodology fit</p>
-                  <p className="text-blue-200">Question type: {result.nursestackPlan.methodology.questionType}</p>
-                  <p className="text-blue-200">Recommended: {result.nursestackPlan.methodology.methodology}</p>
-                  <p className="text-blue-200">Reporting guideline: {result.nursestackPlan.methodology.reportingGuideline}</p>
-                  <p className="text-blue-200">CASP checklist: {result.nursestackPlan.methodology.caspChecklistId.replace(/_/g, " ")}</p>
-                  <p className="text-blue-400 mt-1">{result.nursestackPlan.methodology.ethicsNote}</p>
+                  <p className="text-blue-200">Question type: {result.aipochConceptualization.methodology.questionType}</p>
+                  <p className="text-blue-200">Recommended: {result.aipochConceptualization.methodology.methodology}</p>
+                  <p className="text-blue-200">Reporting guideline: {result.aipochConceptualization.methodology.reportingGuideline}</p>
+                  <p className="text-blue-200">CASP checklist: {result.aipochConceptualization.methodology.caspChecklistId.replace(/_/g, " ")}</p>
+                  <p className="text-blue-400 mt-1">{result.aipochConceptualization.methodology.ethicsNote}</p>
                 </div>
                 <div className="bg-blue-900/30 border border-blue-900 rounded p-2.5">
                   <p className="text-blue-300 font-semibold mb-1">PICO(S)</p>
-                  <p className="text-blue-200">{result.nursestackPlan.pico.population}</p>
-                  <p className="text-blue-200">{result.nursestackPlan.pico.intervention}</p>
-                  <p className="text-blue-200">{result.nursestackPlan.pico.comparison}</p>
-                  <p className="text-blue-200">{result.nursestackPlan.pico.outcome}</p>
+                  <p className="text-blue-200">{result.aipochConceptualization.pico.population}</p>
+                  <p className="text-blue-200">{result.aipochConceptualization.pico.intervention}</p>
+                  <p className="text-blue-200">{result.aipochConceptualization.pico.comparison}</p>
+                  <p className="text-blue-200">{result.aipochConceptualization.pico.outcome}</p>
                 </div>
               </div>
               <div className="mt-3">
                 <p className="text-blue-300 font-semibold text-[11px] mb-1">Chapter structure</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
-                  {result.nursestackPlan.chapters.map((c: { number: number; title: string; wordTarget: number }) => (
+                  {result.aipochConceptualization.chapters.map((c: { number: number; title: string; wordTarget: number }) => (
                     <div key={c.number} className="bg-blue-900/20 border border-blue-900/60 rounded px-2 py-1.5 text-[10px] text-blue-200">
                       <span className="text-yellow-300 font-semibold">Ch {c.number}</span> {c.title}
                       <span className="text-blue-500"> — ~{c.wordTarget.toLocaleString()} words</span>
@@ -652,7 +654,7 @@ export default function ThesisGenerator() {
               <div className="mt-3">
                 <p className="text-blue-300 font-semibold text-[11px] mb-1">Critical appraisal plan (CASP)</p>
                 <ul className="space-y-0.5 text-[10px] text-blue-300">
-                  {result.nursestackPlan.appraisalPlan.map((s: string, i: number) => (
+                  {result.aipochConceptualization.appraisalPlan.map((s: string, i: number) => (
                     <li key={i}>- {s}</li>
                   ))}
                 </ul>
@@ -744,13 +746,13 @@ export default function ThesisGenerator() {
             />
           </div>
 
-          {/* Word budget — the NurseStack plan allocates words per chapter */}
+          {/* Word budget — the AIPoCH plan allocates words per chapter */}
           {liveWordBudget.length > 0 && (
             <div className="bg-[#0a1530] border border-blue-800 rounded-lg p-4">
               <div className="flex items-center justify-between mb-3">
                 <h4 className="text-sm font-bold text-white flex items-center gap-2">
                   <Calculator size={14} className="text-yellow-400" />
-                  Word budget (NurseStack plan)
+                  Word budget (AIPoCH plan)
                 </h4>
                 <span className="text-[10px] text-blue-400">
                   {liveWordBudget.filter((w: { status: string }) => w.status === "on-target").length}/{liveWordBudget.length} chapters on target

@@ -2150,3 +2150,32 @@ Rebuilt Steps 1 and 2 of the Research Pipeline into a systematic-review-grade fl
 - `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅ across all commits above
 - Note: `node_modules` is wiped between some sessions in this environment — run `bun install` before typecheck/lint/build if `tsc: command not found` appears
 
+## Thesis Generator Rebuild — Three-Phase Pipeline (AIPoCH → OpenDraft → ScholarCopilot) (2026-10-24)
+
+**Rebuild**: Rewired the Thesis Generator pipeline into three phases with a medical university (MD/MS) thesis structure:
+
+- **Phase 1 — Conceptualization (AIPoCH)**: New `src/lib/aipoch-conceptualization/index.ts` builds PICO(S), clinical research question, methodology fit (reporting guideline + CASP checklist + ethics), MD/MS chapter structure with word targets, search strategy, and CASP appraisal plan. Replaces the NurseStack plan as the pipeline's first stage.
+- **Phase 2 — Drafting & Assembly (OpenDraft)**: `openDraft` generates the thesis outline; `generateThesis` writes per-chapter prose. The AIPoCH chapter plan is aligned to the OpenDraft outline so every chapter is written to its allocated word target.
+- **Phase 3 — Academic Refinement (ScholarCopilot)**: `scholarCopilot` refines/expands chapters, validates citations against grounding papers, and enforces the per-chapter word budget (±12%). CASP evidence-base appraisal runs last and is appended to the thesis.
+
+**Medical university thesis structure** (MD/MS, 15k–40k words):
+1. Introduction (10%) — Background, rationale, research question/aim, objectives, structure
+2. Literature Review (30%) — Search strategy, included literature, themes, gaps, synthesis
+3. Methodology (20%) — Design, setting, sampling, data collection, analysis, ethics, rigour
+4. Results (20%) — Overview, findings 1–3, summary
+5. Discussion (15%) — Answer to research question, literature comparison, implications, limitations, recommendations
+6. Conclusion (5%) — Key findings, contribution to medical knowledge, final clinical statement
+
+**Files Created**:
+- `src/lib/aipoch-conceptualization/index.ts` — AIPoCH conceptualization module with `buildAipochConceptualization()`, `alignOutlineToAipochPlan()`, `aipochChapterTargets()`, evidence appraisal re-exports
+
+**Files Modified**:
+- `src/lib/thesis-pipeline/index.ts` — Stage 0 NurseStack plan replaced with Phase 1 AIPoCH conceptualization; pipeline stages remain outline/prose/refine/appraise mapped to the three phases; `nursestackPlan` → `aipochConceptualization` in result
+- `src/lib/thesis-types.ts` — `ThesisPipelineResult.nursestackPlan` → `aipochConceptualization?: AipochConceptualization`
+- `src/components/pipelines/ThesisGenerator.tsx` — Pipeline stage strip now shows Phase 1 AIPoCH (Conceptualization) → Phase 2 OpenDraft (Drafting & Assembly) → Phase 3 ScholarCopilot (Academic Refinement) with phase labels and repo links; progress mapping includes "conceptualization" stage; "NurseStack thesis plan" panel → "AIPoCH thesis conceptualization"; word budget panel → "AIPoCH plan"; header subtitle updated
+
+**Validation**: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
+
+**Session History**
+- 2026-10-24: Rebuilt Thesis Generator into three phases (AIPoCH conceptualization → OpenDraft drafting & assembly → ScholarCopilot academic refinement) with medical university MD/MS thesis structure; replaced NurseStack plan with AIPoCH conceptualization module; updated pipeline types, pipeline orchestrator, and ThesisGenerator UI; all checks pass.
+
