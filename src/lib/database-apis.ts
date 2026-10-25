@@ -679,8 +679,19 @@ export async function fetchPubMedBrowserless(query: string, yearFrom?: string, y
   toolParams.set("term", term);
 
   const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?${toolParams.toString()}`;
-  const searchData = await httpJson<any>(searchUrl, { timeoutMs: 30000, retries: 3 });
-  const idlist: string[] = searchData?.esearchresult?.idlist || [];
+  let searchData = await httpJson<any>(searchUrl, { timeoutMs: 30000, retries: 3 });
+  let idlist: string[] = searchData?.esearchresult?.idlist || [];
+
+  // Fallback: if the fielded/MeSH query returns nothing, retry with a plain
+  // free-text query so PubMed still returns relevant records.
+  if (!Array.isArray(idlist) || idlist.length === 0) {
+    const fallbackParams = new URLSearchParams(toolParams);
+    fallbackParams.set("term", query);
+    const fallbackUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?${fallbackParams.toString()}`;
+    searchData = await httpJson<any>(fallbackUrl, { timeoutMs: 30000, retries: 3 });
+    idlist = searchData?.esearchresult?.idlist || [];
+  }
+
   if (!Array.isArray(idlist) || idlist.length === 0) return [];
 
   const papers: Paper[] = [];
