@@ -269,7 +269,7 @@ export function buildSynthesisPrompt(papers: any[], prisma: { identified: number
  * Skill 8 — Reporting
  * Generates the final SLR manuscript following PRISMA 2020.
  */
-export function buildReportingPrompt(q: SLRQuestion, papers: any[], synthesis: string): string {
+export function buildReportingPrompt(q: SLRQuestion, papers: any[], synthesisRows: any[] = [], prisma?: { identified: number; screened: number; eligible: number; included: number }): string {
   const lines: string[] = [];
   lines.push("# SLR Step 8 — Reporting (PRISMA 2020)");
   lines.push("");
@@ -287,6 +287,30 @@ export function buildReportingPrompt(q: SLRQuestion, papers: any[], synthesis: s
   lines.push("");
   lines.push("## Results");
   lines.push("Study selection (PRISMA flow), study characteristics, risk of bias, synthesis of results");
+  if (prisma) {
+    lines.push("");
+    lines.push("### PRISMA 2020 Flow");
+    lines.push(`- Identified: ${prisma.identified}`);
+    lines.push(`- Screened: ${prisma.screened}`);
+    lines.push(`- Eligible: ${prisma.eligible}`);
+    lines.push(`- Included: ${prisma.included}`);
+  }
+  lines.push("");
+  lines.push("## Included Studies");
+  papers.forEach((p, i) => {
+    lines.push(`${i + 1}. ${p.authors || ""} (${p.year}). ${p.title}. *${p.journal || ""}*.`);
+  });
+  if (synthesisRows && synthesisRows.length > 0) {
+    lines.push("");
+    lines.push("## Evidence Table");
+    synthesisRows.forEach((r, i) => {
+      lines.push(`### Study ${i + 1}`);
+      lines.push(`- Reference: ${r.reference || ""}`);
+      lines.push(`- Key findings: ${r.keyFindings || "Not reported"}`);
+      lines.push(`- Study details: ${r.studyDetails || "Not extracted"}`);
+      lines.push(`- Research gaps: ${r.researchGaps || "Not extracted"}`);
+    });
+  }
   lines.push("");
   lines.push("## Discussion");
   lines.push("Summary of evidence, limitations, implications for practice and research");

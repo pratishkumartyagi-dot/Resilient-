@@ -222,12 +222,31 @@ export default function AutomatedSLR() {
   const handleGenerateReport = async () => {
     const included = state.slrIncludedPapers;
     const systemPrompt = "You are an expert systematic review methodologist. Write a complete, PRISMA 2020-compliant systematic literature review report.";
-    const fullPrompt = `${systemPrompt}\n\n${buildReportingPrompt(question, included, state.slrResults || "")}`;
+    const fullPrompt = `${systemPrompt}\n\n${buildReportingPrompt(question, included, state.slrSynthesisRows || [], state.slrPrismaCounts)}`;
 
     try {
-      const res = await callGemini(state.geminiApiKey || "", fullPrompt, {
-        searchEnabled: false,
-      });
+      let res: string;
+      try {
+        if (state.geminiApiKey) {
+          res = await callGemini(state.geminiApiKey, fullPrompt, { searchEnabled: false });
+        } else {
+          throw new Error("no gemini key");
+        }
+      } catch {
+        try {
+          if (state.groqApiKey) {
+            res = await callGroq(state.groqApiKey, fullPrompt, { searchEnabled: false });
+          } else {
+            throw new Error("no groq key");
+          }
+        } catch {
+          try {
+            res = await callDeepSeek(fullPrompt, { searchEnabled: false });
+          } catch {
+            res = `# Systematic Literature Review Report\n\n**Topic:** ${question.freeQuery || question.population || "Research Topic"}\n\n## PRISMA Flow\n- Identified: ${state.slrPrismaCounts.identified}\n- Screened: ${state.slrPrismaCounts.screened}\n- Eligible: ${state.slrPrismaCounts.eligible}\n- Included: ${state.slrPrismaCounts.included}\n\n## Included Studies\n${included.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. *${p.journal}*.`).join("\n")}\n\n## Note\nAI providers unavailable; deterministic report scaffold shown. Configure Gemini or Groq in Settings for a full AI-generated report.`;
+          }
+        }
+      }
       dispatch({ type: "SET_SLR_RESULTS", payload: res });
       goToStep(8);
     } catch (err) {
