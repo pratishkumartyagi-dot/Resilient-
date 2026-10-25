@@ -11,7 +11,12 @@ import { openDraft } from "@/lib/opendraft";
 import { generateThesis } from "@/lib/thesis-generator";
 import { scholarCopilot } from "@/lib/scholar-copilot";
 import { formatVancouverList } from "@/lib/references";
-import { appraiseEvidenceBase, buildEvidenceAppraisalMarkdown, buildNursestackThesisPlan, applyNursestackPlanToOutline, wordTargetsFromPlan } from "@/lib/thesis-nursestack";
+import { appraiseEvidenceBase, buildEvidenceAppraisalMarkdown } from "@/lib/thesis-nursestack";
+import {
+  buildAipochConceptualization,
+  alignOutlineToAipochPlan,
+  aipochChapterTargets,
+} from "@/lib/aipoch-conceptualization";
 
 export interface PipelineDeps {
   aiFn: (prompt: string, opts?: { searchEnabled?: boolean; searchQuery?: string }) => Promise<string>;
@@ -33,9 +38,9 @@ export async function runThesisPipeline(
     appraise: { ok: false },
   };
 
-  // Stage 0: NurseStack plan (methodology fit, PICO, chapter structure, appraisal plan)
-  onProgress?.("outline", "Building the NurseStack thesis plan...");
-  const nursestackPlan = buildNursestackThesisPlan({
+  // Phase 1: Conceptualization — AIPoCH (PICO, methodology, chapter structure, word budget)
+  onProgress?.("conceptualization", "Building the AIPoCH thesis conceptualization...");
+  const aipochPlan = buildAipochConceptualization({
     topic: config.topic,
     level: config.level,
     targetWordCount: config.targetWordCount || 15000,
@@ -46,8 +51,8 @@ export async function runThesisPipeline(
   });
   subResults.outline = { ok: false };
 
-  // Stage 1: Outline
-  onProgress?.("outline", "Generating thesis outline...");
+  // Phase 2: Drafting & Assembly — OpenDraft outline, then per-chapter prose
+  onProgress?.("outline", "Generating thesis outline (OpenDraft)...");
   const outlineResult = await openDraft({
     topic: config.topic,
     level: config.level,
@@ -60,13 +65,12 @@ export async function runThesisPipeline(
     aiFn: (p) => aiFn(p),
   });
   subResults.outline = outlineResult.subResult;
-  const outline: ThesisOutline = outlineResult.outline;
+  let outline: ThesisOutline = outlineResult.outline;
 
-  // The NurseStack plan owns the chapter structure and the word budget: the
-  // OpenDraft outline is aligned to it so every chapter is written to the
-  // number of words the plan allocates.
-  outline.chapters = applyNursestackPlanToOutline(outline, nursestackPlan);
-  const wordTargets = wordTargetsFromPlan(nursestackPlan);
+  // The AIPoCH plan owns the chapter structure and word budget: align the
+  // OpenDraft outline to it so every chapter is written to the allocated words.
+  outline.chapters = alignOutlineToAipochPlan(outline, aipochPlan);
+  const wordTargets = aipochChapterTargets(aipochPlan);
   onProgress?.(
     "outline",
     `Outline ready: ${outline.chapters.length} chapters, ${Object.values(wordTargets).reduce((a, b) => a + b, 0).toLocaleString()} words planned`
@@ -106,7 +110,7 @@ export async function runThesisPipeline(
   subResults.prose = proseResult.subResult;
   let chapters: ChapterFile[] = proseResult.chapters;
 
-  // Stage 3: Refine / citation validation
+  // Phase 3: Academic Refinement — ScholarCopilot (refine + citations + word budget)
   onProgress?.("refine", "Refining chapters and validating citations...");
   const refineResult = await scholarCopilot({
     chapters,
@@ -171,7 +175,7 @@ export async function runThesisPipeline(
       refine: subResults.refine,
       appraise: subResults.appraise,
     },
-    nursestackPlan,
+    aipochConceptualization: aipochPlan,
     wordBudget: refineResult.wordBudget,
     wordBudgetMet: refineResult.wordBudgetMet,
     evidenceAppraisal,
