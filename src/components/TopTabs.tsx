@@ -16,6 +16,7 @@ const MAIN_TABS = [
   { id: "protocol", label: "Protocol Generator", icon: ScrollText },
   { id: "grant", label: "Grant Writing", icon: DollarSign },
   { id: "thesis", label: "Thesis Generator", icon: BookOpen },
+  { id: "automated-research", label: "Automated Research", icon: Microscope },
   { id: "slr", label: "Automated SLR", icon: Microscope },
   { id: "appraisal", label: "Critical Appraisal", icon: ClipboardCheck },
 ];

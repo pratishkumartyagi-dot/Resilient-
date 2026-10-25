@@ -36,6 +36,7 @@ const ProtocolChatTab = lazy(() => import("@/components/tabs/ProtocolChatTab"));
 const GrantWritingTab = lazy(() => import("@/components/tabs/GrantWritingTab"));
 const OmicsBioinformaticsTab = lazy(() => import("@/components/tabs/OmicsBioinformaticsTab"));
 const ThesisGenerator = lazy(() => import("@/components/pipelines/ThesisGenerator"));
+const AutomatedResearchTab = lazy(() => import("@/components/tabs/AutomatedResearchTab"));
 const AutomatedSLR = lazy(() => import("@/components/pipelines/AutomatedSLR"));
 const CriticalAppraisal = lazy(() => import("@/components/pipelines/CriticalAppraisal"));
 
@@ -87,6 +88,8 @@ function AppContent() {
         return withSuspense(<GrantWritingTab />, "Grant Writing");
       case "thesis":
         return withSuspense(<ThesisGenerator />, "Thesis Generator");
+      case "automated-research":
+        return withSuspense(<AutomatedResearchTab />, "Automated Research");
       case "slr":
         return withSuspense(<AutomatedSLR />, "Automated SLR");
       case "appraisal":
