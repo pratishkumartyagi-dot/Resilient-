@@ -9,11 +9,8 @@ import { useApp } from "@/context/AppContext";
 import { runThesisPipeline, buildDefaultConfig } from "@/lib/thesis-pipeline";
 import { buildThesisAiFn, searchThesisPapers, toThesisPaper } from "@/lib/thesis-ai";
 import type { ThesisGeneratorConfig } from "@/lib/thesis-types";
-import {
-  downloadMarkdownAsWord,
-  downloadMarkdownAsPDF,
-  downloadMarkdownAsLaTeX,
-} from "@/lib/exporters";
+import { assembleThesisDocx, downloadBlob } from "@/lib/chart-assembly";
+import { downloadMarkdownAsPDF, downloadMarkdownAsLaTeX } from "@/lib/exporters";
 
 const SESSION_KEY = "thesis_generator_session";
 
@@ -208,15 +205,17 @@ export default function ThesisGenerator() {
     if (result) setResult({ ...result, fullThesis: e.target.value });
   };
 
-  const handleExport = (kind: "pdf" | "word" | "latex") => {
+  const handleExport = async (kind: "pdf" | "word" | "latex") => {
     if (!fullThesis) return;
     if (!finalized) {
       setError("Please finalise the thesis before downloading. Review the text, then click “Finalise Thesis”.");
       return;
     }
     const base = `thesis-${config.topic.replace(/\s+/g, "-").slice(0, 40)}-${new Date().toISOString().split("T")[0]}`;
-    if (kind === "pdf") downloadMarkdownAsPDF(fullThesis, `${base}.pdf`);
-    else if (kind === "word") downloadMarkdownAsWord(fullThesis, `${base}.docx`);
+    if (kind === "word") {
+      const blob = await assembleThesisDocx({ title: result?.outline?.title || config.topic, author: config.author, institution: config.institution, markdown: fullThesis });
+      downloadBlob(blob, `${base}.docx`);
+    } else if (kind === "pdf") downloadMarkdownAsPDF(fullThesis, `${base}.pdf`);
     else downloadMarkdownAsLaTeX(fullThesis, `${base}.tex`);
   };
 
