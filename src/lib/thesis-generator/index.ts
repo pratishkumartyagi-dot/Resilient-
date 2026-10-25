@@ -80,6 +80,7 @@ Write academic prose for every section of this chapter. Requirements:
 - Aim for ≥ 90% of the chapter word target (${Math.round(chapterTarget * 0.9)}–${Math.round(chapterTarget * 1.1)} words).
 - Target < 2% plagiarism; write originally, do not copy abstracts.
 - Markdown-only output. Use headings for sections.
+- Include at least one summary table and one figure placeholder per chapter where data permit (e.g., | Characteristic | Value | ... | and ![Figure 1: ...](...) ).
 - Preserve any headings/lists/tables exactly; do not wrap the whole chapter in code fences.
 
 Return ONLY a JSON object (no markdown fences, no extra text):
@@ -142,10 +143,12 @@ export async function generateThesis(input: ThesisGeneratorInput): Promise<Thesi
 
         const wordCount = typeof parsed.wordCount === "number" ? parsed.wordCount : (parsed.content || "").split(/\s+/).length;
 
-        // Word-count retry: if under 85% of target, retry demanding ≥ target words.
-        if (wordCount < target * 0.85 && retries === 0) {
+        // Word-count retry: if under target, retry (up to 3 times) demanding ≥ target words.
+        if (wordCount < target * 0.9 && retries < 3) {
           retries++;
-          onProgress?.(`Chapter ${chapter.title} below target (${wordCount}/${target}); retrying...`);
+          onProgress?.(
+            `Chapter ${chapter.title} below target (${wordCount}/${target} words); expanding… (attempt ${retries})`
+          );
           continue;
         }
 
@@ -153,7 +156,7 @@ export async function generateThesis(input: ThesisGeneratorInput): Promise<Thesi
         break;
       } catch (err: any) {
         retries++;
-        if (retries >= 2) {
+        if (retries >= 3) {
           onProgress?.(`Chapter ${chapter.title} failed: ${err?.message || "unknown"}`);
           chapterContent = { content: `# ${chapter.title}\n\nGeneration failed.`, sections: [], wordCount: 0, citations: [] };
         }

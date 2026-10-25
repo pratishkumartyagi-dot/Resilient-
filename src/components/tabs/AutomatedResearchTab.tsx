@@ -26,20 +26,20 @@ import {
 } from "@/lib/ai";
 import { downloadMarkdownAsWord, downloadMarkdownAsPDF } from "@/lib/exporters";
 
-const DATABASES: { id: string; label: string }[] = [
-  { id: "PubMed", label: "PubMed" },
-  { id: "Europe PMC", label: "Europe PMC" },
-  { id: "Crossref", label: "Crossref" },
-  { id: "arXiv", label: "arXiv" },
-  { id: "bioRxiv", label: "bioRxiv" },
-  { id: "medRxiv", label: "medRxiv" },
-  { id: "OpenAIRE", label: "OpenAIRE" },
-  { id: "Zenodo", label: "Zenodo" },
-  { id: "ClinicalTrials.gov", label: "ClinicalTrials.gov" },
-  { id: "DOAJ", label: "DOAJ" },
-  { id: "OpenAlex", label: "OpenAlex" },
-  { id: "Semantic Scholar", label: "Semantic Scholar" },
-  { id: "Google Scholar", label: "Google Scholar" },
+const DATABASES: { id: string; label: string; searchHint: string }[] = [
+  { id: "PubMed", label: "PubMed", searchHint: "MESH + [Title/Abstract] + date + publication-type filters via NCBI E-utilities" },
+  { id: "Europe PMC", label: "Europe PMC", searchHint: "TITLE/ABST fields + date range via Europe PMC REST" },
+  { id: "Crossref", label: "Crossref", searchHint: "bibliographic query + date filter via Crossref API" },
+  { id: "arXiv", label: "arXiv", searchHint: "title/abstract query via arXiv API" },
+  { id: "bioRxiv", label: "bioRxiv", searchHint: "title/abstract query via bioRxiv API" },
+  { id: "medRxiv", label: "medRxiv", searchHint: "title/abstract query via medRxiv API" },
+  { id: "OpenAIRE", label: "OpenAIRE", searchHint: "title/abstract query via OpenAIRE API" },
+  { id: "Zenodo", label: "Zenodo", searchHint: "title/abstract query via Zenodo API" },
+  { id: "ClinicalTrials.gov", label: "ClinicalTrials.gov", searchHint: "condition/intervention query via ClinicalTrials.gov API" },
+  { id: "DOAJ", label: "DOAJ", searchHint: "title/abstract query via DOAJ API" },
+  { id: "OpenAlex", label: "OpenAlex", searchHint: "search filter via OpenAlex API" },
+  { id: "Semantic Scholar", label: "Semantic Scholar", searchHint: "paper search via Semantic Scholar API" },
+  { id: "Google Scholar", label: "Google Scholar", searchHint: "web-indexed scholarly search (may be rate-limited)" },
 ];
 
 const STUDY_TYPES: { value: string; label: string }[] = [
@@ -92,6 +92,16 @@ RESEARCH QUESTION: ${query}
 SEARCH SCOPE: Databases: ${selectedDbs.join(", ")} | Study type: ${studyType} | Year interval: ${yearFrom || "any"}–${yearTo || "present"}
 RETRIEVED STUDIES (${papers.length}): ${papersList}
 
+SEARCH STRATEGY (report this exactly in the Methods section):
+- Databases searched: ${selectedDbs.map((d) => {
+    const db = DATABASES.find((x) => x.id === d);
+    return `${d} — ${db ? db.searchHint : "live API search"}`;
+  }).join("; ")}
+- Query translation: The natural-language question "${query}" was submitted to each selected database as a keyword/meaning search over titles and abstracts (MeSH/[tiab] for PubMed; TITLE/ABST for Europe PMC; bibliographic for Crossref/OpenAlex; title/abstract for preprint servers).
+- Filters applied: publication year ${yearFrom || "any"} to ${yearTo || "present"}; study type: ${studyType}.
+- Screening: all ${papers.length} retrieved records were screened by title/abstract; duplicates removed; inclusion/exclusion per PICO.
+- References: every cited study is listed below in Vancouver style with DOI where available. No DOI links or effect sizes are fabricated.
+
 TASK: Write a structured research report with these sections, using Vancouver-style inline citations ([1], [2]…) mapping to the numbered reference list, and academic tone throughout:
 
 # Automated Research Report
@@ -99,11 +109,8 @@ TASK: Write a structured research report with these sections, using Vancouver-st
 ## Abstract
 Structured: Background, Objective, Methods, Results, Conclusion (~250 words).
 
-## Introduction
-Clinical context, problem significance, and the specific research question.
-
 ## Methods
-Search strategy: databases searched, date range, study-type filter, natural-language query translated to database syntax. Inclusion/exclusion criteria. PRISMA-style flow: identification → screening → eligibility → included. Vancouver-style citation note.
+Search strategy: state the databases searched, date range, study-type filter, natural-language query translated to database syntax, inclusion/exclusion criteria, PRISMA-style flow (identification → screening → eligibility → included), and the Vancouver-style citation note. Reproduce the SEARCH STRATEGY box above verbatim.
 
 ## Results
 Study characteristics table (authors, year, design, population, key finding). Synthesis of findings. Where data permit, effect estimates and confidence intervals. Heterogeneity and limitations of the evidence base.
@@ -115,9 +122,9 @@ Interpretation, comparison with existing evidence, strengths and limitations, cl
 Direct answer to the research question and bottom-line recommendation.
 
 ## References
-Complete Vancouver-style numbered reference list for every cited study (Authors. Title. Journal. Year;Volume(Issue):Pages. DOI).
+Complete Vancouver-style numbered reference list for every cited study (Authors. Title. Journal. Year;Volume(Issue):Pages. DOI). Include only studies actually retrieved above. Do not fabricate references, DOIs, effect sizes, or p-values.
 
-ACADEMIC STANDARDS: Ground every claim in the retrieved studies. Use [AUTHOR TO SPECIFY: …] only when a detail is genuinely missing from the retrieved records. Do not fabricate effect sizes, p-values, or DOI links. If evidence is insufficient, state it explicitly.`;
+ACADEMIC STANDARDS: Ground every claim in the retrieved studies. Use [AUTHOR TO SPECIFY: …] only when a detail is genuinely missing from the retrieved records. If evidence is insufficient, state it explicitly.`;
   };
 
   const runSearch = async () => {
@@ -365,6 +372,31 @@ ACADEMIC STANDARDS: Ground every claim in the retrieved studies. Use [AUTHOR TO 
           <span>{papers.length} studies · {Object.values(perDb).reduce((a, b) => a + b, 0).toLocaleString()} hits</span>
         </div>
       </div>
+
+      {/* Search strategy summary */}
+      {status !== "idle" && papers.length > 0 && (
+        <div className="bg-[#0a1530] border border-blue-800 rounded-lg p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-bold text-white flex items-center gap-2">
+              <Filter size={14} className="text-blue-400" /> Search strategy
+            </h4>
+            <span className="text-[10px] text-blue-400">{selectedDbs.length} database(s) · ${yearFrom || "any"}–${yearTo || "present"} · ${studyType}</span>
+          </div>
+          <div className="space-y-1 text-xs">
+            <div className="text-blue-200 mb-1"><span className="font-bold text-blue-400">Query:</span> &quot;{query}&quot;</div>
+            {selectedDbs.map((db) => {
+              const d = DATABASES.find((x) => x.id === db);
+              return (
+                <div key={db} className="flex gap-1">
+                  <span className="text-blue-400">•</span>
+                  <span className="text-white">{db}</span>
+                  <span className="text-blue-500">— {d ? d.searchHint : "live API search"}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Per-database results */}
       {Object.keys(perDb).length > 0 && (

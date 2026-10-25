@@ -172,9 +172,13 @@ export default function AutomatedSLR() {
   };
 
   const handleToggleScreen = (paper: Paper, include: boolean) => {
-    const screened = state.slrScreenedPapers.map((p) =>
+    // Mark the paper as screened on the master list so the "To Screen" view empties.
+    const screenedPapers = state.slrPapers.map((p) =>
       p.id === paper.id ? { ...p, screened: true, included: include } : p
     );
+    dispatch({ type: "SET_SLR_PAPERS", payload: screenedPapers });
+    // Keep the screened list in sync with the master list.
+    const screened = screenedPapers.map((p) => ({ ...p, screened: true }));
     const included = include
       ? [...state.slrIncludedPapers, { ...paper, included: true }]
       : state.slrIncludedPapers.filter((p) => p.id !== paper.id);

@@ -10,7 +10,6 @@ import { LEVEL_WORD_RANGES } from "@/lib/thesis-types";
 import { openDraft } from "@/lib/opendraft";
 import { generateThesis } from "@/lib/thesis-generator";
 import { scholarCopilot } from "@/lib/scholar-copilot";
-import { formatVancouverList } from "@/lib/references";
 import {
   buildAipochConceptualization,
   alignOutlineToAipochPlan,
@@ -18,6 +17,25 @@ import {
   appraiseAipochEvidenceBase,
   buildAipochEvidenceAppraisalMarkdown,
 } from "@/lib/aipoch-conceptualization";
+
+function buildVancouverReferencesMarkdown(papers: ThesisPaper[], maxReferences: number): string {
+  const list = papers.slice(0, maxReferences);
+  if (list.length === 0) {
+    return "## References\n\nNo references were retrieved for this thesis.";
+  }
+  const lines: string[] = ["## References", ""];
+  list.forEach((p, i) => {
+    const year = p.year ?? "n.d.";
+    const authors = p.authors || "Unknown authors";
+    const title = p.title || "Untitled";
+    const journal = p.journal ? `. <em>${p.journal}</em>` : "";
+    const doi = p.doi ? ` doi:${p.doi}` : "";
+    const url = p.url ? ` [${p.url}]` : "";
+    lines.push(`${i + 1}. ${authors}. ${title}${journal}. ${year}.${doi}${url}.`);
+  });
+  lines.push("");
+  return lines.join("\n");
+}
 
 export interface PipelineDeps {
   aiFn: (prompt: string, opts?: { searchEnabled?: boolean; searchQuery?: string }) => Promise<string>;
@@ -140,7 +158,14 @@ export async function runThesisPipeline(
     fullThesis = `${fullThesis}\n\n---\n\n${evidenceAppraisalMarkdown}`;
   }
 
+  // Append a complete Vancouver-style reference list (with DOI) so every
+  // reference used in the thesis is shown — no hallucinated references.
   const references = papers.slice(0, config.maxReferences || 150);
+  const vancouverReferences = buildVancouverReferencesMarkdown(papers, config.maxReferences || 150);
+  if (vancouverReferences.trim()) {
+    fullThesis = `${fullThesis}\n\n---\n\n${vancouverReferences}`;
+  }
+
   const markdownOutline = outlineResult.markdownOutline;
 
   const stats: any = {
