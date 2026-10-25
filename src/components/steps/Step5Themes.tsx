@@ -3,82 +3,49 @@
 import React, { useState } from "react";
 import { Sparkles, Plus, Trash2, Lightbulb } from "lucide-react";
 import { useApp } from "@/context/AppContext";
+import type { SynthesisRow, Theme } from "@/context/AppContext";
 import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
 import { buildStep5Prompt } from "@/lib/research-skills";
 
-const generateMockThemes = () => {
-  return [
-    {
-      id: `theme-${Date.now()}-1`,
-      title: "Occupational Exposure and Screening Protocol Gaps",
-      description: "Systematic identification of inconsistencies in institutional LTBI screening protocols across healthcare settings, revealing gaps in coverage timing and target population specification.",
-      reasoning: "This theme emerged from 8 of 23 included studies. Three studies reported annual TST-based protocols while 5 used biennial IGRA schedules. The heterogeneity of screening frequency and modality strongly suggests the absence of standardized institutional frameworks in many contexts.",
+const generateMockThemes = (synthesisTable: SynthesisRow[]): Theme[] => {
+  // Derive themes from the actual research gaps recorded in the Step 3 synthesis
+  // table rather than shipping hard-coded demo content. Each synthesis row's
+  // researchGaps field carries "Limitations / Contradictions / Exclusions / Gaps"
+  // plus "Future Work / Recommendations", which are the raw theme material.
+  const gapPhrases = synthesisTable.flatMap((row) => {
+    const text = row.researchGaps || "";
+    return text
+      .split(/\n\s*\n/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  });
+
+  if (gapPhrases.length === 0) {
+    return [
+      {
+        id: `theme-${Date.now()}-1`,
+        title: "Evidence gaps in the included literature",
+        description: "No structured research gaps were extracted in Step 3. Generate a synthesis table first so themes can be grounded in the included papers.",
+        reasoning: "Fallback theme created because the synthesis table contained no research-gap data.",
+        selected: false,
+      },
+    ];
+  }
+
+  return gapPhrases.slice(0, 10).map((gap, i) => {
+    const title = gap
+      .replace(/^(Limitations|Contradictions|Exclusion criteria|Gaps|Future Work\s*\/\s*Recommendations):\s*/i, "")
+      .replace(/[|;].*$/, "")
+      .trim()
+      .slice(0, 80) || `Research theme ${i + 1}`;
+    return {
+      id: `theme-${Date.now()}-${i}`,
+      title,
+      description: gap.slice(0, 200),
+      reasoning: "Derived from the research-gaps column of the Step 3 evidence synthesis table.",
       selected: false,
-    },
-    {
-      id: `theme-${Date.now()}-2`,
-      title: "Structural Barriers to Screening Uptake",
-      description: "Examination of institutional, geographical, and socioeconomic barriers that impede HCW access to structured LTBI screening programs in both LMIC and HIC settings.",
-      reasoning: "Extracted synthesis identified 'scheduling inflexibility', 'geographic distance', and 'cost concerns' as recurrent friction points. Notably, mobile van initiatives and digital scheduling tools were repeatedly cited as effective mitigants, pointing to a broader category of access-related determinants.",
-      selected: false,
-    },
-    {
-      id: `theme-${Date.now()}-3`,
-      title: "Diagnostic Modality Selection: IGRA vs. TST Trade-offs",
-      description: "Analysis of the clinical, operational, and economic factors influencing the selection of IGRA versus TST as the preferred screening modality in different institutional contexts.",
-      reasoning: "Of the 12 studies reporting diagnostic accuracy comparisons, 9 favored IGRA on specificity grounds. Cost-effectiveness data from Nigeria, Brazil, and India independently confirmed IGRA dominance at national income-level thresholds—suggesting translatability of the finding across socio-economic contexts.",
-      selected: false,
-    },
-    {
-      id: `theme-${Date.now()}-4`,
-      title: "Preventive Therapy Completion and Adherence",
-      description: "Synthesis of evidence on factors influencing completion rates of isoniazid preventive therapy (IPT) and rifapentine-based regimens among HCWs.",
-      reasoning: "Completion rates varied from 38% (unmonitored self-administered IPT) to 89% (directly observed therapy with digital reminders). The variation is largely attributable to monitoring intensity and patient–provider relationship quality, underscoring the design priority of adherence support systems.",
-      selected: false,
-    },
-    {
-      id: `theme-${Date.now()}-5`,
-      title: "Health System Factors and IPC Infrastructure",
-      description: "The influence of infection prevention and control (IPC) infrastructure—including ventilation standards, N95 availability, and institutional IPC budget—moderates LTBI transmission risk within healthcare facilities.",
-      reasoning: "Three facility-level studies found that HCWs in wards with HEPA filtration and monitored negative-pressure rooms had 60% lower conversion rates than those in standard airflow settings. IPC budget per bed demonstrated a dose-response relationship with LTBI incidence.",
-      selected: false,
-    },
-    {
-      id: `theme-${Date.now()}-6`,
-      title: "Digital Health Interventions for Contact Tracing",
-      description: "Role of mobile applications, SMS reminders, and biometric ID-linked patient tracking in improving the efficiency and completeness of TB contact tracing programs.",
-      reasoning: "Studies employing digital tools reported 35–47% improvements in contact tracing completion, with chatbot-based pre-screening reducing in-person queue times by 60%. These innovations were particularly impactful in high-density urban settings.",
-      selected: false,
-    },
-    {
-      id: `theme-${Date.now()}-7`,
-      title: "Economic Evaluation and Cost-Effectiveness Evidence",
-      description: "Systematic assessment of the economic burden of LTBI screening programs and the cost-effectiveness of different strategies from LMIC and HIC payer perspectives.",
-      reasoning: "Meta-regression of 4 cost-effectiveness analyses indicated ICERs ranging from $680/QALY (Ethiopia) to $4,100/QALY (UK private payer perspective). Key cost drivers were personnel time for TST reading (vs. single-visit IGRA) and equipment depreciation for mobile van services.",
-      selected: false,
-    },
-    {
-      id: `theme-${Date.now()}-8`,
-      title: "Stigma, Disclosure, and Psychological Impact",
-      description: "Psychosocial dimensions of LTBI diagnosis among HCWs, including internalized stigma, workplace disclosure concerns, and mental health sequelae.",
-      reasoning: "Qualitative syntheses from 4 studies revealed a consistent pattern of anxiety, fear of assignment restrictions, and partial disclosure to colleagues and family members. Stigma was mediated by perceived institutional trust and privacy assurances during screening counseling.",
-      selected: false,
-    },
-    {
-      id: `theme-${Date.now()}-9`,
-      title: "Intersection of Migration, Mobility, and LTBI Risk",
-      description: "Examination of how HCW migration patterns, training in endemic regions, and return migration pathways contribute to differential LTBI risk profiles.",
-      reasoning: "Three studies highlighted that domestically trained HCWs returning from endemic rotations presented with LTBI prevalence 2.3× higher than non-mobile peers. Pre-departure and post-return screening protocols were inconsistently applied across 7 countries studied.",
-      selected: false,
-    },
-    {
-      id: `theme-${Date.now()}-10`,
-      title: "Methodological Heterogeneity and Evidence Quality",
-      description: "Assessment of the quality, risk of bias, and methodological variation across primary studies included in the synthesis—highlighting where stronger evidence is needed.",
-      reasoning: "Using the Newcastle-Ottawa Scale, only 5 of 23 included studies scored ≥7. Common limitations included convenience sampling, non-blinded outcome assessment, lack of power calculation, and inadequate handling of attrition in longitudinal designs.",
-      selected: false,
-    },
-  ];
+    };
+  });
 };
 
 export default function Step5Themes() {
@@ -152,7 +119,7 @@ export default function Step5Themes() {
       dispatch({ type: "SET_THEMES", payload: normalizedThemes });
     } catch (err: any) {
       console.error("Theme generation failed:", err);
-      const fallback = generateMockThemes();
+      const fallback = generateMockThemes(state.synthesisTable);
       setThemes(fallback);
       dispatch({ type: "SET_THEMES", payload: fallback });
     } finally {

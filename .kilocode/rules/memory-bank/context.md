@@ -356,6 +356,13 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
   - [x] **Automated SLR — Select-all toggle + AI bias**: Added "Select All → Include" toggle in Step 4 screening. Step 6 Quality Assessment now runs automated AI bias assessment (Robtreviewer/Robvis style) with RoB-2/NOS/AMSTAR-2/QUADAS-2 frameworks, with manual override per paper.
   - [x] Verified: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
 
+## Research Pipeline — Themes Grounded in Synthesis Table + Per-Style References + OpenDraft Report (2026-10-25)
+
+- [x] **Step 5 Generate Themes no longer ships a hard-coded demo set**: `src/components/steps/Step5Themes.tsx` `generateMockThemes()` now takes `synthesisTable` and derives themes from each row's `researchGaps` field (Limitations / Contradictions / Exclusions / Gaps + Future Work / Recommendations). Falls back to a single "no research-gap data" theme when the synthesis table is empty, instead of the previous LTBI-specific demo themes. `bun typecheck` ✅, `bun lint` ✅.
+- [x] **Thesis Generator references use the selected citation style**: `src/lib/references.ts` gained `formatApaReference`, `formatIeeeReference`, `formatMlaReference`, `formatHarvardReference` plus `formatReferenceByStyle`/`formatReferenceListByStyle` (Vancouver was the only formatter before). `src/components/pipelines/ThesisGenerator.tsx` now imports `formatReferenceByStyle` and renders each reference via `config.style` (APA / IEEE / MLA / Harvard / Vancouver), with the header showing the selected style. `bun typecheck` ✅, `bun lint` ✅.
+- [x] **Evidence Synthesis & Meta-analysis final report references OpenDraft**: `src/lib/synthesis-report-generator.ts` adds OpenDraft to the title-page "Tools used" line and the Methods "Tools and Software" table (linking https://github.com/federicodeponte/opendraft). `bun typecheck` ✅, `bun lint` ✅.
+- [x] Database searching already uses per-database schemes (`buildDatabaseSearch` in `src/lib/database-apis.ts`: PubMed MeSH+Title/Abstract, Europe PMC TITLE/ABST, Crossref query.bibliographic, arXiv `all:`, DOAJ `bibjson.title`/`bibjson.abstract`, Zenodo, ClinicalTrials.gov `query.term`), with semantic-search toggle; keywords/meaning are matched in title/abstract per each database's scheme.
+
 - [x] Base Next.js 16 setup with App Router
 - [x] TypeScript configuration with strict mode
 - [x] Tailwind CSS 4 integration

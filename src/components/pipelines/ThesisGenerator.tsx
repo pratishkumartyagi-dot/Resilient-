@@ -9,6 +9,7 @@ import { useApp } from "@/context/AppContext";
 import { runThesisPipeline, buildDefaultConfig } from "@/lib/thesis-pipeline";
 import { buildThesisAiFn, searchThesisPapers, toThesisPaper } from "@/lib/thesis-ai";
 import type { ThesisGeneratorConfig } from "@/lib/thesis-types";
+import { formatReferenceByStyle, type CitationStyle } from "@/lib/references";
 import {
   downloadMarkdownAsWord,
   downloadMarkdownAsPDF,
@@ -827,16 +828,27 @@ export default function ThesisGenerator() {
               <div className="flex items-center justify-between mb-3">
                 <h4 className="text-sm font-bold text-white flex items-center gap-2">
                   <FileText size={14} className="text-blue-400" />
-                  References (Vancouver style)
+                  References ({config.style?.toUpperCase() || "Vancouver"} style)
                 </h4>
                 <span className="text-[10px] text-blue-400">{refsList.length} references</span>
               </div>
               <div className="text-sm text-blue-100 space-y-1 max-h-[300px] overflow-y-auto font-serif leading-relaxed">
-                {refsList.map((r: any, i: number) => (
-                  <div key={i} className="text-blue-200">
-                    {i + 1}. {r.authors}. {r.title}. {r.journal || "Unknown journal"}. {r.year || new Date().getFullYear()}.{r.doi ? ` doi:${r.doi}` : ""}.
-                  </div>
-                ))}
+                {refsList.map((r: any, i: number) => {
+                  const style = (config.style || "vancouver") as CitationStyle;
+                  const formatted = formatReferenceByStyle(style, {
+                    authors: r.authors,
+                    title: r.title,
+                    journal: r.journal,
+                    year: r.year,
+                    doi: r.doi,
+                  });
+                  return (
+                    <div key={i} className="text-blue-200">
+                      {style === "vancouver" || style === "ieee" ? `${i + 1}. ` : ""}
+                      {formatted}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

@@ -413,7 +413,7 @@ Effect estimates were extracted for ${effectSizes.length || k} studies. After en
 - **Generated:** ${generatedDate}
 - **PRISMA 2020 compliant:** Yes
 - **Registration:** Not applicable / PROSPERO CRDXXXXXXXX
-- **Tools used:** awesome-evidence-synthesis methodology, meta / metafor (R), robvis, PRISMA 2020, forestplot, GRADE
+- **Tools used:** awesome-evidence-synthesis methodology, meta / metafor (R), robvis, PRISMA 2020, forestplot, GRADE, OpenDraft
 
 ---
 
@@ -501,6 +501,7 @@ ${isDtA ? `| STARD | DTA reporting guideline | https://www.equator-network.org/r
 | meta-pipe | End-to-end meta-analysis pipeline alignment | https://github.com/htlin222/meta-pipe |
 | forestplot | Publication-ready forest plots | https://cran.r-project.org/web/packages/forestplot/ |
 | OpenMEE / JASP | Alternative meta-analysis environments | https://besjournals.onlinelibrary.wiley.com/doi/10.1111/2041-210X.12708 |
+| OpenDraft | Evidence synthesis report drafting & manuscript assembly | https://github.com/federicodeponte/opendraft |
 
 ### 2.7 Pipeline Alignment
 
