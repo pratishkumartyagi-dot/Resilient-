@@ -137,32 +137,124 @@ function buildLocalOutline(prompt: string): string {
   });
 }
 
+function chapterSectionsForLevel(level: string, chapterTitle: string): string[] {
+  const common = ["Introduction", "Background and Context", "Critical Analysis", "Implications", "Conclusion"];
+  const levelCount = level === "phd" ? 6 : level === "master" ? 5 : level === "bachelor" ? 4 : 3;
+  const extended = ["Theoretical Framework", "Methodological Considerations", "Evidence Synthesis", "Discussion"];
+  const all = [...common, ...extended];
+  return all.slice(0, Math.min(levelCount, all.length));
+}
+
+function academicParagraph(sectionTitle: string, topic: string, level: string, style: string, chapterTitle: string, idx: number, total: number): string {
+  const starters = [
+    `In the context of ${topic.toLowerCase()}, the ${sectionTitle.toLowerCase()} of this chapter provides a foundational perspective for the ${level} level of inquiry.`,
+    `The ${sectionTitle.toLowerCase()} examined herein addresses the central concerns of ${chapterTitle.toLowerCase()} as they relate to ${topic.toLowerCase()}.`,
+    `Drawing on established scholarly conventions, this section considers the ${sectionTitle.toLowerCase()} dimensions of ${topic.toLowerCase()} within a ${level} academic framework.`,
+    `A systematic examination of ${sectionTitle.toLowerCase()} reveals important considerations for the investigation of ${topic.toLowerCase()}.`,
+    `The scholarly literature informs the ${sectionTitle.toLowerCase()} presented in this chapter, situating ${topic.toLowerCase()} within broader academic debates.`,
+    `Building on prior scholarship, this section advances the ${sectionTitle.toLowerCase()} argument through evidence-based reasoning appropriate to ${level} study.`,
+  ];
+
+  const bodies = [
+    `This discussion draws upon peer-reviewed sources and theoretical frameworks appropriate to the ${style.toUpperCase()} citation convention. The analysis proceeds by identifying key themes, evaluating their relevance to the research questions, and considering the implications for both theory and practice.`,
+    `Evidence from the literature indicates that multiple factors intersect to shape the current understanding of this topic. The methodological considerations outlined in this section reflect the rigour expected at the ${level} level, with attention to validity, reliability, and ethical appropriateness.`,
+    `Critically, the existing body of evidence reveals both consistencies and tensions across studies. These findings suggest that ${topic.toLowerCase()} cannot be understood through a single lens, but rather requires an integrated analysis that accounts for contextual variation and disciplinary perspectives.`,
+    `The implications of this analysis extend beyond the immediate research context. For practitioners, policymakers, and researchers, the findings suggest actionable directions while acknowledging the inherent limitations of the available evidence.`,
+    `Future work in this area should build upon the foundations established here, addressing the gaps identified and refining the conceptual framework through further empirical investigation.`,
+    `The comparative analysis of available evidence highlights areas of convergence and divergence, offering a nuanced basis for drawing conclusions about ${topic.toLowerCase()}.`,
+  ];
+
+  const closers = [
+    `Together, these considerations establish the ${sectionTitle.toLowerCase()} as a critical component of the ${chapterTitle.toLowerCase()}, supporting the overall argument of this ${level} thesis.`,
+    `The insights developed in this section contribute to the cumulative argument of the chapter and provide a platform for the sections that follow.`,
+    `By situating ${topic.toLowerCase()} within the ${sectionTitle.toLowerCase()} framework, this section advances scholarly understanding while remaining cognisant of the boundaries of the available evidence.`,
+  ];
+
+  const starter = starters[idx % starters.length];
+  const body = bodies[idx % bodies.length];
+  const closer = closers[idx % closers.length];
+  return `${starter} ${body} ${closer}`;
+}
+
 function buildLocalChapter(prompt: string): string {
   const topic = extractTopic(prompt);
   const level = extractLevel(prompt);
   const style = extractStyle(prompt);
   const language = extractLanguage(prompt);
 
-  // Try to extract chapter title from prompt
   const chapterMatch = prompt.match(/CHAPTER:\s*(.+) \(Chapter/i);
   const chapterTitle = chapterMatch ? chapterMatch[1].trim() : "Chapter";
   const targetMatch = prompt.match(/CHAPTER WORD TARGET:\s*(\d+)/i);
   const target = targetMatch ? parseInt(targetMatch[1], 10) : 2000;
 
-  const paras = Math.ceil(target / 150);
+  const sectionTitles = chapterSectionsForLevel(level, chapterTitle);
+  const wordsPerSection = Math.floor(target / Math.max(sectionTitles.length, 1));
+
   const body: string[] = [];
   body.push(`# ${chapterTitle}\n`);
-  body.push(`## Introduction\n\nThis chapter examines ${topic.toLowerCase()} with particular attention to the ${chapterTitle.toLowerCase()} dimension. The discussion is framed within a ${level} level of academic inquiry and follows ${style.toUpperCase()} citation conventions.`);
-  body.push(`## Main Discussion\n\nThe central argument of this chapter concerns the relationship between ${topic.toLowerCase()} and ${chapterTitle.toLowerCase()}. Drawing on existing literature, the chapter develops a structured analysis that addresses the research questions and situates the findings within the broader academic context.`);
-  body.push(`## Analysis\n\nA detailed analysis is presented below. The evidence is considered systematically, with attention to methodological rigour and theoretical coherence. Key themes are identified and discussed in relation to the study objectives.`);
-  body.push(`## Conclusion\n\nIn conclusion, this chapter demonstrates that ${topic.toLowerCase()} is a significant area of inquiry. The findings contribute to the existing body of knowledge and suggest directions for further research. The implications for practice and policy are considered, and limitations are acknowledged.`);
+
+  let wordsSoFar = 0;
+  const sectionResults: Array<{ id: string; title: string; content: string; wordTarget: number }> = [];
+
+  for (let si = 0; si < sectionTitles.length; si++) {
+    const sectionTitle = sectionTitles[si];
+    const isLast = si === sectionTitles.length - 1;
+    const sectionTarget = isLast ? Math.max(target - wordsSoFar, 0) : wordsPerSection;
+
+    body.push(`## ${sectionTitle}\n`);
+
+    let sectionText = "";
+    let sectionWords = 0;
+    let paraIdx = 0;
+
+    // Generate paragraphs until the section's word target is met.
+    while (sectionWords < sectionTarget) {
+      const para = academicParagraph(sectionTitle, topic, level, style, chapterTitle, paraIdx, paraIdx + 1);
+      const paraWords = para.split(/\s+/).length;
+      body.push(para);
+      sectionText += para + "\n\n";
+      sectionWords += paraWords;
+      wordsSoFar += paraWords;
+      paraIdx++;
+    }
+
+    sectionResults.push({
+      id: `s${si + 1}`,
+      title: sectionTitle,
+      content: sectionText.trim(),
+      wordTarget: Math.floor(sectionTarget / Math.max(paraIdx, 1)),
+    });
+  }
+
+  // If still short of the overall target, append a concluding synthesis section.
+  if (wordsSoFar < target) {
+    const deficit = target - wordsSoFar;
+    const synthTitle = "Synthesis and Concluding Remarks";
+    body.push(`## ${synthTitle}\n`);
+    let synthWords = 0;
+    let paraIdx = 0;
+    while (synthWords < deficit) {
+      const para = academicParagraph(synthTitle, topic, level, style, chapterTitle, paraIdx, paraIdx + 1);
+      const paraWords = para.split(/\s+/).length;
+      body.push(para);
+      synthWords += paraWords;
+      wordsSoFar += paraWords;
+      paraIdx++;
+    }
+    sectionResults.push({
+      id: `s${sectionResults.length + 1}`,
+      title: synthTitle,
+      content: "",
+      wordTarget: Math.floor(deficit / Math.max(paraIdx, 1)),
+    });
+  }
 
   const content = body.join("\n\n");
   const wordCount = content.split(/\s+/).length;
 
   return JSON.stringify({
     content,
-    sections: body.map((b, i) => ({ id: `s${i + 1}`, title: b.match(/^#+\s(.+)/)?.[1] || `Section ${i + 1}`, content: b, wordTarget: Math.floor(target / body.length) })),
+    sections: sectionResults,
     wordCount,
     citations: [],
   });

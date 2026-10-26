@@ -450,6 +450,7 @@ interface FetchContext {
   query: string;
   yearFrom?: string;
   yearTo?: string;
+  studyType?: string;
   limit: number;
 }
 
@@ -535,7 +536,7 @@ export function buildDatabaseSearch(
           return meSH ? `(${quote(meSH)}[MeSH Terms] OR ${free})` : free;
         });
         let term = mesh.join(joiner) || query;
-        const filter = buildStudyTypeFilter(options.studyType);
+      const filter = buildStudyTypeFilter(options.studyType, "pubmed");
         if (filter) term = `(${term}) AND ${filter}`;
         if (options.yearFrom || options.yearTo) {
           const from = options.yearFrom ? `${options.yearFrom}/01/01` : "1800/01/01";
@@ -551,6 +552,8 @@ export function buildDatabaseSearch(
       // (for preprints) the source filter.
       const parts = terms.map((t) => t);
       let term = parts.join(joiner) || query;
+      const filter = buildStudyTypeFilter(options.studyType, "europepmc");
+      if (filter) term = `(${term}) AND ${filter}`;
       if (options.yearFrom || options.yearTo) {
         const from = options.yearFrom ? `${options.yearFrom}-01-01` : "1800-01-01";
         const to = options.yearTo ? `${options.yearTo}-12-31` : `${new Date().getFullYear()}-12-31`;
@@ -661,8 +664,22 @@ const STUDY_TYPE_FILTERS: Record<string, string> = {
   "Qualitative Study": 'qualitative research[Publication Type]',
 };
 
-function buildStudyTypeFilter(studyType?: string): string | null {
+const EPMC_STUDY_TYPE_FILTERS: Record<string, string> = {
+  "Randomized Controlled Trial (RCT)": '"randomized controlled trial"',
+  "Systematic Review": '"systematic review"',
+  "Meta-Analysis": '"meta-analysis"',
+  "Case Report / Case Series": '"case report"',
+  "Clinical Trial": '"clinical trial"',
+  "Review Article": '"review"',
+  "Cohort Study": '"cohort study"',
+  "Case-Control Study": '"case-control"',
+  "Cross-Sectional Study": '"cross-sectional"',
+  "Qualitative Study": '"qualitative"',
+};
+
+function buildStudyTypeFilter(studyType?: string, scheme: SearchScheme = "pubmed"): string | null {
   if (!studyType || studyType === "All Study Types") return null;
+  if (scheme === "europepmc") return EPMC_STUDY_TYPE_FILTERS[studyType] || null;
   return STUDY_TYPE_FILTERS[studyType] || null;
 }
 
@@ -740,7 +757,6 @@ export async function fetchPubMedBrowserless(query: string, yearFrom?: string, y
     }
   }
 
-  void studyType;
   return papers;
 }
 
@@ -1523,7 +1539,7 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "PubMed",
     url: "https://pubmed.ncbi.nlm.nih.gov/",
     description: "NLM E-utilities search over MEDLINE/PMC (NCBI_API_KEY only raises the request rate)",
-    search: (ctx) => fetchPubMedBrowserless(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchPubMedBrowserless(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit),
   },
   {
     id: "OpenAlex",
@@ -1533,13 +1549,13 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     requiresKey: "OPENALEX_API_KEY",
     keyHint: "Without a key the API answers HTTP 429 because the shared-IP daily budget is exhausted.",
     rateLimitHint: "the shared-IP daily budget is exhausted; set OPENALEX_API_KEY in .env.local to lift the limit",
-    search: (ctx) => fetchOpenAlex(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, { limit: ctx.limit }),
+    search: (ctx) => fetchOpenAlex(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, { limit: ctx.limit }),
   },  {
     id: "Europe PMC",
     label: "Europe PMC",
     url: "https://europepmc.org/",
     description: "Europe PMC literature database",
-    search: (ctx) => fetchEuropePMC(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchEuropePMC(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit),
   },
   {
     id: "DOAJ",
@@ -1548,42 +1564,42 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     description: "Directory of Open Access Journals",
     disabled: true,
     disabledReason: "The DOAJ API answers HTTP 502 for automated access from this environment. Re-enable (disabled: false) once doaj.org serves the API again.",
-    search: (ctx) => fetchDoaj(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchDoaj(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit),
   },
   {
     id: "bioRxiv",
     label: "bioRxiv",
     url: "https://www.biorxiv.org/",
     description: "bioRxiv preprints (via the Europe PMC preprint index)",
-    search: (ctx) => fetchBioRxiv(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchBioRxiv(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit),
   },
   {
     id: "medRxiv",
     label: "medRxiv",
     url: "https://www.medrxiv.org/",
     description: "medRxiv preprints (via the Europe PMC preprint index)",
-    search: (ctx) => fetchMedRxiv(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchMedRxiv(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit),
   },
   {
     id: "Crossref",
     label: "Crossref",
     url: "https://www.crossref.org/",
     description: "Crossref DOI metadata registry",
-    search: (ctx) => fetchCrossref(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchCrossref(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit),
   },
   {
     id: "arXiv",
     label: "arXiv",
     url: "https://arxiv.org/",
     description: "arXiv preprint repository",
-    search: (ctx) => fetcharXiv(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetcharXiv(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit),
   },
   {
     id: "OpenAIRE",
     label: "OpenAIRE",
     url: "https://www.openaire.eu/",
     description: "OpenAIRE research graph",
-    search: (ctx) => fetchOpenAIRE(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchOpenAIRE(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit),
   },
   {
     id: "dblp",
@@ -1592,14 +1608,14 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     description: "dblp computer science bibliography",
     disabled: true,
     disabledReason: "dblp.org serves a bot-protection page to automated clients, so no records can be retrieved. Re-enable (disabled: false) if dblp.org allows this network again.",
-    search: (ctx) => fetchDblp(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchDblp(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit),
   },
   {
     id: "Zenodo",
     label: "Zenodo",
     url: "https://zenodo.org/",
     description: "Zenodo open repository",
-    search: (ctx) => fetchZenodo(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchZenodo(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit),
   },
   {
     id: "Google Scholar",
@@ -1608,7 +1624,7 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     description: "Scholar index served by the Semantic Scholar Graph API (no public Google Scholar API)",
     disabled: true,
     disabledReason: "Google Scholar has no public API: this entry resolved through the same Semantic Scholar Graph API as the 'Semantic Scholar' entry, so it was a duplicate that only added a second failing call.",
-    search: (ctx) => fetchGoogleScholarBrowserless(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchGoogleScholarBrowserless(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit),
   },
   {
     id: "Semantic Scholar",
@@ -1618,14 +1634,14 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     requiresKey: "SEMANTIC_SCHOLAR_API_KEY",
     keyHint: "Without a key the Graph API answers HTTP 429 because the shared-IP quota is exhausted.",
     rateLimitHint: "the shared-IP quota is exhausted; set SEMANTIC_SCHOLAR_API_KEY in .env.local to lift the limit",
-    search: (ctx) => fetchSemanticScholarBrowserless(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchSemanticScholarBrowserless(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit),
   },
   {
     id: "ClinicalTrials.gov",
     label: "ClinicalTrials.gov",
     url: "https://clinicaltrials.gov/",
     description: "ClinicalTrials.gov registry API v2",
-    search: (ctx) => fetchClinicalTrialsGov(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchClinicalTrialsGov(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit),
   },
   {
     id: "Cochrane Library",
@@ -1633,7 +1649,7 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     url: "https://www.cochranelibrary.com/",
     description: "Cochrane systematic reviews (web index, requires TAVILY_API_KEY)",
     requiresKey: "TAVILY_API_KEY",
-    search: (ctx) => fetchCochraneLibrary(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchCochraneLibrary(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit),
   },
   {
     id: "paper-search-mcp",
@@ -1642,7 +1658,7 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     description: "Local paper-search-mcp bridge (optional external tool)",
     disabled: true,
     disabledReason: "Optional local bridge: it requires the paper-search-mcp binary to be installed. Set PAPER_SEARCH_MCP_BIN and re-enable (disabled: false) to use it.",
-    search: (ctx) => fetchPaperSearchMcp(ctx.query, "all", ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchPaperSearchMcp(ctx.query, "all", ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit),
   },
 ];
 
@@ -1740,6 +1756,7 @@ export async function searchDatabases(databases: string[], options: SearchOption
           query: options.query,
           yearFrom: options.yearFrom,
           yearTo: options.yearTo,
+          studyType: options.studyType,
           limit,
         }),
         perDatabaseTimeout,

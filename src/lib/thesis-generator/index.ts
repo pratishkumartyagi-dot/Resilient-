@@ -125,8 +125,13 @@ export async function generateThesis(input: ThesisGeneratorInput): Promise<Thesi
     let chapterContent: any = null;
     while (retries < 2) {
       try {
+        // On retry, raise the word target so the generator produces more
+        // content instead of repeating the same short output.
+        const retryChapter = retries > 0
+          ? { ...chapter, wordTarget: Math.round((chapter.wordTarget || target) * 1.35) }
+          : chapter;
         const text = await withTimeout(
-          aiFn(chapterPrompt(chapter, papers, config, i + 1)),
+          aiFn(chapterPrompt(retryChapter, papers, config, i + 1)),
           CHAPTER_TIMEOUT_MS,
           `Chapter ${chapter.title} timed out after ${Math.round(CHAPTER_TIMEOUT_MS / 1000)}s`
         );
