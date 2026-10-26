@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
-import { Settings, BookOpen, Microscope, ClipboardCheck, Cpu } from "lucide-react";
+import { Settings, Microscope, ClipboardCheck, Cpu } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { APP_VERSION } from "@/lib/version";
 import type { AiFallbackEvent } from "@/lib/ai";
@@ -61,16 +61,6 @@ export default function Header() {
                 : `${aiFallback.failedProvider ?? "Provider"} unavailable → ${aiFallback.provider} used`}
             </span>
           )}
-          <button
-            onClick={() => {
-              const event = new CustomEvent("open-thesis");
-              window.dispatchEvent(event);
-            }}
-            className="p-2 rounded-lg bg-blue-900/40 text-blue-300 hover:bg-blue-900/60"
-            title="Thesis Generator"
-          >
-            <BookOpen size={20} />
-          </button>
           <button
             onClick={() => {
               const event = new CustomEvent("open-appraisal");

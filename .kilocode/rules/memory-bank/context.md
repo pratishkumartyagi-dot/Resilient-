@@ -296,6 +296,14 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
 
 ## Recently Completed
 
+- [x] **Thesis generator removed (2026-10-26)**: Removed all thesis generator code from the repository:
+  - Deleted: `src/lib/thesis-generator/index.ts`, `src/lib/thesis-pipeline/index.ts`, `src/lib/thesis-ai.ts`, `src/lib/thesis-nursestack.ts`, `src/lib/thesis-types.ts`
+  - Deleted: `src/lib/opendraft/index.ts`, `src/lib/humaniser/index.ts`, `src/lib/scholar-copilot/index.ts` (only used by thesis pipeline)
+  - Deleted: `src/components/pipelines/ThesisGenerator.tsx`, `src/app/api/thesis-generate/route.ts`
+  - Updated: `src/app/page.tsx` (removed ThesisGenerator import, "thesis" tab case, "open-thesis" event listener)
+  - Updated: `src/components/Header.tsx` (removed Thesis Generator button, BookOpen import)
+  - Updated: `src/components/TopTabs.tsx` (removed Thesis Generator tab, BookOpen import)
+  - `bun typecheck` ✅, `bun lint` ✅
 - [x] **Statistical Analysis tab — fg-data-profiling style profiling (2026-10-20, v0.1.9)**
   - [x] New `src/lib/data-profiling/` module implementing the fg-data-profiling feature set: type inference, univariate/multivariate analysis, alerts engine, missing-value patterns, duplicate detection, time-series diagnostics (ACF/PACF, trend, seasonality), text analysis (scripts, blocks, casing, common words), dataset comparison, HTML + JSON report export.
   - [x] New `src/components/DataProfilePanels.tsx` rendering Overview cards, Alerts table, Variable types, Numerical/Categorical/Temporal/Text variables, histograms (recharts), correlations (Pearson + Spearman), PCA, duplicates, time-series sparklines and Reproduction section.
