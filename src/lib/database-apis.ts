@@ -87,7 +87,7 @@ export function classifyStudyType(title: string, abstract: string): string {
 }
 
 const DEFAULT_LIMIT_PER_DATABASE = 200;
-const MAX_LIMIT_PER_DATABASE = 500;
+const MAX_LIMIT_PER_DATABASE = 1000;
 /** Hard ceiling for a single database, so one slow upstream cannot stall the search. */
 const DATABASE_TIMEOUT_MS = 90000;
 /** Overall wall-clock budget for one multi-database search. */
@@ -634,6 +634,10 @@ const MESH_TERMS: Record<string, string> = {
   pneumonia: "Pneumonia",
   "heart failure": "Heart Failure",
   "myocardial infarction": "Myocardial Infarction",
+  "cardiovascular-kidney-metabolic": "Cardiovascular Diseases",
+  "cardio kidney metabolic": "Cardiovascular Diseases",
+  ckm: "Cardiovascular Diseases",
+  "cardiovascular kidney metabolic": "Cardiovascular Diseases",
   stroke: "Stroke",
   nursing: "Nursing",
   "nurse practitioners": "Nurse Practitioners",
@@ -686,19 +690,52 @@ function buildStudyTypeFilter(studyType?: string, scheme: SearchScheme = "pubmed
 export async function fetchPubMedBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
   const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
   const apiKey = process.env.NCBI_API_KEY || process.env.PUBMED_API_KEY;
-  const toolParams = new URLSearchParams({ db: "pubmed", retmode: "json", retmax: String(maxResults), sort: "relevance" });
-  if (apiKey) toolParams.set("api_key", apiKey);
-  toolParams.set("tool", "resilient_research_app");
-  toolParams.set("email", CONTACT_EMAIL);
 
-  // PubMed scheme: MeSH + [Title/Abstract] + publication-type and date filters.
-  const term = buildDatabaseSearch("PubMed", query, { yearFrom, yearTo, studyType }).term;
-  toolParams.set("term", term);
+  const runSearch = async (term: string): Promise<string[]> => {
+    const toolParams = new URLSearchParams({ db: "pubmed", retmode: "json", retmax: String(maxResults), sort: "relevance" });
+    if (apiKey) toolParams.set("api_key", apiKey);
+    toolParams.set("tool", "resilient_research_app");
+    toolParams.set("email", CONTACT_EMAIL);
+    toolParams.set("term", term);
 
-  const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?${toolParams.toString()}`;
-  const searchData = await httpJson<any>(searchUrl, { timeoutMs: 30000, retries: 3 });
-  const idlist: string[] = searchData?.esearchresult?.idlist || [];
-  if (!Array.isArray(idlist) || idlist.length === 0) return [];
+    const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?${toolParams.toString()}`;
+    const searchData = await httpJson<any>(searchUrl, { timeoutMs: 30000, retries: 3 });
+    const idlist: string[] = searchData?.esearchresult?.idlist || [];
+    return Array.isArray(idlist) ? idlist : [];
+  };
+
+  // Build the primary (strict AND) PubMed term.
+  const primaryTerm = buildDatabaseSearch("PubMed", query, { yearFrom, yearTo, studyType }).term;
+
+  // Build a broader OR fallback: terms OR-ed within [Title/Abstract], plus MeSH if recognised.
+  const terms = splitTerms(query);
+  const meshParts: string[] = [];
+  const freeParts: string[] = [];
+  for (const t of terms) {
+    const meSH = MESH_TERMS[t.toLowerCase()];
+    if (meSH) meshParts.push(`${quote(meSH)}[MeSH Terms]`);
+    freeParts.push(`${quote(t)}[Title/Abstract]`);
+  }
+  const yearFilter = buildStudyTypeFilter(studyType, "pubmed");
+  let broaderTerm = `(${freeParts.join(" OR ")})`;
+  if (meshParts.length) broaderTerm = `(${meshParts.join(" OR ")}) OR ${broaderTerm}`;
+  if (yearFilter) broaderTerm = `(${broaderTerm}) AND ${yearFilter}`;
+  if (yearFrom || yearTo) {
+    const from = yearFrom ? `${yearFrom}/01/01` : "1800/01/01";
+    const to = yearTo ? `${yearTo}/12/31` : `${new Date().getFullYear()}/12/31`;
+    broaderTerm = `(${broaderTerm}) AND ("${from}"[Date - Publication] : "${to}"[Date - Publication])`;
+  }
+
+  let idlist = await runSearch(primaryTerm);
+  let usedTerm = primaryTerm;
+
+  // Query broadening fallback: if the strict AND query returns nothing, retry with OR logic.
+  if (!idlist.length) {
+    idlist = await runSearch(broaderTerm);
+    usedTerm = broaderTerm;
+  }
+
+  if (!idlist.length) return [];
 
   const papers: Paper[] = [];
   const chunkSize = 100;
