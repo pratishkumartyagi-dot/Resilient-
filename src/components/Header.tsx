@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
-import { Settings, Microscope, ClipboardCheck, Cpu } from "lucide-react";
+import { Settings, Microscope, ClipboardCheck, Cpu, BookOpen, FileText } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { APP_VERSION } from "@/lib/version";
 import type { AiFallbackEvent } from "@/lib/ai";
@@ -63,6 +63,27 @@ export default function Header() {
           )}
           <button
             onClick={() => {
+              const event = new CustomEvent("open-thesis-generator");
+              window.dispatchEvent(event);
+            }}
+            className="p-2 rounded-lg bg-blue-900/40 text-blue-300 hover:bg-blue-900/60"
+            title="Thesis Generator"
+          >
+            <BookOpen size={20} />
+          </button>
+          <button
+            onClick={() => {
+              const event = new CustomEvent("open-evidence-synthesis");
+              window.dispatchEvent(event);
+            }}
+            className="p-2 rounded-lg bg-emerald-900/40 text-emerald-300 hover:bg-emerald-900/60"
+            title="Evidence Synthesis"
+            aria-label="Evidence Synthesis"
+          >
+            <FileText size={20} />
+          </button>
+          <button
+            onClick={() => {
               const event = new CustomEvent("open-appraisal");
               window.dispatchEvent(event);
             }}
@@ -71,16 +92,6 @@ export default function Header() {
             aria-label="Critical Appraisal"
           >
             <ClipboardCheck size={20} />
-          </button>
-          <button
-            onClick={() => {
-              const event = new CustomEvent("open-slr");
-              window.dispatchEvent(event);
-            }}
-            className="p-2 rounded-lg bg-emerald-900/40 text-emerald-300 hover:bg-emerald-900/60"
-            title="Automated SLR"
-          >
-            <Microscope size={20} />
           </button>
           <button
             onClick={() => {
