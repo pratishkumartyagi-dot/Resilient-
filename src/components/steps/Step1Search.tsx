@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useState, useMemo, useEffect } from "react";
-import { Search, Database, ChevronRight, CheckSquare, Square, Loader2, CheckCircle2, AlertCircle, Globe } from "lucide-react";
+import { Search, Database, ChevronRight, CheckSquare, Square, Loader2, CheckCircle2, AlertCircle, Globe, Maximize, Filter, ClipboardList, BarChart3 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { webSearchPapers, verifyCitations, enrichPapersWithDois, type Paper } from "@/lib/database-apis";
+import { extractTerms, createDFM, createNetwork, findCutoff, reduceGraph, getKeywords, writeSearch, writePubMedSearch, writeEuropePMCSearch, checkRecall } from "@/lib/search-strategy";
 
 const STUDY_TYPES = [
   "All Study Types",
@@ -100,6 +101,13 @@ export default function Step1Search() {
   const [semanticSearch, setSemanticSearch] = useState(false);
   const [searchFailed, setSearchFailed] = useState(false);
   const [webFallbackBusy, setWebFallbackBusy] = useState(false);
+
+  // Search strategy development (litsearchr port) state
+  const [strategyBusy, setStrategyBusy] = useState(false);
+  const [strategyResult, setStrategyResult] = useState<any>(null);
+  const [strategyError, setStrategyError] = useState<string | null>(null);
+  const [goldStandard, setGoldStandard] = useState("");
+  const [strategyExpanded, setStrategyExpanded] = useState(false);
 
   const availableDbs = useMemo(() => catalogue.filter((d) => d.available).map((d) => d.id), [catalogue]);
   const unavailableDbs = useMemo(() => catalogue.filter((d) => !d.available), [catalogue]);
@@ -278,6 +286,50 @@ export default function Step1Search() {
     } finally {
       setWebFallbackBusy(false);
       dispatch({ type: "SET_LOADING", payload: false });
+    }
+  };
+
+  const handleStrategyDevelopment = async () => {
+    if (state.papers.length === 0) {
+      setStrategyError("No search results available. Run a search first.");
+      return;
+    }
+    setStrategyBusy(true);
+    setStrategyError(null);
+    setStrategyResult(null);
+
+    const goldStd = goldStandard
+      .split("\n")
+      .map((t) => t.trim())
+      .filter(Boolean);
+
+    try {
+      const res = await fetch("/api/search-strategy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          texts: state.papers.map((p) => ({ title: p.title, abstract: p.abstract || "" })),
+          termExtraction: { method: "all", minFreq: 2, minNgram: 1, maxNgram: 3 },
+          network: { minStudies: 1, minOcc: 1 },
+          cutoff: { percent: 0.80 },
+          dialect: "generic",
+          stemming: true,
+          exactPhrase: true,
+          goldStandard: goldStd,
+          retrieved: state.papers.map((p) => ({ title: p.title })),
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setStrategyError(data.error || `Strategy development failed with status ${res.status}`);
+        return;
+      }
+      setStrategyResult(data);
+    } catch (err: any) {
+      setStrategyError(err?.message || "Strategy development failed.");
+    } finally {
+      setStrategyBusy(false);
     }
   };
 
@@ -725,6 +777,152 @@ export default function Step1Search() {
           </div>
         </div>
       )}
+
+      {/* Search Strategy Development (litsearchr port) */}
+      {state.papers.length > 0 && (
+        <div className="bg-[#0d1b3e] border border-blue-900/50 rounded-lg p-6 shadow">
+          <div className="flex items-center justify-between mb-4">
+            <button
+              onClick={() => setStrategyExpanded(!strategyExpanded)}
+              className="flex items-center gap-2 text-sm font-bold text-white"
+            >
+              {strategyExpanded ? <ChevronRight size={14} className="rotate-90" /> : <ChevronRight size={14} />}
+              Search Strategy Development (litsearchr)
+            </button>
+            <span className="text-xs bg-blue-800 text-blue-200 px-2 py-0.5 rounded-full">
+              Quasi-automatic strategy
+            </span>
+          </div>
+
+          {strategyExpanded && (
+            <div className="space-y-4">
+              <div className="bg-blue-950 border border-blue-900 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <BarChart3 size={14} className="text-yellow-400" />
+                  <h4 className="text-sm font-bold text-white">Step 1 — Extract terms from naive results</h4>
+                </div>
+                <p className="text-xs text-blue-300 mb-3">
+                  Extracts candidate keywords from titles + abstracts using RAKE/fakerake + ngrams,
+                  then builds a keyword co-occurrence network and applies a strength cutoff (80% cumulative).
+                </p>
+                <div className="flex gap-2 items-center">
+                  <button
+                    onClick={handleStrategyDevelopment}
+                    disabled={strategyBusy}
+                    className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2 rounded-lg disabled:opacity-50"
+                  >
+                    {strategyBusy ? <Loader2 size={14} className="animate-spin" /> : <ClipboardList size={14} />}
+                    {strategyBusy ? "Analyzing…" : "Run strategy analysis"}
+                  </button>
+                </div>
+              </div>
+
+              {strategyError && (
+                <div className="bg-red-900/30 border border-red-700 text-red-300 rounded-lg px-4 py-3 text-sm">
+                  {strategyError}
+                </div>
+              )}
+
+              {strategyResult && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
+                    <div className="bg-blue-900/30 border border-blue-900 rounded p-3">
+                      <div className="text-blue-400 text-[10px] uppercase font-semibold mb-1">Docs analyzed</div>
+                      <div className="text-white font-bold">{strategyResult.summary.totalDocs}</div>
+                    </div>
+                    <div className="bg-blue-900/30 border border-blue-900 rounded p-3">
+                      <div className="text-blue-400 text-[10px] uppercase font-semibold mb-1">Terms extracted</div>
+                      <div className="text-white font-bold">{strategyResult.summary.totalTermsExtracted}</div>
+                    </div>
+                    <div className="bg-blue-900/30 border border-blue-900 rounded p-3">
+                      <div className="text-blue-400 text-[10px] uppercase font-semibold mb-1">Network nodes</div>
+                      <div className="text-white font-bold">{strategyResult.summary.totalNetworkNodes}</div>
+                    </div>
+                    <div className="bg-blue-900/30 border border-blue-900 rounded p-3">
+                      <div className="text-blue-400 text-[10px] uppercase font-semibold mb-1">Keywords above cutoff</div>
+                      <div className="text-white font-bold">{strategyResult.summary.keywordsAboveCutoff}</div>
+                    </div>
+                  </div>
+
+                  {strategyResult.summary.recallRate !== null && (
+                    <div className="bg-blue-900/30 border border-blue-900 rounded p-3">
+                      <div className="text-blue-400 text-[10px] uppercase font-semibold mb-1">Recall rate</div>
+                      <div className="text-white font-bold">
+                        {(strategyResult.summary.recallRate * 100).toFixed(1)}% ({strategyResult.summary.foundCount}/{strategyResult.summary.totalGoldStandard})
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Gold standard input */}
+                  <div className="bg-blue-950/40 border border-blue-900 rounded-lg p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Globe size={14} className="text-yellow-400" />
+                      <h4 className="text-sm font-bold text-white">Step 2 — Gold standard (known-relevant titles)</h4>
+                    </div>
+                    <p className="text-xs text-blue-300 mb-3">
+                      Enter one known-relevant article title per line to check search recall.
+                    </p>
+                    <textarea
+                      value={goldStandard}
+                      onChange={(e) => setGoldStandard(e.target.value)}
+                      rows={4}
+                      placeholder="Cardiovascular-kidney-metabolic syndrome: predictors of progression\nEarly predictors of cardiovascular-kidney-metabolic disease"
+                      className="w-full bg-blue-950 border border-blue-800 text-white rounded px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                    />
+                  </div>
+
+                  {/* Keywords */}
+                  <div className="bg-blue-900/20 border border-blue-900 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-xs font-bold text-white flex items-center gap-2">
+                        <Maximize size={13} className="text-yellow-400" />
+                        Keywords above cutoff ({strategyResult.keywords.length})
+                      </h4>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {strategyResult.keywords.map((k: string) => (
+                        <span key={k} className="bg-blue-950 border border-blue-800 text-blue-200 text-[10px] px-2 py-1 rounded hover:bg-blue-900/50">
+                          {k}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Boolean searches */}
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-bold text-white mb-2">Generated Boolean searches</h4>
+                    <div className="bg-blue-950/50 border border-blue-900 rounded p-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-[10px] text-yellow-400 font-bold">Generic</span>
+                      </div>
+                      <div className="text-xs text-blue-200 font-mono break-all p-2 bg-blue-900/20 rounded">
+                        {strategyResult.search.generic}
+                      </div>
+                    </div>
+                    <div className="bg-blue-950/50 border border-blue-900 rounded p-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-[10px] text-blue-400 font-bold">PubMed</span>
+                      </div>
+                      <div className="text-xs text-blue-200 font-mono break-all p-2 bg-blue-900/20 rounded">
+                        {strategyResult.search.pubmed}
+                      </div>
+                    </div>
+                    <div className="bg-blue-950/50 border border-blue-900 rounded p-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-[10px] text-emerald-400 font-bold">Europe PMC</span>
+                      </div>
+                      <div className="text-xs text-blue-200 font-mono break-all p-2 bg-blue-900/20 rounded">
+                        {strategyResult.search.europepmc}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
     </div>
   );
 }
