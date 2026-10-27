@@ -162,6 +162,11 @@ ${papers
   .join("\n\n")}`;
 }
 
+/**
+ * NOTE: buildStep4Prompt was retained as dead code after Step4 migrated to its
+ * own local buildSectionPrompt/buildDeepReasoningPrompt. It remains here for
+ * reference only and is not imported by any step component.
+ */
 export function buildStep4Prompt(papers: Paper[], uploadedContext: string): string {
   const selectedPapers = papers.filter((p) => p.selected);
   const prismaFlow = `PRISMA-style flow:

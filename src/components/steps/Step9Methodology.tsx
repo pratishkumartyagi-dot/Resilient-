@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { ChevronRight, Plus, Trash2, Calculator, FlaskConical, ExternalLink, Sparkles } from "lucide-react";
 import { useApp } from "@/context/AppContext";
+import type { MethodologyInputs } from "@/context/AppContext";
 import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
 import { buildStep9Prompt } from "@/lib/research-skills";
 
@@ -85,7 +86,7 @@ export default function Step9Methodology() {
   const updateField = (field: string, val: string) => {
     const updated = { ...localMethod, [field]: val };
     setLocalMethod(updated);
-    dispatch({ type: "SET_METHODOLOGY", payload: { [field]: val } });
+    dispatch({ type: "SET_METHODOLOGY", payload: { [field]: val } as Partial<MethodologyInputs> });
   };
 
   const addOutcome = () => {

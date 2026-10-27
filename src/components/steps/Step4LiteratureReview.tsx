@@ -110,6 +110,7 @@ const EMPTY_SECTIONS: Record<SectionKey, string> = {
 function stripQuotesAndFences(text: string): string {
   return text
     .replace(/```markdown/gi, "")
+    .replace(/```json/gi, "")
     .replace(/```/g, "")
     .trim();
 }

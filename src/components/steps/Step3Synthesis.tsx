@@ -27,7 +27,7 @@ export default function Step3Synthesis() {
   const [uploadedText, setUploadedText] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileTextRef = useRef<Map<string, string>>(new Map());
-  const [localSynthesis, setLocalSynthesis] = useState<any[]>(state.synthesisTable);
+  const [localSynthesis, setLocalSynthesis] = useState<SynthesisRow[]>(state.synthesisTable);
 
   const getFilteredPapers = () => {
     const selected = state.papers.filter((p) => p.selected);
@@ -64,7 +64,7 @@ export default function Step3Synthesis() {
       let synthesis: SynthesisRow[] = [];
 
       if (state.geminiApiKey || state.groqApiKey) {
-          const prompt = buildStep3Prompt(filteredPapers, uploadedText);
+        const prompt = buildStep3Prompt(filteredPapers, uploadedText);
         const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: state.searchQuery };
         try {
           let responseText = "";

@@ -207,7 +207,24 @@ export default function Step2Results() {
   const proceedToSynthesis = () => {
     // Commit the deduplicated set so downstream steps do not count the same
     // article once per source database.
-    const uniqueSelected = dedup.unique.filter((p) => p.selected);
+    const uniqueSelected = dedup.unique.filter((p) => p.selected).map((p) => ({
+      id: p.id,
+      title: p.title,
+      authors: p.authors || "",
+      journal: p.journal || "",
+      year: p.year || new Date().getFullYear(),
+      doi: p.doi,
+      abstract: p.abstract || "",
+      database: p.database || "",
+      studyType: p.studyType || "",
+      selected: true,
+      url: p.url,
+      pmid: p.pmid,
+      sourceBackend: p.sourceBackend,
+      sources: p.sources,
+      citationStatus: p.citationStatus,
+      citationMessage: p.citationMessage,
+    }));
     if (uniqueSelected.length === 0) {
       dispatch({
         type: "SET_ERROR",
@@ -217,7 +234,7 @@ export default function Step2Results() {
     }
     dispatch({ type: "SET_ERROR", payload: "" });
 
-    dispatch({ type: "SET_PAPERS", payload: uniqueSelected as unknown as Paper[] });
+    dispatch({ type: "SET_PAPERS", payload: uniqueSelected as Paper[] });
     dispatch({ type: "SET_STEP", payload: 3 });
   };
 
