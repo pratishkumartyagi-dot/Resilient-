@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
-import { Settings, BookOpen, Microscope, ClipboardCheck, Cpu } from "lucide-react";
+import { Settings, BookOpen, Microscope, ClipboardCheck, Cpu, FileText } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { APP_VERSION } from "@/lib/version";
 import type { AiFallbackEvent } from "@/lib/ai";
@@ -91,6 +91,28 @@ export default function Header() {
             title="Automated SLR"
           >
             <Microscope size={20} />
+          </button>
+          <button
+            onClick={() => {
+              const event = new CustomEvent("open-paperwriter");
+              window.dispatchEvent(event);
+            }}
+            className="p-2 rounded-lg bg-yellow-900/40 text-yellow-300 hover:bg-yellow-900/60"
+            title="Paper Writer"
+            aria-label="Paper Writer"
+          >
+            <FileText size={20} />
+          </button>
+          <button
+            onClick={() => {
+              const event = new CustomEvent("open-paperreviewer");
+              window.dispatchEvent(event);
+            }}
+            className="p-2 rounded-lg bg-green-900/40 text-green-300 hover:bg-green-900/60"
+            title="Paper Reviewer"
+            aria-label="Paper Reviewer"
+          >
+            <ClipboardCheck size={20} />
           </button>
           <button
             onClick={() => {

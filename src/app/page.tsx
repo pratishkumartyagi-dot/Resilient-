@@ -31,13 +31,14 @@ const StatisticalAnalysisTab = lazy(() => import("@/components/tabs/StatisticalA
 const SampleSizeTab = lazy(() => import("@/components/tabs/SampleSizeTab"));
 const PredictiveAnalysisTab = lazy(() => import("@/components/tabs/PredictiveAnalysisTab"));
 const EvidenceSynthesisTab = lazy(() => import("@/components/tabs/EvidenceSynthesisTab"));
-const PaperWriterTab = lazy(() => import("@/components/tabs/PaperWriterTab"));
 const ProtocolChatTab = lazy(() => import("@/components/tabs/ProtocolChatTab"));
 const GrantWritingTab = lazy(() => import("@/components/tabs/GrantWritingTab"));
 const OmicsBioinformaticsTab = lazy(() => import("@/components/tabs/OmicsBioinformaticsTab"));
 const ThesisGenerator = lazy(() => import("@/components/pipelines/ThesisGenerator"));
 const AutomatedSLR = lazy(() => import("@/components/pipelines/AutomatedSLR"));
 const CriticalAppraisal = lazy(() => import("@/components/pipelines/CriticalAppraisal"));
+const PaperWriterPipeline = lazy(() => import("@/components/pipelines/PaperWriterPipeline"));
+const PaperReviewerPipeline = lazy(() => import("@/components/pipelines/PaperReviewerPipeline"));
 
 function withSuspense(node: React.ReactNode, label?: string) {
   return <Suspense fallback={<TabLoadingSkeleton label={label} />}>{node}</Suspense>;
@@ -80,7 +81,9 @@ function AppContent() {
       case "systematic":
         return withSuspense(<EvidenceSynthesisTab />, "Evidence Synthesis & Meta-analysis");
       case "paperwriter":
-        return withSuspense(<PaperWriterTab />, "Paper Writer & Reviewer");
+        return withSuspense(<PaperWriterPipeline />, "Paper Writer");
+      case "paperreviewer":
+        return withSuspense(<PaperReviewerPipeline />, "Paper Reviewer");
       case "protocol":
         return withSuspense(<ProtocolChatTab />, "Protocol Generator");
       case "grant":
@@ -115,6 +118,20 @@ function AppContent() {
     const onOpenSLR = () => dispatch({ type: "SET_TAB", payload: "slr" });
     window.addEventListener("open-slr", onOpenSLR);
     return () => window.removeEventListener("open-slr", onOpenSLR);
+  }, [dispatch]);
+
+  // Header dispatches "open-paperwriter" to switch directly to the Paper Writer tab.
+  useEffect(() => {
+    const onOpenPaperWriter = () => dispatch({ type: "SET_TAB", payload: "paperwriter" });
+    window.addEventListener("open-paperwriter", onOpenPaperWriter);
+    return () => window.removeEventListener("open-paperwriter", onOpenPaperWriter);
+  }, [dispatch]);
+
+  // Header dispatches "open-paperreviewer" to switch directly to the Paper Reviewer tab.
+  useEffect(() => {
+    const onOpenPaperReviewer = () => dispatch({ type: "SET_TAB", payload: "paperreviewer" });
+    window.addEventListener("open-paperreviewer", onOpenPaperReviewer);
+    return () => window.removeEventListener("open-paperreviewer", onOpenPaperReviewer);
   }, [dispatch]);
 
   return (
