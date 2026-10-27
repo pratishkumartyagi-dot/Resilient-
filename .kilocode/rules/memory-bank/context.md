@@ -296,17 +296,38 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
 
 ## Recently Completed
 
-- [x] **Research module rebuilt per Bramer et al. systematic literature searching + medical-research-skills thesis pipeline (2026-10-27, v0.4.5)**
-  - Step 1 search rebuilt per Bramer 11-step methodology: multi-concept element search (concepts ORed internally, combined with AND), MeSH/Emtree thesaurus expansion with entry terms/synonyms (~50 concepts), truncation `*` wildcard, proximity operators (ADJ3/N3/NEAR/3), database-specific syntax per Table 1 (PubMed `[mh]`/`[tiab]`, Embase `/exp/` NEAR/3, Ovid `.ab,ti.` ADJ3, EBSCOhost `MH "+"`/`AB()`, ProQuest `Mesh#`/`AB,TI()` N/3), PubMed sensitive vs specific optimization strategy.
-  - New `src/lib/medical-research-skills/index.ts` — prose writing module based on AIPOCH medical-research-skills SKILL.md: introduction-section-writer, methods-section-writer, results-section-writer, discussion-composer. Each section written with problem→gap→objective progression, citation integrity (no fabricated references), [CITATION NEEDED] markers for unsupported claims.
-  - Rewrote `src/lib/thesis-pipeline/index.ts`: ScholarCopilot.generateOutline → medical-research-skills prose per chapter section → OpenDraft refine/expand → references at end per citation style. Removed thesis-generator dependency entirely.
-  - Added `generateOutline` to `src/lib/scholar-copilot/index.ts` for outline & chapter structure generation.
-  - References appended at end of thesis per user-selected citation style (Vancouver/APA/IEEE/MLA/Harvard) using only actual retrieved papers — no hallucinated references.
-  - Updated `ThesisGenerator.tsx` pipeline stages display: ScholarCopilot → Medical Research Skills → OpenDraft.
-  - Verified: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
-  - Test query ready: "predictors of CKM syndrome, year interval 2021 to 2026".
+- [x] **v0.4.6 release tagged and pushed (2026-10-27)**
+  - Version bumped 0.4.5 → 0.4.6, tagged v0.4.6, pushed to origin/kilo/cosmic-voyage-2na
+  - GitHub Actions build-desktop.yml triggers on v* tag push → builds Windows .exe, macOS .dmg, Linux .AppImage
+  - Release assets appear at: https://github.com/pratishkumartyagi-dot/Resilient-/releases/tag/v0.4.6
 
-- [x] **Research module integrated with research-gap-finder (github.com/LengFeng00/research-gap-finder)**
+- [x] **Thesis Generator enforces Paperpile 8-element structure (2026-10-27, v0.4.6)**
+  - ScholarCopilot outlinePrompt mandates: Abstract, Introduction, Literature Review, Methods, Results, Discussion, Conclusion, Reference List
+  - New Abstract / Literature Review / Conclusion section writers in medical-research-skills
+  - Abstract written as Chapter 0 front matter
+  - References at end per citation style (no hallucination)
+  - Verified: bun typecheck ✅, bun lint ✅, bun run build ✅
+
+- [x] **Paper Writer & Paper Reviewer via academic-research-skills (2026-10-27, v0.4.5)**
+  - Removed old PaperWriterTab/ars-skills/academic-writing-agents
+  - New academic-research-skills.ts module (Imbad0202/academic-research-skills)
+  - Paper Writer pipeline: year interval, word count, journal format (top 5 journals)
+  - Paper Reviewer pipeline: 7 reviewer lenses, multi-perspective peer review
+  - Header toggles for Paper Writer and Paper Reviewer
+
+- [x] **Research module rebuilt per Bramer et al. systematic literature searching (2026-10-27)**
+  - Step 1: multi-concept element search, MeSH/Emtree thesaurus expansion, truncation, proximity operators, database-specific syntax per Table 1
+  - Thesis pipeline: ScholarCopilot → medical-research-skills prose → OpenDraft refine
+  - research-gap-finder integration: gap categorization + hypothesis quality scoring
+
+- [x] **Step 1-11 audit fixes (2026-10-27)**
+  - Step9: computed-property payload cast to Partial<MethodologyInputs>
+  - Step3: useState<SynthesisRow[]> instead of any[]
+  - Step2: explicit DedupPaper→Paper mapping instead of as unknown as
+  - Step11: AICallOptions + searchOptions on all AI provider calls
+  - research-skills: documented buildStep4Prompt as dead code
+  - Step4: added ```json stripping to stripQuotesAndFences
+  - Verified: bun typecheck ✅, bun lint ✅, bun run build ✅
   - New `src/lib/medical-skills/research-gap-finder.ts` — gap categorization (methodological/theoretical/application/interdisciplinary), severity assessment, hypothesis innovation/feasibility/impact quality scoring, priority ranking, and Markdown/JSON report formatting.
   - Registered in `src/lib/medical-skills/skills-registry.ts` and exported from `src/lib/medical-skills/index.ts`.
   - `src/lib/research-skills.ts` Step 3 synthesis now tags each research gap with a Research Gap Finder category and severity (methodological/theoretical/application/interdisciplinary; high/medium/low).
