@@ -37,6 +37,78 @@ function countWords(text: string): number {
   return text.split(/\s+/).filter(Boolean).length;
 }
 
+/** Outline generation prompt for ScholarCopilot (step: generate outline & chapter structure). */
+function outlinePrompt(input: {
+  topic: string;
+  level: string;
+  style: string;
+  language: string;
+  targetWordCount?: number;
+  minWordCount?: number;
+  maxWordCount?: number;
+  papers: ThesisPaper[];
+}): string {
+  const range: Record<string, { min: number; max: number }> = {
+    research_paper: { min: 3000, max: 5000 },
+    case_series: { min: 1500, max: 2500 },
+    bachelor: { min: 8000, max: 15000 },
+    master: { min: 15000, max: 40000 },
+    phd: { min: 60000, max: 100000 },
+  };
+  const levelRange = range[input.level] ?? range.master;
+
+  const min = input.minWordCount ?? levelRange.min;
+  const max = input.maxWordCount ?? levelRange.max;
+  const target = input.targetWordCount ?? Math.round((min + max) / 2);
+  const paperList = input.papers
+    .slice(0, 20)
+    .map((p, i) => `${i + 1}. ${p.authors} (${p.year || "n.d."}). ${p.title}.${p.doi ? ` doi:${p.doi}` : ""}`)
+    .join("\n");
+
+  return `You are an expert academic editor and thesis supervisor. Generate a detailed thesis outline.
+
+TOPIC: ${input.topic}
+LEVEL: ${input.level}
+STYLE: ${input.style}
+LANGUAGE: ${input.language}
+TARGET WORD COUNT: ${target} words (body only, references excluded)
+ACCEPTABLE RANGE: ${min}–${max} words
+
+AVAILABLE GROUNDING PAPERS:
+${paperList}
+
+TASK:
+Produce a complete thesis outline with:
+1. A working title
+2. An abstract (~250 words)
+3. Chapters, each with:
+   - chapter number
+   - chapter title
+   - sections (each with a title and an indicative word target)
+   - a chapter-level word target
+
+Distribute the total word target (${target} words, range ${min}–${max}) across chapters proportionally.
+Typical chapters: Introduction, Literature Review, Methodology, Results, Discussion, Conclusion.
+References are excluded from the word count.
+Ensure the sum of chapter word targets is close to ${target}.
+
+Return ONLY a JSON object:
+{
+  "title": "string",
+  "abstract": "string",
+  "chapters": [
+    {
+      "number": 1,
+      "title": "string",
+      "wordTarget": number,
+      "sections": [
+        { "id": "s1-1", "title": "string", "wordTarget": number }
+      ]
+    }
+  ]
+}`;
+}
+
 function budgetStatus(target: number, actual: number): ChapterWordBudget["status"] {
   if (!target) return "no-target";
   if (actual < target * 0.88) return "short";
@@ -204,4 +276,73 @@ export async function scholarCopilot(input: ScholarCopilotInput): Promise<Schola
     wordBudget,
     wordBudgetMet,
   };
+}
+
+/** Generate a thesis outline (title, abstract, chapters with word targets). */
+export async function generateOutline(input: {
+  topic: string;
+  level: string;
+  style: string;
+  language: string;
+  targetWordCount?: number;
+  minWordCount?: number;
+  maxWordCount?: number;
+  papers: ThesisPaper[];
+  aiFn: (prompt: string, opts?: { searchEnabled?: boolean; searchQuery?: string }) => Promise<string>;
+  onProgress?: (message: string) => void;
+}): Promise<{
+  title: string;
+  abstract: string;
+  chapters: any[];
+  markdownOutline: string;
+  subResult: { ok: boolean; error?: string };
+}> {
+  const { aiFn, onProgress } = input;
+  onProgress?.("Generating thesis outline via ScholarCopilot...");
+  try {
+    const text = await aiFn(outlinePrompt(input));
+    const cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
+    let parsed: any;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("ScholarCopilot outline returned invalid JSON");
+      parsed = JSON.parse(jsonMatch[0]);
+    }
+
+    const chapters = (parsed.chapters || []).map((c: any, idx: number) => ({
+      number: c.number ?? idx + 1,
+      title: c.title || `Chapter ${idx + 1}`,
+      wordTarget: typeof c.wordTarget === "number" ? c.wordTarget : 0,
+      sections: (c.sections || []).map((s: any, sidx: number) => ({
+        id: s.id ?? `c${c.number ?? idx + 1}-s${sidx + 1}`,
+        title: s.title || `Section ${sidx + 1}`,
+        wordTarget: typeof s.wordTarget === "number" ? s.wordTarget : 0,
+      })),
+    }));
+
+    const markdownOutline = `# ${parsed.title || input.topic}\n\n## Abstract\n\n${parsed.abstract || ""}\n\n` +
+      chapters.map((c: any) => `## Chapter ${c.number}: ${c.title}\n` +
+        c.sections.map((s: any) => `### ${s.title}\n`).join("\n")).join("\n");
+
+    onProgress?.(`Outline ready: ${chapters.length} chapters`);
+
+    return {
+      title: parsed.title || input.topic,
+      abstract: parsed.abstract || "",
+      chapters,
+      markdownOutline,
+      subResult: { ok: true },
+    };
+  } catch (err: any) {
+    onProgress?.(`Outline generation failed: ${err?.message || "unknown"}`);
+    return {
+      title: input.topic,
+      abstract: "",
+      chapters: [],
+      markdownOutline: `# ${input.topic}\n\n## Abstract\n\nOutline generation failed.\n`,
+      subResult: { ok: false, error: err?.message || "Outline generation failed" },
+    };
+  }
 }

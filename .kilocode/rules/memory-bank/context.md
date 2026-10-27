@@ -296,6 +296,16 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
 
 ## Recently Completed
 
+- [x] **Research module rebuilt per Bramer et al. systematic literature searching + medical-research-skills thesis pipeline (2026-10-27, v0.4.5)**
+  - Step 1 search rebuilt per Bramer 11-step methodology: multi-concept element search (concepts ORed internally, combined with AND), MeSH/Emtree thesaurus expansion with entry terms/synonyms (~50 concepts), truncation `*` wildcard, proximity operators (ADJ3/N3/NEAR/3), database-specific syntax per Table 1 (PubMed `[mh]`/`[tiab]`, Embase `/exp/` NEAR/3, Ovid `.ab,ti.` ADJ3, EBSCOhost `MH "+"`/`AB()`, ProQuest `Mesh#`/`AB,TI()` N/3), PubMed sensitive vs specific optimization strategy.
+  - New `src/lib/medical-research-skills/index.ts` — prose writing module based on AIPOCH medical-research-skills SKILL.md: introduction-section-writer, methods-section-writer, results-section-writer, discussion-composer. Each section written with problem→gap→objective progression, citation integrity (no fabricated references), [CITATION NEEDED] markers for unsupported claims.
+  - Rewrote `src/lib/thesis-pipeline/index.ts`: ScholarCopilot.generateOutline → medical-research-skills prose per chapter section → OpenDraft refine/expand → references at end per citation style. Removed thesis-generator dependency entirely.
+  - Added `generateOutline` to `src/lib/scholar-copilot/index.ts` for outline & chapter structure generation.
+  - References appended at end of thesis per user-selected citation style (Vancouver/APA/IEEE/MLA/Harvard) using only actual retrieved papers — no hallucinated references.
+  - Updated `ThesisGenerator.tsx` pipeline stages display: ScholarCopilot → Medical Research Skills → OpenDraft.
+  - Verified: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
+  - Test query ready: "predictors of CKM syndrome, year interval 2021 to 2026".
+
 - [x] **Research module integrated with research-gap-finder (github.com/LengFeng00/research-gap-finder)**
   - New `src/lib/medical-skills/research-gap-finder.ts` — gap categorization (methodological/theoretical/application/interdisciplinary), severity assessment, hypothesis innovation/feasibility/impact quality scoring, priority ranking, and Markdown/JSON report formatting.
   - Registered in `src/lib/medical-skills/skills-registry.ts` and exported from `src/lib/medical-skills/index.ts`.

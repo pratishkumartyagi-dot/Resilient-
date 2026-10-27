@@ -297,9 +297,9 @@ export default function ThesisGenerator() {
   const isApiKeyMissing = !config.apiKey && !apiKey;
 
   const pipelineStages: Array<{ n: number; name: string; role: string; href: string; stageKey: string }> = [
-    { n: 1, name: "OpenDraft", role: "Outline & chapter structure", href: "https://github.com/federicodeponte/opendraft", stageKey: "outline" },
-    { n: 2, name: "ThesisGenerator", role: "Per-chapter prose + argument audit", href: "https://github.com/ekontoTURBO/thesis-generator", stageKey: "prose" },
-    { n: 3, name: "ScholarCopilot", role: "Refine/expand + citation validation", href: "https://github.com/TIGER-AI-Lab/ScholarCopilot", stageKey: "refine" },
+    { n: 1, name: "ScholarCopilot", role: "Outline & chapter structure", href: "https://github.com/TIGER-AI-Lab/ScholarCopilot", stageKey: "outline" },
+    { n: 2, name: "Medical Research Skills", role: "Per-chapter prose writing (AIPOCH skills)", href: "https://github.com/aipoch/medical-research-skills", stageKey: "prose" },
+    { n: 3, name: "OpenDraft", role: "Refine & expand chapters", href: "https://github.com/federicodeponte/opendraft", stageKey: "refine" },
   ];
 
   return (
