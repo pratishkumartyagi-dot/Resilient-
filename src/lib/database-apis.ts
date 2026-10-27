@@ -505,7 +505,7 @@ export interface QueryTranslation {
 function splitTerms(query: string): string[] {
   return query
     .replace(/[()]/g, " ")
-    .split(/\s+(?:AND|OR|NOT)\s+|\s*,\s*|\s+/i)
+    .split(/\s+(?:AND|OR|NOT)\s+|\s*,\s*/i)
     .map((t) => t.trim())
     .filter((t) => t.length > 1);
 }

@@ -149,13 +149,33 @@ function buildLocalChapter(prompt: string): string {
   const targetMatch = prompt.match(/CHAPTER WORD TARGET:\s*(\d+)/i);
   const target = targetMatch ? parseInt(targetMatch[1], 10) : 2000;
 
-  const paras = Math.ceil(target / 150);
+  const wordsPerPara = 140;
+  const paraCount = Math.max(3, Math.ceil(target / wordsPerPara));
   const body: string[] = [];
   body.push(`# ${chapterTitle}\n`);
-  body.push(`## Introduction\n\nThis chapter examines ${topic.toLowerCase()} with particular attention to the ${chapterTitle.toLowerCase()} dimension. The discussion is framed within a ${level} level of academic inquiry and follows ${style.toUpperCase()} citation conventions.`);
-  body.push(`## Main Discussion\n\nThe central argument of this chapter concerns the relationship between ${topic.toLowerCase()} and ${chapterTitle.toLowerCase()}. Drawing on existing literature, the chapter develops a structured analysis that addresses the research questions and situates the findings within the broader academic context.`);
-  body.push(`## Analysis\n\nA detailed analysis is presented below. The evidence is considered systematically, with attention to methodological rigour and theoretical coherence. Key themes are identified and discussed in relation to the study objectives.`);
-  body.push(`## Conclusion\n\nIn conclusion, this chapter demonstrates that ${topic.toLowerCase()} is a significant area of inquiry. The findings contribute to the existing body of knowledge and suggest directions for further research. The implications for practice and policy are considered, and limitations are acknowledged.`);
+
+  const sectionTitles = [
+    "Introduction",
+    "Background and Context",
+    "Main Discussion",
+    "Critical Analysis",
+    "Synthesis of Evidence",
+    "Implications for Practice",
+    "Limitations",
+    "Conclusion",
+  ];
+
+  for (let i = 0; i < paraCount; i++) {
+    const section = sectionTitles[i % sectionTitles.length];
+    const para = [
+      `## ${section}`,
+      `This section examines ${topic.toLowerCase()} with particular attention to the ${section.toLowerCase()} dimension. The discussion is framed within a ${level} level of academic inquiry and follows ${style.toUpperCase()} citation conventions.`,
+      `The central argument concerns the relationship between ${topic.toLowerCase()} and the themes of this chapter. Drawing on existing literature, the chapter develops a structured analysis that addresses the research questions and situates the findings within the broader academic context.`,
+      `A detailed analysis is presented below. The evidence is considered systematically, with attention to methodological rigour and theoretical coherence. Key themes are identified and discussed in relation to the study objectives, with consideration of methodological strengths and limitations.`,
+      `In summary, this section demonstrates that ${topic.toLowerCase()} is a significant area of inquiry. The findings contribute to the existing body of knowledge and suggest directions for further research, with implications for practice and policy.`,
+    ].join(" ");
+    body.push(para);
+  }
 
   const content = body.join("\n\n");
   const wordCount = content.split(/\s+/).length;

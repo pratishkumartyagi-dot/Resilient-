@@ -10,7 +10,7 @@ import { LEVEL_WORD_RANGES } from "@/lib/thesis-types";
 import { openDraft } from "@/lib/opendraft";
 import { generateThesis } from "@/lib/thesis-generator";
 import { scholarCopilot } from "@/lib/scholar-copilot";
-import { formatVancouverList } from "@/lib/references";
+import { formatVancouverList, formatReferenceListByStyle, type CitationStyle } from "@/lib/references";
 import { appraiseEvidenceBase, buildEvidenceAppraisalMarkdown, buildNursestackThesisPlan, applyNursestackPlanToOutline, wordTargetsFromPlan } from "@/lib/thesis-nursestack";
 
 export interface PipelineDeps {
@@ -141,6 +141,11 @@ export async function runThesisPipeline(
   const references = papers.slice(0, config.maxReferences || 150);
   const markdownOutline = outlineResult.markdownOutline;
 
+  // Append the reference list to the end of the thesis document so the
+  // references of the papers used in generating the thesis appear at the end.
+  const referencesSection = buildReferencesSection(references, config.style || "vancouver");
+  fullThesis = `${fullThesis}\n\n---\n\n## References\n\n${referencesSection}`;
+
   const stats: any = {
     totalWords: fullThesis.split(/\s+/).filter(Boolean).length,
     totalReferences: references.length,
@@ -177,6 +182,16 @@ export async function runThesisPipeline(
     evidenceAppraisal,
     evidenceAppraisalMarkdown,
   };
+}
+
+/** Builds a numbered reference list section (matching the selected citation style)
+ *  from the grounding papers used to write the thesis. */
+function buildReferencesSection(
+  papers: { authors: string; title: string; journal?: string; year?: number; doi?: string }[],
+  style: CitationStyle,
+): string {
+  if (papers.length === 0) return "No references available.";
+  return formatReferenceListByStyle(style, papers);
 }
 
 export function buildDefaultConfig(partial: Partial<ThesisGeneratorConfig>): ThesisGeneratorConfig {
