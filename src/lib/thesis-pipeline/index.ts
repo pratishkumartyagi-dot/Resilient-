@@ -14,6 +14,9 @@ import {
   writeMethodsSection,
   writeResultsSection,
   writeDiscussionSection,
+  writeAbstractSection,
+  writeLiteratureReviewSection,
+  writeConclusionSection,
   type MedicalResearchSkillsInput,
 } from "@/lib/medical-research-skills";
 import { formatReferenceListByStyle, type CitationStyle } from "@/lib/references";
@@ -122,7 +125,33 @@ export async function runThesisPipeline(
     onProgress: (msg) => onProgress?.("prose", msg),
   };
 
-  const chapters: ChapterFile[] = [];
+  // Write Abstract as front matter (Paperpile element 1)
+  onProgress?.("prose", "Writing Abstract...");
+  const abstractResult = await writeAbstractSection(medInput);
+  const abstractChapter: ChapterFile = {
+    chapterNumber: 0,
+    chapterTitle: "Abstract",
+    content: abstractResult.content,
+    sections: [
+      {
+        id: "abstract-1",
+        title: "Abstract",
+        wordTarget: abstractResult.wordCount,
+        content: abstractResult.content,
+      },
+    ],
+    wordCount: abstractResult.wordCount,
+    citations: abstractResult.citations,
+    argumentAudit: {
+      claims: [],
+      evidenceGaps: [],
+      logicalFlowScore: 0,
+      citationCoverage: 0,
+      recommendations: [],
+    },
+  };
+
+  const chapters: ChapterFile[] = [abstractChapter];
   const chapterList = outline.chapters || [];
   for (let i = 0; i < chapterList.length; i++) {
     const chapter = chapterList[i];
@@ -136,9 +165,11 @@ export async function runThesisPipeline(
     const sectionTypes = chapter.sections.map((s: any) => {
       const t = s.title.toLowerCase();
       if (t.includes("intro") || t.includes("background")) return "introduction";
+      if (t.includes("literature") || t.includes("review")) return "literature_review";
       if (t.includes("method")) return "methods";
       if (t.includes("result")) return "results";
-      if (t.includes("discuss") || t.includes("conclusion") || t.includes("implicat")) return "discussion";
+      if (t.includes("discuss")) return "discussion";
+      if (t.includes("conclusion") || t.includes("implicat")) return "conclusion";
       return "other";
     });
 
@@ -169,8 +200,18 @@ export async function runThesisPipeline(
         proseContent = result.content;
         sectionCitations = result.citations;
         chapterTotalWords += result.wordCount;
-      } else if (type === "discussion") {
+      } else       if (type === "discussion") {
         const result = await writeDiscussionSection(section.title, medInput);
+        proseContent = result.content;
+        sectionCitations = result.citations;
+        chapterTotalWords += result.wordCount;
+      } else if (type === "literature_review") {
+        const result = await writeLiteratureReviewSection(section.title, medInput);
+        proseContent = result.content;
+        sectionCitations = result.citations;
+        chapterTotalWords += result.wordCount;
+      } else if (type === "conclusion") {
+        const result = await writeConclusionSection(section.title, medInput);
         proseContent = result.content;
         sectionCitations = result.citations;
         chapterTotalWords += result.wordCount;

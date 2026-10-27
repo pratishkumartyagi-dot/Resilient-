@@ -367,3 +367,217 @@ export async function writeDiscussionSection(
     };
   }
 }
+
+function buildAbstractPrompt(
+  topic: string,
+  level: ThesisLevel,
+  style: ThesisStyle,
+  language: string,
+  papers: ThesisPaper[],
+): string {
+  const refs = formatGroundingPapers(papers);
+  return `You are a biomedical academic writer writing a structured thesis ABSTRACT.
+
+TOPIC: ${topic}
+LEVEL: ${level}
+STYLE: ${style}
+LANGUAGE: ${language}
+
+GROUNDING PAPERS (Vancouver style, cite inline as (Author, Year)):
+${refs}
+
+TASK:
+Write a structured abstract (~250 words) for the thesis on ${topic}. Follow this structure:
+1. Background / problem statement (2–3 sentences)
+2. Objectives / research question (1–2 sentences)
+3. Methods (2–3 sentences — design, setting, participants, analysis)
+4. Results (2–3 sentences — key findings with effect sizes where available)
+5. Conclusion / implications (1–2 sentences)
+
+Rules:
+- Write in ${language}. Academic tone.
+- Cite inline as (Author, Year) only for statements supported by grounding papers.
+- Do not fabricate references, PMIDs, DOIs, or literature-supported wording.
+- Mark unsupported claims with [CITATION NEEDED].
+- Do not wrap the output in code fences.
+
+Return ONLY a JSON object:
+{
+  "content": "structured abstract text",
+  "citations": ["Author 2020", "..."]
+}`;
+}
+
+function buildLiteratureReviewPrompt(
+  chapterTitle: string,
+  topic: string,
+  level: ThesisLevel,
+  style: ThesisStyle,
+  language: string,
+  papers: ThesisPaper[],
+): string {
+  const refs = formatGroundingPapers(papers);
+  return `You are a biomedical academic writer writing a Literature Review section of a thesis chapter.
+
+TOPIC: ${topic}
+CHAPTER: ${chapterTitle}
+LEVEL: ${level}
+STYLE: ${style}
+LANGUAGE: ${language}
+
+GROUNDING PAPERS (Vancouver style, cite inline as (Author, Year)):
+${refs}
+
+TASK:
+Write a Literature Review section that:
+1. Evaluates previous research on ${topic}
+2. Shows both sides of the evidence (supporting and conflicting findings)
+3. Covers seminal/classic works in the field
+4. Identifies gaps that this thesis will fill
+5. Is well-organized with clear themes and transitions
+
+Rules:
+- Write in ${language}. Academic tone appropriate for ${level} level.
+- Cite inline as (Author, Year) only for statements supported by grounding papers.
+- Do not fabricate references, PMIDs, DOIs, or literature-supported wording.
+- Mark unsupported claims with [CITATION NEEDED].
+- Do not wrap the output in code fences.
+
+Return ONLY a JSON object:
+{
+  "content": "literature review section text",
+  "citations": ["Author 2020", "..."]
+}`;
+}
+
+function buildConclusionPrompt(
+  chapterTitle: string,
+  topic: string,
+  level: ThesisLevel,
+  style: ThesisStyle,
+  language: string,
+  papers: ThesisPaper[],
+): string {
+  const refs = formatGroundingPapers(papers);
+  return `You are a biomedical academic writer writing a Conclusion section of a thesis chapter.
+
+TOPIC: ${topic}
+CHAPTER: ${chapterTitle}
+LEVEL: ${level}
+STYLE: ${style}
+LANGUAGE: ${language}
+
+GROUNDING PAPERS (Vancouver style, cite inline as (Author, Year)):
+${refs}
+
+TASK:
+Write a Conclusion section that:
+1. States that the research objectives have been achieved
+2. Summarizes key findings
+3. Highlights contributions to knowledge
+4. Reiterates limitations
+5. Makes suggestions for future research
+6. Ties up the thesis clearly — what was done, what results were obtained, what was learned
+
+Rules:
+- Write in ${language}. Academic tone appropriate for ${level} level.
+- Cite inline as (Author, Year) only for statements supported by grounding papers.
+- Do not fabricate references, PMIDs, DOIs, or literature-supported wording.
+- Mark unsupported claims with [CITATION NEEDED].
+- Do not wrap the output in code fences.
+
+Return ONLY a JSON object:
+{
+  "content": "conclusion section text",
+  "citations": ["Author 2020", "..."]
+}`;
+}
+
+export async function writeAbstractSection(
+  input: MedicalResearchSkillsInput,
+): Promise<SectionProseResult> {
+  input.onProgress?.("Writing Abstract section...");
+  try {
+    const text = await input.aiFn(
+      buildAbstractPrompt(input.topic, input.level, input.style, input.language, input.papers),
+    );
+    const parsed = parseProseResponse(text);
+    const content = parsed.content || "# Abstract\n\nAbstract generation failed.";
+    const citations = Array.isArray(parsed.citations) ? parsed.citations : extractCitations(content);
+    return {
+      sectionTitle: "Abstract",
+      content,
+      wordCount: countWords(content),
+      citations,
+      subResult: { ok: true },
+    };
+  } catch (err: any) {
+    return {
+      sectionTitle: "Abstract",
+      content: "# Abstract\n\nAbstract generation failed: " + (err?.message || "unknown error"),
+      wordCount: 0,
+      citations: [],
+      subResult: { ok: false, error: err?.message || "Abstract generation failed" },
+    };
+  }
+}
+
+export async function writeLiteratureReviewSection(
+  chapterTitle: string,
+  input: MedicalResearchSkillsInput,
+): Promise<SectionProseResult> {
+  input.onProgress?.(`Writing Literature Review section: ${chapterTitle}`);
+  try {
+    const text = await input.aiFn(
+      buildLiteratureReviewPrompt(chapterTitle, input.topic, input.level, input.style, input.language, input.papers),
+    );
+    const parsed = parseProseResponse(text);
+    const content = parsed.content || `# ${chapterTitle}\n\nLiterature review generation failed.`;
+    const citations = Array.isArray(parsed.citations) ? parsed.citations : extractCitations(content);
+    return {
+      sectionTitle: chapterTitle,
+      content,
+      wordCount: countWords(content),
+      citations,
+      subResult: { ok: true },
+    };
+  } catch (err: any) {
+    return {
+      sectionTitle: chapterTitle,
+      content: `# ${chapterTitle}\n\nLiterature review generation failed: ${err?.message || "unknown error"}`,
+      wordCount: 0,
+      citations: [],
+      subResult: { ok: false, error: err?.message || "Literature review generation failed" },
+    };
+  }
+}
+
+export async function writeConclusionSection(
+  chapterTitle: string,
+  input: MedicalResearchSkillsInput,
+): Promise<SectionProseResult> {
+  input.onProgress?.(`Writing Conclusion section: ${chapterTitle}`);
+  try {
+    const text = await input.aiFn(
+      buildConclusionPrompt(chapterTitle, input.topic, input.level, input.style, input.language, input.papers),
+    );
+    const parsed = parseProseResponse(text);
+    const content = parsed.content || `# ${chapterTitle}\n\nConclusion generation failed.`;
+    const citations = Array.isArray(parsed.citations) ? parsed.citations : extractCitations(content);
+    return {
+      sectionTitle: chapterTitle,
+      content,
+      wordCount: countWords(content),
+      citations,
+      subResult: { ok: true },
+    };
+  } catch (err: any) {
+    return {
+      sectionTitle: chapterTitle,
+      content: `# ${chapterTitle}\n\nConclusion generation failed: ${err?.message || "unknown error"}`,
+      wordCount: 0,
+      citations: [],
+      subResult: { ok: false, error: err?.message || "Conclusion generation failed" },
+    };
+  }
+}

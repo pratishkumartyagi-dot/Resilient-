@@ -78,18 +78,20 @@ AVAILABLE GROUNDING PAPERS:
 ${paperList}
 
 TASK:
-Produce a complete thesis outline with:
+Produce a complete thesis outline following the standard thesis structure (Paperpile):
 1. A working title
-2. An abstract (~250 words)
-3. Chapters, each with:
-   - chapter number
-   - chapter title
-   - sections (each with a title and an indicative word target)
-   - a chapter-level word target
+2. An abstract (~250 words) — always included as Chapter 0 / front matter
+3. Chapters — mandatory chapters in this order:
+   - Chapter 1: Introduction
+   - Chapter 2: Literature Review
+   - Chapter 3: Methods
+   - Chapter 4: Results
+   - Chapter 5: Discussion
+   - Chapter 6: Conclusion
+4. Each chapter needs: chapter number, chapter title, sections (each with title and indicative word target), chapter-level word target
 
 Distribute the total word target (${target} words, range ${min}–${max}) across chapters proportionally.
-Typical chapters: Introduction, Literature Review, Methodology, Results, Discussion, Conclusion.
-References are excluded from the word count.
+References are compiled at the end as Reference List (excluded from word count).
 Ensure the sum of chapter word targets is close to ${target}.
 
 Return ONLY a JSON object:
