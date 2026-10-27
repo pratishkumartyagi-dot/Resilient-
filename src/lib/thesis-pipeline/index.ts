@@ -8,7 +8,7 @@ import type {
 } from "@/lib/thesis-types";
 import { LEVEL_WORD_RANGES } from "@/lib/thesis-types";
 import { openDraft } from "@/lib/opendraft";
-import { scholarCopilot, generateOutline } from "@/lib/scholar-copilot";
+import { generateOutline } from "@/lib/scholar-copilot";
 import {
   writeIntroductionSection,
   writeMethodsSection,
