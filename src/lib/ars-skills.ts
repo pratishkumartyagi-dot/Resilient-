@@ -6,8 +6,8 @@
 // ARS is a prompt-driven methodology suite: the value it carries is the
 // *protocol* each agent follows, not executable code. This module encodes
 // those protocols as prompt builders so the Paper Writer & Reviewer pipeline
-// can run them with the API keys the app already has (Gemini / Groq /
-// local DeepSeek model) — no new credentials are introduced.
+// can run them with the API keys the app already has (Gemini / Groq only —
+// no local model fallback for this pipeline). No new credentials are introduced.
 //
 // Ported protocols:
 //   - Style Calibration (per-journal voice, structure, limits)

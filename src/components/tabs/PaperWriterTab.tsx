@@ -21,7 +21,7 @@ import {
   Check,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
+import { callGemini, callGroq, type AICallOptions } from "@/lib/ai";
 import { downloadMarkdownAsWord, downloadMarkdownAsPDF } from "@/lib/exporters";
 import {
   ARS_MODES,
@@ -161,7 +161,8 @@ export default function PaperWriterTab() {
     [targetJournal]
   );
 
-  // The app's existing keys are used. No new credentials are introduced.
+  // Paper Writer & Reviewer pipeline uses Gemini / Groq API keys only — no
+  // local model fallback. Gemini first, Groq as fallback.
   const callModel = useCallback(
     async (prompt: string): Promise<string> => {
       const options: AICallOptions = {
@@ -170,9 +171,12 @@ export default function PaperWriterTab() {
       };
       let text = "";
       try {
-        if (state.geminiApiKey) text = await callGemini(state.geminiApiKey, prompt, options);
-        else if (state.groqApiKey) text = await callGroq(state.groqApiKey, prompt, options);
-        else text = await callDeepSeek(prompt, options);
+        if (state.geminiApiKey) {
+          text = await callGemini(state.geminiApiKey, prompt, options);
+        } else if (state.groqApiKey) {
+          text = await callGroq(state.groqApiKey, prompt, options);
+        }
+        // Intentional: no local model (DeepSeek) fallback in this pipeline.
       } catch {
         text = "";
       }
@@ -883,7 +887,7 @@ export default function PaperWriterTab() {
                 <li>Protocol: {state.protocol?.background ? "available" : "not set"}</li>
                 <li>Impact assessment: {state.impactAssessment ? "available" : "not set"}</li>
                 <li>API key in use:{" "}
-                  {state.geminiApiKey ? "Gemini" : state.groqApiKey ? "Groq" : "Local model (DeepSeek)"}
+                  {state.geminiApiKey ? "Gemini" : state.groqApiKey ? "Groq" : "No API key configured"}
                 </li>
               </ul>
             </div>
