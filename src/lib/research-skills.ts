@@ -116,7 +116,7 @@ SYNTHESIS RULES:
 - Key findings: extract the most important quantitative and qualitative findings from the abstract, graded by evidence tier.
 - Synopsis/Takeaway: 1-2 sentences explaining the core contribution to the evidence base.
 - Study Conducted: explicitly state Population, Setting, Time period of study, and any Intervention or diagnostic method tested.
-- Research Gaps column — follow the combined methodology of two reference tools:
+- Research Gaps column — follow the combined methodology of two reference tools plus the Research Gap Finder categorization (github.com/LengFeng00/research-gap-finder):
 
   (A) Tharinda-Pamindu/Research-Gap-table-generator style (Gap Table):
   - Produce "Limitations: ... | Contradictions: ... | Exclusion criteria: ... | Gaps: ..." drawn from (1) author-acknowledged limitations, (2) contradictions or conflicting evidence, (3) exclusion criteria if stated, (4) underexplored areas the authors highlight. If the abstract does not specify, infer plausible gaps based on study design and scope.
@@ -129,8 +129,14 @@ SYNTHESIS RULES:
     * If the abstract explicitly mentions future work, refine those statements; otherwise generate study-type-appropriate forward-looking recommendations (RCT → multicenter RCTs / head-to-head trials; cohort → prospective multicenter cohorts; review → updated living review; qualitative → multi-site mixed-methods; etc.).
     * Consider: replication in diverse populations, longer follow-up, mechanistic studies, harmonized outcome reporting, cost-effectiveness, implementation research, and clinical translation.
 
-  Combine both parts in the researchGaps field separated by a newline, e.g.:
-  "Limitations: ... | Contradictions: ... | Exclusion criteria: ... | Gaps: ...\n\nFuture Work / Recommendations: ..."
+  (C) Research Gap Finder categorization — tag each gap with one of four categories:
+  - Methodological: measurement limitations, sample constraints, design limitations (correlation vs causation, short-term vs long-term), technical constraints.
+  - Theoretical: incomplete frameworks, unexplained phenomena, contradictory predictions, missing mediators/moderators, over-simplified models.
+  - Application: lab findings not translated to real-world, missing population subgroups, geographic/cultural limitations, scale-up challenges, integration barriers.
+  - Interdisciplinary: methods from other fields, untapped adjacent frameworks, cross-domain opportunities, technology transfer.
+
+  Combine all parts in the researchGaps field separated by a newline, e.g.:
+  "Limitations: ... | Contradictions: ... | Exclusion criteria: ... | Gaps: ...\n\nFuture Work / Recommendations: ...\n\nGap Category: methodological|theoretical|application|interdisciplinary | Severity: high|medium|low"
 - Grade every claim by evidence strength.
 - Avoid study-by-study summaries: synthesize across papers thematically when producing higher-level outputs.
 
@@ -496,6 +502,21 @@ WORKFLOW:
 6. Align each aim with required evidence type and minimum analysis standard
 7. Audit for scope inflation, aim sprawl, overlapping aims, hidden dependencies, weak hypotheses
 
+## Research Gap Finder Integration (github.com/LengFeng00/research-gap-finder)
+Before finalizing hypotheses, classify each research gap from the synthesis themes into one of four categories:
+- **Methodological Gaps**: measurement limitations, sample constraints, design limitations (correlation vs causation, short-term vs long-term), technical constraints.
+- **Theoretical Gaps**: incomplete frameworks, unexplained phenomena, contradictory predictions, missing mediators/moderators, over-simplified models.
+- **Application Gaps**: lab findings not translated to real-world, missing population subgroups, geographic/cultural limitations, scale-up challenges, integration barriers.
+- **Interdisciplinary Gaps**: methods from other fields, untapped adjacent frameworks, cross-domain opportunities, technology transfer.
+
+Assess each hypothesis using the Research Gap Finder quality framework:
+- **Innovation Score (1-5)**: 1=incremental, 2=new application of established methods, 3=novel combination, 4=significant advance, 5=paradigm-shifting
+- **Feasibility Score (1-5)**: technical, resource, ethical, and practical viability
+- **Impact Score (1-5)**: scientific, practical, societal, and field impact
+- **Overall Priority**: High (avg ≥ 4), Medium (avg 2.5–4), Low (avg ≤ 2.5)
+
+Rank hypotheses by combined score and prioritize those with high innovation AND feasibility.
+
 OUTPUT STRUCTURE:
 
 ### A. Topic Framing
@@ -507,7 +528,10 @@ OUTPUT STRUCTURE:
 ### B. Central Study Story
 The smallest coherent study story in concise form.
 
-### C. Aim Hierarchy
+### C. Research Gaps (Research Gap Finder classification)
+For each gap: category (methodological/theoretical/application/interdisciplinary), description, severity (high/medium/low), supporting evidence base, source papers.
+
+### D. Aim Hierarchy
 
 **Primary Aim:**
 [Aim statement]
@@ -524,8 +548,19 @@ For each aim:
 - Aim: ...
 - Hypothesis: [testable form] or "Not applicable — descriptive/exploratory"
 - Rationale: ...
+- Quality Assessment (Research Gap Finder):
+  - Innovation Score (1-5): ...
+  - Feasibility Score (1-5): ...
+  - Impact Score (1-5): ...
+  - Overall Priority: High / Medium / Low
+- Suggested Methodology: ...
+- Testable Variables: ...
+- Measurable Outcomes: ...
 
-### E. Confirmatory vs Exploratory Separation
+### E. Priority Ranking of Hypotheses
+Rank hypotheses by combined quality score (innovation + feasibility + impact), highest first. Flag high-innovation + high-feasibility hypotheses as priority research directions.
+
+### F. Confirmatory vs Exploratory Separation
 | Component | Classification | Rationale |
 |-----------|---------------|-----------|
 | ... | Confirmatory / Exploratory / Supportive | ... |

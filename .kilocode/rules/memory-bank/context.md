@@ -296,6 +296,13 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
 
 ## Recently Completed
 
+- [x] **Research module integrated with research-gap-finder (github.com/LengFeng00/research-gap-finder)**
+  - New `src/lib/medical-skills/research-gap-finder.ts` — gap categorization (methodological/theoretical/application/interdisciplinary), severity assessment, hypothesis innovation/feasibility/impact quality scoring, priority ranking, and Markdown/JSON report formatting.
+  - Registered in `src/lib/medical-skills/skills-registry.ts` and exported from `src/lib/medical-skills/index.ts`.
+  - `src/lib/research-skills.ts` Step 3 synthesis now tags each research gap with a Research Gap Finder category and severity (methodological/theoretical/application/interdisciplinary; high/medium/low).
+  - `src/lib/research-skills.ts` Step 8 aims & hypotheses now classify research gaps into the four Research Gap Finder categories and score each hypothesis on Innovation/Feasibility/Impact (1–5) with Overall Priority (High/Medium/Low) and priority ranking.
+  - Verified: `bun typecheck` ✅, `bun lint` ✅.
+
 - [x] **Statistical Analysis tab — fg-data-profiling style profiling (2026-10-20, v0.1.9)**
   - [x] New `src/lib/data-profiling/` module implementing the fg-data-profiling feature set: type inference, univariate/multivariate analysis, alerts engine, missing-value patterns, duplicate detection, time-series diagnostics (ACF/PACF, trend, seasonality), text analysis (scripts, blocks, casing, common words), dataset comparison, HTML + JSON report export.
   - [x] New `src/components/DataProfilePanels.tsx` rendering Overview cards, Alerts table, Variable types, Numerical/Categorical/Temporal/Text variables, histograms (recharts), correlations (Pearson + Spearman), PCA, duplicates, time-series sparklines and Reproduction section.
