@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useState, useMemo, useEffect } from "react";
-import { Search, Database, ChevronRight, CheckSquare, Square, Loader2, CheckCircle2, AlertCircle, Globe } from "lucide-react";
+import { Search, Database, ChevronRight, CheckSquare, Square, Loader2, CheckCircle2, AlertCircle, Globe, Plus, Minus, LayoutList } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { webSearchPapers, verifyCitations, enrichPapersWithDois, type Paper } from "@/lib/database-apis";
+import { webSearchPapers, verifyCitations, enrichPapersWithDois, type Paper, type SearchConcept } from "@/lib/database-apis";
 
 const STUDY_TYPES = [
   "All Study Types",
@@ -98,11 +98,18 @@ export default function Step1Search() {
   const [resultLimit, setResultLimit] = useState(200);
   const [searchBudget, setSearchBudget] = useState(30);
   const [semanticSearch, setSemanticSearch] = useState(false);
+  const [searchMode, setSearchMode] = useState<"single" | "concepts">("single");
+  const [concepts, setConcepts] = useState<SearchConcept[]>([
+    { id: "concept-1", label: "Concept 1", terms: [], useThesaurus: true, useFreeText: true, truncate: true },
+  ]);
+  const [pubMedStrategy, setPubMedStrategy] = useState<"sensitive" | "specific">("sensitive");
   const [searchFailed, setSearchFailed] = useState(false);
   const [webFallbackBusy, setWebFallbackBusy] = useState(false);
 
   const availableDbs = useMemo(() => catalogue.filter((d) => d.available).map((d) => d.id), [catalogue]);
   const unavailableDbs = useMemo(() => catalogue.filter((d) => !d.available), [catalogue]);
+
+  const hasConcepts = searchMode === "concepts" && concepts.some((c) => c.terms.some((t) => t.trim().length > 0));
 
   // The server owns the list of usable sources (it knows which API keys are
   // configured and which upstreams currently block automated access).
@@ -148,6 +155,65 @@ export default function Step1Search() {
     dispatch({ type: "SET_SELECTED_DATABASES", payload: [] });
   };
 
+  const addConcept = () => {
+    const nextId = `concept-${Date.now()}`;
+    setConcepts((prev) => [
+      ...prev,
+      { id: nextId, label: `Concept ${prev.length + 1}`, terms: [], useThesaurus: true, useFreeText: true, truncate: true },
+    ]);
+  };
+
+  const removeConcept = (id: string) => {
+    setConcepts((prev) => prev.filter((c) => c.id !== id));
+  };
+
+  const updateConceptTerm = (conceptId: string, index: number, value: string) => {
+    setConcepts((prev) =>
+      prev.map((c) => {
+        if (c.id !== conceptId) return c;
+        const next = [...c.terms];
+        next[index] = value;
+        return { ...c, terms: next };
+      })
+    );
+  };
+
+  const addConceptTerm = (conceptId: string) => {
+    setConcepts((prev) =>
+      prev.map((c) => (c.id !== conceptId ? c : { ...c, terms: [...c.terms, ""] }))
+    );
+  };
+
+  const removeConceptTerm = (conceptId: string, index: number) => {
+    setConcepts((prev) =>
+      prev.map((c) => {
+        if (c.id !== conceptId) return c;
+        const next = [...c.terms];
+        next.splice(index, 1);
+        return { ...c, terms: next.filter((t) => t.trim().length > 0) };
+      })
+    );
+  };
+
+  const toggleConceptOption = (conceptId: string, option: keyof Pick<SearchConcept, "useThesaurus" | "useFreeText" | "truncate">) => {
+    setConcepts((prev) =>
+      prev.map((c) => (c.id !== conceptId ? c : { ...c, [option]: !c[option] }))
+    );
+  };
+
+  const updateConceptProximity = (conceptId: string, value: string) => {
+    const window = parseInt(value, 10);
+    setConcepts((prev) =>
+      prev.map((c) => (c.id !== conceptId ? c : { ...c, proximityWindow: Number.isNaN(window) || window < 1 ? undefined : window }))
+    );
+  };
+
+  const updateConceptLabel = (conceptId: string, value: string) => {
+    setConcepts((prev) =>
+      prev.map((c) => (c.id !== conceptId ? c : { ...c, label: value || c.label }))
+    );
+  };
+
   const formatFailures = (rows: PerDatabaseRow[]) => {
     const failed = rows.filter((r) => r.status === "failed");
     if (failed.length === 0) return "";
@@ -178,8 +244,13 @@ export default function Step1Search() {
   };
 
   const handleSearch = async () => {
-    if (!localQuery.trim() || selectedDbs.length === 0) {
-      dispatch({ type: "SET_ERROR", payload: "Enter a search query and select at least one database." });
+    const hasQuery = localQuery.trim().length > 0;
+    if (!hasQuery && !hasConcepts) {
+      dispatch({ type: "SET_ERROR", payload: "Enter a search query or at least one concept with terms, and select at least one database." });
+      return;
+    }
+    if (selectedDbs.length === 0) {
+      dispatch({ type: "SET_ERROR", payload: "Select at least one database." });
       return;
     }
     dispatch({ type: "SET_LOADING", payload: true });
@@ -192,6 +263,8 @@ export default function Step1Search() {
     dispatch({ type: "SET_PAPERS", payload: [] });
     setPerDatabaseResults([]);
     setSearchFailed(false);
+
+    const conceptsPayload = searchMode === "concepts" ? concepts : undefined;
 
     try {
       const res = await fetch("/api/literature-search", {
@@ -206,6 +279,8 @@ export default function Step1Search() {
           maxResults: resultLimit,
           timeoutMs: searchBudget * 1000,
           semanticSearch,
+          concepts: conceptsPayload,
+          pubMedStrategy: searchMode === "concepts" ? pubMedStrategy : undefined,
         }),
       });
 
@@ -374,35 +449,195 @@ export default function Step1Search() {
 
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-blue-200 mb-1">
-              Search Query
-            </label>
-            <div className="flex gap-2">
-              <select
-                value={localLogic}
-                onChange={(e) => setLocalLogic(e.target.value)}
-                className="bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2 text-sm"
-              >
-                <option value="AND">AND</option>
-                <option value="OR">OR</option>
-                <option value="NOT">NOT</option>
-              </select>
-              <input
-                type="text"
-                value={localQuery}
-                onChange={(e) => setLocalQuery(e.target.value)}
-                placeholder="e.g., latent tuberculosis infection AND healthcare workers"
-                className="flex-1 bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-2 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-              />
-              <button
-                onClick={handleSearch}
-                disabled={state.isLoading || !localQuery.trim()}
-                className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-6 py-2 rounded-lg disabled:opacity-50 flex items-center gap-2"
-              >
-                <Search size={16} />
-                {state.isLoading ? "Searching..." : "Search"}
-              </button>
+            <div className="flex items-center gap-3 mb-3">
+              <label className="text-sm font-medium text-blue-200">Search Mode</label>
+              <div className="flex bg-blue-950 border border-blue-800 rounded-lg p-1">
+                <button
+                  onClick={() => setSearchMode("single")}
+                  className={`px-4 py-1.5 text-xs rounded-md transition-colors ${
+                    searchMode === "single" ? "bg-blue-800 text-white" : "text-blue-300 hover:bg-blue-900/50"
+                  }`}
+                >
+                  Single Query
+                </button>
+                <button
+                  onClick={() => setSearchMode("concepts")}
+                  className={`px-4 py-1.5 text-xs rounded-md transition-colors ${
+                    searchMode === "concepts" ? "bg-blue-800 text-white" : "text-blue-300 hover:bg-blue-900/50"
+                  }`}
+                >
+                  Multi-Concept (Bramer)
+                </button>
+              </div>
+              <p className="text-xs text-blue-400">
+                {searchMode === "concepts" ? "Each concept is searched separately; concepts are combined with AND (step 3-4)." : "Boolean query with AND/OR/NOT (step 10)."}
+              </p>
             </div>
+
+            {searchMode === "single" ? (
+              <div className="flex gap-2">
+                <select
+                  value={localLogic}
+                  onChange={(e) => setLocalLogic(e.target.value)}
+                  className="bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2 text-sm"
+                >
+                  <option value="AND">AND</option>
+                  <option value="OR">OR</option>
+                  <option value="NOT">NOT</option>
+                </select>
+                <input
+                  type="text"
+                  value={localQuery}
+                  onChange={(e) => setLocalQuery(e.target.value)}
+                  placeholder="e.g., latent tuberculosis infection AND healthcare workers"
+                  className="flex-1 bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-2 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                />
+                <button
+                  onClick={handleSearch}
+                  disabled={state.isLoading || !localQuery.trim()}
+                  className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-6 py-2 rounded-lg disabled:opacity-50 flex items-center gap-2"
+                >
+                  <Search size={16} />
+                  {state.isLoading ? "Searching..." : "Search"}
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {concepts.map((concept) => (
+                  <div key={concept.id} className="bg-blue-950 border border-blue-900 rounded-lg p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={concept.label}
+                          onChange={(e) => updateConceptLabel(concept.id, e.target.value)}
+                          placeholder="Concept name (e.g., Hip Osteoarthritis)"
+                          className="bg-blue-900 border border-blue-800 text-white rounded px-3 py-1.5 text-sm w-48 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                        />
+                        <button
+                          onClick={() => removeConcept(concept.id)}
+                          disabled={concepts.length === 1}
+                          className="text-red-400 hover:text-red-300 disabled:opacity-40 p-1"
+                          title="Remove concept"
+                        >
+                          <Minus size={14} />
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px]">
+                        <label className="flex items-center gap-1 cursor-pointer text-blue-300">
+                          <input
+                            type="checkbox"
+                            checked={concept.useThesaurus}
+                            onChange={() => toggleConceptOption(concept.id, "useThesaurus")}
+                            className="w-3 h-3 rounded border-blue-700 bg-blue-950 text-yellow-500 focus:ring-yellow-500"
+                          />
+                          Thesaurus (MeSH/Emtree)
+                        </label>
+                        <label className="flex items-center gap-1 cursor-pointer text-blue-300">
+                          <input
+                            type="checkbox"
+                            checked={concept.useFreeText}
+                            onChange={() => toggleConceptOption(concept.id, "useFreeText")}
+                            className="w-3 h-3 rounded border-blue-700 bg-blue-950 text-yellow-500 focus:ring-yellow-500"
+                          />
+                          Free text [tiab]
+                        </label>
+                        <label className="flex items-center gap-1 cursor-pointer text-blue-300">
+                          <input
+                            type="checkbox"
+                            checked={concept.truncate}
+                            onChange={() => toggleConceptOption(concept.id, "truncate")}
+                            className="w-3 h-3 rounded border-blue-700 bg-blue-950 text-yellow-500 focus:ring-yellow-500"
+                          />
+                          Truncation (*)
+                        </label>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-blue-400">Search terms (&rsquo;OR&rsquo;d within concept)</label>
+                      <div className="space-y-1">
+                        {concept.terms.map((term, i) => (
+                          <div key={i} className="flex gap-1">
+                            <input
+                              type="text"
+                              value={term}
+                              onChange={(e) => updateConceptTerm(concept.id, i, e.target.value)}
+                              placeholder="e.g., Osteoarthritis, Hip"
+                              className="flex-1 bg-blue-900 border border-blue-800 text-white rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                            />
+                            <button
+                              onClick={() => removeConceptTerm(concept.id, i)}
+                              className="text-red-400 hover:text-red-300 p-1"
+                            >
+                              <Minus size={12} />
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          onClick={() => addConceptTerm(concept.id)}
+                          className="text-xs bg-blue-800/50 text-blue-200 px-2 py-1 rounded hover:bg-blue-800 flex items-center gap-1"
+                        >
+                          <Plus size={12} /> Add term
+                        </button>
+                      </div>
+                      {concept.proximityWindow !== undefined && (
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="text-blue-400">Proximity window:</span>
+                          <input
+                            type="number"
+                            value={concept.proximityWindow}
+                            onChange={(e) => updateConceptProximity(concept.id, e.target.value)}
+                            min="1"
+                            max="10"
+                            className="w-16 bg-blue-900 border border-blue-800 text-white rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                          />
+                          <span className="text-blue-400">words (ADJ3/N3/NEAR/3)</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                <div className="flex justify-end">
+                  <button
+                    onClick={addConcept}
+                    className="text-xs bg-blue-800/50 text-blue-200 px-3 py-1.5 rounded hover:bg-blue-800 flex items-center gap-1"
+                  >
+                    <Plus size={14} /> Add Concept
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <label className="flex items-center gap-1 text-xs text-blue-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={pubMedStrategy === "sensitive"}
+                      onChange={() => setPubMedStrategy("sensitive")}
+                      className="w-3 h-3 rounded border-blue-700 bg-blue-950 text-yellow-500 focus:ring-yellow-500"
+                    />
+                    PubMed Sensitive Strategy
+                  </label>
+                  <label className="flex items-center gap-1 text-xs text-blue-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={pubMedStrategy === "specific"}
+                      onChange={() => setPubMedStrategy("specific")}
+                      className="w-3 h-3 rounded border-blue-700 bg-blue-950 text-yellow-500 focus:ring-yellow-500"
+                    />
+                    PubMed Specific Strategy
+                  </label>
+                  <p className="text-xs text-blue-400 ml-2">
+                    Sensitive = thesaurus [mh] + free text [tiab] &nbsp;|&nbsp; Specific = major focus [mj] + truncated free text (step 11)
+                  </p>
+                </div>
+                <button
+                  onClick={handleSearch}
+                  disabled={state.isLoading || !hasConcepts}
+                  className="bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-6 py-2 rounded-lg disabled:opacity-50 w-full flex items-center justify-center gap-2"
+                >
+                  <Search size={16} />
+                  {state.isLoading ? "Searching..." : "Search Concepts"}
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-5 gap-4">

@@ -49,14 +49,27 @@ export interface SearchOutcome {
   errors: Record<string, string>;
 }
 
+export interface SearchConcept {
+  id: string;
+  label: string;
+  terms: string[];
+  useThesaurus: boolean;
+  useFreeText: boolean;
+  truncate: boolean;
+  proximityWindow?: number;
+}
+
 export interface SearchOptions {
   query: string;
+  concepts?: SearchConcept[];
   yearFrom?: string;
   yearTo?: string;
   studyType?: string;
   limitPerDatabase?: number;
   /** Overall wall-clock budget for the whole multi-database search. */
   timeoutMs?: number;
+  /** PubMed sensitive vs specific strategy (step 11 optimization). */
+  pubMedStrategy?: "sensitive" | "specific";
 }
 
 const STUDY_TYPE_KEYWORDS: Record<string, string[]> = {
@@ -448,9 +461,12 @@ export async function verifyCitations(papers: Paper[]): Promise<Map<string, { va
 
 interface FetchContext {
   query: string;
+  concepts?: SearchConcept[];
   yearFrom?: string;
   yearTo?: string;
   limit: number;
+  /** PubMed sensitive vs specific strategy (step 11 optimization). */
+  pubMedStrategy?: "sensitive" | "specific";
 }
 
 function yearFilterForApi(from?: string, to?: string): string {
@@ -510,29 +526,88 @@ function splitTerms(query: string): string[] {
     .filter((t) => t.length > 1);
 }
 
+/** Detect a proximity operator (ADJ3, N3, NEAR/3) inside a query fragment. */
+function extractProximity(query: string): { window: number; operator: "ADJ" | "N" | "NEAR" } | null {
+  const m = query.match(/\b(ADJ|N|NEAR)\/?(\d+)\b/i);
+  if (!m) return null;
+  return { window: parseInt(m[2], 10), operator: m[1].toUpperCase() as "ADJ" | "N" | "NEAR" };
+}
+
+/** Strip proximity operators from a term so it can be quoted/field-tagged. */
+function stripProximity(query: string): string {
+  return query.replace(/\b(ADJ|N|NEAR)\/?\d+\b/gi, "").trim();
+}
+
+/** Expand a thesaurus concept with its synonyms / entry terms. */
+function expandThesaurusTerm(term: string): string[] {
+  const key = term.toLowerCase().trim();
+  const expanded = THESAURUS_SYNONYMS[key];
+  if (expanded) return expanded;
+  return [term];
+}
+
+/** Apply truncation (*) to a term that doesn't already have one. */
+function applyTruncation(term: string): string {
+  const cleaned = term.replace(/\*+$/, "");
+  return cleaned.endsWith("*") ? cleaned : `${cleaned}*`;
+}
+
 function quote(term: string): string {
   return `"${term.replace(/"/g, "")}"`;
 }
 
-/** Builds the search string for one database from the research question. */
+/** Builds the search string for one database from the research question.
+ *
+ *  Supports two modes:
+ *  - Single-query mode (legacy): `query` is split on AND/OR/NOT and searched as one block.
+ *  - Multi-concept mode (Bramer steps 3-4): `concepts` defines element groups; each
+ *    concept's terms are ORed internally (thesaurus + free text + truncation),
+ *    then concepts are combined with AND. This mirrors the Bramer schema where
+ *    Element 1 (hip osteoarthritis) AND Element 2 (exercise therapy) are searched
+ *    separately and combined.
+ */
 export function buildDatabaseSearch(
   database: string,
   query: string,
-  options: { logic?: string; yearFrom?: string; yearTo?: string; studyType?: string } = {}
+  options: { logic?: string; yearFrom?: string; yearTo?: string; studyType?: string; concepts?: SearchConcept[]; pubMedStrategy?: "sensitive" | "specific" } = {}
 ): QueryTranslation {
-  const terms = splitTerms(query);
   const logic = (options.logic || "AND").toUpperCase();
   const joiner = logic === "OR" ? " OR " : " AND ";
   const id = database.toLowerCase();
+  const concepts = options.concepts;
+
+  // ---- Multi-concept mode (Bramer steps 3-4) ----
+  if (concepts && concepts.length > 0) {
+    const elementQueries = concepts.map((concept) => buildConceptQuery(database, concept, options.pubMedStrategy));
+    const hasYear = Boolean(options.yearFrom || options.yearTo);
+    const hasFilter = Boolean(options.studyType && options.studyType !== "All Study Types");
+    let combined = elementQueries.filter(Boolean).join(`) ${joiner.toUpperCase()} (`);
+    if (combined) combined = `(${combined})`;
+    if (hasFilter) {
+      const filter = buildStudyTypeFilter(options.studyType!);
+      combined = filter ? `(${combined}) AND ${filter}` : combined;
+    }
+    if (hasYear) {
+      const yearRange = buildYearRange(database, options.yearFrom, options.yearTo);
+      combined = yearRange ? `(${combined}) AND ${yearRange}` : combined;
+    }
+    return { term: combined || query, scheme: schemeForDatabase(id), searchString: combined || query };
+  }
+
+  // ---- Single-query mode (legacy) ----
+  const terms = splitTerms(query);
+  const id2 = database.toLowerCase();
 
   switch (true) {
-    case id === "pubmed":
-      // MeSH terms for the recognised concepts + free text in title/abstract.
+    case id2 === "pubmed":
       {
         const mesh = terms.map((t) => {
+          const expanded = expandThesaurusTerm(t);
           const meSH = MESH_TERMS[t.toLowerCase()];
-          const free = `${quote(t)}[Title/Abstract]`;
-          return meSH ? `(${quote(meSH)}[MeSH Terms] OR ${free})` : free;
+          const freeText = expanded.map((e) => `${quote(stripProximity(e))}[Title/Abstract]`).join(" OR ");
+          const meshPart = meSH ? `${quote(meSH)}[MeSH Terms]` : "";
+          const parts = [meshPart, freeText].filter(Boolean);
+          return parts.length ? `(${parts.join(" OR ")})` : query;
         });
         let term = mesh.join(joiner) || query;
         const filter = buildStudyTypeFilter(options.studyType);
@@ -545,10 +620,8 @@ export function buildDatabaseSearch(
         return { term, scheme: "pubmed", searchString: term };
       }
 
-    case id === "europe pmc" || id === "biorxiv" || id === "medrxiv": {
-      const extra = id === "biorxiv" ? ["SRC:PPR", "PUBLISHER:bioRxiv"] : id === "medrxiv" ? ["SRC:PPR", "PUBLISHER:medRxiv"] : [];
-      // Europe PMC: terms with the boolean operator, then the date range and
-      // (for preprints) the source filter.
+    case id2 === "europe pmc" || id2 === "biorxiv" || id2 === "medrxiv": {
+      const extra = id2 === "biorxiv" ? ["SRC:PPR", "PUBLISHER:bioRxiv"] : id2 === "medrxiv" ? ["SRC:PPR", "PUBLISHER:medRxiv"] : [];
       const parts = terms.map((t) => t);
       let term = parts.join(joiner) || query;
       if (options.yearFrom || options.yearTo) {
@@ -560,17 +633,12 @@ export function buildDatabaseSearch(
       return { term, scheme: "europepmc", searchString: term };
     }
 
-    case id === "crossref": {
-      // Crossref has no field syntax for a free-text question: the
-      // bibliographic query is the documented scheme.
+    case id2 === "crossref": {
       const term = terms.length ? terms.map(quote).join(" ") : query;
       return { term, scheme: "crossref", searchString: term };
     }
 
-    case id === "arxiv": {
-      // arXiv field prefixes: all: (title, abstract, authors, comments).
-      // Quotes and parentheses are not supported by the arXiv parser, and a
-      // hyphenated token must be kept intact, so only spaces are split.
+    case id2 === "arxiv": {
       const words = terms
         .flatMap((t) => t.split(/\s+/))
         .filter((w) => w.length > 1)
@@ -579,29 +647,27 @@ export function buildDatabaseSearch(
       return { term, scheme: "arxiv", searchString: term };
     }
 
-    case id === "openalex": {
+    case id2 === "openalex": {
       const term = terms.map(quote).join(" ");
       return { term, scheme: "openalex", searchString: term };
     }
 
-    case id === "doaj": {
-      // DOAJ uses Lucene syntax over the bibjson fields.
+    case id2 === "doaj": {
       const term = terms.map((t) => `(bibjson.title:${quote(t)} OR bibjson.abstract:${quote(t)})`).join(joiner);
       return { term, scheme: "doaj", searchString: term };
     }
 
-    case id === "zenodo": {
+    case id2 === "zenodo": {
       const term = terms.map((t) => `(${quote(t)} OR metadata.title:${quote(t)})`).join(joiner);
       return { term, scheme: "zenodo", searchString: term };
     }
 
-    case id === "openaire": {
+    case id2 === "openaire": {
       const term = terms.map(quote).join(" ");
       return { term, scheme: "openaire", searchString: term };
     }
 
-    case id === "clinicaltrials.gov": {
-      // ClinicalTrials.gov supports fielded search: AREA[Condition], AREA[Intervention].
+    case id2 === "clinicaltrials.gov": {
       const term = terms.map((t) => `${quote(t)}`).join(joiner);
       return { term, scheme: "clinicaltrials", searchString: term };
     }
@@ -611,8 +677,305 @@ export function buildDatabaseSearch(
   }
 }
 
-/** MeSH headings for the concepts the app recognises, so PubMed searches are
- *  run the way a librarian would run them. */
+/** Builds the query for one search concept (element), combining thesaurus,
+ *  free-text, truncation and proximity terms with OR (Bramer steps 7-9). */
+function buildConceptQuery(database: string, concept: SearchConcept, pubMedStrategy?: "sensitive" | "specific"): string {
+  const id = database.toLowerCase();
+  const terms: string[] = [];
+
+  // Thesaurus terms (MeSH / Emtree) - step 7
+  if (concept.useThesaurus) {
+    for (const t of concept.terms) {
+      const expanded = expandThesaurusTerm(t);
+      for (const e of expanded) {
+        const finalTerm = concept.truncate ? applyTruncation(e) : e;
+        terms.push(finalTerm);
+      }
+    }
+  }
+
+  // Free-text terms in title/abstract - step 8 (synonyms)
+  if (concept.useFreeText) {
+    for (const t of concept.terms) {
+      const expanded = expandThesaurusTerm(t);
+      for (const e of expanded) {
+        const finalTerm = concept.truncate ? applyTruncation(e) : e;
+        terms.push(finalTerm);
+      }
+    }
+  }
+
+  // Proximity operator within the concept - step 10
+  const prox = concept.proximityWindow ? ` ${concept.proximityWindow}` : "";
+  const proximityOp = concept.proximityWindow ? (id === "pubmed" ? "AND" : id === "embase.com" ? "NEAR/" : "N/") : "";
+
+  // Build database-specific syntax
+  switch (true) {
+    case id === "pubmed":
+      {
+        // PubMed sensitive: thesaurus [mh] + free text [tiab] with truncation
+        // PubMed specific: major focus [mj] + truncated free text only
+        const parts: string[] = [];
+        if (concept.useThesaurus) {
+          const meshParts: string[] = [];
+          for (const t of concept.terms) {
+            const meSH = MESH_TERMS[t.toLowerCase()];
+            if (meSH) {
+              const focus = pubMedStrategy === "specific" ? "[mj]" : "[mh]";
+              meshParts.push(`${quote(meSH)}${focus}`);
+            }
+          }
+          if (meshParts.length) parts.push(`(${meshParts.join(" OR ")})`);
+        }
+        if (concept.useFreeText) {
+          const tiabParts: string[] = [];
+          for (const t of concept.terms) {
+            const expanded = expandThesaurusTerm(t);
+            for (const e of expanded) {
+              const finalTerm = concept.truncate ? applyTruncation(e) : e;
+              tiabParts.push(`${quote(stripProximity(finalTerm))}[tiab]`);
+            }
+          }
+          if (tiabParts.length) parts.push(`(${tiabParts.join(" OR ")})`);
+        }
+        return parts.length ? `(${parts.join(" OR ")})` : "";
+      }
+
+    case id === "europe pmc" || id === "biorxiv" || id === "medrxiv": {
+      const parts: string[] = [];
+      for (const t of terms) {
+        parts.push(`(TITLE_ABS:${quote(t)})`);
+      }
+      return parts.length ? `(${parts.join(" OR ")})` : "";
+    }
+
+    case id === "embase.com": {
+      // Embase.com syntax: 'term'/exp for thesaurus, :ab,ti for free text, NEAR/3 for proximity
+      const parts: string[] = [];
+      if (concept.useThesaurus) {
+        const expParts: string[] = [];
+        for (const t of concept.terms) {
+          const expanded = expandThesaurusTerm(t);
+          for (const e of expanded) {
+            const finalTerm = concept.truncate ? applyTruncation(e) : e;
+            expParts.push(`'${stripProximity(finalTerm)}'/exp`);
+          }
+        }
+        if (expParts.length) parts.push(`(${expParts.join(" OR ")})`);
+      }
+      if (concept.useFreeText) {
+        const abtiParts: string[] = [];
+        for (const t of concept.terms) {
+          const expanded = expandThesaurusTerm(t);
+          for (const e of expanded) {
+            const finalTerm = concept.truncate ? applyTruncation(e) : e;
+            abtiParts.push(`'${stripProximity(finalTerm)}':ab,ti`);
+          }
+        }
+        if (abtiParts.length) parts.push(`(${abtiParts.join(" OR ")})`);
+      }
+      return parts.length ? `(${parts.join(" OR ")})` : "";
+    }
+
+    case id === "ovid": {
+      // Ovid syntax: exp "term"/ for thesaurus, .ab,ti. for free text, ADJ3 for proximity
+      const parts: string[] = [];
+      if (concept.useThesaurus) {
+        const expParts: string[] = [];
+        for (const t of concept.terms) {
+          const meSH = MESH_TERMS[t.toLowerCase()] || t;
+          expParts.push(`exp "${meSH}"/`);
+        }
+        if (expParts.length) parts.push(`(${expParts.join(" OR ")})`);
+      }
+      if (concept.useFreeText) {
+        const abtiParts: string[] = [];
+        for (const t of concept.terms) {
+          const expanded = expandThesaurusTerm(t);
+          for (const e of expanded) {
+            const finalTerm = concept.truncate ? applyTruncation(e) : e;
+            abtiParts.push(`"${stripProximity(finalTerm)}".ab,ti.`);
+          }
+        }
+        if (abtiParts.length) parts.push(`(${abtiParts.join(" OR ")})`);
+      }
+      return parts.length ? `(${parts.join(" OR ")})` : "";
+    }
+
+    case id === "ebscohost": {
+      // EBSCOhost syntax: MH "term+" for thesaurus, AB () / TI () for free text, N3 for proximity
+      const parts: string[] = [];
+      if (concept.useThesaurus) {
+        const mhParts: string[] = [];
+        for (const t of concept.terms) {
+          const meSH = MESH_TERMS[t.toLowerCase()] || t;
+          mhParts.push(`MH "${meSH}+"`);
+        }
+        if (mhParts.length) parts.push(`(${mhParts.join(" OR ")})`);
+      }
+      if (concept.useFreeText) {
+        const abParts: string[] = [];
+        for (const t of concept.terms) {
+          const expanded = expandThesaurusTerm(t);
+          for (const e of expanded) {
+            const finalTerm = concept.truncate ? applyTruncation(e) : e;
+            abParts.push(`AB ("${stripProximity(finalTerm)}")`);
+          }
+        }
+        if (abParts.length) parts.push(`(${abParts.join(" OR ")})`);
+      }
+      return parts.length ? `(${parts.join(" OR ")})` : "";
+    }
+
+    case id === "proquest": {
+      // ProQuest syntax: Mesh# "term" for thesaurus, AB,TI() for free text, N/3 for proximity
+      const parts: string[] = [];
+      if (concept.useThesaurus) {
+        const meshParts: string[] = [];
+        for (const t of concept.terms) {
+          const meSH = MESH_TERMS[t.toLowerCase()] || t;
+          meshParts.push(`Mesh# "${meSH}"`);
+        }
+        if (meshParts.length) parts.push(`(${meshParts.join(" OR ")})`);
+      }
+      if (concept.useFreeText) {
+        const abtiParts: string[] = [];
+        for (const t of concept.terms) {
+          const expanded = expandThesaurusTerm(t);
+          for (const e of expanded) {
+            const finalTerm = concept.truncate ? applyTruncation(e) : e;
+            abtiParts.push(`AB,TI("${stripProximity(finalTerm)}")`);
+          }
+        }
+        if (abtiParts.length) parts.push(`(${abtiParts.join(" OR ")})`);
+      }
+      return parts.length ? `(${parts.join(" OR ")})` : "";
+    }
+
+    case id === "crossref":
+    case id === "openalex":
+    case id === "arxiv":
+    case id === "doaj":
+    case id === "zenodo":
+    case id === "openaire":
+    case id === "clinicaltrials.gov":
+      // These databases use a single free-text query; join concept terms with OR
+      return terms.length ? `(${terms.join(" OR ")})` : "";
+
+    default:
+      return terms.length ? `(${terms.join(" OR ")})` : "";
+  }
+}
+
+/** Builds a year range clause for the given database. */
+function buildYearRange(database: string, from?: string, to?: string): string | null {
+  if (!from && !to) return null;
+  const id = database.toLowerCase();
+  const start = from ? from : "1800";
+  const end = to ? to : new Date().getFullYear().toString();
+  if (id === "pubmed") return `("${start}/01/01"[Date - Publication] : "${end}/12/31"[Date - Publication])`;
+  if (id === "europe pmc" || id === "biorxiv" || id === "medrxiv") return `(FIRST_PDATE:[${start}-01-01 TO ${end}-12-31])`;
+  if (id === "crossref") return `from-pub-date:${start},until-pub-date:${end}`;
+  if (id === "openalex") return `from_publication_date:${start}-01-01,to_publication_date:${end}-12-31`;
+  return `(${start} TO ${end})`;
+}
+
+/** Returns the search scheme enum value for a database id. */
+function schemeForDatabase(id: string): SearchScheme {
+  switch (id) {
+    case "pubmed": return "pubmed";
+    case "europe pmc": case "biorxiv": case "medrxiv": return "europepmc";
+    case "crossref": return "crossref";
+    case "arxiv": return "arxiv";
+    case "openalex": return "openalex";
+    case "doaj": return "doaj";
+    case "zenodo": return "zenodo";
+    case "openaire": return "openaire";
+    case "clinicaltrials.gov": return "clinicaltrials";
+    default: return "generic";
+  }
+}
+
+/** MeSH / Emtree thesaurus with entry terms and synonyms per concept (step 7-8).
+ *  Each concept maps to its preferred thesaurus heading plus entry terms,
+ *  synonyms, truncation stems, and narrower terms. */
+const THESAURUS_SYNONYMS: Record<string, string[]> = {
+  // Hip osteoarthritis (Bramer example)
+  "osteoarthritis, hip": [
+    "Osteoarthritis, Hip",
+    "Hip Osteoarthritis",
+    "Hip Osteoarthritides",
+    "Osteoarthritides, Hip",
+    "Coxarthrosis",
+    "Coxarthroses",
+    "Osteoarthritis Of Hip",
+    "Osteoarthritis Of Hips",
+    "Hip, Hip Joint and Osteoarthritis",
+    "Coxarthros*",
+    "Hip Osteoarthrit*",
+    "Osteoarthritis Of Hip*",
+  ],
+  "hip osteoarthritis": [
+    "Osteoarthritis, Hip",
+    "Hip Osteoarthritis",
+    "Hip Osteoarthritides",
+    "Coxarthrosis",
+    "Coxarthroses",
+    "Osteoarthritis Of Hip",
+    "Coxarthros*",
+    "Hip Osteoarthrit*",
+  ],
+  "coxarthrosis": ["Coxarthrosis", "Coxarthroses", "Coxarthros*"],
+  // Exercise therapy / kinesiotherapy (Bramer example)
+  "exercise therapy": [
+    "Exercise Therapy",
+    "kinesiotherapy",
+    "kinesitherapy",
+    "isokinetic exercise",
+    "isometric exercise",
+    "movement therapy",
+    "muscle training",
+    "Exercise Therap*",
+    "kinesiotherap*",
+    "kinesitherap*",
+  ],
+  "kinesiotherapy": ["kinesiotherapy", "kinesitherapy", "kinesiotherap*", "kinesitherap*"],
+  // Common conditions
+  aspirin: ["Aspirin", "acetylsalicylic acid"],
+  hypertension: ["Hypertension", "high blood pressure"],
+  tuberculosis: ["Tuberculosis", "TB"],
+  "tuberculosis, latent": ["Latent Tuberculosis", "latent TB"],
+  diabetes: ["Diabetes Mellitus", "diabetes"],
+  "diabetes mellitus, type 2": ["Diabetes Mellitus, Type 2", "type 2 diabetes", "T2D"],
+  cancer: ["Neoplasms", "cancer", "carcinoma", "malignancy", "Neoplasm*"],
+  "breast cancer": ["Breast Neoplasms", "breast cancer", "mammary carcinoma"],
+  depression: ["Depressive Disorder", "depression", "major depression"],
+  anxiety: ["Anxiety Disorders", "anxiety", "generalized anxiety"],
+  asthma: ["Asthma", "bronchial asthma"],
+  copd: ["Pulmonary Disease, Chronic Obstructive", "COPD", "chronic obstructive pulmonary disease"],
+  obesity: ["Obesity"],
+  sepsis: ["Sepsis"],
+  pneumonia: ["Pneumonia"],
+  "heart failure": ["Heart Failure", "cardiac failure", "congestive heart failure"],
+  "myocardial infarction": ["Myocardial Infarction", "heart attack", "MI"],
+  stroke: ["Stroke", "cerebrovascular accident", "CVA"],
+  nursing: ["Nursing"],
+  "nurse practitioners": ["Nurse Practitioners", "nurse practitioner"],
+  "patient education": ["Patient Education as Topic", "patient education"],
+  medication: ["Medication Therapy", "medication"],
+  adherence: ["Patient Compliance", "adherence", "compliance"],
+  smoking: ["Smoking", "tobacco use", "cigarette smoking"],
+  covid: ["COVID-19", "SARS-CoV-2", "coronavirus"],
+  "covid-19": ["COVID-19", "SARS-CoV-2"],
+  "quality improvement": ["Quality Improvement"],
+  "risk of bias": ["Bias", "risk of bias"],
+  "randomised controlled trial": ["Randomized Controlled Trials as Topic", "RCT"],
+  "randomized controlled trial": ["Randomized Controlled Trials as Topic", "RCT"],
+  "systematic review": ["Systematic Reviews as Topic"],
+  "qualitative research": ["Qualitative Research"],
+};
+
+/** Legacy lookup: single preferred MeSH heading per term (kept for compatibility). */
 const MESH_TERMS: Record<string, string> = {
   aspirin: "Aspirin",
   hypertension: "Hypertension",
@@ -666,7 +1029,15 @@ function buildStudyTypeFilter(studyType?: string): string | null {
   return STUDY_TYPE_FILTERS[studyType] || null;
 }
 
-export async function fetchPubMedBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
+export async function fetchPubMedBrowserless(
+  query: string,
+  yearFrom?: string,
+  yearTo?: string,
+  studyType?: string,
+  limit?: number,
+  concepts?: SearchConcept[],
+  pubMedStrategy?: "sensitive" | "specific"
+): Promise<Paper[]> {
   const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
   const apiKey = process.env.NCBI_API_KEY || process.env.PUBMED_API_KEY;
   const toolParams = new URLSearchParams({ db: "pubmed", retmode: "json", retmax: String(maxResults), sort: "relevance" });
@@ -675,7 +1046,13 @@ export async function fetchPubMedBrowserless(query: string, yearFrom?: string, y
   toolParams.set("email", CONTACT_EMAIL);
 
   // PubMed scheme: MeSH + [Title/Abstract] + publication-type and date filters.
-  const term = buildDatabaseSearch("PubMed", query, { yearFrom, yearTo, studyType }).term;
+  const term = buildDatabaseSearch("PubMed", query, {
+    yearFrom,
+    yearTo,
+    studyType,
+    concepts,
+    pubMedStrategy,
+  }).term;
   toolParams.set("term", term);
 
   const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?${toolParams.toString()}`;
@@ -757,6 +1134,8 @@ async function fetchEuropePmcQuery(
   const translated = buildDatabaseSearch(label, query, {
     yearFrom: ctx.yearFrom,
     yearTo: ctx.yearTo,
+    concepts: ctx.concepts,
+    pubMedStrategy: ctx.pubMedStrategy,
   });
   const terms = [translated.term, ...extraTerms].filter(Boolean);
   let epmcQuery = terms.join(" AND ");
@@ -817,16 +1196,35 @@ async function fetchEuropePmcQuery(
   return papers.slice(0, ctx.limit);
 }
 
-export async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
-  const papers = await fetchEuropePmcQuery(query, { query, yearFrom, yearTo, limit: limit ?? DEFAULT_LIMIT_PER_DATABASE });
+export async function fetchEuropePMC(
+  query: string,
+  yearFrom?: string,
+  yearTo?: string,
+  studyType?: string,
+  limit?: number,
+  concepts?: SearchConcept[],
+  pubMedStrategy?: "sensitive" | "specific"
+): Promise<Paper[]> {
+  const papers = await fetchEuropePmcQuery(
+    query,
+    { query, yearFrom, yearTo, limit: limit ?? DEFAULT_LIMIT_PER_DATABASE, concepts, pubMedStrategy }
+  );
   void studyType;
   return papers;
 }
 
-export async function fetchBioRxiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
+export async function fetchBioRxiv(
+  query: string,
+  yearFrom?: string,
+  yearTo?: string,
+  studyType?: string,
+  limit?: number,
+  concepts?: SearchConcept[],
+  pubMedStrategy?: "sensitive" | "specific"
+): Promise<Paper[]> {
   const papers = await fetchEuropePmcQuery(
     query,
-    { query, yearFrom, yearTo, limit: limit ?? DEFAULT_LIMIT_PER_DATABASE },
+    { query, yearFrom, yearTo, limit: limit ?? DEFAULT_LIMIT_PER_DATABASE, concepts, pubMedStrategy },
     ["SRC:PPR", "PUBLISHER:bioRxiv"],
     "bioRxiv"
   );
@@ -834,10 +1232,18 @@ export async function fetchBioRxiv(query: string, yearFrom?: string, yearTo?: st
   return papers;
 }
 
-export async function fetchMedRxiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
+export async function fetchMedRxiv(
+  query: string,
+  yearFrom?: string,
+  yearTo?: string,
+  studyType?: string,
+  limit?: number,
+  concepts?: SearchConcept[],
+  pubMedStrategy?: "sensitive" | "specific"
+): Promise<Paper[]> {
   const papers = await fetchEuropePmcQuery(
     query,
-    { query, yearFrom, yearTo, limit: limit ?? DEFAULT_LIMIT_PER_DATABASE },
+    { query, yearFrom, yearTo, limit: limit ?? DEFAULT_LIMIT_PER_DATABASE, concepts, pubMedStrategy },
     ["SRC:PPR", "PUBLISHER:medRxiv"],
     "medRxiv"
   );
@@ -901,7 +1307,9 @@ export async function fetchOpenAlex(
   yearFrom?: string,
   yearTo?: string,
   studyType?: string,
-  options?: { limit?: number; sort?: string; filter?: string }
+  options?: { limit?: number; sort?: string; filter?: string },
+  concepts?: SearchConcept[],
+  pubMedStrategy?: "sensitive" | "specific"
 ): Promise<Paper[]> {
   const limit = Math.min(options?.limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
   const filterParts: string[] = [];
@@ -910,7 +1318,7 @@ export async function fetchOpenAlex(
   if (options?.filter) filterParts.push(options.filter);
 
   const params = new URLSearchParams({
-    search: buildDatabaseSearch("OpenAlex", query, { yearFrom, yearTo }).term,
+    search: buildDatabaseSearch("OpenAlex", query, { yearFrom, yearTo, concepts, pubMedStrategy }).term,
     "per-page": "100",
     mailto: CONTACT_EMAIL,
   });
@@ -942,7 +1350,15 @@ export async function fetchOpenAlex(
 
 /* --------------------------- Crossref ----------------------------- */
 
-export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
+export async function fetchCrossref(
+  query: string,
+  yearFrom?: string,
+  yearTo?: string,
+  studyType?: string,
+  limit?: number,
+  concepts?: SearchConcept[],
+  pubMedStrategy?: "sensitive" | "specific"
+): Promise<Paper[]> {
   const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
   const filters: string[] = [];
   if (yearFrom) filters.push(`from-pub-date:${yearFrom}`);
@@ -954,7 +1370,7 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
 
   while (papers.length < maxResults && pages < 5) {
     pages++;
-    const qs = new URLSearchParams({ query: buildDatabaseSearch("Crossref", query).term, rows: "100", cursor });
+    const qs = new URLSearchParams({ query: buildDatabaseSearch("Crossref", query, { yearFrom, yearTo, concepts, pubMedStrategy }).term, rows: "100", cursor });
     if (filters.length) qs.set("filter", filters.join(","));
     const data = await httpJson<any>(`https://api.crossref.org/works?${qs.toString()}`, { timeoutMs: 30000, retries: 3 });
     const results = data.message?.items || [];
@@ -994,9 +1410,17 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
 
 /* ----------------------------- arXiv ------------------------------- */
 
-export async function fetcharXiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
+export async function fetcharXiv(
+  query: string,
+  yearFrom?: string,
+  yearTo?: string,
+  studyType?: string,
+  limit?: number,
+  concepts?: SearchConcept[],
+  pubMedStrategy?: "sensitive" | "specific"
+): Promise<Paper[]> {
   const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, 200);
-  const searchQuery = encodeURIComponent(buildDatabaseSearch("arXiv", query).term);
+  const searchQuery = encodeURIComponent(buildDatabaseSearch("arXiv", query, { yearFrom, yearTo, concepts, pubMedStrategy }).term);
   const url = `https://export.arxiv.org/api/query?search_query=${searchQuery}&start=0&max_results=${maxResults}&sortBy=relevance`;
   const text = await httpText(url, { timeoutMs: 45000, retries: 3 });
   if (!text) return [];
@@ -1045,11 +1469,19 @@ export async function fetcharXiv(query: string, yearFrom?: string, yearTo?: stri
 
 /* ------------------------------ DOAJ ------------------------------- */
 
-export async function fetchDoaj(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
+export async function fetchDoaj(
+  query: string,
+  yearFrom?: string,
+  yearTo?: string,
+  studyType?: string,
+  limit?: number,
+  concepts?: SearchConcept[],
+  pubMedStrategy?: "sensitive" | "specific"
+): Promise<Paper[]> {
   const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
   const papers: Paper[] = [];
   for (let page = 1; page <= 5 && papers.length < maxResults; page++) {
-    const url = `https://doaj.org/api/v2/search/articles/${encodeURIComponent(buildDatabaseSearch("DOAJ", query).term)}?pageSize=100&page=${page}`;
+    const url = `https://doaj.org/api/v2/search/articles/${encodeURIComponent(buildDatabaseSearch("DOAJ", query, { yearFrom, yearTo, concepts, pubMedStrategy }).term)}?pageSize=100&page=${page}`;
     const data = await httpJson<any>(url, { timeoutMs: 30000, retries: 1 });
     const results = data.results || [];
     if (results.length === 0) break;
@@ -1089,12 +1521,20 @@ export async function fetchDoaj(query: string, yearFrom?: string, yearTo?: strin
 
 /* ---------------------------- OpenAIRE ----------------------------- */
 
-export async function fetchOpenAIRE(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
+export async function fetchOpenAIRE(
+  query: string,
+  yearFrom?: string,
+  yearTo?: string,
+  studyType?: string,
+  limit?: number,
+  concepts?: SearchConcept[],
+  pubMedStrategy?: "sensitive" | "specific"
+): Promise<Paper[]> {
   const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
   const papers: Paper[] = [];
 
   for (let page = 1; page <= 3 && papers.length < maxResults; page++) {
-    const qs = new URLSearchParams({ keywords: buildDatabaseSearch("OpenAIRE", query).term, format: "json", size: "100", page: String(page) });
+    const qs = new URLSearchParams({ keywords: buildDatabaseSearch("OpenAIRE", query, { yearFrom, yearTo, concepts, pubMedStrategy }).term, format: "json", size: "100", page: String(page) });
     const data = await httpJson<any>(`https://api.openaire.eu/search/publications?${qs.toString()}`, {
       timeoutMs: 30000,
       retries: 3,
@@ -1193,13 +1633,21 @@ export async function fetchDblp(query: string, yearFrom?: string, yearTo?: strin
 
 /* ----------------------------- Zenodo ------------------------------ */
 
-export async function fetchZenodo(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
+export async function fetchZenodo(
+  query: string,
+  yearFrom?: string,
+  yearTo?: string,
+  studyType?: string,
+  limit?: number,
+  concepts?: SearchConcept[],
+  pubMedStrategy?: "sensitive" | "specific"
+): Promise<Paper[]> {
   const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
   const results: any[] = [];
   const pageSize = 25; // the Zenodo records API rejects larger page sizes
 
   for (let page = 1; page <= 8 && results.length < maxResults; page++) {
-    const qs = new URLSearchParams({ q: buildDatabaseSearch("Zenodo", query).term, size: String(pageSize), sort: "bestmatch", page: String(page) });
+    const qs = new URLSearchParams({ q: buildDatabaseSearch("Zenodo", query, { yearFrom, yearTo, concepts, pubMedStrategy }).term, size: String(pageSize), sort: "bestmatch", page: String(page) });
     const data = await httpJson<any>(`https://zenodo.org/api/records?${qs.toString()}`, { timeoutMs: 30000, retries: 2 });
     const hits = data.hits?.hits || [];
     if (hits.length === 0) break;
@@ -1334,13 +1782,21 @@ export async function fetchScienceDirectBrowserless(query: string, yearFrom?: st
 
 /* ----------------------- ClinicalTrials.gov ------------------------ */
 
-export async function fetchClinicalTrialsGov(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
+export async function fetchClinicalTrialsGov(
+  query: string,
+  yearFrom?: string,
+  yearTo?: string,
+  studyType?: string,
+  limit?: number,
+  concepts?: SearchConcept[],
+  pubMedStrategy?: "sensitive" | "specific"
+): Promise<Paper[]> {
   const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
   const papers: Paper[] = [];
   let pageToken: string | undefined;
 
   for (let page = 0; page < 5 && papers.length < maxResults; page++) {
-    const qs = new URLSearchParams({ "query.term": buildDatabaseSearch("ClinicalTrials.gov", query).term, format: "json", pageSize: "100" });
+    const qs = new URLSearchParams({ "query.term": buildDatabaseSearch("ClinicalTrials.gov", query, { yearFrom, yearTo, concepts, pubMedStrategy }).term, format: "json", pageSize: "100" });
     if (pageToken) qs.set("pageToken", pageToken);
     const data = await httpJson<any>(`https://clinicaltrials.gov/api/v2/studies?${qs.toString()}`, {
       timeoutMs: 30000,
@@ -1523,7 +1979,7 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "PubMed",
     url: "https://pubmed.ncbi.nlm.nih.gov/",
     description: "NLM E-utilities search over MEDLINE/PMC (NCBI_API_KEY only raises the request rate)",
-    search: (ctx) => fetchPubMedBrowserless(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchPubMedBrowserless(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.concepts, ctx.pubMedStrategy),
   },
   {
     id: "OpenAlex",
@@ -1533,13 +1989,13 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     requiresKey: "OPENALEX_API_KEY",
     keyHint: "Without a key the API answers HTTP 429 because the shared-IP daily budget is exhausted.",
     rateLimitHint: "the shared-IP daily budget is exhausted; set OPENALEX_API_KEY in .env.local to lift the limit",
-    search: (ctx) => fetchOpenAlex(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, { limit: ctx.limit }),
+    search: (ctx) => fetchOpenAlex(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, { limit: ctx.limit }, ctx.concepts, ctx.pubMedStrategy),
   },  {
     id: "Europe PMC",
     label: "Europe PMC",
     url: "https://europepmc.org/",
     description: "Europe PMC literature database",
-    search: (ctx) => fetchEuropePMC(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchEuropePMC(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.concepts, ctx.pubMedStrategy),
   },
   {
     id: "DOAJ",
@@ -1548,42 +2004,42 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     description: "Directory of Open Access Journals",
     disabled: true,
     disabledReason: "The DOAJ API answers HTTP 502 for automated access from this environment. Re-enable (disabled: false) once doaj.org serves the API again.",
-    search: (ctx) => fetchDoaj(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchDoaj(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.concepts, ctx.pubMedStrategy),
   },
   {
     id: "bioRxiv",
     label: "bioRxiv",
     url: "https://www.biorxiv.org/",
     description: "bioRxiv preprints (via the Europe PMC preprint index)",
-    search: (ctx) => fetchBioRxiv(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchBioRxiv(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.concepts, ctx.pubMedStrategy),
   },
   {
     id: "medRxiv",
     label: "medRxiv",
     url: "https://www.medrxiv.org/",
     description: "medRxiv preprints (via the Europe PMC preprint index)",
-    search: (ctx) => fetchMedRxiv(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchMedRxiv(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.concepts, ctx.pubMedStrategy),
   },
   {
     id: "Crossref",
     label: "Crossref",
     url: "https://www.crossref.org/",
     description: "Crossref DOI metadata registry",
-    search: (ctx) => fetchCrossref(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchCrossref(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.concepts, ctx.pubMedStrategy),
   },
   {
     id: "arXiv",
     label: "arXiv",
     url: "https://arxiv.org/",
     description: "arXiv preprint repository",
-    search: (ctx) => fetcharXiv(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetcharXiv(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.concepts, ctx.pubMedStrategy),
   },
   {
     id: "OpenAIRE",
     label: "OpenAIRE",
     url: "https://www.openaire.eu/",
     description: "OpenAIRE research graph",
-    search: (ctx) => fetchOpenAIRE(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchOpenAIRE(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.concepts, ctx.pubMedStrategy),
   },
   {
     id: "dblp",
@@ -1599,7 +2055,7 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "Zenodo",
     url: "https://zenodo.org/",
     description: "Zenodo open repository",
-    search: (ctx) => fetchZenodo(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchZenodo(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.concepts, ctx.pubMedStrategy),
   },
   {
     id: "Google Scholar",
@@ -1625,7 +2081,7 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "ClinicalTrials.gov",
     url: "https://clinicaltrials.gov/",
     description: "ClinicalTrials.gov registry API v2",
-    search: (ctx) => fetchClinicalTrialsGov(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchClinicalTrialsGov(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.concepts, ctx.pubMedStrategy),
   },
   {
     id: "Cochrane Library",
@@ -1738,9 +2194,11 @@ export async function searchDatabases(databases: string[], options: SearchOption
       const raw = await withTimeout(
         definition.search({
           query: options.query,
+          concepts: options.concepts,
           yearFrom: options.yearFrom,
           yearTo: options.yearTo,
           limit,
+          pubMedStrategy: options.pubMedStrategy,
         }),
         perDatabaseTimeout,
         `${definition.label} search timed out after ${(perDatabaseTimeout / 1000).toFixed(0)}s`

@@ -20,6 +20,16 @@ interface LiteratureSearchRequestBody {
   maxResults?: number;
   timeoutMs?: number;
   semanticSearch?: boolean;
+  concepts?: Array<{
+    id: string;
+    label: string;
+    terms: string[];
+    useThesaurus: boolean;
+    useFreeText: boolean;
+    truncate: boolean;
+    proximityWindow?: number;
+  }>;
+  pubMedStrategy?: "sensitive" | "specific";
 }
 
 function corsHeaders() {
@@ -81,7 +91,10 @@ export async function POST(request: Request) {
     const timeoutMs = typeof body.timeoutMs === "number" ? body.timeoutMs : undefined;
     const semanticSearch = body.semanticSearch === true;
 
-    if (!query) {
+    const concepts = Array.isArray(body.concepts) ? body.concepts : undefined;
+    const pubMedStrategy = body.pubMedStrategy === "sensitive" || body.pubMedStrategy === "specific" ? body.pubMedStrategy : undefined;
+
+    if (!query && (!concepts || concepts.length === 0)) {
       return NextResponse.json({ error: "Missing query parameter" }, { status: 400, headers: corsHeaders() });
     }
 
@@ -98,6 +111,8 @@ export async function POST(request: Request) {
 
     const outcome = await searchDatabases(dbsToSearch, {
       query: effectiveQuery,
+      concepts,
+      pubMedStrategy,
       yearFrom,
       yearTo,
       studyType,
