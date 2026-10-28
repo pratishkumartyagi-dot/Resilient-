@@ -551,12 +551,12 @@ export default function Step1Search() {
           </div>
         </div>
 
-        {unavailableDbs.length > 0 && (
-          <div className="mt-3 bg-blue-950/40 border border-blue-900/40 rounded-lg px-3 py-2 text-[10px] text-blue-400">
-            <span className="font-semibold text-blue-300">Currently unavailable (excluded from the search):</span>{" "}
-            {unavailableDbs.map((d) => `${d.id} — ${d.reason}`).join(" · ")}
-          </div>
-        )}
+      {unavailableDbs.length > 0 && (
+        <div className="bg-amber-950/20 border border-amber-800/40 rounded-lg p-3 text-xs text-amber-200/70">
+          <span className="font-semibold text-amber-300/80">Databases excluded:</span>{" "}
+          {unavailableDbs.map((d) => d.id).join(", ")}
+        </div>
+      )}
       </div>
 
       {state.isLoading && (

@@ -505,6 +505,8 @@ export interface QueryTranslation {
 function splitTerms(query: string): string[] {
   return query
     .replace(/[()]/g, " ")
+    .replace(/\b(year|from|to)\b/gi, " ")
+    .replace(/\b\d{4}\b/g, " ")
     .split(/\s+(?:AND|OR|NOT)\s+|\s*,\s*|\s+/i)
     .map((t) => t.trim())
     .filter((t) => t.length > 1);
@@ -646,6 +648,10 @@ const MESH_TERMS: Record<string, string> = {
   "randomized controlled trial": "Randomized Controlled Trials as Topic",
   "systematic review": "Systematic Reviews as Topic",
   "qualitative research": "Qualitative Research",
+  "ckm": "Cardiovascular-Kidney-Metabolic Syndrome",
+  "ckm syndrome": "Cardiovascular-Kidney-Metabolic Syndrome",
+  "cardiovascular kidney metabolic syndrome": "Cardiovascular-Kidney-Metabolic Syndrome",
+  "cardiovascular-kidney-metabolic syndrome": "Cardiovascular-Kidney-Metabolic Syndrome",
 };
 
 const STUDY_TYPE_FILTERS: Record<string, string> = {
