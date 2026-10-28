@@ -64,8 +64,27 @@ import {
   Legend
 } from "recharts";
 import EvidenceSynthesisStep1, { type EvidenceSynthesisStep1Props } from "./EvidenceSynthesisStep1";
+import {
+  buildPICOQuery,
+  buildPCCQuery,
+  buildPRISMAFlow,
+  buildGRADEAssessment,
+  classifyEvidenceLevel,
+  type MedicalDeepResearchInput,
+  type MedicalDeepResearchResult,
+} from "@/lib/medical-deep-research";
+import {
+  scaffoldQueries,
+  validateQueries,
+  dedupRecords,
+  formatSLRPrismaFlow,
+  formatMethodologyReport,
+  type SLRProject,
+  type SLRRecord,
+  type SLRQuery,
+} from "@/lib/slr-engine";
 
-const INTEGRATED_EVIDENCE_SKILLS = getIntegratedSkills().filter(s => ["literature-review", "literature-deep-research", "clinical-trials-database"].includes(s.id));
+const INTEGRATED_EVIDENCE_SKILLS = getIntegratedSkills().filter(s => ["literature-review", "literature-deep-research", "clinical-trials-database", "medical-deep-research", "slr-engine"].includes(s.id));
 
 const EVIDENCE_SYNTHESIS_TOOL_CATEGORIES: EvidenceSynthesisTool["category"][] = [
   "literature-search",
@@ -87,7 +106,6 @@ const FALLBACK_SR_DATABASES = [
   "medRxiv",
   "Crossref",
   "arXiv",
-  "OpenAIRE",
   "Zenodo",
   "ClinicalTrials.gov",
 ];
@@ -337,6 +355,9 @@ export default function EvidenceSynthesisTab() {
   const [failedDatabases, setFailedDatabases] = useState<string[]>([]);
   const [totalIdentified, setTotalIdentified] = useState(0);
   const [dedupedCount, setDedupedCount] = useState(0);
+  const [prismaFlow, setPrismaFlow] = useState<any>(null);
+  const [auditLog, setAuditLog] = useState<string[]>([]);
+  const [evidenceLevels, setEvidenceLevels] = useState<Record<string, string>>({});
   const [extractedData, setExtractedData] = useState<any[]>([]);
   const [extractionLoading, setExtractionLoading] = useState(false);
   const [synthesisTable, setSynthesisTable] = useState<any[]>([]);
@@ -481,15 +502,71 @@ export default function EvidenceSynthesisTab() {
 
       const apiPapers = Array.isArray(data.papers) ? data.papers : [];
       const uniqueCount = apiPapers.length;
-      setPapers(apiPapers);
       setDbSearchStatus(data.sourceBreakdown || {});
       setFailedDatabases(data.failedDatabases || []);
       setPerDatabaseResults(data.perDatabaseResults || []);
       setTotalIdentified(data.totalBeforeDedup || data.total || uniqueCount);
-      // `dedupedCount` from the route is the number of duplicates REMOVED; store the
-      // records remaining after deduplication instead so PRISMA math is correct.
-      setDedupedCount(uniqueCount);
       setCitationValidationResults(data.citationValidation?.results || {});
+
+      // ---- SLR-Engine Step 1: dedup + audit ----
+      const slrRecords: SLRRecord[] = apiPapers.map((p: any) => ({
+        id: p.id || `rec-${Math.random().toString(36).slice(2, 8)}`,
+        title: p.title || "Untitled",
+        authors: p.authors || "Unknown authors",
+        year: p.year || new Date().getFullYear(),
+        journal: p.journal || "Unknown journal",
+        database: p.database || "Unknown",
+        studyType: p.studyType || "Observational Study",
+        abstract: p.abstract || "",
+        doi: p.doi,
+        pmid: p.pmid,
+        url: p.url,
+        relevanceScore: 0,
+        decision: "unscreened",
+        decisionSource: "agent",
+        fullTextDownloaded: false,
+      }));
+
+      const { deduped, log: dedupLog } = dedupRecords(slrRecords);
+
+      // ---- Medical Deep Research Step 1: evidence level + GRADE ----
+      const papersWithLevels = deduped.map((r) => {
+        const level = classifyEvidenceLevel(r.studyType);
+        return {
+          ...r,
+          evidenceLevel: level,
+          selected: false,
+        } as Paper;
+      });
+
+      // ---- PRISMA flow ----
+      const prisma: any = {
+        identification: deduped.length + dedupLog.reduce((a, b) => a + b.removedIds.length, 0),
+        deduped: dedupLog.length,
+        screened: deduped.length,
+        excluded: 0,
+        assessed: 0,
+        included: 0,
+      };
+
+      setPapers(papersWithLevels);
+      setDedupedCount(deduped.length);
+
+      const auditLines: string[] = [
+        `Search: ${query.trim()} | ${deduped.length} records after dedup (${dedupLog.length} duplicates removed)`,
+        `Databases: ${dbs.join(", ")}`,
+        `Year range: ${yearFrom || "any"} – ${yearTo || "any"}`,
+        `Semantic search: ${semanticSearch}`,
+        `Evidence levels: I=${(deduped as any[]).filter((r:any) => r.evidenceLevel?.level === "I").length}, II=${(deduped as any[]).filter((r:any) => r.evidenceLevel?.level === "II").length}, III=${(deduped as any[]).filter((r:any) => r.evidenceLevel?.level === "III").length}, IV=${(deduped as any[]).filter((r:any) => r.evidenceLevel?.level === "IV").length}, V=${(deduped as any[]).filter((r:any) => r.evidenceLevel?.level === "V").length}`,
+      ];
+      setAuditLog(auditLines);
+      setPrismaFlow(prisma);
+
+      const levelMap: Record<string, string> = {};
+      papersWithLevels.forEach((r) => {
+        levelMap[r.id] = `${(r as any).evidenceLevel.level} — ${(r as any).evidenceLevel.studyType}`;
+      });
+      setEvidenceLevels(levelMap);
 
       // Report partial failures without hiding the records that were retrieved.
       const hasErrors = Object.keys(data.errors || {}).length > 0;
