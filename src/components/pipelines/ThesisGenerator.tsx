@@ -8,7 +8,7 @@ import {
 import { useApp } from "@/context/AppContext";
 import { runThesisPipeline, buildDefaultConfig } from "@/lib/thesis-pipeline";
 import { buildThesisAiFn, searchThesisPapers, toThesisPaper } from "@/lib/thesis-ai";
-import type { ThesisGeneratorConfig } from "@/lib/thesis-types";
+import type { ThesisGeneratorConfig, ThesisPaper } from "@/lib/thesis-types";
 import { formatReferenceByStyle, type CitationStyle } from "@/lib/references";
 import {
   downloadMarkdownAsWord,
@@ -141,11 +141,31 @@ export default function ThesisGenerator() {
     setFinalized(false);
     generatingRef.current = true;
 
+    // Use the papers selected in the research pipeline (Step 1/2) as the
+    // grounding corpus for deep reasoning + chapter expansion.
+    const selectedPapers: ThesisPaper[] = (state.selectedPapers || []).map((p) => ({
+      id: p.id,
+      title: p.title,
+      authors: p.authors || "",
+      journal: p.journal,
+      year: p.year,
+      doi: p.doi,
+      abstract: p.abstract,
+      database: p.database,
+      studyType: p.studyType,
+      url: p.url,
+    }));
+
     try {
       const aiFn = buildThesisAiFn(cfg.provider, cfg.apiKey, true);
       const res = await runThesisPipeline(cfg, {
         aiFn,
+        groundingPapers: selectedPapers,
         searchFn: async (query, opts) => {
+          // When no pre-selected papers exist, fall back to a live database search.
+          if (selectedPapers.length > 0) {
+            return selectedPapers;
+          }
           const papers = await searchThesisPapers({
             query,
             databases: ["PubMed", "Europe PMC", "bioRxiv", "medRxiv", "Crossref", "arXiv", "OpenAIRE", "Zenodo"],

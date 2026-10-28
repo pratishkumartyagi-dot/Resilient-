@@ -5,6 +5,8 @@ import { extractCitations } from "@/lib/references";
 export interface ThesisGeneratorInput {
   outline: any;
   papers: ThesisPaper[];
+  /** Per-chapter evidence synthesis from deep reasoning over the selected papers. */
+  chapterEvidence?: Record<number, string>;
   config: {
     topic: string;
     level: string;
@@ -52,13 +54,17 @@ const REPORTING_GUIDELINES: Record<string, string> = {
   other: "none",
 };
 
-function chapterPrompt(chapter: any, papers: ThesisPaper[], cfg: any, index: number): string {
+function chapterPrompt(chapter: any, papers: ThesisPaper[], cfg: any, index: number, evidence?: string): string {
   const refs = papers.map((p, i) => `${i + 1}. ${p.authors} (${p.year || "n.d."}). ${p.title}.${p.doi ? ` doi:${p.doi}` : ""}`).join("\n");
   const guideline = REPORTING_GUIDELINES[cfg.studyDesign || "other"] || "none";
   const range = LEVEL_WORD_RANGES[cfg.level as keyof typeof LEVEL_WORD_RANGES] ?? LEVEL_WORD_RANGES.master;
   const levelTarget = Math.round((range.min + range.max) / 2);
   const chapterTarget = chapter.wordTarget || Math.floor(levelTarget / Math.max((cfg as any).outline?.chapters?.length || 1, 1)) || 2000;
   const totalTarget = cfg.targetWordCount || levelTarget;
+
+  const evidenceBlock = evidence
+    ? `\nDEEP-REASONED EVIDENCE SYNTHESIS (open-notebook over selected papers):\n${evidence}\n`
+    : "";
 
   return `You are an academic writer. Write the full prose for ONE chapter of a thesis.
 
@@ -72,11 +78,11 @@ CHAPTER WORD TARGET: ${chapterTarget} words (prose only; references excluded)
 TOTAL THESIS TARGET: ${totalTarget} words (${range.min}–${range.max} acceptable range)
 
 GROUNDING PAPERS (Vancouver style, cite inline as Author Year):
-${refs}
+${refs}${evidenceBlock}
 
 TASK:
 Write academic prose for every section of this chapter. Requirements:
-- Write inline citations using (Author, Year) format, matching the numbered references above.
+- Ground every claim in the deep-reasoned evidence synthesis and the grounding papers above; cite inline using (Author, Year) format matching the numbered references.
 - Aim for ≥ 90% of the chapter word target (${Math.round(chapterTarget * 0.9)}–${Math.round(chapterTarget * 1.1)} words).
 - Target < 2% plagiarism; write originally, do not copy abstracts.
 - Markdown-only output. Use headings for sections.
@@ -110,7 +116,7 @@ Return ONLY a JSON object:
 }
 
 export async function generateThesis(input: ThesisGeneratorInput): Promise<ThesisGeneratorOutput> {
-  const { outline, papers, config, aiFn, onProgress } = input;
+  const { outline, papers, config, aiFn, onProgress, chapterEvidence } = input;
   const chapters: ChapterFile[] = [];
 
   const chapterList: any[] = outline.chapters || [];
@@ -126,7 +132,7 @@ export async function generateThesis(input: ThesisGeneratorInput): Promise<Thesi
     while (retries < 2) {
       try {
         const text = await withTimeout(
-          aiFn(chapterPrompt(chapter, papers, config, i + 1)),
+          aiFn(chapterPrompt(chapter, papers, config, i + 1, chapterEvidence?.[chapter.number || i + 1])),
           CHAPTER_TIMEOUT_MS,
           `Chapter ${chapter.title} timed out after ${Math.round(CHAPTER_TIMEOUT_MS / 1000)}s`
         );

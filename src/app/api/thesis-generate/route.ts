@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { runThesisPipeline, buildDefaultConfig } from "@/lib/thesis-pipeline";
 import { buildThesisAiFn, searchThesisPapers, toThesisPaper } from "@/lib/thesis-ai";
-import type { ThesisGeneratorConfig } from "@/lib/thesis-types";
+import type { ThesisGeneratorConfig, ThesisPaper } from "@/lib/thesis-types";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -23,6 +23,7 @@ export async function POST(req: Request): Promise<Response> {
       studyDesign,
       targetWordCount,
       maxReferences,
+      papers: bodyPapers,
     } = body || {};
 
     if (!topic || typeof topic !== "string") {
@@ -45,11 +46,32 @@ export async function POST(req: Request): Promise<Response> {
       maxReferences: maxReferences ? Number(maxReferences) : 150,
     });
 
+    // Pre-selected papers from the research pipeline (Step 1/2), if provided.
+    let groundingPapers: ThesisPaper[] = [];
+    if (Array.isArray(bodyPapers)) {
+      groundingPapers = bodyPapers.map((p: any) => ({
+        id: p.id,
+        title: p.title,
+        authors: p.authors || "",
+        journal: p.journal,
+        year: p.year,
+        doi: p.doi,
+        abstract: p.abstract,
+        database: p.database,
+        studyType: p.studyDesign || p.studyType,
+        url: p.url,
+      }));
+    }
+
     const aiFn = buildThesisAiFn(config.provider, config.apiKey, true);
 
     const result = await runThesisPipeline(config, {
       aiFn,
+      groundingPapers,
       searchFn: async (query, opts) => {
+        if (groundingPapers.length > 0) {
+          return groundingPapers;
+        }
         const papers = await searchThesisPapers({
           query,
           databases: ["PubMed", "OpenAlex", "Europe PMC", "DOAJ", "bioRxiv", "medRxiv", "Crossref", "arXiv", "OpenAIRE", "Semantic Scholar"],

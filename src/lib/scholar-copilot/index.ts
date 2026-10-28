@@ -147,14 +147,17 @@ export async function scholarCopilot(input: ScholarCopilotInput): Promise<Schola
     }
 
     // Word-budget pass: the NurseStack plan allocates a word count per chapter,
-    // so a chapter that came out short (or bloated) is adjusted to it.
+    // so a chapter that came out short (or bloated) is adjusted to it. Retry
+    // expansion up to 3 times so short chapters actually reach their target
+    // instead of staying at ~10%.
     const target = wordTargets?.[chapter.chapterNumber] ?? 0;
+    let actual = countWords(refinedContent);
+    let passes = 0;
     if (target > 0) {
-      const actual = countWords(refinedContent);
-      const status = budgetStatus(target, actual);
-      if (status === "short" || status === "over") {
+      let status = budgetStatus(target, actual);
+      while ((status === "short" || status === "over") && passes < 3) {
         onProgress?.(
-          `Chapter ${chapter.chapterNumber} is ${status} (${actual}/${target} words); adjusting to the plan budget...`
+          `Chapter ${chapter.chapterNumber} is ${status} (${actual}/${target} words); adjusting to the plan budget (pass ${passes + 1}/3)...`
         );
         try {
           const text = await aiFn(wordBudgetPrompt(chapter, papers, config, target, actual));
@@ -162,8 +165,11 @@ export async function scholarCopilot(input: ScholarCopilotInput): Promise<Schola
           if (parsed.content) refinedContent = parsed.content;
           if (Array.isArray(parsed.citations)) citations = parsed.citations;
         } catch {
-          /* keep the refined version */
+          /* keep the current version */
         }
+        actual = countWords(refinedContent);
+        status = budgetStatus(target, actual);
+        passes++;
       }
       wordBudget.push({
         chapterNumber: chapter.chapterNumber,
