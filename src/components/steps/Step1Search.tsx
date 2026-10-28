@@ -51,7 +51,7 @@ const DATABASE_URLS: Record<string, string> = {
   "ClinicalTrials.gov": "https://clinicaltrials.gov/",
 };
 
-const RESULT_LIMITS = [50, 100, 200, 500];
+const RESULT_LIMITS = [50, 100, 200, 500, 0];
 const SEARCH_BUDGETS = [15, 30, 60, 120];
 
 interface PerDatabaseRow {
@@ -204,7 +204,7 @@ export default function Step1Search() {
           yearFrom: yearFrom || undefined,
           yearTo: yearTo || undefined,
           studyType: studyType === "All Study Types" ? undefined : studyType,
-          maxResults: resultLimit,
+          maxResults: resultLimit === 0 ? undefined : resultLimit,
           timeoutMs: searchBudget * 1000,
           semanticSearch,
         }),
@@ -215,7 +215,7 @@ export default function Step1Search() {
       setPerDatabaseResults(rows);
       setSearchWarnings("");
       const silentZeros = rows.filter((r) => r.status === "empty");
-      const capHits = rows.filter((r) => r.count >= resultLimit && r.status === "success");
+      const capHits = resultLimit === 0 ? [] : rows.filter((r) => r.count >= resultLimit && r.status === "success");
       const warns: string[] = [];
       if (silentZeros.length) warns.push(`${silentZeros.length} database(s) returned zero records — review query terms.`);
       if (capHits.length) warns.push(`${capHits.length} database(s) hit the result cap (${resultLimit}) — consider narrowing or raising the limit.`);
@@ -454,7 +454,7 @@ export default function Step1Search() {
                 className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2 text-sm"
               >
                 {RESULT_LIMITS.map((limit) => (
-                  <option key={limit} value={limit}>{limit}</option>
+                  <option key={limit} value={limit}>{limit === 0 ? "Unlimited" : limit}</option>
                 ))}
               </select>
             </div>
