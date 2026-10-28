@@ -99,6 +99,7 @@ export default function Step1Search() {
   const [searchBudget, setSearchBudget] = useState(30);
   const [semanticSearch, setSemanticSearch] = useState(false);
   const [searchFailed, setSearchFailed] = useState(false);
+  const [searchWarnings, setSearchWarnings] = useState("");
   const [webFallbackBusy, setWebFallbackBusy] = useState(false);
 
   const availableDbs = useMemo(() => catalogue.filter((d) => d.available).map((d) => d.id), [catalogue]);
@@ -212,6 +213,13 @@ export default function Step1Search() {
       const data = await res.json().catch(() => ({}));
       const rows: PerDatabaseRow[] = Array.isArray(data.perDatabaseResults) ? data.perDatabaseResults : [];
       setPerDatabaseResults(rows);
+      setSearchWarnings("");
+      const silentZeros = rows.filter((r) => r.status === "empty");
+      const capHits = rows.filter((r) => r.count >= resultLimit && r.status === "success");
+      const warns: string[] = [];
+      if (silentZeros.length) warns.push(`${silentZeros.length} database(s) returned zero records — review query terms.`);
+      if (capHits.length) warns.push(`${capHits.length} database(s) hit the result cap (${resultLimit}) — consider narrowing or raising the limit.`);
+      setSearchWarnings(warns.join(" "));
 
       if (!res.ok) {
         setSearchFailed(true);
@@ -610,6 +618,12 @@ export default function Step1Search() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {searchWarnings && !state.isLoading && (
+        <div className="bg-yellow-900/30 border border-yellow-700 text-yellow-200 rounded-lg px-4 py-3 text-sm">
+          {searchWarnings}
         </div>
       )}
 
