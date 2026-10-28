@@ -252,7 +252,7 @@ export function buildThesisAiFn(
     // provider never stops the thesis pipeline: the request is retried with
     // the next backup.
     //
-    // Long-form chapter prose is never handed to the 0.5B in-browser model
+    // Long-form chapter prose is never handed to the 1.5B in-browser model
     // (it cannot write a coherent 3 000-word chapter and loading it would
     // stall the pipeline); those prompts go straight to the deterministic
     // local generator instead.

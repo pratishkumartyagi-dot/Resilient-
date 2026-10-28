@@ -121,7 +121,7 @@ Open the app, click the **settings gear** in the header, and paste API keys. Key
 | **Google Gemini** | Primary | https://aistudio.google.com/app/apikey |
 | **Groq** | Secondary fallback | https://console.groq.com/keys |
 
-If no key is set, the app falls back to a **local model** (`Qwen2.5 0.5B Instruct`) that runs entirely in your browser via WebGPU/WASM. It downloads once (~350 MB) on first use and is then cached. This is slower than an API key.
+If no key is set, the app falls back to a **local model** (`Qwen2.5 1.5B Instruct`) that runs entirely in your browser via WebGPU/WASM. It downloads once (~1.3 GB) on first use and is then cached. This is slower than an API key.
 
 ### Environment variables
 

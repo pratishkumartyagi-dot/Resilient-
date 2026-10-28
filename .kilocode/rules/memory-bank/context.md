@@ -120,7 +120,7 @@ Sources that could not return a single record in this environment were switched 
 ## AI provider fallback: exhausted Gemini/Groq → local backup (2026-10-22)
 
 - `src/lib/ai.ts` is now the single AI entry point with a backup chain:
-  **Gemini → Groq → local in-browser model (Qwen2.5 0.5B) → (per-feature deterministic local generator)**.
+  **Gemini → Groq → local in-browser model (Qwen2.5 1.5B) → (per-feature deterministic local generator)**.
   - `AiProviderError` keeps the upstream HTTP status; `isExhaustedMessage()` recognises quota exhaustion (429/402, "quota exceeded", "rate limit", "resource exhausted", billing errors).
   - `callGemini()` / `callGroq()` no longer fail outright: on exhaustion the request is retried with the other provider, then with the local model.
   - `callAiWithFallback(prompt, options, { order, keys })` is the generic chain; `configureAiKeys()` registers the keys that are configured in the app.
@@ -179,7 +179,7 @@ The dissertation is now written **to the number of words the NurseStack plan all
 Three causes, all fixed:
 - **No visible progress.** The pipeline forwarded per-chapter messages but the UI only rendered the stage name and added a flat 10 % per event. The stage message is now shown ("Writing chapter 3 of 6: Methodology (target 3,000 words)") and the progress is stage-aware (outline 5–15 %, prose 15–55 % mapped from the chapter index, refine 55–80 %, appraise 80–92 %).
 - **A hung provider could stall the pipeline.** `generateThesis` now wraps every chapter call in a 180 s timeout; the chapter then fails, the deterministic local generator takes over and the pipeline moves on.
-- **The local fallback could stall the pipeline.** `callDeepSeek` loads a ~500 MB in-browser model, so it is now bounded by `callDeepSeekWithTimeout` (120 s) and long-form chapter prose (> 4 000 chars) skips the in-browser model entirely and goes straight to the deterministic local thesis generator. The local model is kept for short prompts (outline, refine, audit).
+- **The local fallback could stall the pipeline.** `callDeepSeek` loads a ~1.3 GB in-browser model, so it is now bounded by `callDeepSeekWithTimeout` (120 s) and long-form chapter prose (> 4 000 chars) skips the in-browser model entirely and goes straight to the deterministic local thesis generator. The local model is kept for short prompts (outline, refine, audit).
 - The thesis search now uses the live working sources (PubMed, Europe PMC, bioRxiv, medRxiv, Crossref, arXiv, OpenAIRE, Zenodo) instead of the three sources that are switched off.
 
 ### 2. Per-database search schemes (`buildDatabaseSearch`)
@@ -214,7 +214,7 @@ Three causes, all fixed:
 - [x] Updated `.gitignore` with `!.env.example` so the example env file is committed while `.env*` stays ignored
 - [x] Verified clean install (`bun install`), `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅
 - [x] Verified production server boots (`bun start`) and serves `/` with HTTP 200 and the correct title; `/api/chat` returns 400 on missing key as expected
-- [x] No API keys required: app runs out of the box with the in-browser Qwen2.5 0.5B fallback and direct scholarly APIs
+- [x] No API keys required: app runs out of the box with the in-browser Qwen2.5 1.5B fallback and direct scholarly APIs
 
 ## All-Pipelines Functionality Audit & Fixes (2026-10-13)
 
@@ -621,7 +621,7 @@ The systematic review tab now contains a full 8-step systematic review / meta-an
 
 ### AI Provider Priority (updated)
 1. **Gemini 3.1 Flash Lite** — primary AI provider for general synthesis
-2. **Groq DeepSeek-R1-Distill-Llama-70B** — secondary fallback
+2. **Groq gpt-oss-120b** — secondary fallback
 3. **DeepSeek API Key (DeepSeek-R1 reasoning model)** — tertiary fallback
 
 ### Model Selection
@@ -830,14 +830,14 @@ The systematic review tab now contains a full 8-step systematic review / meta-an
 
 **Validation**: `bun typecheck` ✅, `bun lint` ✅
 
-## Replace OpenRouter with Groq (DeepSeek-R1-Distill-Llama-70B) (2026-06-28)
+## Replace OpenRouter with Groq (gpt-oss-120b) (2026-06-28)
 
-**Feature**: Removed OpenRouter / `gpt-oss-120b` fallback and replaced it with Groq using `deepseek-r1-distill-llama-70b`. DeepSeek R1 reasoning model now uses `deepseek-reasoner` via the official DeepSeek API (`api.deepseek.com`).
+**Feature**: Removed OpenRouter / DeepSeek-R1-Distill-Llama-70b fallback and replaced it with Groq using `openai/gpt-oss-120b`. The gpt-oss-120b model now routes through Groq API (`api.groq.com`).
 
 ### Files Modified
-- `src/app/api/chat/route.ts` — Separated DeepSeek and Groq backends: DeepSeek uses `https://api.deepseek.com/v1/chat/completions` with model `deepseek-reasoner`; Groq uses `https://api.groq.com/openai/v1/chat/completions` with model `deepseek-r1-distill-llama-70b`
-- `src/lib/ai.ts` — Renamed `callOpenRouter` → `callGroq`, `testOpenRouterKey` → `testGroqKey`; `callDeepSeek` now routes through DeepSeek API directly
-- `src/components/SettingsModal.tsx` — UI label changed from "OpenRouter API Key" to "Groq API Key (DeepSeek-R1-Distill-Llama-70B fallback)"
+- `src/app/api/chat/route.ts` — Groq uses `https://api.groq.com/openai/v1/chat/completions` with model `openai/gpt-oss-120b`
+- `src/lib/ai.ts` — Renamed `callOpenRouter` → `callGroq`, `testOpenRouterKey` → `testGroqKey`
+- `src/components/SettingsModal.tsx` — UI label changed from "OpenRouter API Key" to "Groq API Key (gpt-oss-120b fallback)"
 - `src/components/steps/Step3Synthesis.tsx` — Updated imports and fallback chain
 - `src/components/steps/Step4LiteratureReview.tsx` — Updated imports and fallback chain
 - `src/components/steps/Step5Themes.tsx` — Updated imports and fallback chain
@@ -852,7 +852,7 @@ The systematic review tab now contains a full 8-step systematic review / meta-an
 
 ### AI Provider Priority (corrected)
 1. **Gemini 3.1 Flash Lite** — primary AI provider for general synthesis
-2. **Groq DeepSeek-R1-Distill-Llama-70B** — secondary fallback
+2. **Groq gpt-oss-120b** — secondary fallback
 3. **DeepSeek API Key (DeepSeek-R1 reasoning model)** — tertiary fallback
 
 **New tab added**: "Predictive Analysis" in `TopTabs` (between "Sample Size Calculator" and "Evidence Synthesis & Meta-analysis")
@@ -1954,7 +1954,7 @@ Step 1 results now show:
 - 2026-07-15: **Fallback Chain Fix**: Fixed `EvidenceSynthesisTab.tsx` handleSearch to throw error when API returns 0 papers, triggering fallback to webSearchPapers and generateMockLegacy. Fixed `web-search/route.ts` to use cheerio instead of DOMParser (not available in Node.js runtime) for arXiv XML parsing.
 - 2026-07-15: **Rate Limit Mitigation**: Reduced PubMed efetch batch size from 50 to 10 with 500ms delays between batches. Added 200ms delays between OpenAlex pagination pages. Reduced PubMed retmax from 5000 to 500.
 - 2026-07-18: **Critical Fixes — DeepSeek Integration & Tab Navigation**:
-  - **DeepSeek API Integration Completed**: Added full DeepSeek R1 support across the entire app. Updated `AppContext.tsx` to include `deepseekApiKey` state field and `SET_DEEPSEEK_KEY` action. Updated `SettingsModal.tsx` to include DeepSeek API key input with test connection button and localStorage persistence. Updated `src/lib/ai.ts` to add `callDeepSeek()` and `testDeepSeekKey()` functions. Updated `src/app/api/chat/route.ts` to handle DeepSeek provider with `deepseek-reasoner` model. Updated all AI-dependent components to include DeepSeek in the fallback chain: Steps 3-10 (Step3Synthesis, Step4LiteratureReview, Step5Themes, Step6ResearchQuestions, Step7ResearchTitles, Step8AimObjectives, Step9Methodology, Step10Protocol), ResilientChatTab, ProtocolChatTab, PredictiveAnalysisTab, AutoPrognosisTab, AutomaticEvidenceSynthesisTab, EvidenceSynthesisTab, and OmicsBioinformaticsTab. AI provider priority is now: Gemini 3.1 Flash Lite (primary) → Groq Llama 3.3 70B (secondary) → DeepSeek-R1 (tertiary).
+  - **DeepSeek API Integration Completed**: Added full DeepSeek R1 support across the entire app. Updated `AppContext.tsx` to include `deepseekApiKey` state field and `SET_DEEPSEEK_KEY` action. Updated `SettingsModal.tsx` to include DeepSeek API key input with test connection button and localStorage persistence. Updated `src/lib/ai.ts` to add `callDeepSeek()` and `testDeepSeekKey()` functions. Updated `src/app/api/chat/route.ts` to handle DeepSeek provider with `deepseek-reasoner` model. Updated all AI-dependent components to include DeepSeek in the fallback chain: Steps 3-10 (Step3Synthesis, Step4LiteratureReview, Step5Themes, Step6ResearchQuestions, Step7ResearchTitles, Step8AimObjectives, Step9Methodology, Step10Protocol), ResilientChatTab, ProtocolChatTab, PredictiveAnalysisTab, AutoPrognosisTab, AutomaticEvidenceSynthesisTab, EvidenceSynthesisTab, and OmicsBioinformaticsTab. AI provider priority is now: Gemini 3.1 Flash Lite (primary) → Groq gpt-oss-120b (secondary) → DeepSeek-R1 (tertiary).
   - **Tab Navigation Fixed**: Updated `TopTabs.tsx` to include all 12 tabs: Research Pipeline, Omics & Bioinformatics, Resilient Chat, Statistical Analysis, Sample Size Calculator, Predictive Analysis, AutoPrognosis, Evidence Synthesis & Meta-analysis, Auto Evidence Synthesis, Paper Writer & Reviewer, Protocol Generator, and Grant Writing. Previously, AutoPrognosis, Auto Evidence Synthesis, and Grant Writing tabs were rendered in `page.tsx` but had no navigation buttons in TopTabs, making them inaccessible.
   - **Removed Duplicate RESET_STATE**: Cleaned up `AppContext.tsx` action type union which had duplicate `RESET_STATE` definition.
   - **Validation**: `bun typecheck` ✅, `bun lint` ✅ (0 errors; only pre-existing not-found.tsx warning), `bun run build` ✅ passes cleanly.
