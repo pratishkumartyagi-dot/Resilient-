@@ -152,7 +152,7 @@ export default function ThesisGenerator() {
             yearFrom: opts?.yearFrom,
             yearTo: opts?.yearTo,
             studyDesign: opts?.studyDesign,
-            maxResults: 120,
+            maxResults: 1000,
             semanticSearch: true,
           });
           return papers.map(toThesisPaper);

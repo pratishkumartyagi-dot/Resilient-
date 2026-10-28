@@ -102,7 +102,7 @@ export function classifyStudyType(title: string, abstract: string): string {
 }
 
 const DEFAULT_LIMIT_PER_DATABASE = 200;
-const MAX_LIMIT_PER_DATABASE = 500;
+const MAX_LIMIT_PER_DATABASE = 1000;
 /** Hard ceiling for a single database, so one slow upstream cannot stall the search. */
 const DATABASE_TIMEOUT_MS = 90000;
 /** Overall wall-clock budget for one multi-database search. */
@@ -553,31 +553,32 @@ function quote(term: string): string {
 
 /** Returns the [Title/Abstract] field tag for a database's query syntax.
  *  Suffix tags (PubMed `[Title/Abstract]`) are appended to the term; prefix
- *  tags (Europe PMC `TITLE_ABS:`) are prepended with a colon. */
-function getTitleAbstractFieldTag(databaseId: string): { prefix: string; suffix: string } {
+ *  tags (Europe PMC `TITLE_ABS:"term"`) are prepended with a colon and the
+ *  term is quoted. */
+function getTitleAbstractFieldTag(databaseId: string): { prefix: string; suffix: string; quoteTerm: boolean } {
   switch (databaseId.toLowerCase()) {
     case "pubmed":
-      return { prefix: "", suffix: "[Title/Abstract]" };
+      return { prefix: "", suffix: "[Title/Abstract]", quoteTerm: false };
     case "europe pmc":
     case "biorxiv":
     case "medrxiv":
-      return { prefix: "TITLE_ABS:", suffix: "" };
+      return { prefix: "TITLE_ABS:", suffix: "", quoteTerm: true };
     case "crossref":
-      return { prefix: "", suffix: "" }; // Crossref uses query.bibliographic, no field tag
+      return { prefix: "", suffix: "", quoteTerm: false }; // Crossref uses query.bibliographic, no field tag
     case "arxiv":
-      return { prefix: "all:", suffix: "" }; // arXiv uses all: prefix
+      return { prefix: "all:", suffix: "", quoteTerm: false }; // arXiv uses all: prefix
     case "openalex":
-      return { prefix: "", suffix: "" }; // OpenAlex uses search:
+      return { prefix: "", suffix: "", quoteTerm: false }; // OpenAlex uses search:
     case "doaj":
-      return { prefix: "", suffix: "" }; // DOAJ uses bibjson.title/bibjson.abstract
+      return { prefix: "", suffix: "", quoteTerm: false }; // DOAJ uses bibjson.title/bibjson.abstract
     case "zenodo":
-      return { prefix: "", suffix: "" }; // Zenodo uses q:
+      return { prefix: "", suffix: "", quoteTerm: false }; // Zenodo uses q:
     case "openaire":
-      return { prefix: "", suffix: "" }; // OpenAIRE uses keywords
+      return { prefix: "", suffix: "", quoteTerm: false }; // OpenAIRE uses keywords
     case "clinicaltrials.gov":
-      return { prefix: "", suffix: "" }; // ClinicalTrials.gov uses query.term
+      return { prefix: "", suffix: "", quoteTerm: false }; // ClinicalTrials.gov uses query.term
     default:
-      return { prefix: "", suffix: "" };
+      return { prefix: "", suffix: "", quoteTerm: false };
   }
 }
 
@@ -629,7 +630,7 @@ export function buildDatabaseSearch(
       const groups = keywordGroups.map((g) => {
         // Strip any existing quotes/field tags from the group
         const clean = g.replace(/"/g, "").replace(/\[[^\]]+\]/g, "").trim();
-        if (fieldTag.prefix) return `(${fieldTag.prefix}${clean})`;
+        if (fieldTag.prefix) return `(${fieldTag.prefix}"${clean}")`;
         if (fieldTag.suffix) return `(${clean}${fieldTag.suffix})`;
         return `(${clean})`;
       });
@@ -1193,7 +1194,7 @@ async function fetchEuropePmcQuery(
   const pageSize = Math.min(100, ctx.limit);
   let pages = 0;
 
-  while (papers.length < ctx.limit && pages < 5) {
+  while (papers.length < ctx.limit && pages < 10) {
     pages++;
     const params = new URLSearchParams({
       query: epmcQuery,
@@ -1411,11 +1412,11 @@ export async function fetchCrossref(
   let cursor = "*";
   let pages = 0;
 
-  while (papers.length < maxResults && pages < 5) {
+  while (papers.length < maxResults && pages < 10) {
     pages++;
     const qs = new URLSearchParams({ query: buildDatabaseSearch("Crossref", query, { yearFrom, yearTo, semanticSearch }).term, rows: "100", cursor });
     if (filters.length) qs.set("filter", filters.join(","));
-    const data = await httpJson<any>(`https://api.crossref.org/works?${qs.toString()}`, { timeoutMs: 30000, retries: 3 });
+    const data = await httpJson<any>(`https://api.crossref.org/works?${qs.toString()}`, { timeoutMs: 45000, retries: 3 });
     const results = data.message?.items || [];
     if (results.length === 0) break;
 
