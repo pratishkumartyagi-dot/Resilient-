@@ -551,31 +551,33 @@ function quote(term: string): string {
   return `"${term.replace(/"/g, "")}"`;
 }
 
-/** Returns the [Title/Abstract] field tag for a database's query syntax. */
-function getTitleAbstractFieldTag(databaseId: string): string {
+/** Returns the [Title/Abstract] field tag for a database's query syntax.
+ *  Suffix tags (PubMed `[Title/Abstract]`) are appended to the term; prefix
+ *  tags (Europe PMC `TITLE_ABS:`) are prepended with a colon. */
+function getTitleAbstractFieldTag(databaseId: string): { prefix: string; suffix: string } {
   switch (databaseId.toLowerCase()) {
     case "pubmed":
-      return "[Title/Abstract]";
+      return { prefix: "", suffix: "[Title/Abstract]" };
     case "europe pmc":
     case "biorxiv":
     case "medrxiv":
-      return "TITLE_ABS";
+      return { prefix: "TITLE_ABS:", suffix: "" };
     case "crossref":
-      return ""; // Crossref doesn't support field-specific queries easily
+      return { prefix: "", suffix: "" }; // Crossref uses query.bibliographic, no field tag
     case "arxiv":
-      return ""; // arXiv uses all: prefix
+      return { prefix: "all:", suffix: "" }; // arXiv uses all: prefix
     case "openalex":
-      return ""; // OpenAlex uses search:
+      return { prefix: "", suffix: "" }; // OpenAlex uses search:
     case "doaj":
-      return ""; // DOAJ uses bibjson.title/bibjson.abstract
+      return { prefix: "", suffix: "" }; // DOAJ uses bibjson.title/bibjson.abstract
     case "zenodo":
-      return ""; // Zenodo uses metadata.title
+      return { prefix: "", suffix: "" }; // Zenodo uses q:
     case "openaire":
-      return ""; // OpenAIRE uses keywords
+      return { prefix: "", suffix: "" }; // OpenAIRE uses keywords
     case "clinicaltrials.gov":
-      return ""; // ClinicalTrials.gov uses query.term
+      return { prefix: "", suffix: "" }; // ClinicalTrials.gov uses query.term
     default:
-      return "";
+      return { prefix: "", suffix: "" };
   }
 }
 
@@ -627,9 +629,8 @@ export function buildDatabaseSearch(
       const groups = keywordGroups.map((g) => {
         // Strip any existing quotes/field tags from the group
         const clean = g.replace(/"/g, "").replace(/\[[^\]]+\]/g, "").trim();
-        if (fieldTag) {
-          return `(${clean}${fieldTag})`;
-        }
+        if (fieldTag.prefix) return `(${fieldTag.prefix}${clean})`;
+        if (fieldTag.suffix) return `(${clean}${fieldTag.suffix})`;
         return `(${clean})`;
       });
       let term = groups.join(" AND ");
