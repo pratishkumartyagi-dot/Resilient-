@@ -20,16 +20,6 @@ interface LiteratureSearchRequestBody {
   maxResults?: number;
   timeoutMs?: number;
   semanticSearch?: boolean;
-  concepts?: Array<{
-    id: string;
-    label: string;
-    terms: string[];
-    useThesaurus: boolean;
-    useFreeText: boolean;
-    truncate: boolean;
-    proximityWindow?: number;
-  }>;
-  pubMedStrategy?: "sensitive" | "specific";
 }
 
 function corsHeaders() {
@@ -91,28 +81,23 @@ export async function POST(request: Request) {
     const timeoutMs = typeof body.timeoutMs === "number" ? body.timeoutMs : undefined;
     const semanticSearch = body.semanticSearch === true;
 
-    const concepts = Array.isArray(body.concepts) ? body.concepts : undefined;
-    const pubMedStrategy = body.pubMedStrategy === "sensitive" || body.pubMedStrategy === "specific" ? body.pubMedStrategy : undefined;
-
-    if (!query && (!concepts || concepts.length === 0)) {
+    if (!query) {
       return NextResponse.json({ error: "Missing query parameter" }, { status: 400, headers: corsHeaders() });
     }
 
-    // Semantic mode broadens the query with MeSH/ATM concept expansion and drops
-    // boolean operators, so retrieval matches on meaning instead of exact
-    // keyword co-occurrence.
+    // Semantic mode: every keyword must appear in title or abstract.
+    // expandQueryWithMesh already ANDs expanded keyword groups together;
+    // we keep the AND operators so each database can apply [Title/Abstract]
+    // field tags per keyword.
     const meshResult = expandQueryWithMesh(query);
     const meshExpandedQuery = meshResult.expandedQuery || query;
-    const effectiveQuery = semanticSearch
-      ? meshExpandedQuery.replace(/\b(AND|OR|NOT)\b/gi, " ").replace(/\s+/g, " ").trim() || meshExpandedQuery
-      : query;
+    const effectiveQuery = semanticSearch ? meshExpandedQuery : query;
 
     const dbsToSearch = databases.length > 0 ? databases : DEFAULT_DATABASES;
 
     const outcome = await searchDatabases(dbsToSearch, {
       query: effectiveQuery,
-      concepts,
-      pubMedStrategy,
+      semanticSearch,
       yearFrom,
       yearTo,
       studyType,

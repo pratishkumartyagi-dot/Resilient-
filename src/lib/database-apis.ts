@@ -70,6 +70,8 @@ export interface SearchOptions {
   timeoutMs?: number;
   /** PubMed sensitive vs specific strategy (step 11 optimization). */
   pubMedStrategy?: "sensitive" | "specific";
+  /** When true, every keyword must appear in title or abstract (AND logic with field tags). */
+  semanticSearch?: boolean;
 }
 
 const STUDY_TYPE_KEYWORDS: Record<string, string[]> = {
@@ -461,18 +463,11 @@ export async function verifyCitations(papers: Paper[]): Promise<Map<string, { va
 
 interface FetchContext {
   query: string;
-  concepts?: SearchConcept[];
   yearFrom?: string;
   yearTo?: string;
   limit: number;
-  /** PubMed sensitive vs specific strategy (step 11 optimization). */
-  pubMedStrategy?: "sensitive" | "specific";
-}
-
-function yearFilterForApi(from?: string, to?: string): string {
-  const start = from ? `${from}-01-01` : "1800-01-01";
-  const end = to ? `${to}-12-31` : new Date().getFullYear() + "-12-31";
-  return `${start}/${end}`;
+  /** When true, every keyword must appear in title or abstract (AND logic with field tags). */
+  semanticSearch?: boolean;
 }
 
 /* ---------------------------- PubMed ------------------------------ */
@@ -556,6 +551,34 @@ function quote(term: string): string {
   return `"${term.replace(/"/g, "")}"`;
 }
 
+/** Returns the [Title/Abstract] field tag for a database's query syntax. */
+function getTitleAbstractFieldTag(databaseId: string): string {
+  switch (databaseId.toLowerCase()) {
+    case "pubmed":
+      return "[Title/Abstract]";
+    case "europe pmc":
+    case "biorxiv":
+    case "medrxiv":
+      return "TITLE_ABS";
+    case "crossref":
+      return ""; // Crossref doesn't support field-specific queries easily
+    case "arxiv":
+      return ""; // arXiv uses all: prefix
+    case "openalex":
+      return ""; // OpenAlex uses search:
+    case "doaj":
+      return ""; // DOAJ uses bibjson.title/bibjson.abstract
+    case "zenodo":
+      return ""; // Zenodo uses metadata.title
+    case "openaire":
+      return ""; // OpenAIRE uses keywords
+    case "clinicaltrials.gov":
+      return ""; // ClinicalTrials.gov uses query.term
+    default:
+      return "";
+  }
+}
+
 /** Builds the search string for one database from the research question.
  *
  *  Supports two modes:
@@ -569,12 +592,13 @@ function quote(term: string): string {
 export function buildDatabaseSearch(
   database: string,
   query: string,
-  options: { logic?: string; yearFrom?: string; yearTo?: string; studyType?: string; concepts?: SearchConcept[]; pubMedStrategy?: "sensitive" | "specific" } = {}
+  options: { logic?: string; yearFrom?: string; yearTo?: string; studyType?: string; concepts?: SearchConcept[]; pubMedStrategy?: "sensitive" | "specific"; semanticSearch?: boolean } = {}
 ): QueryTranslation {
   const logic = (options.logic || "AND").toUpperCase();
   const joiner = logic === "OR" ? " OR " : " AND ";
   const id = database.toLowerCase();
   const concepts = options.concepts;
+  const semanticSearch = options.semanticSearch ?? false;
 
   // ---- Multi-concept mode (Bramer steps 3-4) ----
   if (concepts && concepts.length > 0) {
@@ -592,6 +616,32 @@ export function buildDatabaseSearch(
       combined = yearRange ? `(${combined}) AND ${yearRange}` : combined;
     }
     return { term: combined || query, scheme: schemeForDatabase(id), searchString: combined || query };
+  }
+
+  // ---- Semantic search mode: ALL keywords must be in title/abstract ----
+  if (semanticSearch) {
+    // Split on AND to get individual keyword groups (each already expanded by expandQueryWithMesh)
+    const keywordGroups = query.split(/\s+AND\s+/i).map((g) => g.trim()).filter(Boolean);
+    if (keywordGroups.length > 0) {
+      const fieldTag = getTitleAbstractFieldTag(id);
+      const groups = keywordGroups.map((g) => {
+        // Strip any existing quotes/field tags from the group
+        const clean = g.replace(/"/g, "").replace(/\[[^\]]+\]/g, "").trim();
+        if (fieldTag) {
+          return `(${clean}${fieldTag})`;
+        }
+        return `(${clean})`;
+      });
+      let term = groups.join(" AND ");
+      if (options.yearFrom || options.yearTo) {
+        const yearRange = buildYearRange(database, options.yearFrom, options.yearTo);
+        term = yearRange ? `(${term}) AND ${yearRange}` : term;
+      }
+      const filter = buildStudyTypeFilter(options.studyType);
+      if (filter) term = `(${term}) AND ${filter}`;
+      return { term, scheme: schemeForDatabase(id), searchString: term };
+    }
+    // Fall through to single-query mode if no groups found
   }
 
   // ---- Single-query mode (legacy) ----
@@ -1035,8 +1085,7 @@ export async function fetchPubMedBrowserless(
   yearTo?: string,
   studyType?: string,
   limit?: number,
-  concepts?: SearchConcept[],
-  pubMedStrategy?: "sensitive" | "specific"
+  semanticSearch?: boolean,
 ): Promise<Paper[]> {
   const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
   const apiKey = process.env.NCBI_API_KEY || process.env.PUBMED_API_KEY;
@@ -1050,8 +1099,7 @@ export async function fetchPubMedBrowserless(
     yearFrom,
     yearTo,
     studyType,
-    concepts,
-    pubMedStrategy,
+    semanticSearch,
   }).term;
   toolParams.set("term", term);
 
@@ -1134,8 +1182,7 @@ async function fetchEuropePmcQuery(
   const translated = buildDatabaseSearch(label, query, {
     yearFrom: ctx.yearFrom,
     yearTo: ctx.yearTo,
-    concepts: ctx.concepts,
-    pubMedStrategy: ctx.pubMedStrategy,
+    semanticSearch: ctx.semanticSearch,
   });
   const terms = [translated.term, ...extraTerms].filter(Boolean);
   let epmcQuery = terms.join(" AND ");
@@ -1202,12 +1249,11 @@ export async function fetchEuropePMC(
   yearTo?: string,
   studyType?: string,
   limit?: number,
-  concepts?: SearchConcept[],
-  pubMedStrategy?: "sensitive" | "specific"
+  semanticSearch?: boolean,
 ): Promise<Paper[]> {
   const papers = await fetchEuropePmcQuery(
     query,
-    { query, yearFrom, yearTo, limit: limit ?? DEFAULT_LIMIT_PER_DATABASE, concepts, pubMedStrategy }
+    { query, yearFrom, yearTo, limit: limit ?? DEFAULT_LIMIT_PER_DATABASE, semanticSearch }
   );
   void studyType;
   return papers;
@@ -1219,12 +1265,11 @@ export async function fetchBioRxiv(
   yearTo?: string,
   studyType?: string,
   limit?: number,
-  concepts?: SearchConcept[],
-  pubMedStrategy?: "sensitive" | "specific"
+  semanticSearch?: boolean,
 ): Promise<Paper[]> {
   const papers = await fetchEuropePmcQuery(
     query,
-    { query, yearFrom, yearTo, limit: limit ?? DEFAULT_LIMIT_PER_DATABASE, concepts, pubMedStrategy },
+    { query, yearFrom, yearTo, limit: limit ?? DEFAULT_LIMIT_PER_DATABASE, semanticSearch },
     ["SRC:PPR", "PUBLISHER:bioRxiv"],
     "bioRxiv"
   );
@@ -1238,12 +1283,11 @@ export async function fetchMedRxiv(
   yearTo?: string,
   studyType?: string,
   limit?: number,
-  concepts?: SearchConcept[],
-  pubMedStrategy?: "sensitive" | "specific"
+  semanticSearch?: boolean,
 ): Promise<Paper[]> {
   const papers = await fetchEuropePmcQuery(
     query,
-    { query, yearFrom, yearTo, limit: limit ?? DEFAULT_LIMIT_PER_DATABASE, concepts, pubMedStrategy },
+    { query, yearFrom, yearTo, limit: limit ?? DEFAULT_LIMIT_PER_DATABASE, semanticSearch },
     ["SRC:PPR", "PUBLISHER:medRxiv"],
     "medRxiv"
   );
@@ -1308,8 +1352,7 @@ export async function fetchOpenAlex(
   yearTo?: string,
   studyType?: string,
   options?: { limit?: number; sort?: string; filter?: string },
-  concepts?: SearchConcept[],
-  pubMedStrategy?: "sensitive" | "specific"
+  semanticSearch?: boolean,
 ): Promise<Paper[]> {
   const limit = Math.min(options?.limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
   const filterParts: string[] = [];
@@ -1318,7 +1361,7 @@ export async function fetchOpenAlex(
   if (options?.filter) filterParts.push(options.filter);
 
   const params = new URLSearchParams({
-    search: buildDatabaseSearch("OpenAlex", query, { yearFrom, yearTo, concepts, pubMedStrategy }).term,
+    search: buildDatabaseSearch("OpenAlex", query, { yearFrom, yearTo, semanticSearch }).term,
     "per-page": "100",
     mailto: CONTACT_EMAIL,
   });
@@ -1356,8 +1399,7 @@ export async function fetchCrossref(
   yearTo?: string,
   studyType?: string,
   limit?: number,
-  concepts?: SearchConcept[],
-  pubMedStrategy?: "sensitive" | "specific"
+  semanticSearch?: boolean,
 ): Promise<Paper[]> {
   const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
   const filters: string[] = [];
@@ -1370,7 +1412,7 @@ export async function fetchCrossref(
 
   while (papers.length < maxResults && pages < 5) {
     pages++;
-    const qs = new URLSearchParams({ query: buildDatabaseSearch("Crossref", query, { yearFrom, yearTo, concepts, pubMedStrategy }).term, rows: "100", cursor });
+    const qs = new URLSearchParams({ query: buildDatabaseSearch("Crossref", query, { yearFrom, yearTo, semanticSearch }).term, rows: "100", cursor });
     if (filters.length) qs.set("filter", filters.join(","));
     const data = await httpJson<any>(`https://api.crossref.org/works?${qs.toString()}`, { timeoutMs: 30000, retries: 3 });
     const results = data.message?.items || [];
@@ -1416,11 +1458,10 @@ export async function fetcharXiv(
   yearTo?: string,
   studyType?: string,
   limit?: number,
-  concepts?: SearchConcept[],
-  pubMedStrategy?: "sensitive" | "specific"
+  semanticSearch?: boolean,
 ): Promise<Paper[]> {
   const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, 200);
-  const searchQuery = encodeURIComponent(buildDatabaseSearch("arXiv", query, { yearFrom, yearTo, concepts, pubMedStrategy }).term);
+  const searchQuery = encodeURIComponent(buildDatabaseSearch("arXiv", query, { yearFrom, yearTo, semanticSearch }).term);
   const url = `https://export.arxiv.org/api/query?search_query=${searchQuery}&start=0&max_results=${maxResults}&sortBy=relevance`;
   const text = await httpText(url, { timeoutMs: 45000, retries: 3 });
   if (!text) return [];
@@ -1475,13 +1516,12 @@ export async function fetchDoaj(
   yearTo?: string,
   studyType?: string,
   limit?: number,
-  concepts?: SearchConcept[],
-  pubMedStrategy?: "sensitive" | "specific"
+  semanticSearch?: boolean,
 ): Promise<Paper[]> {
   const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
   const papers: Paper[] = [];
   for (let page = 1; page <= 5 && papers.length < maxResults; page++) {
-    const url = `https://doaj.org/api/v2/search/articles/${encodeURIComponent(buildDatabaseSearch("DOAJ", query, { yearFrom, yearTo, concepts, pubMedStrategy }).term)}?pageSize=100&page=${page}`;
+    const url = `https://doaj.org/api/v2/search/articles/${encodeURIComponent(buildDatabaseSearch("DOAJ", query, { yearFrom, yearTo, semanticSearch }).term)}?pageSize=100&page=${page}`;
     const data = await httpJson<any>(url, { timeoutMs: 30000, retries: 1 });
     const results = data.results || [];
     if (results.length === 0) break;
@@ -1527,14 +1567,13 @@ export async function fetchOpenAIRE(
   yearTo?: string,
   studyType?: string,
   limit?: number,
-  concepts?: SearchConcept[],
-  pubMedStrategy?: "sensitive" | "specific"
+  semanticSearch?: boolean,
 ): Promise<Paper[]> {
   const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
   const papers: Paper[] = [];
 
   for (let page = 1; page <= 3 && papers.length < maxResults; page++) {
-    const qs = new URLSearchParams({ keywords: buildDatabaseSearch("OpenAIRE", query, { yearFrom, yearTo, concepts, pubMedStrategy }).term, format: "json", size: "100", page: String(page) });
+    const qs = new URLSearchParams({ keywords: buildDatabaseSearch("OpenAIRE", query, { yearFrom, yearTo, semanticSearch }).term, format: "json", size: "100", page: String(page) });
     const data = await httpJson<any>(`https://api.openaire.eu/search/publications?${qs.toString()}`, {
       timeoutMs: 30000,
       retries: 3,
@@ -1639,15 +1678,14 @@ export async function fetchZenodo(
   yearTo?: string,
   studyType?: string,
   limit?: number,
-  concepts?: SearchConcept[],
-  pubMedStrategy?: "sensitive" | "specific"
+  semanticSearch?: boolean,
 ): Promise<Paper[]> {
   const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
   const results: any[] = [];
   const pageSize = 25; // the Zenodo records API rejects larger page sizes
 
   for (let page = 1; page <= 8 && results.length < maxResults; page++) {
-    const qs = new URLSearchParams({ q: buildDatabaseSearch("Zenodo", query, { yearFrom, yearTo, concepts, pubMedStrategy }).term, size: String(pageSize), sort: "bestmatch", page: String(page) });
+    const qs = new URLSearchParams({ q: buildDatabaseSearch("Zenodo", query, { yearFrom, yearTo, semanticSearch }).term, size: String(pageSize), sort: "bestmatch", page: String(page) });
     const data = await httpJson<any>(`https://zenodo.org/api/records?${qs.toString()}`, { timeoutMs: 30000, retries: 2 });
     const hits = data.hits?.hits || [];
     if (hits.length === 0) break;
@@ -1788,15 +1826,14 @@ export async function fetchClinicalTrialsGov(
   yearTo?: string,
   studyType?: string,
   limit?: number,
-  concepts?: SearchConcept[],
-  pubMedStrategy?: "sensitive" | "specific"
+  semanticSearch?: boolean,
 ): Promise<Paper[]> {
   const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
   const papers: Paper[] = [];
   let pageToken: string | undefined;
 
   for (let page = 0; page < 5 && papers.length < maxResults; page++) {
-    const qs = new URLSearchParams({ "query.term": buildDatabaseSearch("ClinicalTrials.gov", query, { yearFrom, yearTo, concepts, pubMedStrategy }).term, format: "json", pageSize: "100" });
+    const qs = new URLSearchParams({ "query.term": buildDatabaseSearch("ClinicalTrials.gov", query, { yearFrom, yearTo, semanticSearch }).term, format: "json", pageSize: "100" });
     if (pageToken) qs.set("pageToken", pageToken);
     const data = await httpJson<any>(`https://clinicaltrials.gov/api/v2/studies?${qs.toString()}`, {
       timeoutMs: 30000,
@@ -1979,7 +2016,7 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "PubMed",
     url: "https://pubmed.ncbi.nlm.nih.gov/",
     description: "NLM E-utilities search over MEDLINE/PMC (NCBI_API_KEY only raises the request rate)",
-    search: (ctx) => fetchPubMedBrowserless(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.concepts, ctx.pubMedStrategy),
+    search: (ctx) => fetchPubMedBrowserless(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.semanticSearch),
   },
   {
     id: "OpenAlex",
@@ -1989,13 +2026,13 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     requiresKey: "OPENALEX_API_KEY",
     keyHint: "Without a key the API answers HTTP 429 because the shared-IP daily budget is exhausted.",
     rateLimitHint: "the shared-IP daily budget is exhausted; set OPENALEX_API_KEY in .env.local to lift the limit",
-    search: (ctx) => fetchOpenAlex(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, { limit: ctx.limit }, ctx.concepts, ctx.pubMedStrategy),
+    search: (ctx) => fetchOpenAlex(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, { limit: ctx.limit }, ctx.semanticSearch),
   },  {
     id: "Europe PMC",
     label: "Europe PMC",
     url: "https://europepmc.org/",
     description: "Europe PMC literature database",
-    search: (ctx) => fetchEuropePMC(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.concepts, ctx.pubMedStrategy),
+    search: (ctx) => fetchEuropePMC(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.semanticSearch),
   },
   {
     id: "DOAJ",
@@ -2004,42 +2041,42 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     description: "Directory of Open Access Journals",
     disabled: true,
     disabledReason: "The DOAJ API answers HTTP 502 for automated access from this environment. Re-enable (disabled: false) once doaj.org serves the API again.",
-    search: (ctx) => fetchDoaj(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.concepts, ctx.pubMedStrategy),
+    search: (ctx) => fetchDoaj(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.semanticSearch),
   },
   {
     id: "bioRxiv",
     label: "bioRxiv",
     url: "https://www.biorxiv.org/",
     description: "bioRxiv preprints (via the Europe PMC preprint index)",
-    search: (ctx) => fetchBioRxiv(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.concepts, ctx.pubMedStrategy),
+    search: (ctx) => fetchBioRxiv(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.semanticSearch),
   },
   {
     id: "medRxiv",
     label: "medRxiv",
     url: "https://www.medrxiv.org/",
     description: "medRxiv preprints (via the Europe PMC preprint index)",
-    search: (ctx) => fetchMedRxiv(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.concepts, ctx.pubMedStrategy),
+    search: (ctx) => fetchMedRxiv(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.semanticSearch),
   },
   {
     id: "Crossref",
     label: "Crossref",
     url: "https://www.crossref.org/",
     description: "Crossref DOI metadata registry",
-    search: (ctx) => fetchCrossref(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.concepts, ctx.pubMedStrategy),
+    search: (ctx) => fetchCrossref(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.semanticSearch),
   },
   {
     id: "arXiv",
     label: "arXiv",
     url: "https://arxiv.org/",
     description: "arXiv preprint repository",
-    search: (ctx) => fetcharXiv(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.concepts, ctx.pubMedStrategy),
+    search: (ctx) => fetcharXiv(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.semanticSearch),
   },
   {
     id: "OpenAIRE",
     label: "OpenAIRE",
     url: "https://www.openaire.eu/",
     description: "OpenAIRE research graph",
-    search: (ctx) => fetchOpenAIRE(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.concepts, ctx.pubMedStrategy),
+    search: (ctx) => fetchOpenAIRE(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.semanticSearch),
   },
   {
     id: "dblp",
@@ -2055,7 +2092,7 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "Zenodo",
     url: "https://zenodo.org/",
     description: "Zenodo open repository",
-    search: (ctx) => fetchZenodo(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.concepts, ctx.pubMedStrategy),
+    search: (ctx) => fetchZenodo(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.semanticSearch),
   },
   {
     id: "Google Scholar",
@@ -2081,7 +2118,7 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "ClinicalTrials.gov",
     url: "https://clinicaltrials.gov/",
     description: "ClinicalTrials.gov registry API v2",
-    search: (ctx) => fetchClinicalTrialsGov(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.concepts, ctx.pubMedStrategy),
+    search: (ctx) => fetchClinicalTrialsGov(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, ctx.semanticSearch),
   },
   {
     id: "Cochrane Library",
@@ -2194,11 +2231,10 @@ export async function searchDatabases(databases: string[], options: SearchOption
       const raw = await withTimeout(
         definition.search({
           query: options.query,
-          concepts: options.concepts,
           yearFrom: options.yearFrom,
           yearTo: options.yearTo,
           limit,
-          pubMedStrategy: options.pubMedStrategy,
+          semanticSearch: options.semanticSearch,
         }),
         perDatabaseTimeout,
         `${definition.label} search timed out after ${(perDatabaseTimeout / 1000).toFixed(0)}s`

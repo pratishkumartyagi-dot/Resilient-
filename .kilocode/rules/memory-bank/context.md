@@ -199,6 +199,17 @@ Three causes, all fixed:
 ### 4. Literature review uses the local AI backup
 - `Step4LiteratureReview.tsx` now calls `callAiWithFallback` (Gemini → Groq → in-browser local model) instead of picking one provider, and if every provider fails the section is written by the deterministic `generateLocalLiteratureReview` (themes, PRISMA 2020 checklist scoring, GRADE judgement, Vancouver references) with a note saying the local generator produced it. Verified: the local review generator produces a complete 5.5 k-character review with no API key.
 
+## Step 1 Multi-Concept (Bramer) mode removed — single-query + semantic search (2026-10-28)
+
+The Step 1 search UI was simplified back to a single research-question input with a "Semantic Search Active" checkbox (every keyword must appear in title/abstract, AND-ed with `[Title/Abstract]` field tags per database). The Bramer multi-concept element panel, concept state, thesaurus/truncation/proximity controls and the PubMed sensitive/specific strategy toggle are gone from the UI.
+
+- `Step1Search.tsx`: removed `searchMode`, `concepts`, `pubMedStrategy` state and every concept helper; replaced the Search Mode toggle with a single query textarea + semantic checkbox; the `hasConcepts` guard in `handleSearch` now only checks the query.
+- `src/app/api/literature-search/route.ts`: request body no longer accepts `concepts` or `pubMedStrategy`; the route passes `query` + `semanticSearch` straight to `searchDatabases`.
+- `src/lib/database-apis.ts`: `FetchContext` and every `fetch*` signature dropped `concepts`/`pubMedStrategy` and gained `semanticSearch`; `buildDatabaseSearch` keeps the concepts branch as dead-but-kept code (the `SearchConcept` interface and `buildConceptQuery` remain so the module still compiles if Bramer mode is re-added later); the semantic branch wraps each AND-ed keyword group in the database's `[Title/Abstract]` field tag via `getTitleAbstractFieldTag()`. `searchDatabases` now forwards `semanticSearch` instead of `concepts`/`pubMedStrategy`.
+- `EvidenceSynthesisTab.tsx`: the deleted `src/lib/academic-writing-agents.ts` module was restored from git HEAD (it still provides `buildAcademicWritingManuscriptPrompt`, `buildAcademicWritingReviewPrompt`, `buildIncorporateReviewPrompt`, `formatPrinciplesForPrompt`, `formatAgentsForPrompt`, `ReviewFinding`, `getRobToolTemplate`). The new `academic-research-skills.ts` coexists for the Paper Writer / Paper Reviewer pipelines.
+- Thesis Generator: `searchThesisPapers` now targets 11 live sources (PubMed, Europe PMC, bioRxiv, medRxiv, Crossref, arXiv, OpenAIRE, Zenodo, OpenAlex, Semantic Scholar, ClinicalTrials.gov) with `maxResults: 120` and `semanticSearch: true`.
+- Verified: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
+
 ## Current State
 
 **App Status**: ✅ Fully functional prototype built
