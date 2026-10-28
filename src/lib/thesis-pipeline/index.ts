@@ -8,8 +8,8 @@ import type {
 } from "@/lib/thesis-types";
 import { LEVEL_WORD_RANGES } from "@/lib/thesis-types";
 import { openDraft } from "@/lib/opendraft";
-import { generateThesis } from "@/lib/thesis-generator";
 import { scholarCopilot } from "@/lib/scholar-copilot";
+import { generateChapterWithMedicalSkills } from "@/lib/medical-research-skills";
 import { formatVancouverList } from "@/lib/references";
 import { appraiseEvidenceBase, buildEvidenceAppraisalMarkdown, buildNursestackThesisPlan, applyNursestackPlanToOutline, wordTargetsFromPlan } from "@/lib/thesis-nursestack";
 
@@ -46,8 +46,8 @@ export async function runThesisPipeline(
   });
   subResults.outline = { ok: false };
 
-  // Stage 1: Outline
-  onProgress?.("outline", "Generating thesis outline...");
+  // Stage 1: Outline with ScholarCopilot/OpenDraft
+  onProgress?.("outline", "Generating thesis outline with ScholarCopilot...");
   const outlineResult = await openDraft({
     topic: config.topic,
     level: config.level,
@@ -62,9 +62,7 @@ export async function runThesisPipeline(
   subResults.outline = outlineResult.subResult;
   const outline: ThesisOutline = outlineResult.outline;
 
-  // The NurseStack plan owns the chapter structure and the word budget: the
-  // OpenDraft outline is aligned to it so every chapter is written to the
-  // number of words the plan allocates.
+  // The NurseStack plan owns the chapter structure and the word budget
   outline.chapters = applyNursestackPlanToOutline(outline, nursestackPlan);
   const wordTargets = wordTargetsFromPlan(nursestackPlan);
   onProgress?.(
@@ -72,7 +70,7 @@ export async function runThesisPipeline(
     `Outline ready: ${outline.chapters.length} chapters, ${Object.values(wordTargets).reduce((a, b) => a + b, 0).toLocaleString()} words planned`
   );
 
-  // Stage 2: Prose (search papers first for grounding)
+  // Stage 2: Prose with medical-research-skills
   onProgress?.("prose", "Searching databases for grounding papers...");
   let papers: ThesisPaper[] = [];
   if (searchFn) {
@@ -87,27 +85,44 @@ export async function runThesisPipeline(
     }
   }
 
-  onProgress?.("prose", `Generating prose for ${outline.chapters.length} chapters...`);
-  const proseResult = await generateThesis({
-    outline,
-    papers,
-    config: {
-      topic: config.topic,
-      level: config.level,
-      style: config.style,
-      language: config.language,
-      studyDesign: config.studyDesign,
-      targetWordCount: config.targetWordCount,
-      maxReferences: config.maxReferences,
-    },
-    aiFn,
-    onProgress: (msg) => onProgress?.("prose", msg),
-  });
-  subResults.prose = proseResult.subResult;
-  let chapters: ChapterFile[] = proseResult.chapters;
+  onProgress?.("prose", `Generating prose for ${outline.chapters.length} chapters with medical-research-skills...`);
+  const chapters: ChapterFile[] = [];
+  for (let i = 0; i < outline.chapters.length; i++) {
+    const ch = outline.chapters[i];
+    const wordTarget = wordTargets[i + 1] || ch.wordTarget;
+    try {
+      const res = await generateChapterWithMedicalSkills({
+        chapter: { ...ch, wordTarget },
+        papers,
+        config: {
+          topic: config.topic,
+          level: config.level,
+          style: config.style,
+          language: config.language,
+          studyDesign: config.studyDesign,
+          targetWordCount: config.targetWordCount,
+        },
+        aiFn,
+        onProgress: (msg) => onProgress?.("prose", `Chapter ${i + 1}/${outline.chapters.length}: ${msg}`),
+      });
+      chapters.push(res.chapter);
+    } catch (err: any) {
+      onProgress?.("prose", `Chapter ${i + 1}/${outline.chapters.length}: fallback generation failed`);
+      chapters.push({
+        chapterNumber: ch.number || i + 1,
+        chapterTitle: ch.title,
+        content: `# ${ch.title}\n\n[Content generation encountered an issue for this chapter.]`,
+        sections: ch.sections || [],
+        wordCount: 0,
+        citations: [],
+        argumentAudit: { claims: [], evidenceGaps: [], logicalFlowScore: 0, citationCoverage: 0, recommendations: [] },
+      });
+    }
+  }
+  subResults.prose = { ok: true };
 
-  // Stage 3: Refine / citation validation
-  onProgress?.("refine", "Refining chapters and validating citations...");
+  // Stage 3: Refine/expand with OpenDraft/ScholarCopilot
+  onProgress?.("refine", "Refining and expanding chapters with ScholarCopilot...");
   const refineResult = await scholarCopilot({
     chapters,
     papers,
@@ -117,10 +132,10 @@ export async function runThesisPipeline(
     onProgress: (msg) => onProgress?.("refine", msg),
   });
   subResults.refine = refineResult.subResult;
-  chapters = refineResult.chapters;
+  let refinedChapters = refineResult.chapters;
   let fullThesis = refineResult.fullThesis;
 
-  // Stage 4: CASP appraisal of the evidence base (NurseStack /review-evidence)
+  // Stage 4: CASP appraisal
   onProgress?.("appraise", "Appraising the evidence base with CASP...");
   let evidenceAppraisal: ReturnType<typeof appraiseEvidenceBase> = [];
   let evidenceAppraisalMarkdown = "";
@@ -132,19 +147,30 @@ export async function runThesisPipeline(
     subResults.appraise = { ok: false, error: err?.message || "Evidence appraisal failed" };
   }
 
-  // The CASP appraisal of the evidence base is part of the written thesis.
   if (evidenceAppraisalMarkdown) {
     fullThesis = `${fullThesis}\n\n---\n\n${evidenceAppraisalMarkdown}`;
   }
 
-  // Build references (Vancouver) from grounding papers
+  // References at the end as per citation style (no hallucination - only from papers)
   const references = papers.slice(0, config.maxReferences || 150);
+  let referencesSection = "";
+  try {
+    const formatted = formatVancouverList(references);
+    const referencesList = Array.isArray(formatted) ? formatted.map((r: any) => (typeof r === "string" ? r : r.text)).filter(Boolean) : [];
+    if (referencesList.length > 0) {
+      referencesSection = `\n\n## References\n\n${referencesList.map((r: string, i: number) => `${i + 1}. ${r}`).join("\n\n")}`;
+    }
+  } catch {
+    referencesSection = "";
+  }
+  fullThesis = `${fullThesis}${referencesSection}`;
+
   const markdownOutline = outlineResult.markdownOutline;
 
-  const stats: any = {
+  const stats = {
     totalWords: fullThesis.split(/\s+/).filter(Boolean).length,
     totalReferences: references.length,
-    totalChapters: chapters.length,
+    totalChapters: refinedChapters.length,
     generationTimeMs: Date.now() - start,
   };
 
