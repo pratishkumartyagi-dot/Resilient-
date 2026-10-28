@@ -8,7 +8,7 @@ import { testGeminiKey, testGroqKey } from "@/lib/ai";
 // Keep in sync with LOCAL_MODEL_LABEL in src/lib/local-llm.ts. Inlined here
 // (instead of importing) so this modal doesn't drag @huggingface/transformers
 // into the initial preview bundle.
-const LOCAL_MODEL_LABEL = "Qwen2.5 0.5B Instruct (in-browser)";
+const LOCAL_MODEL_LABEL = "Qwen2.5 1.5B Instruct (in-browser with WebGPU acceleration)";
 
 export default function SettingsModal() {
   const { state, dispatch } = useApp();
@@ -136,7 +136,7 @@ export default function SettingsModal() {
           <div className="space-y-2">
             <label className="flex items-center gap-2 text-sm font-medium text-blue-200">
               <Key size={14} className="text-yellow-400" />
-               Groq API Key <span className="text-xs text-blue-400">(Llama 3.3 70B fallback)</span>
+               Groq API Key <span className="text-xs text-blue-400">(openai/gpt-oss-120b fallback)</span>
             </label>
             <input
               type="password"
@@ -169,7 +169,7 @@ export default function SettingsModal() {
 
           <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-3">
             <p className="text-xs text-blue-300">
-              Keys are stored locally in your browser. Gemini 3.1 Flash Lite is the primary AI provider and Groq (Llama 3.3 70B) is the secondary fallback.
+              Keys are stored locally in your browser. Gemini 3.1 Flash Lite is the primary AI provider and Groq (openai/gpt-oss-120b) is the secondary fallback.
             </p>
             <p className="text-xs text-blue-400 mt-2">
               No key? A local {LOCAL_MODEL_LABEL} model runs directly in your browser as a free fallback. It downloads once (~350&nbsp;MB) on first use and is cached. WebGPU is used when available; otherwise it falls back to CPU, which is slower. For fastest, highest-quality results, add an API key above.

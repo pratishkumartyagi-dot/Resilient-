@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (provider === "groq") {
-      const groqModel = "llama-3.3-70b-versatile";
+      const groqModel = "openai/gpt-oss-120b";
       const groqRes = await fetchWithTimeout("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
