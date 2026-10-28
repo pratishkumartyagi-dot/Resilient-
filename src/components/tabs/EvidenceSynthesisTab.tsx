@@ -87,7 +87,6 @@ const FALLBACK_SR_DATABASES = [
   "medRxiv",
   "Crossref",
   "arXiv",
-  "OpenAIRE",
   "Zenodo",
   "ClinicalTrials.gov",
 ];

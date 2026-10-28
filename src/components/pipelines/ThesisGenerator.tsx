@@ -148,7 +148,7 @@ export default function ThesisGenerator() {
         searchFn: async (query, opts) => {
           const papers = await searchThesisPapers({
             query,
-            databases: ["PubMed", "Europe PMC", "bioRxiv", "medRxiv", "Crossref", "arXiv", "OpenAIRE", "Zenodo", "OpenAlex", "Semantic Scholar", "ClinicalTrials.gov"],
+            databases: ["PubMed", "Europe PMC", "bioRxiv", "medRxiv", "Crossref", "arXiv", "Zenodo", "ClinicalTrials.gov"],
             yearFrom: opts?.yearFrom,
             yearTo: opts?.yearTo,
             studyDesign: opts?.studyDesign,

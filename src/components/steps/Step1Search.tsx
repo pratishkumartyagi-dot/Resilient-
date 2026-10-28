@@ -29,7 +29,6 @@ const FALLBACK_DATABASES = [
   "medRxiv",
   "Crossref",
   "arXiv",
-  "OpenAIRE",
   "Zenodo",
   "ClinicalTrials.gov",
 ];

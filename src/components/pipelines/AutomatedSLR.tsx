@@ -79,8 +79,8 @@ export default function AutomatedSLR() {
   const [yearFrom, setYearFrom] = useState(state.slrYearFrom || "");
   const [yearTo, setYearTo] = useState(state.slrYearTo || "");
   const [databases, setDatabases] = useState<string[]>(state.slrDatabases || [
-    "PubMed", "Europe PMC", "DOAJ", "bioRxiv", "medRxiv", "Crossref",
-    "arXiv", "OpenAIRE", "Zenodo", "ClinicalTrials.gov",
+    "PubMed", "Europe PMC", "bioRxiv", "medRxiv", "Crossref",
+    "arXiv", "Zenodo", "ClinicalTrials.gov",
   ]);
   const [biasAssessing, setBiasAssessing] = useState(false);
   const [slrBias, setSlrBias] = useState<Record<string, { risk: "low" | "some" | "high"; aiGenerated: boolean }>>({});
@@ -98,8 +98,8 @@ export default function AutomatedSLR() {
   const [extracting, setExtracting] = useState(false);
 
   const ALL_DATABASES = [
-    "PubMed", "Europe PMC", "DOAJ", "bioRxiv", "medRxiv", "Crossref",
-    "arXiv", "OpenAIRE", "Zenodo", "ClinicalTrials.gov",
+    "PubMed", "Europe PMC", "bioRxiv", "medRxiv", "Crossref",
+    "arXiv", "Zenodo", "ClinicalTrials.gov",
   ];
 
   const goToStep = (step: number) => {

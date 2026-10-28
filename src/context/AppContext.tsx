@@ -327,7 +327,6 @@ const initialState: AppState = {
     "medRxiv",
     "Crossref",
     "arXiv",
-    "OpenAIRE",
     "Zenodo",
     "ClinicalTrials.gov",
   ],
