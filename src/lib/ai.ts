@@ -173,7 +173,7 @@ export async function callDeepSeek(prompt: string, options?: AICallOptions): Pro
     emitFallback({
       provider: "local",
       failedProvider: "local",
-      reason: "Loading the in-browser model (Qwen2.5 0.5B) — this happens once and is then cached",
+      reason: "Loading the in-browser model (Qwen2.5 1.5B) — this happens once and is then cached",
       exhausted: false,
       at: Date.now(),
     });
