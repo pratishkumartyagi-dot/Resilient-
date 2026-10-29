@@ -9,12 +9,25 @@ import { useApp } from "@/context/AppContext";
 import { runThesisPipeline, buildDefaultConfig } from "@/lib/thesis-pipeline";
 import { buildThesisAiFn, searchThesisPapers, toThesisPaper } from "@/lib/thesis-ai";
 import type { ThesisGeneratorConfig } from "@/lib/thesis-types";
-import { formatReferenceByStyle, type CitationStyle } from "@/lib/references";
 import {
   downloadMarkdownAsWord,
   downloadMarkdownAsPDF,
   downloadMarkdownAsLaTeX,
 } from "@/lib/exporters";
+import {
+  emptyNotebook,
+  addSource,
+  removeSource,
+  selectSource,
+  getSelectedSources,
+  buildNotebookContext,
+  expandChapterPrompt,
+  parseChapterResponse,
+  expandChapter,
+  sourceFromPaper,
+  type NotebookState,
+  type NotebookSource,
+} from "@/lib/notebook-expansion";
 
 const SESSION_KEY = "thesis_generator_session";
 
@@ -92,6 +105,10 @@ export default function ThesisGenerator() {
   const [finalized, setFinalized] = useState(false);
   const [editingChapter, setEditingChapter] = useState<number | null>(null);
   const [chapterDraft, setChapterDraft] = useState("");
+  const [expanding, setExpanding] = useState<number | null>(null);
+  const [notebook, setNotebook] = useState<NotebookState>(emptyNotebook());
+  const [notebookInput, setNotebookInput] = useState("");
+  const [notebookTitle, setNotebookTitle] = useState("");
   const generatingRef = useRef(false);
 
   // Load saved session on mount
@@ -222,6 +239,95 @@ export default function ThesisGenerator() {
 
   const handleCopy = () => {
     navigator.clipboard.writeText(fullThesis || "");
+  };
+
+  // ---- Notebook management -------------------------------------------------
+  const handleAddNotebookSource = () => {
+    if (!notebookTitle.trim() || !notebookInput.trim()) return;
+    const src: Omit<NotebookSource, "id" | "addedAt"> = {
+      title: notebookTitle.trim(),
+      content: notebookInput.trim(),
+      type: "note",
+    };
+    setNotebook((n) => addSource(n, src));
+    setNotebookTitle("");
+    setNotebookInput("");
+  };
+
+  const handleAddPaperToNotebook = (paper: any) => {
+    setNotebook((n) => addSource(n, sourceFromPaper(paper)));
+  };
+
+  const handleRemoveNotebookSource = (id: string) => {
+    setNotebook((n) => removeSource(n, id));
+  };
+
+  const handleToggleNotebookSource = (id: string, selected: boolean) => {
+    setNotebook((n) => selectSource(n, id, selected));
+  };
+
+  const selectedSources = getSelectedSources(notebook);
+
+  // ---- Chapter expansion via notebook -------------------------------------
+  const handleExpandChapter = async () => {
+    if (!result || result.chapters.length === 0) return;
+    setExpanding(-1);
+    try {
+      const aiFn = buildThesisAiFn(config.provider, config.apiKey || apiKey, true);
+      const updatedChapters: any[] = [];
+      let nextThesis = fullThesis;
+      for (let i = 0; i < result.chapters.length; i++) {
+        const ch = result.chapters[i];
+        const currentWords = ch.wordCount || ch.content.split(/\s+/).filter(Boolean).length;
+        const target = Math.round(currentWords * 1.5);
+        if (currentWords >= target) {
+          updatedChapters.push(ch);
+          continue;
+        }
+        setStageMessage(`Expanding Chapter ${ch.chapterNumber}: ${ch.chapterTitle}...`);
+        const expanded = await expandChapter(
+          {
+            chapterNumber: ch.chapterNumber,
+            chapterTitle: ch.chapterTitle || `Chapter ${ch.chapterNumber}`,
+            content: ch.content || "",
+            sections: ch.sections || [],
+            wordCount: ch.wordCount || 0,
+            citations: ch.citations || [],
+            argumentAudit: ch.argumentAudit,
+          },
+          notebook,
+          {
+            topic: config.topic,
+            level: config.level,
+            style: config.style,
+            language: config.language,
+          },
+          aiFn,
+          { targetWords: target, maxPasses: 3 },
+        );
+        updatedChapters.push({
+          ...ch,
+          content: expanded.content.trim(),
+          wordCount: expanded.words,
+        });
+      }
+      const parts = nextThesis.split("\n---\n\n");
+      const updatedParts = parts.map((part, idx) => {
+        const headerMatch = part.match(/^#\s*Chapter\s+(\d+)\s*:/i);
+        if (!headerMatch) return part;
+        const num = parseInt(headerMatch[1], 10);
+        const ch = updatedChapters.find((c) => c.chapterNumber === num);
+        if (!ch) return part;
+        const newlineIndex = part.indexOf("\n");
+        const header = newlineIndex >= 0 ? part.slice(0, newlineIndex) : part;
+        return `${header}\n\n${ch.content.trim()}`;
+      });
+      nextThesis = updatedParts.join("\n---\n\n");
+      setFullThesis(nextThesis);
+      setResult({ ...result, fullThesis: nextThesis, chapters: updatedChapters });
+    } finally {
+      setExpanding(null);
+    }
   };
 
   // ---- per-chapter editing ------------------------------------------------
@@ -551,6 +657,97 @@ export default function ThesisGenerator() {
           </p>
         )}
 
+        {/* Thesis Notebook (Open Notebook style): sources + chapter expansion */}
+        {result && (
+          <div className="bg-[#0a1530] border border-blue-800 rounded-lg p-4 space-y-3">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                <BookOpen size={14} className="text-yellow-400" />
+                Thesis Notebook · Grounded Chapter Expansion
+              </h4>
+              <span className="text-[10px] text-blue-400">{notebook.sources.length} sources · {selectedSources.length} selected</span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+              <div className="md:col-span-3">
+                <input
+                  value={notebookTitle}
+                  onChange={(e) => setNotebookTitle(e.target.value)}
+                  placeholder="Source title (paper, note, excerpt…)"
+                  className="w-full bg-blue-950 border border-blue-800 text-white rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                />
+              </div>
+              <div className="md:col-span-1">
+                <button
+                  onClick={handleAddNotebookSource}
+                  disabled={!notebookTitle.trim() || !notebookInput.trim()}
+                  className="bg-yellow-500 text-[#0a1a3a] font-bold px-3 py-2 rounded disabled:opacity-50 hover:bg-yellow-600 disabled:cursor-not-allowed text-xs"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+            <textarea
+              value={notebookInput}
+              onChange={(e) => setNotebookInput(e.target.value)}
+              placeholder="Paste source text, paper abstract, or your own notes here…"
+              rows={3}
+              className="w-full bg-blue-950/60 border border-blue-900 rounded p-2.5 text-xs text-white font-mono leading-relaxed focus:outline-none resize-y whitespace-pre-wrap"
+            />
+            <div className="space-y-1 max-h-[260px] overflow-y-auto pr-1">
+              {notebook.sources.map((s) => {
+                const sel = notebook.selectedSourceIds.includes(s.id);
+                return (
+                  <div key={s.id} className="bg-blue-950/40 border border-blue-900/50 rounded-lg p-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={sel}
+                          onChange={(e) => handleToggleNotebookSource(s.id, e.target.checked)}
+                          className="w-3 h-3 rounded border-blue-700 bg-blue-950 text-yellow-500 focus:ring-yellow-500 shrink-0 mt-0.5"
+                        />
+                        <div>
+                          <div className="text-xs font-semibold text-blue-200">{s.title}</div>
+                          <div className="text-[9px] text-blue-400">
+                            {s.type} · {s.authors ? `${s.authors} · ` : ""}{s.year ? `${s.year} · ` : ""}{s.content.length} chars
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleRemoveNotebookSource(s.id)}
+                        className="text-[9px] text-red-300 hover:text-red-100 p-1"
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => selectedSources.length > 0 && handleExpandChapter()}
+                disabled={selectedSources.length === 0 || expanding !== null}
+                className={`flex items-center gap-1 bg-blue-900/50 text-blue-200 px-3 py-1.5 rounded text-xs hover:bg-blue-800/60 disabled:opacity-50 flex-shrink-0 ${expanding !== null ? "animate-pulse" : ""}`}
+              >
+                <Sparkles size={11} />
+                Expand selected chapter
+              </button>
+              {expanding !== null && (
+                <span className="text-[10px] text-yellow-300 flex items-center gap-1">
+                  <Loader2 size={10} className="animate-spin" /> Expanding…
+                </span>
+              )}
+            </div>
+            {selectedSources.length > 0 && (
+              <p className="text-[9px] text-blue-400 italic">
+                Expansion uses only the checked notebook sources as grounding; every new claim cites (Author, Year)
+                from those sources.
+              </p>
+            )}
+          </div>
+        )}
+
         {result && (
           <div className="flex gap-2 items-center flex-wrap">
             <button onClick={handleCopy} className="text-xs bg-blue-900/50 text-blue-200 px-3 py-1.5 rounded hover:bg-blue-800/60">
@@ -661,62 +858,7 @@ export default function ThesisGenerator() {
             </div>
           )}
 
-          {/* CASP appraisal of the evidence base */}
-          {result.evidenceAppraisal && result.evidenceAppraisal.length > 0 && (
-            <div className="bg-blue-950 border border-blue-800 rounded-lg p-4">
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="text-xs font-bold text-white flex items-center gap-2">
-                  <ClipboardCheck size={13} className="text-yellow-400" />
-                  Critical appraisal of the evidence base (CASP)
-                </h4>
-                <span className="text-[10px] text-blue-400">{result.evidenceAppraisal.length} studies appraised</span>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-[10px]">
-                  <thead>
-                    <tr className="text-blue-400 text-left border-b border-blue-900/60">
-                      <th className="py-1 pr-2 font-medium">Study</th>
-                      <th className="py-1 pr-2 font-medium">Design</th>
-                      <th className="py-1 pr-2 font-medium">CASP checklist</th>
-                      <th className="py-1 pr-2 font-medium">Yes</th>
-                      <th className="py-1 pr-2 font-medium">No</th>
-                      <th className="py-1 pr-2 font-medium">Can&apos;t tell</th>
-                      <th className="py-1 pr-2 font-medium">Judged</th>
-                      <th className="py-1 pr-2 font-medium">Score</th>
-                      <th className="py-1 font-medium">Verdict</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.evidenceAppraisal.slice(0, 40).map((row: { paperId: string; title: string; year?: number; design: string; checklist: string; yes: number; no: number; cantTell: number; assessable: number; score: number | null; verdict: string }) => (
-                      <tr key={row.paperId} className="border-b border-blue-900/30 align-top">
-                        <td className="py-1 pr-2 text-blue-200">{row.title.length > 90 ? `${row.title.slice(0, 90)}…` : row.title}</td>
-                        <td className="py-1 pr-2 text-blue-300">{row.design}</td>
-                        <td className="py-1 pr-2 text-blue-400">{row.checklist}</td>
-                        <td className="py-1 pr-2 text-emerald-300">{row.yes}</td>
-                        <td className="py-1 pr-2 text-red-300">{row.no}</td>
-                        <td className="py-1 pr-2 text-yellow-300">{row.cantTell}</td>
-                        <td className="py-1 pr-2 text-blue-300">{row.assessable}</td>
-                        <td className="py-1 pr-2 text-white">{row.score === null ? "—" : `${row.score}%`}</td>
-                        <td className="py-1 text-blue-200">
-                          {row.verdict === "fit"
-                            ? "Fit"
-                            : row.verdict === "caveats"
-                              ? "With caveats"
-                              : row.verdict === "insufficient"
-                                ? "Too little reported"
-                                : "Not fit"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <p className="text-[10px] text-blue-500 mt-2">
-                Appraisal is based on the title and abstract; criteria that need the full text are recorded as
-                &ldquo;Can&rsquo;t tell&rdquo;. Use the Critical Appraisal tab for a full-text appraisal.
-              </p>
-            </div>
-          )}
+          {/* CASP appraisal is handled on the separate Critical Appraisal tab. */}
 
           <div className="bg-blue-950 border border-blue-800 rounded-lg p-4">
             <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
@@ -822,36 +964,7 @@ export default function ThesisGenerator() {
             </div>
           )}
 
-          {/* References */}
-          {refsList.length > 0 && (
-            <div className="bg-[#0a1530] border border-blue-800 rounded-lg p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                  <FileText size={14} className="text-blue-400" />
-                  References ({config.style?.toUpperCase() || "Vancouver"} style)
-                </h4>
-                <span className="text-[10px] text-blue-400">{refsList.length} references</span>
-              </div>
-              <div className="text-sm text-blue-100 space-y-1 max-h-[300px] overflow-y-auto font-serif leading-relaxed">
-                {refsList.map((r: any, i: number) => {
-                  const style = (config.style || "vancouver") as CitationStyle;
-                  const formatted = formatReferenceByStyle(style, {
-                    authors: r.authors,
-                    title: r.title,
-                    journal: r.journal,
-                    year: r.year,
-                    doi: r.doi,
-                  });
-                  return (
-                    <div key={i} className="text-blue-200">
-                      {style === "vancouver" || style === "ieee" ? `${i + 1}. ` : ""}
-                      {formatted}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+          {/* References are managed on a separate screen (Critical Appraisal / References tab). */}
 
           {/* Chapter files & argument audit */}
           {Array.isArray(result.chapters) && result.chapters.length > 0 && (
