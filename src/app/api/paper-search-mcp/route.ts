@@ -19,7 +19,7 @@ export async function OPTIONS() {
 }
 
 // @turbopack-ignore
-const MCP_BINARY = process.env.PAPER_SEARCH_MCP_BIN || eval('"paper-search-mcp"');
+const MCP_BINARY = process.env.PAPER_SEARCH_MCP_BIN || eval('"paper-search-mcp-nodejs"');
 
 function sendMcpRequest(proc: ReturnType<typeof spawn>, id: number, method: string, params: any = {}): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -73,7 +73,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing query parameter" }, { status: 400, headers: corsHeaders() });
     }
 
-    const proc = spawn("node", [MCP_BINARY], {
+    const proc = spawn(MCP_BINARY, [], {
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env },
     });

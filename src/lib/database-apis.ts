@@ -1640,8 +1640,8 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "paper-search-mcp",
     url: "https://github.com/openags/paper-search-mcp",
     description: "Local paper-search-mcp bridge (optional external tool)",
-    disabled: true,
-    disabledReason: "Optional local bridge: it requires the paper-search-mcp binary to be installed. Set PAPER_SEARCH_MCP_BIN and re-enable (disabled: false) to use it.",
+    disabled: false,
+    disabledReason: undefined,
     search: (ctx) => fetchPaperSearchMcp(ctx.query, "all", ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
   },
 ];
