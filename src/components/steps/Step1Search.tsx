@@ -258,6 +258,38 @@ export default function Step1Search() {
     }
   };
 
+  const handleMcpSearch = async () => {
+    if (!localQuery.trim()) return;
+    setWebFallbackBusy(true);
+    dispatch({ type: "SET_LOADING", payload: true });
+    dispatch({ type: "SET_ERROR", payload: "" });
+    try {
+      const res = await fetch("/api/paper-search-mcp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: localQuery, maxResults: resultLimit === 0 ? 200 : resultLimit }),
+      });
+      const data = await res.json().catch(() => ({}));
+      const papers: Paper[] = Array.isArray(data.papers) ? data.papers : [];
+      if (papers.length === 0) {
+        dispatch({ type: "SET_ERROR", payload: data.error || "paper-search-mcp returned no records." });
+        return;
+      }
+      const counts: Record<string, number> = {};
+      papers.forEach((p) => {
+        const db = p.database || "paper-search-mcp";
+        counts[db] = (counts[db] || 0) + 1;
+      });
+      setPerDatabaseResults(Object.entries(counts).map(([database, count]) => ({ database, status: "success", count })));
+      await runCitationVerification(papers);
+    } catch (err: any) {
+      dispatch({ type: "SET_ERROR", payload: `paper-search-mcp failed: ${err?.message || String(err)}` });
+    } finally {
+      setWebFallbackBusy(false);
+      dispatch({ type: "SET_LOADING", payload: false });
+    }
+  };
+
   const handleWebFallback = async () => {
     if (!localQuery.trim()) return;
     setWebFallbackBusy(true);
@@ -476,6 +508,7 @@ export default function Step1Search() {
             <div className="bg-red-900/30 border border-red-700 text-red-300 rounded-lg px-4 py-3 text-sm space-y-2">
               <p>{state.error}</p>
               {searchFailed && (
+                <div className="flex gap-2 flex-wrap">
                 <button
                   onClick={handleWebFallback}
                   disabled={webFallbackBusy || state.isLoading}
@@ -484,6 +517,14 @@ export default function Step1Search() {
                   <Globe size={12} />
                   {webFallbackBusy ? "Searching the web..." : "Search the open web instead"}
                 </button>
+                <button
+                  onClick={handleMcpSearch}
+                  disabled={webFallbackBusy || state.isLoading}
+                  className="text-xs bg-purple-900/60 text-purple-100 px-3 py-1.5 rounded hover:bg-purple-900/80 disabled:opacity-50 inline-flex items-center gap-1.5"
+                >
+                  {webFallbackBusy ? "Searching via MCP..." : "Search via paper-search-mcp"}
+                </button>
+                </div>
               )}
             </div>
           )}
