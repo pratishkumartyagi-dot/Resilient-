@@ -111,6 +111,18 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, message: string):
 const CONTACT_EMAIL = process.env.RESEARCH_CONTACT_EMAIL || process.env.OPENALEX_MAILTO || "research@example.com";
 const USER_AGENT = `ResilientResearchApp/1.0 (systematic-review-pipeline; mailto:${CONTACT_EMAIL})`;
 
+/** Stop words filtered out of natural-language queries so PubMed / Europe PMC
+ *  never ANDs a bare "of" or "in" into the term (which silently returns 0). */
+const SEARCH_STOP_WORDS = new Set([
+  "a", "an", "the", "and", "or", "not", "of", "in", "on", "at", "to", "for", "with", "by", "from",
+  "as", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "do", "does", "did",
+  "will", "would", "could", "should", "may", "might", "can", "this", "that", "these", "those", "i",
+  "me", "my", "we", "our", "you", "your", "it", "its", "they", "them", "their", "he", "she", "his",
+  "her", "what", "which", "who", "whom", "where", "when", "why", "how", "if", "then", "else", "all",
+  "each", "few", "more", "most", "other", "some", "such", "no", "nor", "only", "own", "same", "so",
+  "than", "too", "very", "just", "into", "onto", "upon", "among", " amongst", "within", "without",
+]);
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -508,7 +520,7 @@ function splitTerms(query: string): string[] {
     .replace(/[()]/g, " ")
     .split(/\s+(?:AND|OR|NOT)\s+|\s*,\s*|\s+/i)
     .map((t) => t.trim())
-    .filter((t) => t.length > 1);
+    .filter((t) => t.length > 1 && !SEARCH_STOP_WORDS.has(t.toLowerCase()));
 }
 
 function quote(term: string): string {
