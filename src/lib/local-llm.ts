@@ -8,8 +8,8 @@ env.useBrowserCache = true;
 // GGUF model could never load in the browser. Qwen2.5-0.5B-Instruct is the
 // canonical Transformers.js browser LLM and runs on WebGPU (with a WASM
 // fallback for browsers without GPU access).
-const MODEL_ID = "onnx-community/Qwen2.5-0.5B-Instruct";
-export const LOCAL_MODEL_LABEL = "Qwen2.5 0.5B Instruct (in-browser)";
+const MODEL_ID = "onnx-community/Qwen2.5-1.5B-Instruct";
+export const LOCAL_MODEL_LABEL = "Qwen2.5 1.5B Instruct (in-browser)";
 
 type Device = "webgpu" | "wasm";
 

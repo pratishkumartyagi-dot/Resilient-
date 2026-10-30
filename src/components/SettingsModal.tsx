@@ -8,7 +8,7 @@ import { testGeminiKey, testGroqKey } from "@/lib/ai";
 // Keep in sync with LOCAL_MODEL_LABEL in src/lib/local-llm.ts. Inlined here
 // (instead of importing) so this modal doesn't drag @huggingface/transformers
 // into the initial preview bundle.
-const LOCAL_MODEL_LABEL = "Qwen2.5 0.5B Instruct (in-browser)";
+const LOCAL_MODEL_LABEL = "Qwen2.5 1.5B Instruct (in-browser)";
 
 export default function SettingsModal() {
   const { state, dispatch } = useApp();
