@@ -1523,7 +1523,7 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "PubMed",
     url: "https://pubmed.ncbi.nlm.nih.gov/",
     description: "NLM E-utilities search over MEDLINE/PMC (NCBI_API_KEY only raises the request rate)",
-    search: (ctx) => fetchPubMedBrowserless(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchPubMedBrowserless(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit),
   },
   {
     id: "OpenAlex",
@@ -1740,6 +1740,7 @@ export async function searchDatabases(databases: string[], options: SearchOption
           query: options.query,
           yearFrom: options.yearFrom,
           yearTo: options.yearTo,
+          studyType: options.studyType,
           limit,
         }),
         perDatabaseTimeout,
