@@ -1,5 +1,31 @@
 # Active Context: Resilient Researcher Assistant
 
+## Evidence Synthesis Step 1 — unlimited search + scispacy-style keyword extraction (2026-10-30)
+
+### Per-database result caps removed
+`src/lib/database-apis.ts` no longer caps any database at 200 or 500 records. `DEFAULT_LIMIT_PER_DATABASE` and `MAX_LIMIT_PER_DATABASE` are gone; every fetcher now uses `UNLIMITED = Infinity` when no explicit `limit` is passed, and `searchDatabases` passes `UNLIMITED` through. Pagination is bounded only by `MAX_PAGINATION_PAGES = 50` (so an upstream that never signals "end" cannot loop forever) and the per-database wall-clock timeout. Specific changes:
+
+- PubMed: `esearch` is now paged with `retstart`/`retmax=500` (a single esearch caps at 10 000 IDs), and `efetch` walks all collected IDs in chunks of 100, capped at 500 chunks (50 000 papers) as a memory safety valve.
+- Europe PMC / bioRxiv / medRxiv: cursor loop bounded by `MAX_PAGINATION_PAGES`, no `slice(0, ctx.limit)`.
+- OpenAlex / Crossref / arXiv / DOAJ / OpenAIRE / dblp / Zenodo / Semantic Scholar / ClinicalTrials.gov / Cochrane: all pagination loops use `MAX_PAGINATION_PAGES` instead of `pages < 5`; no `slice(0, maxResults)`.
+- Semantic Scholar: offset loop walks the full 1 000-result API ceiling instead of stopping at offset 300.
+
+### PubMed zero-results bug
+Two root causes, both fixed:
+
+1. **Stop words leaked into the query term.** `splitTerms` did not filter function words, so a natural-language question such as "effect of diabetes on kidney function in patients" became `"effect" AND "of" AND "diabetes" AND "on" AND ...` — PubMed returns 0 for AND-ed stop words. A `SEARCH_STOP_WORDS` set (a/an/the/and/or/not/of/in/on/at/to/for/with/by/from/as/is/are/... ) is now applied in `splitTerms`.
+2. **Study-type filter used the wrong field.** `STUDY_TYPE_FILTERS` used `[Publication Type]` for cohort / case-control / cross-sectional / qualitative, which returns 0 — those are MeSH headings. Now `cohort studies[MeSH Terms]`, `case-control studies[MeSH Terms]`, `cross-sectional studies[MeSH Terms]`, `qualitative research[MeSH Terms]`, and `systematic reviews[MeSH Terms] OR systematic review[Publication Type]`.
+
+Verified live: "effect of diabetes on kidney function in patients" → 4 116 records (was 0); "latent tuberculosis infection in healthcare workers" → 1 173 (was 0); with cohort filter → 46 (was 0).
+
+### SciSpacy-style keyword extraction
+AllenAI/scispacy provides entity recognition + UMLS/MeSH synonym expansion for clinical text; the behaviour is replicated without a Python stack using the existing deterministic concept extractor (`src/lib/concept-extraction.ts`) plus the MeSH dictionary (`src/lib/mesh-expansion.ts`):
+
+- New `extractSearchConcepts(query)` and `buildConceptAwareTerm(query, { studyType, yearFrom, yearTo })` in `src/lib/database-apis.ts`. Concepts are AND-ed; within each concept the MeSH heading and synonyms are OR-ed, with the MeSH heading expressed as `"[MeSH Terms]"` and the synonyms as `"[Title/Abstract]"`. Explicit boolean queries pass through unchanged.
+- `fetchPubMedBrowserless` uses `buildConceptAwareTerm` for natural-language input and `buildDatabaseSearch` for explicit boolean input.
+- `/api/literature-search` accepts a `keywordExtract` flag and returns the extracted concepts + expanded query in the response under `keywordExtraction`.
+- `EvidenceSynthesisStep1.tsx` gained a "Keyword extract (MeSH concepts + synonyms)" checkbox (default on); `EvidenceSynthesisTab.tsx` forwards `keywordExtract` to the route.
+
 ## Step 1 "Search of Databases" — real records only, no mock results (2026-10-21)
 
 **Goal**: make the systematic-review pipeline's Step 1 fully functional against live scholarly APIs and remove every simulated/mocked result path.
@@ -314,6 +340,15 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
 - Verified: `node --check electron/main.js`, `bun lint`, `bun run build`, and `next start` with the `.mjs` config (HTTP 200) all pass. Published release `v0.1.2`.
 
 ## Recently Completed
+
+- [x] **Evidence Synthesis Step 1 — unlimited search + scispacy-style keyword extraction (2026-10-30)**
+  - [x] Removed every per-database result cap (200/500) in `src/lib/database-apis.ts`; every fetcher now returns all available records, bounded only by `MAX_PAGINATION_PAGES = 50` and the per-database wall-clock timeout.
+  - [x] PubMed `esearch` now paginates with `retstart`/`retmax=500` (a single esearch caps at 10 000 IDs) and `efetch` walks all IDs in chunks of 100, capped at 500 chunks as a memory safety valve.
+  - [x] Fixed PubMed zero-results: `splitTerms` now filters `SEARCH_STOP_WORDS` so natural-language questions no longer AND function words into the term; `STUDY_TYPE_FILTERS` uses `cohort studies[MeSH Terms]` / `case-control studies[MeSH Terms]` / `cross-sectional studies[MeSH Terms]` / `qualitative research[MeSH Terms]` / `systematic reviews[MeSH Terms]` instead of the bare plural `[Publication Type]` (which returned 0).
+  - [x] New `extractSearchConcepts` + `buildConceptAwareTerm` in `src/lib/database-apis.ts` — scispacy-style concept recognition using the existing `concept-extraction.ts` + `mesh-expansion.ts`: concepts AND-ed, MeSH headings + synonyms OR-ed per concept. `fetchPubMedBrowserless` uses it for natural-language input and passes explicit boolean queries through unchanged.
+  - [x] `/api/literature-search` accepts `keywordExtract` and returns the extracted concepts + expanded query under `keywordExtraction`.
+  - [x] `EvidenceSynthesisStep1.tsx` gained a "Keyword extract (MeSH concepts + synonyms)" checkbox (default on); `EvidenceSynthesisTab.tsx` forwards it to the route.
+  - [x] Verified live: "effect of diabetes on kidney function in patients" → 4 116 records (was 0); "latent tuberculosis infection in healthcare workers" → 1 173 (was 0); with cohort filter → 46 (was 0). `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
 
 - [x] **Statistical Analysis tab — fg-data-profiling style profiling (2026-10-20, v0.1.9)**
   - [x] New `src/lib/data-profiling/` module implementing the fg-data-profiling feature set: type inference, univariate/multivariate analysis, alerts engine, missing-value patterns, duplicate detection, time-series diagnostics (ACF/PACF, trend, seasonality), text analysis (scripts, blocks, casing, common words), dataset comparison, HTML + JSON report export.

@@ -86,13 +86,15 @@ export function classifyStudyType(title: string, abstract: string): string {
   return "Observational Study";
 }
 
-const DEFAULT_LIMIT_PER_DATABASE = 200;
-const MAX_LIMIT_PER_DATABASE = 500;
+const UNLIMITED = Infinity;
 /** Hard ceiling for a single database, so one slow upstream cannot stall the search. */
 const DATABASE_TIMEOUT_MS = 90000;
 /** Overall wall-clock budget for one multi-database search. */
 const DEFAULT_SEARCH_BUDGET_MS = 30000;
 const MAX_SEARCH_BUDGET_MS = 120000;
+/** Maximum number of pagination pages any single database may fetch, so an
+ *  upstream that never signals "end of results" cannot loop forever. */
+const MAX_PAGINATION_PAGES = 50;
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -527,6 +529,83 @@ function quote(term: string): string {
   return `"${term.replace(/"/g, "")}"`;
 }
 
+/**
+ * SciSpacy-style keyword extraction for a natural-language research question.
+ *
+ * AllenAI/scispacy provides entity recognition + UMLS/MeSH synonym expansion
+ * for clinical text. We replicate the *behaviour* (recognise concepts, attach
+ * MeSH headings and synonyms, OR the synonyms per concept and AND the
+ * concepts) with the deterministic concept extractor in
+ * `src/lib/concept-extraction.ts` plus the MeSH dictionary in
+ * `src/lib/mesh-expansion.ts`, so the search works without a Python stack.
+ *
+ * The result is a list of concepts, each carrying the surface form, its role,
+ * whether it is required, and the expanded MeSH/synonym terms to OR together.
+ */
+import { extractConceptsLocally, enrichConcepts } from "./concept-extraction";
+
+export interface ExtractedConcept {
+  id: string;
+  role: string;
+  label: string;
+  required: boolean;
+  meshTerms: string[];
+  synonyms: string[];
+}
+
+export function extractSearchConcepts(query: string): ExtractedConcept[] {
+  const blocks = enrichConcepts(extractConceptsLocally(query));
+  return blocks.map((b) => ({
+    id: b.id,
+    role: b.role,
+    label: b.label,
+    required: b.required,
+    meshTerms: b.meshTerms,
+    synonyms: b.synonyms,
+  }));
+}
+
+/** Build a PubMed-style boolean term from extracted concepts. Required
+ *  concepts are AND-ed; within a concept the MeSH headings and synonyms are
+ *  OR-ed. This is the scispacy keyword-expansion step: the user's sentence is
+ *  turned into a librarian-style query instead of AND-ing every content word. */
+export function buildConceptAwareTerm(query: string, options: { studyType?: string; yearFrom?: string; yearTo?: string } = {}): string {
+  const concepts = extractSearchConcepts(query);
+  const joiner = " AND ";
+  const orJoiner = " OR ";
+
+  if (concepts.length === 0) {
+    // Fall back to the flat term builder when the concept parser produces
+    // nothing (e.g. the query is already a boolean string).
+    return buildDatabaseSearch("PubMed", query, options).term;
+  }
+
+  const conceptParts = concepts.map((c) => {
+    const terms = new Set<string>();
+    if (c.label) terms.add(c.label);
+    for (const s of c.synonyms) if (s) terms.add(s);
+    for (const m of c.meshTerms) if (m) terms.add(m);
+    const arr = Array.from(terms).map((t) => quote(t));
+    if (arr.length === 0) return "";
+    // A concept with a MeSH heading is expressed as (MeSH OR free-text[Title/Abstract]).
+    const mesh = c.meshTerms[0];
+    const free = arr.map((t) => `${t}[Title/Abstract]`).join(orJoiner);
+    const meshPart = mesh ? `${quote(mesh)}[MeSH Terms]` : "";
+    const body = mesh ? `${meshPart} OR ${free}` : free;
+    return arr.length > 1 ? `(${body})` : body;
+  }).filter(Boolean);
+
+  let term = conceptParts.join(joiner) || query;
+  const filter = buildStudyTypeFilter(options.studyType);
+  if (filter) term = `(${term}) AND ${filter}`;
+  if (options.yearFrom || options.yearTo) {
+    const from = options.yearFrom ? `${options.yearFrom}/01/01` : "1800/01/01";
+    const to = options.yearTo ? `${options.yearTo}/12/31` : `${new Date().getFullYear()}/12/31`;
+    term = `(${term}) AND ("${from}"[Date - Publication] : "${to}"[Date - Publication])`;
+  }
+  return term;
+}
+
 /** Builds the search string for one database from the research question. */
 export function buildDatabaseSearch(
   database: string,
@@ -662,16 +741,19 @@ const MESH_TERMS: Record<string, string> = {
 };
 
 const STUDY_TYPE_FILTERS: Record<string, string> = {
+  // Cohort / case-control / cross-sectional / qualitative are MeSH headings —
+  // the bare plural ("cohort studies[Publication Type]") returns 0 because the
+  // publication-type index only holds a handful of indexed types.
   "Randomized Controlled Trial (RCT)": 'randomized controlled trial[Publication Type]',
-  "Systematic Review": 'systematic review[Publication Type]',
+  "Systematic Review": 'systematic reviews[MeSH Terms] OR systematic review[Publication Type]',
   "Meta-Analysis": 'meta-analysis[Publication Type]',
   "Case Report / Case Series": 'case reports[Publication Type]',
   "Clinical Trial": 'clinical trial[Publication Type]',
   "Review Article": 'review[Publication Type]',
-  "Cohort Study": 'cohort studies[Publication Type]',
-  "Case-Control Study": 'case-control studies[Publication Type]',
-  "Cross-Sectional Study": 'cross-sectional studies[Publication Type]',
-  "Qualitative Study": 'qualitative research[Publication Type]',
+  "Cohort Study": 'cohort studies[MeSH Terms]',
+  "Case-Control Study": 'case-control studies[MeSH Terms]',
+  "Cross-Sectional Study": 'cross-sectional studies[MeSH Terms]',
+  "Qualitative Study": 'qualitative research[MeSH Terms]',
 };
 
 function buildStudyTypeFilter(studyType?: string): string | null {
@@ -680,25 +762,57 @@ function buildStudyTypeFilter(studyType?: string): string | null {
 }
 
 export async function fetchPubMedBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
-  const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
+  const maxResults = limit ?? UNLIMITED;
   const apiKey = process.env.NCBI_API_KEY || process.env.PUBMED_API_KEY;
-  const toolParams = new URLSearchParams({ db: "pubmed", retmode: "json", retmax: String(maxResults), sort: "relevance" });
+  const toolParams = new URLSearchParams({ db: "pubmed", retmode: "json", sort: "relevance" });
   if (apiKey) toolParams.set("api_key", apiKey);
   toolParams.set("tool", "resilient_research_app");
   toolParams.set("email", CONTACT_EMAIL);
 
-  // PubMed scheme: MeSH + [Title/Abstract] + publication-type and date filters.
-  const term = buildDatabaseSearch("PubMed", query, { yearFrom, yearTo, studyType }).term;
+// PubMed scheme: MeSH + [Title/Abstract] + publication-type and date filters.
+  // Natural-language questions go through the scispacy-style concept extractor
+  // (MeSH headings + synonyms OR-ed per concept, concepts AND-ed) so a query
+  // like "effect of diabetes on kidney function in patients" no longer ANDs
+  // every content word — which previously returned 0 results. Explicit boolean
+  // queries are passed through unchanged.
+  const isBooleanQuery = /\b(AND|OR|NOT)\b/i.test(query) || /[\(\)]/.test(query);
+  const term = isBooleanQuery
+    ? buildDatabaseSearch("PubMed", query, { yearFrom, yearTo, studyType }).term
+    : buildConceptAwareTerm(query, { yearFrom, yearTo, studyType });
   toolParams.set("term", term);
 
-  const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?${toolParams.toString()}`;
-  const searchData = await httpJson<any>(searchUrl, { timeoutMs: 30000, retries: 3 });
-  const idlist: string[] = searchData?.esearchresult?.idlist || [];
+  // esearch is paged with retstart because NCBI caps a single esearch at
+  // 10 000 IDs — drop retmax and walk the whole result set so the search is
+  // unlimited. Each page is 500 IDs; efetch below pulls the records.
+  const idlist: string[] = [];
+  let retstart = 0;
+  const esearchStep = 500;
+  let esearchPages = 0;
+  while (esearchPages < MAX_PAGINATION_PAGES) {
+    esearchPages++;
+    const pageParams = new URLSearchParams(toolParams);
+    pageParams.set("retstart", String(retstart));
+    pageParams.set("retmax", String(esearchStep));
+    const searchable = await httpJson<any>(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?${pageParams.toString()}`, {
+      timeoutMs: 30000,
+      retries: 3,
+    });
+    const pageIds: string[] = searchable?.esearchresult?.idlist || [];
+    idlist.push(...pageIds);
+    const count = Number(searchable?.esearchresult?.count || 0);
+    if (pageIds.length < esearchStep || idlist.length >= count) break;
+    retstart += esearchStep;
+    await sleep(200);
+  }
   if (!Array.isArray(idlist) || idlist.length === 0) return [];
 
   const papers: Paper[] = [];
   const chunkSize = 100;
-  for (let i = 0; i < idlist.length; i += chunkSize) {
+  // Safety valve: a pathological query can return 100k+ PMIDs. efetch is capped
+  // at 500 chunks (50 000 papers) so a runaway search cannot exhaust memory;
+  // the per-database wall-clock timeout in searchDatabases is the real bound.
+  const maxChunks = 500;
+  for (let i = 0; i < idlist.length && i / chunkSize < maxChunks; i += chunkSize) {
     if (i > 0) await sleep(400);
     const chunk = idlist.slice(i, i + chunkSize).join(",");
     const params = new URLSearchParams({ db: "pubmed", id: chunk, rettype: "abstract", retmode: "xml" });
@@ -776,10 +890,10 @@ async function fetchEuropePmcQuery(
 
   const papers: Paper[] = [];
   let cursorMark = "*";
-  const pageSize = Math.min(100, ctx.limit);
+  const pageSize = 100;
   let pages = 0;
 
-  while (papers.length < ctx.limit && pages < 5) {
+  while (pages < MAX_PAGINATION_PAGES) {
     pages++;
     const params = new URLSearchParams({
       query: epmcQuery,
@@ -827,11 +941,11 @@ async function fetchEuropePmcQuery(
     await sleep(150);
   }
 
-  return papers.slice(0, ctx.limit);
+  return papers;
 }
 
 export async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
-  const papers = await fetchEuropePmcQuery(query, { query, yearFrom, yearTo, limit: limit ?? DEFAULT_LIMIT_PER_DATABASE });
+  const papers = await fetchEuropePmcQuery(query, { query, yearFrom, yearTo, limit: limit ?? UNLIMITED });
   void studyType;
   return papers;
 }
@@ -839,7 +953,7 @@ export async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: 
 export async function fetchBioRxiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
   const papers = await fetchEuropePmcQuery(
     query,
-    { query, yearFrom, yearTo, limit: limit ?? DEFAULT_LIMIT_PER_DATABASE },
+    { query, yearFrom, yearTo, limit: limit ?? UNLIMITED },
     ["SRC:PPR", "PUBLISHER:bioRxiv"],
     "bioRxiv"
   );
@@ -850,7 +964,7 @@ export async function fetchBioRxiv(query: string, yearFrom?: string, yearTo?: st
 export async function fetchMedRxiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
   const papers = await fetchEuropePmcQuery(
     query,
-    { query, yearFrom, yearTo, limit: limit ?? DEFAULT_LIMIT_PER_DATABASE },
+    { query, yearFrom, yearTo, limit: limit ?? UNLIMITED },
     ["SRC:PPR", "PUBLISHER:medRxiv"],
     "medRxiv"
   );
@@ -916,7 +1030,7 @@ export async function fetchOpenAlex(
   studyType?: string,
   options?: { limit?: number; sort?: string; filter?: string }
 ): Promise<Paper[]> {
-  const limit = Math.min(options?.limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
+  const limit = options?.limit ?? UNLIMITED;
   const filterParts: string[] = [];
   if (yearFrom) filterParts.push(`from_publication_date:${yearFrom}-01-01`);
   if (yearTo) filterParts.push(`to_publication_date:${yearTo}-12-31`);
@@ -937,7 +1051,7 @@ export async function fetchOpenAlex(
   let cursorUrl = `${baseUrl}&cursor=*`;
   let pages = 0;
 
-  while (papers.length < limit && pages < 5) {
+  while (pages < MAX_PAGINATION_PAGES) {
     pages++;
     const data = await httpJson<any>(cursorUrl, { timeoutMs: 30000, retries: 2 });
     const results = data.results || [];
@@ -950,13 +1064,13 @@ export async function fetchOpenAlex(
   }
 
   void studyType;
-  return papers.slice(0, limit);
+  return papers;
 }
 
 /* --------------------------- Crossref ----------------------------- */
 
 export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
-  const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
+  const maxResults = limit ?? UNLIMITED;
   const filters: string[] = [];
   if (yearFrom) filters.push(`from-pub-date:${yearFrom}`);
   if (yearTo) filters.push(`until-pub-date:${yearTo}`);
@@ -965,7 +1079,7 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
   let cursor = "*";
   let pages = 0;
 
-  while (papers.length < maxResults && pages < 5) {
+  while (pages < MAX_PAGINATION_PAGES) {
     pages++;
     const qs = new URLSearchParams({ query: buildDatabaseSearch("Crossref", query).term, rows: "100", cursor });
     if (filters.length) qs.set("filter", filters.join(","));
@@ -1002,52 +1116,66 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
   }
 
   void studyType;
-  return papers.slice(0, maxResults);
+  return papers;
 }
 
 /* ----------------------------- arXiv ------------------------------- */
 
 export async function fetcharXiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
-  const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, 200);
+  const maxResults = limit ?? UNLIMITED;
   const searchQuery = encodeURIComponent(buildDatabaseSearch("arXiv", query).term);
-  const url = `https://export.arxiv.org/api/query?search_query=${searchQuery}&start=0&max_results=${maxResults}&sortBy=relevance`;
-  const text = await httpText(url, { timeoutMs: 45000, retries: 3 });
-  if (!text) return [];
-
+  // arXiv caps a single API call at 3 000 results; paginate with start= to
+  // walk the full set. Each page is 100.
   const papers: Paper[] = [];
-  const entryRegex = /<entry>([\s\S]*?)<\/entry>/g;
-  let match: RegExpExecArray | null;
-  while ((match = entryRegex.exec(text)) !== null) {
-    const entry = match[1];
-    const id = (entry.match(/<id>([\s\S]*?)<\/id>/) || [])[1]?.trim() || "";
-    const title = stripTags((entry.match(/<title>([\s\S]*?)<\/title>/) || [])[1] || "") || "Untitled";
-    const summary = stripTags((entry.match(/<summary>([\s\S]*?)<\/summary>/) || [])[1] || "");
-    const published = (entry.match(/<published>([\s\S]*?)<\/published>/) || [])[1]?.trim() || "";
-    const year = parseInt(published.slice(0, 4)) || new Date().getFullYear();
-    const authors: string[] = [];
-    const authorRegex = /<name>([^<]+)<\/name>/g;
-    let authorMatch: RegExpExecArray | null;
-    while ((authorMatch = authorRegex.exec(entry)) !== null && authors.length < 8) {
-      authors.push(stripTags(authorMatch[1]));
+  let start = 0;
+  const pageSize = 100;
+  let pages = 0;
+  while (pages < MAX_PAGINATION_PAGES) {
+    pages++;
+    const url = `https://export.arxiv.org/api/query?search_query=${searchQuery}&start=${start}&max_results=${pageSize}&sortBy=relevance`;
+    const text = await httpText(url, { timeoutMs: 45000, retries: 3 });
+    if (!text) break;
+
+    const entryRegex = /<entry>([\s\S]*?)<\/entry>/g;
+    let pageCount = 0;
+    let match: RegExpExecArray | null;
+    while ((match = entryRegex.exec(text)) !== null) {
+      pageCount++;
+      const entry = match[1];
+      const id = (entry.match(/<id>([\s\S]*?)<\/id>/) || [])[1]?.trim() || "";
+      const title = stripTags((entry.match(/<title>([\s\S]*?)<\/title>/) || [])[1] || "") || "Untitled";
+      const summary = stripTags((entry.match(/<summary>([\s\S]*?)<\/summary>/) || [])[1] || "");
+      const published = (entry.match(/<published>([\s\S]*?)<\/published>/) || [])[1]?.trim() || "";
+      const year = parseInt(published.slice(0, 4)) || new Date().getFullYear();
+      const authors: string[] = [];
+      const authorRegex = /<name>([^<]+)<\/name>/g;
+      let authorMatch: RegExpExecArray | null;
+      while ((authorMatch = authorRegex.exec(entry)) !== null && authors.length < 8) {
+        authors.push(stripTags(authorMatch[1]));
+      }
+      const doi = (entry.match(/<arxiv:doi>([^<]+)<\/arxiv:doi>/) || [])[1]?.trim() || "";
+      const arxivId = id.split("/abs/").pop() || id;
+      const journal = stripTags((entry.match(/<arxiv:journal_ref[^>]*>([\s\S]*?)<\/arxiv:journal_ref>/) || [])[1] || "") || "arXiv";
+      papers.push({
+        id: `arxiv-${arxivId}`,
+        title,
+        authors: authors.length ? authors.join(", ") + (authors.length >= 8 ? " et al." : "") : "Unknown authors",
+        journal,
+        year,
+        doi,
+        abstract: truncate(summary),
+        database: "arXiv",
+        studyType: classifyStudyType(title, summary),
+        selected: false,
+        url: id,
+        sourceBackend: "arXiv Atom API",
+        sources: ["arXiv"],
+      });
     }
-    const doi = (entry.match(/<arxiv:doi>([^<]+)<\/arxiv:doi>/) || [])[1]?.trim() || "";
-    const arxivId = id.split("/abs/").pop() || id;
-    const journal = stripTags((entry.match(/<arxiv:journal_ref[^>]*>([\s\S]*?)<\/arxiv:journal_ref>/) || [])[1] || "") || "arXiv";
-    papers.push({
-      id: `arxiv-${arxivId}`,
-      title,
-      authors: authors.length ? authors.join(", ") + (authors.length >= 8 ? " et al." : "") : "Unknown authors",
-      journal,
-      year,
-      doi,
-      abstract: truncate(summary),
-      database: "arXiv",
-      studyType: classifyStudyType(title, summary),
-      selected: false,
-      url: id,
-      sourceBackend: "arXiv Atom API",
-      sources: ["arXiv"],
-    });
+
+    if (pageCount < pageSize) break;
+    start += pageSize;
+    await sleep(300);
   }
 
   void yearFrom;
@@ -1059,9 +1187,9 @@ export async function fetcharXiv(query: string, yearFrom?: string, yearTo?: stri
 /* ------------------------------ DOAJ ------------------------------- */
 
 export async function fetchDoaj(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
-  const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
+const maxResults = limit ?? UNLIMITED;
   const papers: Paper[] = [];
-  for (let page = 1; page <= 5 && papers.length < maxResults; page++) {
+  for (let page = 1; page <= MAX_PAGINATION_PAGES; page++) {
     const url = `https://doaj.org/api/v2/search/articles/${encodeURIComponent(buildDatabaseSearch("DOAJ", query).term)}?pageSize=100&page=${page}`;
     const data = await httpJson<any>(url, { timeoutMs: 30000, retries: 1 });
     const results = data.results || [];
@@ -1097,16 +1225,16 @@ export async function fetchDoaj(query: string, yearFrom?: string, yearTo?: strin
   void yearFrom;
   void yearTo;
   void studyType;
-  return papers.slice(0, maxResults);
+  return papers;
 }
 
 /* ---------------------------- OpenAIRE ----------------------------- */
 
 export async function fetchOpenAIRE(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
-  const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
+  const maxResults = limit ?? UNLIMITED;
   const papers: Paper[] = [];
 
-  for (let page = 1; page <= 3 && papers.length < maxResults; page++) {
+  for (let page = 1; page <= MAX_PAGINATION_PAGES; page++) {
     const qs = new URLSearchParams({ keywords: buildDatabaseSearch("OpenAIRE", query).term, format: "json", size: "100", page: String(page) });
     const data = await httpJson<any>(`https://api.openaire.eu/search/publications?${qs.toString()}`, {
       timeoutMs: 30000,
@@ -1155,13 +1283,13 @@ export async function fetchOpenAIRE(query: string, yearFrom?: string, yearTo?: s
   void yearFrom;
   void yearTo;
   void studyType;
-  return papers.slice(0, maxResults);
+  return papers;
 }
 
 /* ------------------------------ dblp ------------------------------- */
 
 export async function fetchDblp(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
-  const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
+  const maxResults = limit ?? UNLIMITED;
   const qs = new URLSearchParams({ q: query, format: "json", h: "100", f: "0" });
   const res = await httpRequest(`https://dblp.org/search/publ/api?${qs.toString()}`, { timeoutMs: 30000, retries: 2 });
   const text = await res.text();
@@ -1201,17 +1329,18 @@ export async function fetchDblp(query: string, yearFrom?: string, yearTo?: strin
   void yearFrom;
   void yearTo;
   void studyType;
-  return papers.slice(0, maxResults);
+  // dblp returns up to 1 000 hits in a single response — return them all.
+  return papers;
 }
 
 /* ----------------------------- Zenodo ------------------------------ */
 
 export async function fetchZenodo(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
-  const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
+  const maxResults = limit ?? UNLIMITED;
   const results: any[] = [];
   const pageSize = 25; // the Zenodo records API rejects larger page sizes
 
-  for (let page = 1; page <= 8 && results.length < maxResults; page++) {
+  for (let page = 1; page <= MAX_PAGINATION_PAGES; page++) {
     const qs = new URLSearchParams({ q: buildDatabaseSearch("Zenodo", query).term, size: String(pageSize), sort: "bestmatch", page: String(page) });
     const data = await httpJson<any>(`https://zenodo.org/api/records?${qs.toString()}`, { timeoutMs: 30000, retries: 2 });
     const hits = data.hits?.hits || [];
@@ -1265,9 +1394,12 @@ async function fetchSemanticScholarCore(
 
   const papers: Paper[] = [];
   const pageSize = 100;
+  // Semantic Scholar caps a single search at 1 000 results (offset < 1000),
+  // so "unlimited" here means up to that API ceiling.
+  const maxOffset = 1000;
   let offset = 0;
 
-  while (papers.length < ctx.limit && offset < 300) {
+  while (offset < maxOffset) {
     const params = new URLSearchParams({ query, fields, limit: String(pageSize), offset: String(offset) });
     const data = await httpJson<any>(`https://api.semanticscholar.org/graph/v1/paper/search?${params.toString()}`, {
       timeoutMs: 30000,
@@ -1304,13 +1436,13 @@ async function fetchSemanticScholarCore(
     await sleep(350);
   }
 
-  return papers.slice(0, ctx.limit);
+  return papers;
 }
 
 export async function fetchSemanticScholarBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
   const papers = await fetchSemanticScholarCore(
     query,
-    { query, yearFrom, yearTo, limit: limit ?? DEFAULT_LIMIT_PER_DATABASE },
+    { query, yearFrom, yearTo, limit: limit ?? UNLIMITED },
     "title,authors,year,abstract,externalIds,venue,publicationDate,citationCount",
     "Semantic Scholar",
     "Semantic Scholar Graph API"
@@ -1324,7 +1456,7 @@ export async function fetchGoogleScholarBrowserless(query: string, yearFrom?: st
   // the index for this entry and the source is labelled truthfully.
   const papers = await fetchSemanticScholarCore(
     query,
-    { query, yearFrom, yearTo, limit: limit ?? DEFAULT_LIMIT_PER_DATABASE },
+    { query, yearFrom, yearTo, limit: limit ?? UNLIMITED },
     "title,authors,year,abstract,externalIds,venue,citationCount",
     "Google Scholar",
     "Semantic Scholar Graph API (Google Scholar has no public API)"
@@ -1336,7 +1468,7 @@ export async function fetchGoogleScholarBrowserless(query: string, yearFrom?: st
 export async function fetchScienceDirectBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
   const papers = await fetchSemanticScholarCore(
     query,
-    { query, yearFrom, yearTo, limit: limit ?? DEFAULT_LIMIT_PER_DATABASE },
+    { query, yearFrom, yearTo, limit: limit ?? UNLIMITED },
     "title,authors,year,abstract,externalIds,venue",
     "ScienceDirect",
     "Semantic Scholar Graph API (ScienceDirect has no public API)"
@@ -1348,11 +1480,11 @@ export async function fetchScienceDirectBrowserless(query: string, yearFrom?: st
 /* ----------------------- ClinicalTrials.gov ------------------------ */
 
 export async function fetchClinicalTrialsGov(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
-  const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, MAX_LIMIT_PER_DATABASE);
+  const maxResults = limit ?? UNLIMITED;
   const papers: Paper[] = [];
   let pageToken: string | undefined;
 
-  for (let page = 0; page < 5 && papers.length < maxResults; page++) {
+  for (let page = 0; page < MAX_PAGINATION_PAGES; page++) {
     const qs = new URLSearchParams({ "query.term": buildDatabaseSearch("ClinicalTrials.gov", query).term, format: "json", pageSize: "100" });
     if (pageToken) qs.set("pageToken", pageToken);
     const data = await httpJson<any>(`https://clinicaltrials.gov/api/v2/studies?${qs.toString()}`, {
@@ -1402,7 +1534,7 @@ export async function fetchClinicalTrialsGov(query: string, yearFrom?: string, y
   void yearFrom;
   void yearTo;
   void studyType;
-  return papers.slice(0, maxResults);
+  return papers;
 }
 
 /* ------------------------- Cochrane Library ----------------------- */
@@ -1431,7 +1563,7 @@ async function tavilySearch(query: string, maxResults: number, domains?: string[
 }
 
 export async function fetchCochraneLibrary(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
-  const maxResults = Math.min(limit ?? DEFAULT_LIMIT_PER_DATABASE, 50);
+  const maxResults = limit ?? UNLIMITED;
   const results = await tavilySearch(`site:cochranelibrary.com ${query}`, maxResults, ["cochranelibrary.com"]);
 
   const papers: Paper[] = results.map((r: any, index: number) => {
@@ -1479,7 +1611,7 @@ export async function fetchPaperSearchMcp(query: string, source: string, yearFro
     timeoutMs: 60000,
     retries: 1,
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query, source, maxResults: limit ?? DEFAULT_LIMIT_PER_DATABASE, yearFrom, yearTo, studyType }),
+    body: JSON.stringify({ query, source, maxResults: limit ?? UNLIMITED, yearFrom, yearTo, studyType }),
   });
 
   const data: any = await res.json();
@@ -1702,9 +1834,14 @@ export function getDatabaseDefinition(id: string): DatabaseDefinition | undefine
  * Run a search across the requested databases.
  * Every database is queried concurrently; a failing database never produces
  * fabricated records — it is reported as a failure with the upstream reason.
+ *
+ * Per-database result caps are removed: every database returns as many
+ * records as it has (bounded only by its pagination-page budget and the
+ * per-database wall-clock timeout). Pass `options.limitPerDatabase` to cap a
+ * specific search if you want a smaller set.
  */
 export async function searchDatabases(databases: string[], options: SearchOptions): Promise<SearchOutcome> {
-  const limit = Math.min(Math.max(options.limitPerDatabase ?? DEFAULT_LIMIT_PER_DATABASE, 25), MAX_LIMIT_PER_DATABASE);
+  const limit = options.limitPerDatabase ?? UNLIMITED;
   const requested = databases.length > 0 ? databases : DEFAULT_AVAILABLE_DATABASE_IDS;
 
   const outcomes: DatabaseOutcome[] = [];

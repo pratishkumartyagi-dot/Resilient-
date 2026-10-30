@@ -395,6 +395,7 @@ export default function EvidenceSynthesisTab() {
   const [citationValidationResults, setCitationValidationResults] = useState<Record<string, { valid: boolean; title?: string; message: string }>>({});
   const [showVerifiedOnly, setShowVerifiedOnly] = useState(false);
   const [semanticSearch, setSemanticSearch] = useState(false);
+  const [keywordExtract, setKeywordExtract] = useState(true);
 
   const toggleDb = (db: string) => {
     setSelectedDbs((prev) =>
@@ -460,6 +461,7 @@ export default function EvidenceSynthesisTab() {
           studyType: studyTypeFilter === "All Study Types" ? undefined : studyTypeFilter,
           searchLogic,
           semanticSearch,
+          keywordExtract,
         }),
       });
 
@@ -2769,14 +2771,16 @@ ${stormReview}
             onClearFilters={() => { setYearFrom(""); setYearTo(""); setStudyTypeFilter("All Study Types"); }}
             showVerifiedOnly={showVerifiedOnly}
             onShowVerifiedOnlyChange={setShowVerifiedOnly}
-            semanticSearch={semanticSearch}
+semanticSearch={semanticSearch}
             onSemanticSearchChange={setSemanticSearch}
+            keywordExtract={keywordExtract}
+            onKeywordExtractChange={setKeywordExtract}
             citationValidationCounts={{
                verified: papers.filter((p) => !!p.doi).length,
                unverified: papers.filter((p) => !!p.doi && p.citationStatus !== "verified").length,
                noDoi: papers.filter((p) => !p.doi).length,
              }}
-           />
+            />
         )}
 
          {pipelineStep === 2 && (

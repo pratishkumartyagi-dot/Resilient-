@@ -39,6 +39,11 @@ export interface EvidenceSynthesisStep1Props {
   citationValidationCounts?: { verified: number; unverified: number; noDoi: number };
   semanticSearch: boolean;
   onSemanticSearchChange: (value: boolean) => void;
+  /** SciSpacy-style concept extraction: recognise MeSH concepts and synonyms
+   *  in the natural-language question so the query is built like a librarian
+   *  would build it (concepts AND-ed, MeSH/synonyms OR-ed per concept). */
+  keywordExtract: boolean;
+  onKeywordExtractChange: (value: boolean) => void;
 }
 
 export default function EvidenceSynthesisStep1({
@@ -75,6 +80,8 @@ export default function EvidenceSynthesisStep1({
   citationValidationCounts,
   semanticSearch,
   onSemanticSearchChange,
+  keywordExtract,
+  onKeywordExtractChange,
 }: EvidenceSynthesisStep1Props) {
   const getFilteredPapers = () => {
     return papers.filter((p) => {
@@ -158,6 +165,19 @@ export default function EvidenceSynthesisStep1({
             <span className="text-blue-300 group-hover:text-blue-200">Semantic search (meaning-based)</span>
             <Zap size={12} className="text-yellow-500/70 group-hover:text-yellow-400" />
           </label>
+          <label className="flex items-center gap-2 text-xs cursor-pointer select-none group ml-2">
+            <input
+              type="checkbox"
+              checked={keywordExtract}
+              onChange={(e) => onKeywordExtractChange(e.target.checked)}
+              className="w-3 h-3 rounded border-blue-600 text-yellow-500 focus:ring-yellow-500 bg-blue-950"
+            />
+            <span className="text-blue-300 group-hover:text-blue-200">Keyword extract (MeSH concepts + synonyms)</span>
+            <Search size={12} className="text-yellow-500/70 group-hover:text-yellow-400" />
+          </label>
+          <span className="text-xs text-blue-400 ml-1">
+            {keywordExtract ? "Natural language → librarian-style query" : "Raw query"}
+          </span>
           <span className="text-xs text-blue-300 ml-2">Year:</span>
           <input
             type="number"

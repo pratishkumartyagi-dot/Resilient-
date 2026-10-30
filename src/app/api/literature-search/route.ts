@@ -5,6 +5,9 @@ import {
   DATABASE_DEFINITIONS,
   AVAILABLE_DATABASE_IDS,
   getUnavailableReason,
+  extractSearchConcepts,
+  buildConceptAwareTerm,
+  buildDatabaseSearch,
   type Paper,
 } from "@/lib/database-apis";
 import { expandQueryWithMesh } from "@/lib/mesh-expansion";
@@ -20,6 +23,10 @@ interface LiteratureSearchRequestBody {
   maxResults?: number;
   timeoutMs?: number;
   semanticSearch?: boolean;
+  /** Run the scispacy-style concept extractor (MeSH + synonyms per concept,
+   *  concepts AND-ed) so a natural-language question is turned into a
+   *  librarian-style query instead of AND-ing every content word. */
+  keywordExtract?: boolean;
 }
 
 function corsHeaders() {
@@ -80,6 +87,7 @@ export async function POST(request: Request) {
     const maxResults = typeof body.maxResults === "number" ? body.maxResults : undefined;
     const timeoutMs = typeof body.timeoutMs === "number" ? body.timeoutMs : undefined;
     const semanticSearch = body.semanticSearch === true;
+    const keywordExtract = body.keywordExtract === true;
 
     if (!query) {
       return NextResponse.json({ error: "Missing query parameter" }, { status: 400, headers: corsHeaders() });
@@ -90,9 +98,22 @@ export async function POST(request: Request) {
     // keyword co-occurrence.
     const meshResult = expandQueryWithMesh(query);
     const meshExpandedQuery = meshResult.expandedQuery || query;
+
+    // Keyword-extract mode (scispacy-style): recognise the concepts in the
+    // natural-language question and build a librarian-style PubMed/Europe PMC
+    // query from them (MeSH headings + synonyms OR-ed per concept, concepts
+    // AND-ed). This is what turns "effect of diabetes on kidney function in
+    // patients" into a query that actually returns records.
+    const keywordConcepts = keywordExtract ? extractSearchConcepts(query) : [];
+    const keywordExpandedQuery = keywordConcepts.length > 0
+      ? buildConceptAwareTerm(query, { yearFrom, yearTo, studyType })
+      : buildDatabaseSearch("PubMed", query, { yearFrom, yearTo, studyType }).term;
+
     const effectiveQuery = semanticSearch
       ? meshExpandedQuery.replace(/\b(AND|OR|NOT)\b/gi, " ").replace(/\s+/g, " ").trim() || meshExpandedQuery
-      : query;
+      : keywordExtract
+        ? keywordExpandedQuery
+        : query;
 
     const dbsToSearch = databases.length > 0 ? databases : DEFAULT_DATABASES;
 
@@ -152,6 +173,18 @@ export async function POST(request: Request) {
         meshTerms: meshResult.meshTerms,
         atmMappings: meshResult.atmMappings,
         wildcardRoots: meshResult.wildcardRoots,
+      },
+      keywordExtraction: {
+        enabled: keywordExtract,
+        concepts: keywordConcepts.map((c) => ({
+          id: c.id,
+          role: c.role,
+          label: c.label,
+          required: c.required,
+          meshTerms: c.meshTerms,
+          synonyms: c.synonyms,
+        })),
+        expandedQuery: keywordExtract ? keywordExpandedQuery : undefined,
       },
       citationValidation: {
         verified: 0,
