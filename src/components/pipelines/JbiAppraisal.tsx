@@ -391,7 +391,7 @@ export default function JbiAppraisal() {
                           </div>
                           <p className="text-[11px] text-blue-300 mt-1.5">{item.rationale}</p>
                           {item.evidence && (
-                            <p className="text-[11px] text-blue-400 mt-1 italic border-l-2 border-blue-800 pl-2">“{item.evidence}”</p>
+                            <p className="text-[11px] text-blue-400 mt-1 italic border-l-2 border-blue-800 pl-2">&ldquo;{item.evidence}&rdquo;</p>
                           )}
                           {item.source === "ai" && <span className="text-[9px] text-purple-300 mt-1 inline-block">AI reviewed</span>}
                         </div>
@@ -412,7 +412,7 @@ export default function JbiAppraisal() {
 
           <p className="text-[10px] text-blue-500">
             {allItems.length} criteria appraised against {result.checklistLabel}. Every judgement quotes the uploaded document; where the paper does not report
-            something, the criterion is recorded as "Not Clear" rather than assumed.
+            something, the criterion is recorded as &ldquo;Not Clear&rdquo; rather than assumed.
           </p>
         </>
       )}

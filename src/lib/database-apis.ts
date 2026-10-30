@@ -450,6 +450,7 @@ interface FetchContext {
   query: string;
   yearFrom?: string;
   yearTo?: string;
+  studyType?: string;
   limit: number;
 }
 

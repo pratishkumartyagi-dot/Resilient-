@@ -12,6 +12,7 @@
 import {
   getJbiChecklist,
   listJbiChecklists,
+  JBI_CHECKLISTS,
   type JbiChecklist,
   type JbiItem,
   type JbiJudgment,
@@ -79,6 +80,7 @@ export interface AppraisalResult {
   checklistLabel: string;
   checklistSourceUrl: string;
   guidance: string;
+  detection: DesignDetection;
   sections: AppraisalSection[];
   summary: AppraisalSummary;
   reportMarkdown: string;
@@ -432,4 +434,44 @@ function buildReportMarkdown(
   lines.push(`  ${summary.recommendationReason}`);
   lines.push("");
   return lines.join("\n");
+}
+
+/**
+ * Prompt used when an AI provider is configured: the AI is asked to judge the
+ * paper against the JBI checklist items using the JBI answer categories. The
+ * rule-based evidence engine remains the fallback when no key is available.
+ */
+export function buildJbiAiPrompt(checklistId: string, documentText: string): string {
+  const checklist = getJbiChecklist(checklistId) || JBI_CHECKLISTS[0]!;
+  const items = checklist.sections.flatMap((s) =>
+    s.items.map((item) => ({ id: item.id, section: s.title, question: item.text }))
+  );
+  const document = documentText.slice(0, 48000);
+
+  return `You are a Research Methods Specialist critically appraising a research study with the Joanna Briggs Institute (JBI) critical appraisal toolkit.
+
+JBI CHECKLIST: ${checklist.label}
+STUDY DESIGN: ${checklist.design}
+JBI TOOL SOURCE: ${checklist.sourceUrl}
+
+CRITERIA TO APPRAISE (JSON):
+${JSON.stringify(items, null, 1)}
+
+STUDY DOCUMENT:
+"""
+${document}
+"""
+
+For EVERY criterion return one object with:
+- "id": the criterion id exactly as given
+- "judgment": "yes" | "no" | "not_applicable" | "not_clear"
+- "evidence": a short verbatim quote (<= 220 characters) from the document that justifies the judgement (empty string if not clear)
+- "rationale": one sentence of critical commentary on how the criterion was met, not met, or could not be assessed
+
+Rules:
+- JBI scoring is YES / NO / NOT APPLICABLE / NOT CLEAR. Never invent a fifth category.
+- If the document does not report the item, use "not_clear" — never assume it was met.
+- A "no" must be supported by an explicit statement or clear absence in the document.
+- "not_applicable" only when the criterion genuinely does not apply to this paper (e.g. blinding in a study where blinding was impossible).
+- Return ONLY a JSON array, no prose, no markdown fence.`;
 }

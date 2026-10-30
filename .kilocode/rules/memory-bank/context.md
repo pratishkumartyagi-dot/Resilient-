@@ -199,6 +199,25 @@ Three causes, all fixed:
 ### 4. Literature review uses the local AI backup
 - `Step4LiteratureReview.tsx` now calls `callAiWithFallback` (Gemini → Groq → in-browser local model) instead of picking one provider, and if every provider fails the section is written by the deterministic `generateLocalLiteratureReview` (themes, PRISMA 2020 checklist scoring, GRADE judgement, Vancouver references) with a note saying the local generator produced it. Verified: the local review generator produces a complete 5.5 k-character review with no API key.
 
+## Thesis Generator: Open Notebook–style grounded expansion + JBI appraisal (2026-10-30, v0.5.4)
+
+### Open Notebook grounded chapter expansion
+- New `src/lib/notebook-expansion.ts` — `NotebookState`/`NotebookSource`, `addSource`/`removeSource`/`selectSource`, `buildNotebookContext`, `expandChapterPrompt`, `parseChapterResponse`, `expandChapter` (iterative, max 3 passes), `sourceFromPaper`.
+- `src/components/pipelines/ThesisGenerator.tsx` — removed the References card and the CASP evidence-appraisal table from the main thesis area (they live on the Critical Appraisal tab); added a "Thesis Notebook" panel: add sources by title+text, pull grounded papers in, select sources, and an "Expand selected chapter" button that iterates each below-target chapter to 1.5× its word count using the configured AI provider.
+- Version `package.json` → **0.5.4**; `src/lib/version.ts` derives `APP_VERSION` from it at build time.
+
+### PubMed zero-results fix
+- `searchDatabases` now passes `studyType: options.studyType` into `definition.search({...})` (was omitted).
+- `DATABASE_DEFINITIONS` PubMed `search` now calls `fetchPubMedBrowserless(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit)` (was passing `undefined` for studyType).
+- `FetchContext` gained a `studyType?: string` field so the registry can thread it through.
+
+### JBI critical appraisal (separate from CASP)
+- New `src/lib/jbi-checklists.ts` — 10 JBI checklists: `rct`, `quasi_experimental`, `cohort`, `case_control`, `cross_sectional`, `qualitative`, `systematic_review`, `case_report`, `case_series`, `prevalence`; exports `listJbiChecklists`, `getJbiChecklist`, types `JbiChecklist`, `JbiItem`, `JbiSection`, `JbiJudgment`, `AppraisalItem`, `AppraisalSection`, `AppraisalSummary`, `AppraisalResult`, `AppraisalMetadata`.
+- New `src/lib/jbi-appraisal.ts` — `detectStudyDesign` (regex signals + self-marker filtering), `appraiseDocument`, `buildSummary`, `buildReportMarkdown`, `buildJbiAiPrompt`. JBI uses `yes` / `no` / `not_applicable` / `not_clear` and produces an include/exclude/seek-further-information recommendation — deliberately separate from CASP (`yes`/`no`/`can't tell`).
+- New `src/components/pipelines/JbiAppraisal.tsx` — file upload, metadata fields, checklist selector, AI-critical-reading toggle, summary cards, per-criteria judgment table with YES/NO/N/A/NOT CLEAR, full report markdown, copy/Word/PDF downloads.
+- New JBI tab in `src/components/TopTabs.tsx` (`{ id: "jbi", label: "JBI Appraisal", icon: ClipboardCheck }`) and lazy-loaded in `src/app/page.tsx` (`case "jbi": return withSuspense(<JbiAppraisal />, "JBI Appraisal")`).
+- Verified: `bun typecheck` ✅, `bun lint` ✅.
+
 ## Current State
 
 **App Status**: ✅ Fully functional prototype built

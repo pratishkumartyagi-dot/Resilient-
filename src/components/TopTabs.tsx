@@ -18,6 +18,7 @@ const MAIN_TABS = [
   { id: "thesis", label: "Thesis Generator", icon: BookOpen },
   { id: "slr", label: "Automated SLR", icon: Microscope },
   { id: "appraisal", label: "Critical Appraisal", icon: ClipboardCheck },
+  { id: "jbi", label: "JBI Appraisal", icon: ClipboardCheck },
 ];
 
 export default function TopTabs() {

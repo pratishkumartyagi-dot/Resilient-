@@ -38,6 +38,7 @@ const OmicsBioinformaticsTab = lazy(() => import("@/components/tabs/OmicsBioinfo
 const ThesisGenerator = lazy(() => import("@/components/pipelines/ThesisGenerator"));
 const AutomatedSLR = lazy(() => import("@/components/pipelines/AutomatedSLR"));
 const CriticalAppraisal = lazy(() => import("@/components/pipelines/CriticalAppraisal"));
+const JbiAppraisal = lazy(() => import("@/components/pipelines/JbiAppraisal"));
 
 function withSuspense(node: React.ReactNode, label?: string) {
   return <Suspense fallback={<TabLoadingSkeleton label={label} />}>{node}</Suspense>;
@@ -91,6 +92,8 @@ function AppContent() {
         return withSuspense(<AutomatedSLR />, "Automated SLR");
       case "appraisal":
         return withSuspense(<CriticalAppraisal />, "Critical Appraisal");
+      case "jbi":
+        return withSuspense(<JbiAppraisal />, "JBI Appraisal");
       default:
         return withSuspense(<GrantWritingTab />, "Grant Writing");
     }
