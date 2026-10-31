@@ -172,6 +172,16 @@ const MESH_MAP: Record<string, { mesh: string[]; narrower: string[]; synonyms: s
     narrower: ["ischemic stroke", "hemorrhagic stroke", "tia", "cerebral infarction"],
     synonyms: ["stroke", "cerebrovascular accident", "cva"],
   },
+  "cardiovascular-kidney-metabolic": {
+    mesh: ["Cardiovascular Diseases", "Kidney Diseases", "Metabolic Diseases"],
+    narrower: ["ckm syndrome", "cardiorenal syndrome", "cardiometabolic syndrome", "metabolic syndrome"],
+    synonyms: ["ckm", "cardiovascular kidney metabolic syndrome", "cardiorenal metabolic syndrome", "cardiometabolic syndrome"],
+  },
+  ckm: {
+    mesh: ["Cardiovascular Diseases", "Kidney Diseases", "Metabolic Diseases"],
+    narrower: ["ckm syndrome", "cardiovascular-kidney-metabolic syndrome"],
+    synonyms: ["ckm syndrome", "cardiovascular kidney metabolic syndrome"],
+  },
 };
 
 // Terms that should trigger truncation/wildcard expansion (common clinical roots)

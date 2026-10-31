@@ -93,6 +93,9 @@ function slugify(text: string, index: number): string {
 
 function containsHint(text: string, hints: string[]): boolean {
   const lower = text.toLowerCase();
+  if (lower.includes("ckm") || lower.includes("cardiovascular-kidney-metabolic") || lower.includes("cardiorenal metabolic")) {
+    return true;
+  }
   return hints.some((hint) => lower.includes(hint));
 }
 
@@ -158,7 +161,7 @@ export function extractConceptsLocally(query: string): ConceptBlock[] {
     }
 
     const effectMatch = segment.match(
-      /^(?:the\s+)?(?:effect|impact|influence|association|relationship)\s+of\s+(.+?)\s+(?:on|upon|in|for|among)\s+(.+)$/i
+      /^(?:the\s+)?(?:effect|impact|influence|association|relationship|predictor(?:s)?|factor(?:s)?)\s+of\s+(.+?)\s+(?:on|upon|in|for|among)\s+(.+)$/i
     );
     if (effectMatch) {
       push("condition", effectMatch[1], true, negated);
@@ -170,6 +173,18 @@ export function extractConceptsLocally(query: string): ConceptBlock[] {
       } else {
         push("outcome", outcomePart, false, negated);
       }
+      return;
+    }
+
+    // Also handle "predictor of X" or "predictors of X"
+    const predictorOfMatch = segment.match(/^(?:predictor(?:s)?|risk factor(?:s)?)\s+of\s+(.+)$/i);
+    if (predictorOfMatch) {
+      let outcome = predictorOfMatch[1];
+      // Remove year ranges from outcome if present
+      outcome = outcome.replace(/\b(19|20)\d{2}\s*(to|-)\s*(19|20)\d{2}\b/gi, '').trim();
+      outcome = outcome.replace(/\b(19|20)\d{2}\b/g, '').trim();
+      if (!outcome) outcome = segment;
+      push("outcome", outcome, true, negated);
       return;
     }
 
@@ -190,6 +205,11 @@ export function extractConceptsLocally(query: string): ConceptBlock[] {
     }
     if (containsHint(segment, PREDICTOR_HINTS)) {
       push("predictor", segment, false, negated);
+      return;
+    }
+    // If it mentions CKM syndrome, treat as condition
+    if (/ckm|cardiovascular.*kidney.*metabolic/i.test(segment)) {
+      push("condition", segment, true, negated);
       return;
     }
     push("condition", segment, true, negated);
