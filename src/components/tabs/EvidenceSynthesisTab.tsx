@@ -83,9 +83,10 @@ const EVIDENCE_SYNTHESIS_TOOL_CATEGORIES: EvidenceSynthesisTool["category"][] = 
 const FALLBACK_SR_DATABASES = [
   "PubMed",
   "Europe PMC",
+  "OpenAlex",
+  "Crossref",
   "bioRxiv",
   "medRxiv",
-  "Crossref",
   "arXiv",
   "OpenAIRE",
   "Zenodo",

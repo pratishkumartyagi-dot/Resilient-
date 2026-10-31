@@ -90,11 +90,11 @@ const UNLIMITED = Infinity;
 /** Hard ceiling for a single database, so one slow upstream cannot stall the search. */
 const DATABASE_TIMEOUT_MS = 90000;
 /** Overall wall-clock budget for one multi-database search. */
-const DEFAULT_SEARCH_BUDGET_MS = 30000;
+const DEFAULT_SEARCH_BUDGET_MS = 90000;
 const MAX_SEARCH_BUDGET_MS = 120000;
 /** Maximum number of pagination pages any single database may fetch, so an
  *  upstream that never signals "end of results" cannot loop forever. */
-const MAX_PAGINATION_PAGES = 50;
+const MAX_PAGINATION_PAGES = 1000;
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -811,7 +811,7 @@ export async function fetchPubMedBrowserless(query: string, yearFrom?: string, y
   // Safety valve: a pathological query can return 100k+ PMIDs. efetch is capped
   // at 500 chunks (50 000 papers) so a runaway search cannot exhaust memory;
   // the per-database wall-clock timeout in searchDatabases is the real bound.
-  const maxChunks = 500;
+  const maxChunks = 5000;
   for (let i = 0; i < idlist.length && i / chunkSize < maxChunks; i += chunkSize) {
     if (i > 0) await sleep(400);
     const chunk = idlist.slice(i, i + chunkSize).join(",");
@@ -1038,7 +1038,7 @@ export async function fetchOpenAlex(
 
   const params = new URLSearchParams({
     search: buildDatabaseSearch("OpenAlex", query, { yearFrom, yearTo }).term,
-    "per-page": "100",
+    "per-page": "200",
     mailto: CONTACT_EMAIL,
   });
   if (filterParts.length) params.set("filter", filterParts.join(","));
@@ -1053,17 +1053,18 @@ export async function fetchOpenAlex(
 
   while (pages < MAX_PAGINATION_PAGES) {
     pages++;
-    const data = await httpJson<any>(cursorUrl, { timeoutMs: 30000, retries: 2 });
+    const data = await httpJson<any>(cursorUrl, { timeoutMs: 60000, retries: 3 });
     const results = data.results || [];
     if (results.length === 0) break;
     results.forEach((w: any) => papers.push(normalizeOpenAlexWork(w)));
     const nextCursor = data.meta?.next_cursor;
     if (!nextCursor) break;
     cursorUrl = `${baseUrl}&cursor=${encodeURIComponent(nextCursor)}`;
-    await sleep(120);
+    await sleep(150);
   }
 
   void studyType;
+  void limit;
   return papers;
 }
 
@@ -1662,6 +1663,84 @@ export interface DatabaseDefinition {
   search: (ctx: FetchContext) => Promise<Paper[]>;
 }
 
+
+export async function fetchCrossrefSearchApi(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
+  const maxResults = limit ?? UNLIMITED;
+  const papers: Paper[] = [];
+  
+  // Use the Crossref REST API with pagination
+  const searchTerm = buildDatabaseSearch("Crossref", query).term;
+  let cursor = "*";
+  let pages = 0;
+  const rows = 1000; // Max per request
+  
+  while (pages < MAX_PAGINATION_PAGES) {
+    pages++;
+    const params = new URLSearchParams({
+      query: typeof searchTerm === 'string' ? searchTerm.replace(/"/g, '') : String(searchTerm),
+      rows: String(rows),
+      cursor,
+    });
+    
+    // Add year filters
+    if (yearFrom || yearTo) {
+      const yearFilter = [];
+      if (yearFrom) yearFilter.push(`from-pub-date:${yearFrom}`);
+      if (yearTo) yearFilter.push(`until-pub-date:${yearTo}`);
+      params.set('filter', yearFilter.join(','));
+    }
+    
+    try {
+      const data = await httpJson<any>(`https://api.crossref.org/works?${params.toString()}`, { 
+        timeoutMs: 60000, 
+        retries: 3,
+        headers: {
+          'User-Agent': USER_AGENT
+        }
+      });
+      
+      const results = data.message?.items || [];
+      if (results.length === 0) break;
+      
+      for (const w of results) {
+        const title = w.title?.[0] || "Untitled";
+        const abstract = truncate(stripTags(w.abstract || ""));
+        const doi = (w.DOI || "").replace("https://doi.org/", "");
+        const year = w.published?.["date-parts"]?.[0]?.[0] || w.created?.["date-parts"]?.[0]?.[0] || new Date().getFullYear();
+        const authors = authorsFromList(w.author || []);
+        
+        papers.push({
+          id: `crossref-${doi || Math.random().toString(36).slice(2, 8)}`,
+          title,
+          authors: authors.substring(0, 300),
+          journal: w["container-title"]?.[0] || "Unknown Journal",
+          year: parseInt(String(year)) || new Date().getFullYear(),
+          doi,
+          abstract,
+          database: "Crossref",
+          studyType: classifyStudyType(title, abstract),
+          selected: false,
+          url: doi ? `https://doi.org/${doi}` : w.URL || w.url || "",
+          sourceBackend: "Crossref Search API",
+          sources: ["Crossref"],
+        });
+      }
+      
+      const next = data.message?.["next-cursor"];
+      if (!next || next === cursor || results.length < rows) break;
+      cursor = next;
+      await sleep(200);
+    } catch (e) {
+      console.error("Crossref search error:", e);
+      break; // Don't fail completely, return what we have
+    }
+  }
+  
+  void studyType;
+  void maxResults;
+  return papers;
+}
+
 export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
   {
     id: "PubMed",
@@ -1712,9 +1791,9 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
   {
     id: "Crossref",
     label: "Crossref",
-    url: "https://www.crossref.org/",
-    description: "Crossref DOI metadata registry",
-    search: (ctx) => fetchCrossref(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    url: "https://search.crossref.org/",
+    description: "Crossref DOI metadata registry (via search.crossref.org)",
+    search: (ctx) => fetchCrossrefSearchApi(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
   },
   {
     id: "arXiv",
