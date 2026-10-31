@@ -1662,6 +1662,68 @@ export interface DatabaseDefinition {
   search: (ctx: FetchContext) => Promise<Paper[]>;
 }
 
+
+export async function fetchCrossrefSearchApi(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
+  const maxResults = limit ?? UNLIMITED;
+  const papers: Paper[] = [];
+  
+  // Use the Crossref REST API
+  const searchTerm = buildDatabaseSearch("Crossref", query).term;
+  const params = new URLSearchParams({
+    query: typeof searchTerm === 'string' ? searchTerm.replace(/"/g, '') : String(searchTerm),
+    rows: String(Math.min(100, typeof maxResults === 'number' ? maxResults : 100)),
+  });
+  
+  // Add year filters
+  if (yearFrom || yearTo) {
+    const yearFilter = [];
+    if (yearFrom) yearFilter.push(`from-pub-date:${yearFrom}`);
+    if (yearTo) yearFilter.push(`until-pub-date:${yearTo}`);
+    params.set('filter', yearFilter.join(','));
+  }
+  
+  try {
+    const data = await httpJson<any>(`https://api.crossref.org/works?${params.toString()}`, { 
+      timeoutMs: 45000, 
+      retries: 3,
+      headers: {
+        'User-Agent': USER_AGENT
+      }
+    });
+    
+    const results = data.message?.items || [];
+    for (const w of results) {
+      const title = w.title?.[0] || "Untitled";
+      const abstract = truncate(stripTags(w.abstract || ""));
+      const doi = (w.DOI || "").replace("https://doi.org/", "");
+      const year = w.published?.["date-parts"]?.[0]?.[0] || w.created?.["date-parts"]?.[0]?.[0] || new Date().getFullYear();
+      const authors = authorsFromList(w.author || []);
+      
+      papers.push({
+        id: `crossref-${doi || Math.random().toString(36).slice(2, 8)}`,
+        title,
+        authors: authors.substring(0, 300),
+        journal: w["container-title"]?.[0] || "Unknown Journal",
+        year: parseInt(String(year)) || new Date().getFullYear(),
+        doi,
+        abstract,
+        database: "Crossref",
+        studyType: classifyStudyType(title, abstract),
+        selected: false,
+        url: doi ? `https://doi.org/${doi}` : w.URL || w.url || "",
+        sourceBackend: "Crossref Search API",
+        sources: ["Crossref"],
+      });
+    }
+  } catch (e) {
+    console.error("Crossref search error:", e);
+    throw e;
+  }
+  
+  void studyType;
+  return papers;
+}
+
 export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
   {
     id: "PubMed",
@@ -1712,9 +1774,9 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
   {
     id: "Crossref",
     label: "Crossref",
-    url: "https://www.crossref.org/",
-    description: "Crossref DOI metadata registry",
-    search: (ctx) => fetchCrossref(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    url: "https://search.crossref.org/",
+    description: "Crossref DOI metadata registry (via search.crossref.org)",
+    search: (ctx) => fetchCrossrefSearchApi(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
   },
   {
     id: "arXiv",
