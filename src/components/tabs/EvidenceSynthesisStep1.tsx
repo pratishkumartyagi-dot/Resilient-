@@ -179,10 +179,7 @@ export default function EvidenceSynthesisStep1({
           <span className="text-xs text-blue-400 ml-1">
             {keywordExtract ? "Natural language → librarian-style query" : "Raw query"}
           </span>
-        </div>
-        <QueryVisualizer query={query} className="mb-4" />
-        <div className="flex flex-wrap items-center gap-2 mb-4">
-          <span className="text-xs text-blue-300">Year:</span>
+          <span className="text-xs text-blue-300 ml-2">Year:</span>
           <input
             type="number"
             value={yearFrom}
