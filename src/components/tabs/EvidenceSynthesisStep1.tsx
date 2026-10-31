@@ -4,6 +4,7 @@ import React from "react";
 import { Search, Database, ChevronRight, CheckSquare, Square, ExternalLink, Zap } from "lucide-react";
 import { type Paper } from "@/lib/database-apis";
 import { formatVancouverReference } from "@/lib/references";
+import QueryVisualizer from "@/components/QueryVisualizer";
 
 export interface EvidenceSynthesisStep1Props {
   databases: string[];
@@ -178,6 +179,8 @@ export default function EvidenceSynthesisStep1({
           <span className="text-xs text-blue-400 ml-1">
             {keywordExtract ? "Natural language → librarian-style query" : "Raw query"}
           </span>
+        </div>
+        <QueryVisualizer query={query} className="mb-4" />
           <span className="text-xs text-blue-300 ml-2">Year:</span>
           <input
             type="number"
