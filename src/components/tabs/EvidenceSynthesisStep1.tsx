@@ -181,7 +181,8 @@ export default function EvidenceSynthesisStep1({
           </span>
         </div>
         <QueryVisualizer query={query} className="mb-4" />
-          <span className="text-xs text-blue-300 ml-2">Year:</span>
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          <span className="text-xs text-blue-300">Year:</span>
           <input
             type="number"
             value={yearFrom}
