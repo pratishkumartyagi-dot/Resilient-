@@ -4,7 +4,6 @@ import React from "react";
 import { Search, Database, ChevronRight, CheckSquare, Square, ExternalLink, Zap } from "lucide-react";
 import { type Paper } from "@/lib/database-apis";
 import { formatVancouverReference } from "@/lib/references";
-import QueryVisualizer from "@/components/QueryVisualizer";
 
 export interface EvidenceSynthesisStep1Props {
   databases: string[];
