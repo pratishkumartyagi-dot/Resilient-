@@ -90,7 +90,7 @@ const UNLIMITED = Infinity;
 /** Hard ceiling for a single database, so one slow upstream cannot stall the search. */
 const DATABASE_TIMEOUT_MS = 90000;
 /** Overall wall-clock budget for one multi-database search. */
-const DEFAULT_SEARCH_BUDGET_MS = 30000;
+const DEFAULT_SEARCH_BUDGET_MS = 90000;
 const MAX_SEARCH_BUDGET_MS = 120000;
 /** Maximum number of pagination pages any single database may fetch, so an
  *  upstream that never signals "end of results" cannot loop forever. */
