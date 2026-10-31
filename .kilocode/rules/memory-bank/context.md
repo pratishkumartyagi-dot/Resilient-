@@ -249,8 +249,13 @@ Three causes, all fixed:
 **App Status**: ✅ Fully functional prototype built
 
 **App Name**: Resilient Research App
+**Version**: 0.5.8 (package.json + tag `v0.5.8` on commit `31d8cae`)
 **Description**: AI-powered research intelligence platform for systematic reviews, evidence synthesis, and academic writing.
-**Tech Stack**: Next.js 16, React 19, TypeScript, Tailwind CSS 4, Lucide React, Recharts
+**Tech Stack**: Next.js 16, React 19, TypeScript, Tailwind CSS 4, Lucide React, Recharts, Electron 44 + electron-builder (desktop packaging)
+
+## Session History
+
+- 2026-10-31 — Bumped `package.json` to 0.5.8, committed, force-moved the `v0.5.8` tag to HEAD, and pushed to GitHub. The tag push fired the Windows (`build-windows.yml`) and cross-platform desktop (`build-desktop.yml`) CI workflows; both succeeded and the rebuilt installers (`.exe` portable + `.Setup.exe` NSIS installer, `.dmg`, `.AppImage`) are attached to release `v0.5.8`.
 
 ## Local Setup & Runnable-on-Clone Docs (2026-10-13)
 
@@ -340,6 +345,13 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
 - Verified: `node --check electron/main.js`, `bun lint`, `bun run build`, and `next start` with the `.mjs` config (HTTP 200) all pass. Published release `v0.1.2`.
 
 ## Recently Completed
+
+- [x] **v0.5.8 release pushed + Windows `.exe` built (2026-10-31)**
+  - The current branch was at v0.5.7 (`package.json` = 0.5.7) while a `v0.5.8` tag already existed remotely on commit `7f9de4e` ("test(ckm): add check_ckm.ts"), which is **not** in the current branch's history. Per instruction, `package.json` was bumped to `0.5.8`, committed (`31d8cae chore: bump version to 0.5.8`), and the `v0.5.8` tag was force-moved to HEAD.
+  - Pushed branch `kilo/hybrid-block-29l` and force-pushed tag `v0.5.8` (old target `7f9de4e` → `31d8cae`).
+  - Tag push triggered both CI workflows: **Build Windows** (run 41189596811, 5m10s ✅) and **Build Desktop App** (run 41189596900, 5m24s ✅ — Windows/macOS/Linux).
+  - Release `v0.5.8` now carries the rebuilt installers stamped with the package version: `Resilient.Research.App.0.5.8.exe` (portable, single-file), `Resilient.Research.App.Setup.0.5.8.exe` (NSIS installer), `Resilient.Research.App-0.5.8-arm64.dmg`, `Resilient.Research.App-0.5.8.AppImage`.
+  - Windows `.exe` cannot be built in this Linux sandbox (`wine` is absent — `spawn wine ENOENT` for the NSIS step), so it is produced by the `build-windows.yml` GitHub Actions workflow on a `windows-latest` runner.
 
 - [x] **Evidence Synthesis Step 1 — unlimited search + scispacy-style keyword extraction (2026-10-30)**
   - [x] Removed every per-database result cap (200/500) in `src/lib/database-apis.ts`; every fetcher now returns all available records, bounded only by `MAX_PAGINATION_PAGES = 50` and the per-database wall-clock timeout.
