@@ -1168,43 +1168,85 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
   if (yearTo) filters.push(`until-pub-date:${yearTo}`);
 
   const papers: Paper[] = [];
-  let cursor = "*";
+  let offset = 0;
+  const rows = 100;
   let pages = 0;
 
   while (pages < MAX_PAGINATION_PAGES) {
     pages++;
-    const qs = new URLSearchParams({ query: buildDatabaseSearch("Crossref", query).term, rows: "100", cursor });
+    const qs = new URLSearchParams({ query: buildDatabaseSearch("Crossref", query).term, rows: String(rows), offset: String(offset) });
     if (filters.length) qs.set("filter", filters.join(","));
-    const data = await httpJson<any>(`https://api.crossref.org/works?${qs.toString()}`, { timeoutMs: 30000, retries: 3 });
-    const results = data.message?.items || [];
-    if (results.length === 0) break;
+    try {
+      const data = await httpJson<any>(`https://api.crossref.org/works?${qs.toString()}`, { timeoutMs: 30000, retries: 3 });
+      const results = data.message?.items || [];
+      if (results.length === 0) break;
 
-    for (const w of results) {
-      const title = w.title?.[0] || "Untitled";
-      const abstract = truncate(stripTags(w.abstract || ""));
-      const doi = (w.DOI || "").replace("https://doi.org/", "");
-      const year = w.published?.["date-parts"]?.[0]?.[0] || w.created?.["date-parts"]?.[0]?.[0] || new Date().getFullYear();
-      papers.push({
-        id: `crossref-${doi || Math.random().toString(36).slice(2, 8)}`,
-        title,
-        authors: authorsFromList(w.author || []).substring(0, 300),
-        journal: w["container-title"]?.[0] || "Unknown Journal",
-        year: parseInt(String(year)) || new Date().getFullYear(),
-        doi,
-        abstract,
-        database: "Crossref",
-        studyType: classifyStudyType(title, abstract),
-        selected: false,
-        url: doi ? `https://doi.org/${doi}` : w.URL || w.url || "",
-        sourceBackend: "Crossref REST API",
-        sources: ["Crossref"],
-      });
+      for (const w of results) {
+        const title = w.title?.[0] || "Untitled";
+        const abstract = truncate(stripTags(w.abstract || ""));
+        const doi = (w.DOI || "").replace("https://doi.org/", "");
+        const year = w.published?.["date-parts"]?.[0]?.[0] || w.created?.["date-parts"]?.[0]?.[0] || new Date().getFullYear();
+        papers.push({
+          id: `crossref-${doi || Math.random().toString(36).slice(2, 8)}`,
+          title,
+          authors: authorsFromList(w.author || []).substring(0, 300),
+          journal: w["container-title"]?.[0] || "Unknown Journal",
+          year: parseInt(String(year)) || new Date().getFullYear(),
+          doi,
+          abstract,
+          database: "Crossref",
+          studyType: classifyStudyType(title, abstract),
+          selected: false,
+          url: doi ? `https://doi.org/${doi}` : w.URL || w.url || "",
+          sourceBackend: "Crossref REST API",
+          sources: ["Crossref"],
+        });
+      }
+
+      const total = data.message?.["total-results"] || 0;
+      offset += rows;
+      if (offset >= total || results.length < rows) break;
+      await sleep(150);
+    } catch (e) {
+      // try search.crossref.org
+      try {
+        const qs2 = new URLSearchParams({ q: buildDatabaseSearch("Crossref", query).term, rows: String(rows), offset: String(offset) });
+        if (filters.length) qs2.set("filter", filters.join(","));
+        const data2 = await httpJson<any>(`https://search.crossref.org/works?${qs2.toString()}`, { timeoutMs: 30000, retries: 2 });
+        const results = data2.message?.items || data2.items || [];
+        if (results.length === 0) break;
+
+        for (const w of results) {
+          const title = w.title?.[0] || w.title || "Untitled";
+          const abstract = truncate(stripTags(w.abstract || ""));
+          const doi = (w.DOI || w.doi || "").replace("https://doi.org/", "");
+          const year = w.year || w.published?.["date-parts"]?.[0]?.[0] || new Date().getFullYear();
+          papers.push({
+            id: `crossref-${doi || Math.random().toString(36).slice(2, 8)}`,
+            title,
+            authors: authorsFromList(w.author || []).substring(0, 300),
+            journal: w["container-title"]?.[0] || w.journal || "Unknown Journal",
+            year: parseInt(String(year)) || new Date().getFullYear(),
+            doi,
+            abstract,
+            database: "Crossref",
+            studyType: classifyStudyType(title, abstract),
+            selected: false,
+            url: doi ? `https://doi.org/${doi}` : w.URL || w.url || "",
+            sourceBackend: "Crossref Search API",
+            sources: ["Crossref"],
+          });
+        }
+
+        const total = data2.message?.["total-results"] || data2.total || 0;
+        offset += rows;
+        if (offset >= total || results.length < rows) break;
+        await sleep(150);
+        continue;
+      } catch {
+        break;
+      }
     }
-
-    const next = data.message?.["next-cursor"];
-    if (!next || next === cursor || results.length < 100) break;
-    cursor = next;
-    await sleep(150);
   }
 
   void studyType;
@@ -1877,11 +1919,11 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     search: (ctx) => fetchMedRxiv(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
   },
   {
-    id: "CORE",
-    label: "CORE",
-    url: "https://core.ac.uk/",
-    description: "CORE aggregated open access research (CORE API v3)",
-    search: (ctx) => fetchCore(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    id: "Crossref",
+    label: "Crossref",
+    url: "https://www.crossref.org/",
+    description: "Crossref DOI metadata registry",
+    search: (ctx) => fetchCrossref(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
   },
   {
     id: "arXiv",
