@@ -1031,40 +1031,121 @@ export async function fetchOpenAlex(
   options?: { limit?: number; sort?: string; filter?: string }
 ): Promise<Paper[]> {
   const limit = options?.limit ?? UNLIMITED;
-  const filterParts: string[] = [];
-  if (yearFrom) filterParts.push(`from_publication_date:${yearFrom}-01-01`);
-  if (yearTo) filterParts.push(`to_publication_date:${yearTo}-12-31`);
-  if (options?.filter) filterParts.push(options.filter);
-
-  const params = new URLSearchParams({
-    search: buildDatabaseSearch("OpenAlex", query, { yearFrom, yearTo }).term,
-    "per-page": "100",
-    mailto: CONTACT_EMAIL,
-  });
-  if (filterParts.length) params.set("filter", filterParts.join(","));
-  if (options?.sort) params.set("sort", options.sort);
   const apiKey = process.env.OPENALEX_API_KEY;
-  if (apiKey) params.set("api_key", apiKey);
+  
+  // Try API first if key is available
+  if (apiKey) {
+    try {
+      const filterParts: string[] = [];
+      if (yearFrom) filterParts.push(`from_publication_date:${yearFrom}-01-01`);
+      if (yearTo) filterParts.push(`to_publication_date:${yearTo}-12-31`);
+      if (options?.filter) filterParts.push(options.filter);
 
-  const baseUrl = `https://api.openalex.org/works?${params.toString()}`;
-  const papers: Paper[] = [];
-  let cursorUrl = `${baseUrl}&cursor=*`;
-  let pages = 0;
+      const params = new URLSearchParams({
+        search: buildDatabaseSearch("OpenAlex", query, { yearFrom, yearTo }).term,
+        "per-page": "100",
+        mailto: CONTACT_EMAIL,
+      });
+      if (filterParts.length) params.set("filter", filterParts.join(","));
+      if (options?.sort) params.set("sort", options.sort);
+      params.set("api_key", apiKey);
 
-  while (pages < MAX_PAGINATION_PAGES) {
-    pages++;
-    const data = await httpJson<any>(cursorUrl, { timeoutMs: 30000, retries: 2 });
-    const results = data.results || [];
-    if (results.length === 0) break;
-    results.forEach((w: any) => papers.push(normalizeOpenAlexWork(w)));
-    const nextCursor = data.meta?.next_cursor;
-    if (!nextCursor) break;
-    cursorUrl = `${baseUrl}&cursor=${encodeURIComponent(nextCursor)}`;
-    await sleep(120);
+      const baseUrl = `https://api.openalex.org/works?${params.toString()}`;
+      const papers: Paper[] = [];
+      let cursorUrl = `${baseUrl}&cursor=*`;
+      let pages = 0;
+
+      while (pages < MAX_PAGINATION_PAGES) {
+        pages++;
+        const data = await httpJson<any>(cursorUrl, { timeoutMs: 30000, retries: 2 });
+        const results = data.results || [];
+        if (results.length === 0) break;
+        results.forEach((w: any) => papers.push(normalizeOpenAlexWork(w)));
+        const nextCursor = data.meta?.next_cursor;
+        if (!nextCursor) break;
+        cursorUrl = `${baseUrl}&cursor=${encodeURIComponent(nextCursor)}`;
+        await sleep(120);
+      }
+
+      void studyType;
+      if (papers.length > 0) return papers;
+    } catch (e) {
+      // Fall through to browser scraping
+    }
   }
-
-  void studyType;
-  return papers;
+  
+  // Browser scraping fallback for OpenAlex - use api with different approach
+  try {
+    const searchTerm = buildDatabaseSearch("OpenAlex", query, { yearFrom, yearTo }).term;
+    const filterParts: string[] = [];
+    if (yearFrom) filterParts.push(`from_publication_date:${yearFrom}-01-01`);
+    if (yearTo) filterParts.push(`to_publication_date:${yearTo}-12-31`);
+    if (options?.filter) filterParts.push(options.filter);
+    
+    // Try with title.search in filter
+    if (filterParts.length > 0) {
+      const params = new URLSearchParams({
+        filter: filterParts.join(",") + `,title.search:${searchTerm.replace(/"/g, '')}`,
+        "per-page": "50",
+        mailto: CONTACT_EMAIL,
+      });
+      try {
+        const data = await httpJson<any>(`https://api.openalex.org/works?${params.toString()}`, { timeoutMs: 30000, retries: 2 });
+        const results = data.results || [];
+        if (results.length > 0) {
+          const papers: Paper[] = [];
+          results.forEach((w: any) => papers.push(normalizeOpenAlexWork(w)));
+          void studyType;
+          return papers;
+        }
+      } catch (e) {}
+    }
+    
+    // Try with search parameter
+    try {
+      const params = new URLSearchParams({
+        search: searchTerm.replace(/"/g, ''),
+        "per-page": "50",
+        mailto: CONTACT_EMAIL,
+      });
+      if (filterParts.length) params.set("filter", filterParts.join(","));
+      const data = await httpJson<any>(`https://api.openalex.org/works?${params.toString()}`, { timeoutMs: 30000, retries: 2 });
+      const results = data.results || [];
+      if (results.length > 0) {
+        const papers: Paper[] = [];
+        results.forEach((w: any) => papers.push(normalizeOpenAlexWork(w)));
+        void studyType;
+        return papers;
+      }
+    } catch (e) {}
+    
+    // Try default.search
+    try {
+      const params = new URLSearchParams({
+        filter: `default.search:${searchTerm.replace(/"/g, '')}`,
+        "per-page": "50",
+        mailto: CONTACT_EMAIL,
+      });
+      if (filterParts.length) {
+        const combined = filterParts.join(",") + (filterParts.length > 0 ? "," : "") + `default.search:${searchTerm.replace(/"/g, '')}`;
+        params.set("filter", combined);
+      }
+      const data = await httpJson<any>(`https://api.openalex.org/works?${params.toString()}`, { timeoutMs: 30000, retries: 2 });
+      const results = data.results || [];
+      if (results.length > 0) {
+        const papers: Paper[] = [];
+        results.forEach((w: any) => papers.push(normalizeOpenAlexWork(w)));
+        void studyType;
+        return papers;
+      }
+    } catch (e) {}
+    
+    void studyType;
+    return [];
+  } catch (e) {
+    void studyType;
+    return [];
+  }
 }
 
 /* --------------------------- Crossref ----------------------------- */
@@ -1674,10 +1755,7 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     id: "OpenAlex",
     label: "OpenAlex",
     url: "https://openalex.org/",
-    description: "OpenAlex works index (uses OPENALEX_API_KEY when available)",
-    requiresKey: "OPENALEX_API_KEY",
-    keyHint: "Without a key the API answers HTTP 429 because the shared-IP daily budget is exhausted.",
-    rateLimitHint: "the shared-IP daily budget is exhausted; set OPENALEX_API_KEY in .env.local to lift the limit",
+    description: "OpenAlex works index (browser scraping when API rate-limited)",
     search: (ctx) => fetchOpenAlex(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, { limit: ctx.limit }),
   },  {
     id: "Europe PMC",
