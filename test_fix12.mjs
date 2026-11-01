@@ -1,0 +1,12 @@
+import { fetchPubMedBrowserless } from './src/lib/database-apis';
+
+async function main() {
+  try {
+    // Direct test with just the phrase
+    const r = await fetchPubMedBrowserless('"insulin resistance"', "2021", "2026", undefined, 2);
+    console.log('done:', r.length);
+  } catch (e) {
+    console.log('err');
+  }
+}
+main();
