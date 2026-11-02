@@ -38,19 +38,19 @@ type Provider = "gemini" | "groq" | "qwen" | "mlc";
 type Design = "rct" | "observational" | "case_series" | "review" | "other";
 
 const LEVELS: { value: Level; label: string }[] = [
-  { value: "research_paper", label: "Research Paper (3k–5k words)" },
-  { value: "case_series", label: "Case Series (1.5k–2.5k words)" },
-  { value: "bachelor", label: "Bachelor Thesis (8k–15k words)" },
-  { value: "master", label: "MD/MS Thesis (15k–40k words)" },
-  { value: "phd", label: "PhD Thesis (60k–100k words)" },
+  { value: "research_paper", label: "Research Paper" },
+  { value: "case_series", label: "Case Series" },
+  { value: "bachelor", label: "Bachelor Thesis" },
+  { value: "master", label: "Master Thesis / MD/MS Thesis" },
+  { value: "phd", label: "PhD Thesis" },
 ];
 
 const STYLES: { value: Style; label: string }[] = [
-  { value: "vancouver", label: "Vancouver" },
-  { value: "apa", label: "APA" },
-  { value: "ieee", label: "IEEE" },
-  { value: "mla", label: "MLA" },
+  { value: "apa", label: "APA (American Psychological Association)" },
   { value: "harvard", label: "Harvard" },
+  { value: "mla", label: "MLA (Modern Language Association)" },
+  { value: "vancouver", label: "Vancouver" },
+  { value: "ieee", label: "IEEE" },
 ];
 
 const LANGUAGES: { value: Language; label: string }[] = [
@@ -403,9 +403,9 @@ export default function ThesisGenerator() {
   const isApiKeyMissing = !config.apiKey && !apiKey;
 
   const pipelineStages: Array<{ n: number; name: string; role: string; href: string; stageKey: string }> = [
-    { n: 1, name: "OpenDraft", role: "Outline & chapter structure", href: "https://github.com/federicodeponte/opendraft", stageKey: "outline" },
-    { n: 2, name: "ThesisGenerator", role: "Per-chapter prose + argument audit", href: "https://github.com/ekontoTURBO/thesis-generator", stageKey: "prose" },
-    { n: 3, name: "ScholarCopilot", role: "Refine/expand + citation validation", href: "https://github.com/TIGER-AI-Lab/ScholarCopilot", stageKey: "refine" },
+    { n: 1, name: "OpenDraft", role: "Initial chapterwise draft", href: "https://github.com/federicodeponte/opendraft", stageKey: "outline" },
+    { n: 2, name: "LongWriter", role: "Chapter-wise expansion & refinement", href: "https://github.com/THUDM/LongWriter", stageKey: "prose" },
+    { n: 3, name: "AI Refinement", role: "Citation validation & final polish (Gemini/Groq/Local)", href: "#", stageKey: "refine" },
   ];
 
   return (
@@ -572,7 +572,7 @@ export default function ThesisGenerator() {
         </div>
 
         <div className="col-span-1 md:col-span-1 lg:col-span-2">
-          <label className="block text-xs font-medium text-blue-300 mb-1">Max references</label>
+          <label className="block text-xs font-medium text-blue-300 mb-1">Number of papers to be included from medical databases</label>
           <input
             type="number"
             value={config.maxReferences ?? 150}
