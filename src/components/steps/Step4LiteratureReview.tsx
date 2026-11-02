@@ -8,7 +8,7 @@ import {
 import { useApp } from "@/context/AppContext";
 import { callAiWithFallback, type AICallOptions } from "@/lib/ai";
 import { formatVancouverReference } from "@/lib/references";
-import { generateLocalLiteratureReview } from "@/lib/local-synthesis";
+import { generateLocalLiteratureReview, extractPrimaryKeyFindings, extractResearchGaps, extractStudyDetails } from "@/lib/local-synthesis";
 
 type SectionKey =
   | "introduction"
@@ -356,9 +356,8 @@ export default function Step4LiteratureReview() {
         );
         return stripQuotesAndFences(text);
       } catch (err: any) {
-        // Every AI provider (including the local model) failed: the section is
-        // written by the deterministic local review generator so the review is
-        // never left empty.
+        // Every AI provider failed: the section is written by the deterministic
+        // local review generator so the review is never left empty.
         const local = buildLocalReviewFallback();
         return `${local}\n\n*Section "${meta.title}" was written by the local generator because the AI providers were unavailable (${err?.message || "unknown error"}).*`;
       }
@@ -421,23 +420,29 @@ export default function Step4LiteratureReview() {
     } catch (err: any) {
       console.error("Deep reasoning generation failed:", err);
       const localReasoning = papersForReasoning.map((p, i) => {
+        const abstract = p.abstract || "";
+        const findings = extractPrimaryKeyFindings(abstract, p.studyType);
+        const gaps = extractResearchGaps(abstract, p.studyType);
+        const details = extractStudyDetails(abstract, p);
         return `Paper ${i + 1}: ${p.authors} (${p.year}). ${p.title}. ${p.journal}${
           p.doi ? ` doi:${p.doi}` : ""
         }
 
-Chain-of-thought reasoning: This study by ${p.authors} (${p.year}) addresses ${state.searchQuery || "the research topic"} using a ${p.studyType} design. The abstract reports findings related to the topic, though specific methodological details are limited to what is available in the abstract. The paper's relevance to the research question should be assessed in context of the full evidence base.
+Chain-of-thought reasoning: This ${p.studyType} study by ${p.authors} (${p.year}) is included in the review. Its abstract is the source of all claims below; nothing is inferred beyond what is stated.
 
-Key claims: ${p.abstract ? p.abstract.substring(0, 200) : "No abstract available"}...
+Key claims: ${findings}
 
-Methodological assessment: Study type is ${p.studyType}. Limitations cannot be fully assessed from abstract-level data alone.
+Study conducted: ${details}
 
-Limitations: Reliance on abstract-level data; potential selection and measurement bias; limited longitudinal follow-up may not be evident from abstract.
+Limitations / contradictions / exclusions / gaps: ${gaps}
 
-Relevance to query: The paper appears relevant to "${state.searchQuery || "the research topic"}" based on title and abstract keyword overlap, but full-text review would be needed for definitive assessment.
+Methodological assessment: Study type is ${p.studyType}. Full-text review would be needed to assess risk of bias beyond abstract-level data.
 
-Identified gaps: Gaps in evidence cannot be fully determined from abstract-level data; further research needed.
+Relevance to query: Keyword overlap between the title/abstract and "${state.searchQuery || "the research topic"}" was used to include this paper; full-text assessment needed for definitive relevance.
 
-Connections to other papers: This paper contributes to the evidence base on ${state.searchQuery || "the research topic"} and should be synthesized alongside other included studies.
+Identified gaps: Only gaps explicitly stated in the abstract are reported above; abstract-level data cannot reveal all unanswered questions.
+
+Connections to other papers: This paper contributes to the evidence base on "${state.searchQuery || "the research topic"}" alongside the other included studies.
 
 ---`;
       }).join("\n\n");

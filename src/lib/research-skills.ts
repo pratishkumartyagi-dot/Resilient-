@@ -119,20 +119,20 @@ SYNTHESIS RULES:
 - Research Gaps column — follow the combined methodology of two reference tools:
 
   (A) Tharinda-Pamindu/Research-Gap-table-generator style (Gap Table):
-  - Produce "Limitations: ... | Contradictions: ... | Exclusion criteria: ... | Gaps: ..." drawn from (1) author-acknowledged limitations, (2) contradictions or conflicting evidence, (3) exclusion criteria if stated, (4) underexplored areas the authors highlight. If the abstract does not specify, infer plausible gaps based on study design and scope.
+  - Produce "Limitations: ... | Contradictions: ... | Exclusion criteria: ... | Gaps: ..." drawn EXCLUSIVELY from:
+    (1) author-acknowledged limitations explicitly stated in the abstract,
+    (2) contradictions or conflicting evidence explicitly stated in the abstract,
+    (3) exclusion criteria if stated in the abstract,
+    (4) underexplored areas explicitly highlighted by the authors.
+  - STRICT RULE: If the abstract does NOT explicitly state a limitation/contradiction/exclusion/gap, write "Not stated in abstract" for that sub-field. Do NOT invent, infer, or template-generate gaps, limitations, or future work. Do NOT use generic fallback phrases such as "common biases may apply" or "No explicit knowledge-gap statement". Every entry must be traceable to a sentence in the provided abstract.
 
   (B) IbrahimAlAzhar/FutureWorkGeneration style (Future Work):
-  - On a new line within the same researchGaps string, append "Future Work / Recommendations: <paragraph>" synthesized from the abstract, conclusion sentences, and study design.
-  - Future-work paragraph rules (≤100 words):
-    * Focus on potential areas for future investigation, further research needed, or additional strategies to improve the current study.
-    * Be coherent, logical, and aligned with the article's main topic.
-    * If the abstract explicitly mentions future work, refine those statements; otherwise generate study-type-appropriate forward-looking recommendations (RCT → multicenter RCTs / head-to-head trials; cohort → prospective multicenter cohorts; review → updated living review; qualitative → multi-site mixed-methods; etc.).
-    * Consider: replication in diverse populations, longer follow-up, mechanistic studies, harmonized outcome reporting, cost-effectiveness, implementation research, and clinical translation.
+  - On a new line within the same researchGaps string, append "Future Work / Recommendations: <paragraph>" synthesized ONLY from sentences in the abstract/conclusion that explicitly mention future research, further investigation, additional strategies, recommendations, or warrant further study.
+  - If the abstract does NOT explicitly contain such future-work statements, write "Future Work / Recommendations: Not stated in abstract". Do NOT generate study-type-appropriate forward-looking recommendations from templates.
 
   Combine both parts in the researchGaps field separated by a newline, e.g.:
   "Limitations: ... | Contradictions: ... | Exclusion criteria: ... | Gaps: ...\n\nFuture Work / Recommendations: ..."
-- Grade every claim by evidence strength.
-- Avoid study-by-study summaries: synthesize across papers thematically when producing higher-level outputs.
+- Every cell must be traceable to the provided abstract — no stock phrases, no generic templates, no inference beyond what the abstract states.
 
 OUTPUT FORMAT — strict JSON array only:
 [

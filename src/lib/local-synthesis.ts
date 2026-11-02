@@ -69,7 +69,8 @@ function classifySentence(s: string): SentenceClass {
   const lower = s.toLowerCase();
   if (/^(the objective|aim|purpose|we aimed|this study aims|goal|intended to|sought to)/i.test(lower)) return "objective";
   if (/^(methods|methodology|design|setting|participants|patients and methods|study design|we (conducted|performed|carried out|did)|between)/i.test(lower)) return "method";
-  if (/(found|showed|demonstrated|revealed|indicated|reported|observed|detected|significantly|increase|decrease|association|correlation|prevalence|incidence|rate|odds ratio|risk ratio|hazard ratio|p\s*[=＜<]|p-value|ci\b|confidence interval|\d+%|relative risk|adjusted|mean difference|\bOR\b|\bRR\b|\bHR\b|\bMD\b|\bSMD\b)/i.test(lower)) return "result";
+  // Result sentences: must report an actual outcome/number/association, not just mention a keyword
+  if (/(found|showed|demonstrated|revealed|indicated|reported|observed|detected|significantly|increase|decrease|prevalence|incidence|odds ratio|risk ratio|hazard ratio|p\s*[=＜<]|ci\b|confidence interval|\d+%|relative risk|adjusted|mean difference|\bOR\b|\bRR\b|\bHR\b|\bMD\b|\bSMD\b)/i.test(lower)) return "result";
   if (/^(in conclusion|conclusion|to conclude|we conclude|overall|in summary|taken together|these findings|this suggests|this indicates)/i.test(lower)) return "conclusion";
   if (/^(background|introduction|context|rationale|prior|previous|existing|literature)/i.test(lower)) return "background";
   return "other";
@@ -120,7 +121,7 @@ function extractQuantitativeAnchors(sentences: string[]): string[] {
 /*  Primary Key Findings extractor                                    */
 /*  Mirrors decipher-research-agent "Research Analyst" agent output   */
 /* ------------------------------------------------------------------ */
-function extractPrimaryKeyFindings(abstract: string, studyType: string): string {
+export function extractPrimaryKeyFindings(abstract: string, studyType: string): string {
   const sentences = splitSentences(abstract);
   if (sentences.length === 0) return "Key findings not clearly reported in available abstract.";
 
@@ -186,27 +187,25 @@ function extractPrimaryKeyFindings(abstract: string, studyType: string): string 
   }
 
   // Remove the tier bracket from the actual text if we have good content
-  const textParts = parts.filter((p) => !p.startsWith("[") || p.includes("T1") || p.includes("T2"));
-  const finalText = textParts.slice(0, 4).join(" ");
-
-  return finalText.length > 20 ? finalText : "Key findings reported; refer to full text for quantitative details.";
+  const finalText = parts.slice(0, 4).join(" ");
+  return finalText.length > 20 ? finalText : "No explicit findings reported in abstract.";
 }
 
 /* ------------------------------------------------------------------ */
 /*  Study-details extractor (PICO-style, AI-Research-Analyzer RAG)    */
 /* ------------------------------------------------------------------ */
-function extractStudyDetails(abstract: string, paper: Paper): string {
+export function extractStudyDetails(abstract: string, paper: Paper): string {
   const sentences = splitSentences(abstract);
 
   // Population
   const population =
     sentences.find((s) => /(?:participants?|patients?|subjects?|population|sample|cohort|individuals?|adults?|children|adolescents|women|men)/i.test(s) && s.length > 40) ||
-    `Defined per study inclusion criteria (${paper.studyType}).`;
+    "Population not stated in abstract";
 
   // Setting
   const setting =
     sentences.find((s) => /(?:setting|conducted|performed|carried out|hospital|clinic|centre|center|community|school|online|nationwide|multicenter|tertiary|primary care|rural|urban)/i.test(s) && s.length > 40) ||
-    `${paper.journal} publication context.`;
+    "Setting not stated in abstract";
 
   // Time
   const yearRange = abstract.match(/\b(19|20)\d{2}\b/g);
@@ -215,9 +214,7 @@ function extractStudyDetails(abstract: string, paper: Paper): string {
   // Intervention
   const intervention =
     sentences.find((s) => /(?:intervention|treatment|exposure|drug|therapy|program|policy|screening|diagnostic|procedure|surgery|vaccine|antibiotic)/i.test(s) && s.length > 40) ||
-    (paper.studyType.toLowerCase().includes("rct") || paper.studyType.toLowerCase().includes("trial")
-      ? "Active intervention as defined in trial protocol."
-      : "Observational — no active intervention imposed.");
+    "Intervention not stated in abstract";
 
   return `Population: ${population.replace(/[<>=]/g, "")} | Setting: ${setting.replace(/[<>=]/g, "")} | Time: ${time} | Intervention: ${intervention.replace(/[<>=]/g, "")}`;
 }
@@ -265,8 +262,6 @@ function extractLimitations(abstract: string): {
     /inconsistent[^.]*\./gi,
     /discrepanc(?:y|ies)[^.]*\./gi,
     /contrast(?:s|ed|ing)?[^.]*\./gi,
-    /differ(?:s|ed)?[^.]*from[^.]*\./gi,
-    /however[^.]*\./gi,
   ];
   for (const pat of contradPatterns) {
     contradictions.push(...(abstract.match(pat) || []).slice(0, 2));
@@ -300,19 +295,19 @@ function extractLimitations(abstract: string): {
     limitations:
       limitations.length > 0
         ? limitations.slice(0, 2).map((s) => s.replace(/[<>=]/g, "").trim()).join(" ")
-        : "No specific limitations detailed in the abstract; common biases (selection, confounding, measurement) may apply.",
+        : "Not stated in abstract",
     contradictions:
       contradictions.length > 0
         ? contradictions.slice(0, 2).map((s) => s.replace(/[<>=]/g, "").trim()).join(" ")
-        : "No explicit contradictions identified in the provided abstract.",
+        : "Not stated in abstract",
     exclusions:
       exclusions.length > 0
         ? exclusions.slice(0, 2).map((s) => s.replace(/[<>=]/g, "").trim()).join(" ")
-        : "Standard exclusion for pediatric/geriatric/comorbid populations unless otherwise stated.",
+        : "Not stated in abstract",
     gaps:
       gapStatements.length > 0
         ? gapStatements.slice(0, 2).map((s) => s.replace(/[<>=]/g, "").trim()).join(" ")
-        : "No explicit knowledge-gap statement; inferred from study design (scope, population, time horizon).",
+        : "Not stated in abstract",
   };
 }
 
@@ -325,62 +320,23 @@ function extractLimitations(abstract: string): {
 /*      synthesizes a ≤100-word forward-looking paragraph from the    */
 /*      abstract, conclusion sentences, and study design.            */
 /* ------------------------------------------------------------------ */
-const FUTURE_WORK_TRIGGERS = [
-  /future[^.]*(?:work|research|direction|study|trial|investigation)[^.]*\./gi,
-  /gap(?:s)?[^.]*\./gi,
-  /underexplored[^.]*\./gi,
-  /need(?:s)?[^.]*(?:further|more|additional|longer|larger|prospective|multicenter)[^.]*\./gi,
-  /warrant(?:s)?[^.]*(?:further|additional|investigation|study|validation|replication)[^.]*\./gi,
-  /recommend(?:ed|s)?[^.]*(?:further|future|additional|longitudinal|larger)[^.]*\./gi,
-  /should (?:be )?(?:further|investigated|explored|examined|validated|replicated|extended)[^.]*\./gi,
-  /extend[^.]*to[^.]*\./gi,
-  /validate[^.]*in[^.]*\./gi,
-  /replicate[^.]*in[^.]*\./gi,
-];
-
-const STUDY_TYPE_FUTURE_TEMPLATES: Record<string, string[]> = {
-  rct: [
-    "Multicenter, adequately powered RCTs with longer follow-up and active comparators are needed to confirm efficacy and durability of effect.",
-    "Head-to-head trials against the current standard of care, with pre-specified subgroup and cost-effectiveness analyses, would clarify clinical positioning.",
-  ],
-  "randomized controlled trial": [
-    "Multicenter, adequately powered RCTs with longer follow-up and active comparators are needed to confirm efficacy and durability of effect.",
-    "Head-to-head trials against the current standard of care, with pre-specified subgroup and cost-effectiveness analyses, would clarify clinical positioning.",
-  ],
-  cohort: [
-    "Prospective multicenter cohorts with longer follow-up and harmonized outcome definitions would strengthen causal inference and external validity.",
-    "Replication in geographically and ethnically diverse populations is needed to establish transportability of the observed associations.",
-  ],
-  "case-control": [
-    "Prospective cohort or nested case-control designs with larger sample sizes and confounder-adjusted analyses are needed to address selection bias.",
-    "Mechanistic studies clarifying the biological pathways underlying the observed association are warranted.",
-  ],
-  "cross-sectional": [
-    "Longitudinal studies are needed to establish temporality and directionality of the observed associations.",
-    "Population-representative surveys with oversampling of under-represented groups would improve generalizability.",
-  ],
-  "systematic review": [
-    "Updated systematic reviews incorporating recently published primary studies, with formal GRADE certainty ratings and meta-analysis where appropriate, are recommended.",
-    "Primary studies addressing the most evidence-limited outcomes identified in this review should be prioritized.",
-  ],
-  "meta-analysis": [
-    "Individual-participant-data meta-analysis, together with pre-specified subgroup and sensitivity analyses, would clarify sources of heterogeneity.",
-    "Living systematic-review infrastructure is recommended to keep the evidence synthesis current as new trials report.",
-  ],
-  review: [
-    "Primary research studies targeting the underexplored subdomains highlighted in this review are warranted.",
-    "Standardized outcome reporting frameworks would improve cross-study comparability in future reviews.",
-  ],
-  qualitative: [
-    "Larger, multi-site qualitative studies with diverse participant demographics and mixed-methods integration would deepen contextual understanding.",
-    "Longitudinal qualitative designs tracking participant experiences over time are recommended.",
-  ],
-};
-
 function synthesizeFutureWork(abstract: string, studyType: string): string {
   const sentences = splitSentences(abstract);
   const futureSentences: string[] = [];
-  for (const pat of FUTURE_WORK_TRIGGERS) {
+  // Explicit future-work signals only — no templates, no inference.
+  const futurePatterns = [
+    /future[^.]*(?:work|research|direction|study|trial|investigation)[^.]*\./gi,
+    /gap(?:s)?[^.]*\./gi,
+    /underexplored[^.]*\./gi,
+    /need(?:s)?[^.]*(?:further|more|additional|longer|larger|prospective|multicenter)[^.]*\./gi,
+    /warrant(?:s)?[^.]*(?:further|additional|investigation|study|validation|replication)[^.]*\./gi,
+    /recommend(?:ed|s)?[^.]*(?:further|future|additional|longitudinal|larger)[^.]*\./gi,
+    /should (?:be )?(?:further|investigated|explored|examined|validated|replicated|extended)[^.]*\./gi,
+    /extend[^.]*to[^.]*\./gi,
+    /validate[^.]*in[^.]*\./gi,
+    /replicate[^.]*in[^.]*\./gi,
+  ];
+  for (const pat of futurePatterns) {
     for (const s of sentences) {
       if (pat.test(s)) {
         const clean = s.replace(/[<>=]/g, "").trim();
@@ -395,27 +351,13 @@ function synthesizeFutureWork(abstract: string, studyType: string): string {
   if (futureSentences.length > 0) {
     const joined = futureSentences.slice(0, 2).join(" ");
     const truncated = joined.length > 600 ? joined.slice(0, 600).replace(/\s+\S*$/, "") + "…" : joined;
-    return `${truncated} Future studies should prioritize larger, multicenter, methodologically harmonized designs, longer follow-up, and broader population representation to address the limitations above and to translate the current evidence into actionable clinical or policy recommendations.`;
+    return truncated;
   }
 
-  const lower = studyType.toLowerCase();
-  let template: string[] = [];
-  for (const [key, val] of Object.entries(STUDY_TYPE_FUTURE_TEMPLATES)) {
-    if (lower.includes(key)) {
-      template = val;
-      break;
-    }
-  }
-  if (template.length === 0) {
-    template = [
-      "Replication in independent, larger, and more diverse populations, together with longer follow-up, is needed to confirm and extend the current findings.",
-      "Mechanistic, mixed-methods, or implementation studies are warranted to clarify causal pathways, contextual factors, and real-world translation of the observed results.",
-    ];
-  }
-  return template.join(" ");
+  return "Not stated in abstract";
 }
 
-function extractResearchGaps(abstract: string, studyType: string): string {
+export function extractResearchGaps(abstract: string, studyType: string): string {
   const parts = extractLimitations(abstract);
   const futureWork = synthesizeFutureWork(abstract, studyType);
   return `Limitations: ${parts.limitations} | Contradictions: ${parts.contradictions} | Exclusion criteria: ${parts.exclusions} | Gaps: ${parts.gaps}\n\nFuture Work / Recommendations: ${futureWork}`;
