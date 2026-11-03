@@ -123,10 +123,11 @@ export async function generateThesis(input: ThesisGeneratorInput): Promise<Thesi
 
     let retries = 0;
     let chapterContent: any = null;
-    while (retries < 2) {
+    while (retries < 3) {
       try {
+        const strict = retries > 0 ? " You MUST write at least " + target + " words of prose; pad with substantive analysis, not filler." : "";
         const text = await withTimeout(
-          aiFn(chapterPrompt(chapter, papers, config, i + 1)),
+          aiFn(chapterPrompt(chapter, papers, config, i + 1) + strict),
           CHAPTER_TIMEOUT_MS,
           `Chapter ${chapter.title} timed out after ${Math.round(CHAPTER_TIMEOUT_MS / 1000)}s`
         );
@@ -143,7 +144,7 @@ export async function generateThesis(input: ThesisGeneratorInput): Promise<Thesi
         const wordCount = typeof parsed.wordCount === "number" ? parsed.wordCount : (parsed.content || "").split(/\s+/).length;
 
         // Word-count retry: if under 85% of target, retry demanding ≥ target words.
-        if (wordCount < target * 0.85 && retries === 0) {
+        if (wordCount < target * 0.85 && retries < 2) {
           retries++;
           onProgress?.(`Chapter ${chapter.title} below target (${wordCount}/${target}); retrying...`);
           continue;
@@ -153,7 +154,7 @@ export async function generateThesis(input: ThesisGeneratorInput): Promise<Thesi
         break;
       } catch (err: any) {
         retries++;
-        if (retries >= 2) {
+        if (retries >= 3) {
           onProgress?.(`Chapter ${chapter.title} failed: ${err?.message || "unknown"}`);
           chapterContent = { content: `# ${chapter.title}\n\nGeneration failed.`, sections: [], wordCount: 0, citations: [] };
         }
