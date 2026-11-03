@@ -1104,12 +1104,26 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
   let pages = 0;
   const cap = isFinite(maxResults) && maxResults > 0 ? maxResults : Infinity;
 
+  // Crossref is queried through the local /api/crossref route rather than the
+  // upstream directly: the route runs the request through the retry/backoff
+  // layer on the server, so a 429 from the shared-IP daily budget is retried
+  // with exponential backoff and the real upstream status is reported instead
+  // of a generic network error.
+  const base = typeof window !== "undefined"
+    ? ""
+    : (process.env.PORT ? `http://127.0.0.1:${process.env.PORT}` : "http://127.0.0.1:3000");
+
   while (pages < MAX_PAGINATION_PAGES) {
     if (papers.length >= cap) break;
     pages++;
-    const qs = new URLSearchParams({ query: buildDatabaseSearch("Crossref", query).term, rows: "100", cursor });
-    if (filters.length) qs.set("filter", filters.join(","));
-    const data = await httpJson<any>(`https://api.crossref.org/works?${qs.toString()}`, { timeoutMs: 30000, retries: 3 });
+    const term = buildDatabaseSearch("Crossref", query).term;
+    const data = await httpJson<any>(`${base}/api/crossref`, {
+      method: "POST",
+      timeoutMs: 30000,
+      retries: 3,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: term, rows: 100, cursor, filter: filters.length ? filters.join(",") : undefined }),
+    });
     const results = data.message?.items || [];
     if (results.length === 0) break;
 
@@ -1130,7 +1144,7 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
         studyType: classifyStudyType(title, abstract),
         selected: false,
         url: doi ? `https://doi.org/${doi}` : w.URL || w.url || "",
-        sourceBackend: "Crossref REST API",
+        sourceBackend: "Crossref REST API (via /api/crossref)",
         sources: ["Crossref"],
       });
     }
