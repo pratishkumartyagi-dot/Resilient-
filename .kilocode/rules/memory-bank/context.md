@@ -20,6 +20,13 @@ Every fetcher in `src/lib/database-apis.ts` declared `const maxResults = limit ?
 - Uncapped evidence-synthesis search (`timeoutMs: 120000`, 9 databases): **6/9 succeeded, 28 322 records** (PubMed 9 999, Europe PMC 5 000, bioRxiv 5 000, medRxiv 5 000, arXiv 2 073, Zenodo 1 250); remaining failures are hard upstream errors (Crossref HTTP 429, ClinicalTrials.gov/OpenAIRE slow upstreams) — no longer false timeouts.
 - `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
 
+## v0.6.4 published to GitHub (2026-11-03)
+
+- Tag `v0.6.4` → commit `4541209`; `origin/main` and `kilo/blissful-gadget-wvn` both point at it.
+- Merged `origin/kilo/green-fable-6mu` (v0.6.x thesis-generator improvements: section-level generation, retry/word-count enforcement, CASP appraisal removed from thesis output) on top of the Step 1 search audit. Resolved the `package.json` version conflict by setting **0.6.4**.
+- GitHub Actions "Build Desktop App" (run 41621108939) succeeded for Windows, Linux and macOS.
+- Release `v0.6.4` published with assets: `Resilient.Research.App.0.6.4.exe` (portable), `Resilient.Research.App.Setup.0.6.4.exe` (NSIS installer), `Resilient.Research.App-0.6.4-arm64.dmg`, `Resilient.Research.App-0.6.4.AppImage`.
+
 ## Crossref routed through a server proxy route (2026-11-03)
 
 Crossref was queried directly from the server, so a 429 from the shared-IP daily budget surfaced as a hard failure and the search reported `Crossref: HTTP 429 Too Many Requests`.
