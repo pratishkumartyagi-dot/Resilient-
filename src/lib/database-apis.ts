@@ -595,14 +595,28 @@ export function buildConceptAwareTerm(query: string, options: { studyType?: stri
     if (c.label) terms.add(c.label);
     for (const s of c.synonyms) if (s) terms.add(s);
     for (const m of c.meshTerms) if (m) terms.add(m);
-    const arr = Array.from(terms).map((t) => quote(t));
+    const arr = Array.from(terms);
     if (arr.length === 0) return "";
     // A concept with a MeSH heading is expressed as (MeSH OR free-text[Title/Abstract]).
     const mesh = c.meshTerms[0];
-    const free = arr.map((t) => `${t}[Title/Abstract]`).join(orJoiner);
-    const meshPart = mesh ? `${quote(mesh)}[MeSH Terms]` : "";
-    const body = mesh ? `${meshPart} OR ${free}` : free;
-    return arr.length > 1 ? `(${body})` : body;
+    if (mesh) {
+      const free = arr.map((t) => `${quote(t)}[Title/Abstract]`).join(orJoiner);
+      const meshPart = `${quote(mesh)}[MeSH Terms]`;
+      return arr.length > 1 ? `(${meshPart} OR ${free})` : meshPart;
+    }
+    // No MeSH heading and no synonyms: the label is a free-text phrase, so
+    // emit its content words as separate [Title/Abstract] terms. Wrapping the
+    // whole phrase in quotes ("predictors of insulin resistance"[Title/Abstract])
+    // makes PubMed treat it as an exact phrase and silently returns 0 hits for
+    // natural-language questions such as "predictors of insulin resistance".
+    const words = splitTerms(c.label).map((t) => `${quote(t)}[Title/Abstract]`);
+    if (words.length === 0) return "";
+    if (arr.length > 1) {
+      // Synonyms but no MeSH: OR the quoted synonym phrases in Title/Abstract.
+      const free = arr.map((t) => `${quote(t)}[Title/Abstract]`).join(orJoiner);
+      return `(${free})`;
+    }
+    return words.join(joiner);
   }).filter(Boolean);
 
   let term = conceptParts.join(joiner) || query;
