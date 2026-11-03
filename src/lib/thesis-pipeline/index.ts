@@ -132,10 +132,7 @@ export async function runThesisPipeline(
     subResults.appraise = { ok: false, error: err?.message || "Evidence appraisal failed" };
   }
 
-  // The CASP appraisal of the evidence base is part of the written thesis.
-  if (evidenceAppraisalMarkdown) {
-    fullThesis = `${fullThesis}\n\n---\n\n${evidenceAppraisalMarkdown}`;
-  }
+  // CASP evidence-appraisal table removed from the written thesis.
 
   // Build references (Vancouver) from grounding papers
   const references = papers.slice(0, config.maxReferences || 150);

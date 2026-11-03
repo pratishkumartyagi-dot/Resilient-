@@ -121,46 +121,39 @@ export async function generateThesis(input: ThesisGeneratorInput): Promise<Thesi
       `Writing chapter ${i + 1} of ${chapterList.length}: ${chapter.title} (target ${target.toLocaleString()} words)`
     );
 
-    let retries = 0;
-    let chapterContent: any = null;
-    while (retries < 2) {
+    const sections = Array.isArray(chapter.sections) && chapter.sections.length > 0 ? chapter.sections : [{ id: "s1", title: chapter.title, wordTarget: target }];
+    const sectionOutputs: string[] = [];
+    let totalWords = 0;
+    for (let si = 0; si < sections.length; si++) {
+      const sec = sections[si];
+      const secTarget = sec.wordTarget || Math.floor(target / sections.length) || 300;
+      onProgress?.(`Writing chapter ${i + 1} of ${chapterList.length}: ${chapter.title} — section ${si + 1}/${sections.length} (target ${secTarget} words)`);
       try {
-        const text = await withTimeout(
-          aiFn(chapterPrompt(chapter, papers, config, i + 1)),
-          CHAPTER_TIMEOUT_MS,
-          `Chapter ${chapter.title} timed out after ${Math.round(CHAPTER_TIMEOUT_MS / 1000)}s`
-        );
-        const cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
-        let parsed: any;
-        try {
-          parsed = JSON.parse(cleaned);
-        } catch {
-          const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-          if (!jsonMatch) throw new Error("ThesisGenerator returned invalid JSON");
-          parsed = JSON.parse(jsonMatch[0]);
-        }
+        const secPrompt = `You are an academic writer. Write ONLY the prose for this section of a thesis chapter.
 
-        const wordCount = typeof parsed.wordCount === "number" ? parsed.wordCount : (parsed.content || "").split(/\s+/).length;
+TOPIC: ${config.topic}
+LEVEL: ${config.level}
+STYLE: ${config.style}
+LANGUAGE: ${config.language}
+CHAPTER: ${chapter.title}
+SECTION: ${sec.title}
+SECTION WORD TARGET: ${secTarget} words (prose only)
+GROUNDING PAPERS:
+${papers.map((p, k) => `${k + 1}. ${p.authors} (${p.year || "n.d."}). ${p.title}.`).join("\\n")}
 
-        // Word-count retry: if under 85% of target, retry demanding ≥ target words.
-        if (wordCount < target * 0.85 && retries === 0) {
-          retries++;
-          onProgress?.(`Chapter ${chapter.title} below target (${wordCount}/${target}); retrying...`);
-          continue;
-        }
-
-        chapterContent = parsed;
-        break;
+Write ${secTarget} words of substantive academic prose for this section. Use inline (Author, Year) citations. Markdown only. Return ONLY the prose text (no JSON, no headings beyond the section title).`;
+        const secText = await withTimeout(aiFn(secPrompt), CHAPTER_TIMEOUT_MS, `Section timed out`);
+        const cleaned = secText.replace(/```markdown/g, "").replace(/```/g, "").trim();
+        sectionOutputs.push(`## ${sec.title}\n\n${cleaned}`);
+        totalWords += cleaned.split(/\\s+/).filter(Boolean).length;
       } catch (err: any) {
-        retries++;
-        if (retries >= 2) {
-          onProgress?.(`Chapter ${chapter.title} failed: ${err?.message || "unknown"}`);
-          chapterContent = { content: `# ${chapter.title}\n\nGeneration failed.`, sections: [], wordCount: 0, citations: [] };
-        }
+        sectionOutputs.push(`## ${sec.title}\n\n(Generation failed: ${err?.message || "unknown"})`);
       }
     }
-
-    if (!chapterContent) continue;
+    const content = `# ${chapter.title}\n\n${sectionOutputs.join("\\n\\n")}`;
+    const chapterContent = { content, sections: [], wordCount: totalWords || content.split(/\s+/).length, citations: [] };
+    // skip the retry/audit fallthrough below by setting a flag
+    (chapter as any).__chunked = true;
 
     // Argument audit per chapter
     let audit: ArgumentAudit = {
