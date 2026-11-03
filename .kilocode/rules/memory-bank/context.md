@@ -341,6 +341,10 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
 
 ## Recently Completed
 
+- [x] **Thesis Generator — GitHub resources removed from pipeline stage flow (2026-11-03)**
+  - Removed all GitHub repo links (`https://github.com/...`) from `pipelineStages` in `src/components/pipelines/ThesisGenerator.tsx` (OpenDraft, thesis-generator, ScholarCopilot). Stage cards now show name + role only; `href` field dropped.
+  - Word budget per selected academic level is enforced by the NurseStack plan + Scholar Copilot (target vs actual per chapter, on target/short/over), per-chapter editing, Finalise → Word/PDF/LaTeX export, and `wordBudgetMet` audit remain in place.
+
 - [x] **Evidence Synthesis Step 1 — unlimited search + scispacy-style keyword extraction (2026-10-30)**
   - [x] Removed every per-database result cap (200/500) in `src/lib/database-apis.ts`; every fetcher now returns all available records, bounded only by `MAX_PAGINATION_PAGES = 50` and the per-database wall-clock timeout.
   - [x] PubMed `esearch` now paginates with `retstart`/`retmax=500` (a single esearch caps at 10 000 IDs) and `efetch` walks all IDs in chunks of 100, capped at 500 chunks as a memory safety valve.
