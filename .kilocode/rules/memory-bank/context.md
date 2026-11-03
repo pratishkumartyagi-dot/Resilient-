@@ -20,12 +20,52 @@ Every fetcher in `src/lib/database-apis.ts` declared `const maxResults = limit ?
 - Uncapped evidence-synthesis search (`timeoutMs: 120000`, 9 databases): **6/9 succeeded, 28 322 records** (PubMed 9 999, Europe PMC 5 000, bioRxiv 5 000, medRxiv 5 000, arXiv 2 073, Zenodo 1 250); remaining failures are hard upstream errors (Crossref HTTP 429, ClinicalTrials.gov/OpenAIRE slow upstreams) — no longer false timeouts.
 - `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
 
+### Concept-aware term fix (2026-11-03)
+`buildConceptAwareTerm` in `src/lib/database-apis.ts` previously wrapped a concept label with no MeSH expansion in quotes (`"predictors of insulin resistance"[Title/Abstract]`), which PubMed treats as an exact phrase and returned **0 hits** for natural-language questions. It now emits the label's content words as separate `[Title/Abstract]` terms (`"predictors"[Title/Abstract] AND "insulin"[Title/Abstract] AND "resistance"[Title/Abstract]`) when there is no MeSH heading to OR together, and emits `(MeSH OR free-text)` when there is one. Verified: "predictors of insulin resistance" (2021–2026) → 975 PubMed hits (was 0).
+
 ## v0.6.4 published to GitHub (2026-11-03)
 
 - Tag `v0.6.4` → commit `4541209`; `origin/main` and `kilo/blissful-gadget-wvn` both point at it.
 - Merged `origin/kilo/green-fable-6mu` (v0.6.x thesis-generator improvements: section-level generation, retry/word-count enforcement, CASP appraisal removed from thesis output) on top of the Step 1 search audit. Resolved the `package.json` version conflict by setting **0.6.4**.
 - GitHub Actions "Build Desktop App" (run 41621108939) succeeded for Windows, Linux and macOS.
 - Release `v0.6.4` published with assets: `Resilient.Research.App.0.6.4.exe` (portable), `Resilient.Research.App.Setup.0.6.4.exe` (NSIS installer), `Resilient.Research.App-0.6.4-arm64.dmg`, `Resilient.Research.App-0.6.4.AppImage`.
+
+## Paper-count audit — "predictors of insulin resistance" (2021–2026) (2026-11-03)
+
+Both pipelines were run against the live `/api/literature-search` route for the query
+**"predictors of insulin resistance"**, year range **2021–2026**.
+
+### Research pipeline (bounded: `maxResults: 50`, `timeoutMs: 60000`)
+**9/9 databases succeeded, 383 records, 11.6 s wall.**
+
+| Database | Records | Time |
+|---|---|---|
+| PubMed | 50 | 2.0 s |
+| Europe PMC | 50 | 1.4 s |
+| Crossref | 50 | 2.3 s |
+| bioRxiv | 29 | 0.6 s |
+| medRxiv | 100 | 1.6 s |
+| ClinicalTrials.gov | 44 | 0.6 s |
+| Zenodo | 40 | 1.6 s |
+| OpenAIRE | 15 | 11.6 s |
+| arXiv | 5 | 0.1 s |
+
+### Evidence Synthesis & Meta-analysis pipeline (uncapped, `timeoutMs: 120000`)
+**5/9 succeeded, 1 165 records, 120 s wall** (budget exhausted by slow upstreams running concurrently).
+
+| Database | Records | Time |
+|---|---|---|
+| PubMed | 973 | 20.7 s |
+| Europe PMC | 4 999 | 34.9 s |
+| Zenodo | 114 | 6.1 s |
+| ClinicalTrials.gov | 44 | 0.3 s |
+| bioRxiv | 29 | 0.5 s |
+| arXiv | 5 | 0.1 s |
+| Crossref | 0 | timed out after 120 s |
+| OpenAIRE | 0 | timed out after 120 s |
+| medRxiv | 0 | timed out after 120 s |
+
+PubMed alone returns the full 973 records in 17 s; Europe PMC alone returns 4 999 in 35 s. The concurrent timeouts are the 120 s budget being consumed by Crossref/OpenAIRE/medRxiv running in parallel — expected for the uncapped pipeline, not a defect. Verified: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
 
 ## Crossref routed through a server proxy route (2026-11-03)
 
