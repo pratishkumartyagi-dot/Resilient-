@@ -118,9 +118,13 @@ export async function POST(request: Request) {
     const qs = new URLSearchParams({ query, rows: String(body.rows ?? 100) });
     if (body.cursor) qs.set("cursor", body.cursor);
     if (body.filter) qs.set("filter", body.filter);
+    // Crossref's polite pool (mail to: in the URL) gets a much higher rate
+    // limit than the shared-IP default, which is what the daily budget 429s
+    // come from. It is optional but strongly recommended by Crossref.
+    qs.set("mailto", CONTACT_EMAIL);
 
     const res = await httpRequest(`https://api.crossref.org/works?${qs.toString()}`, {
-      timeoutMs: typeof body.timeoutMs === "number" ? body.timeoutMs : 30000,
+      timeoutMs: typeof body.timeoutMs === "number" ? body.timeoutMs : 60000,
       retries: 3,
     });
     const data = await res.json();

@@ -1110,8 +1110,10 @@ export async function fetchOpenAlex(
 export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
   const maxResults = limit ?? UNLIMITED;
   const filters: string[] = [];
-  if (yearFrom) filters.push(`from-pub-date:${yearFrom}`);
-  if (yearTo) filters.push(`until-pub-date:${yearTo}`);
+  // Crossref's filter syntax requires full dates; a bare year
+  // (from-pub-date:2021) returns an empty result set.
+  if (yearFrom) filters.push(`from-pub-date:${yearFrom}-01-01`);
+  if (yearTo) filters.push(`until-pub-date:${yearTo}-12-31`);
 
   const papers: Paper[] = [];
   let cursor = "*";
@@ -1127,16 +1129,25 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
     ? ""
     : (process.env.PORT ? `http://127.0.0.1:${process.env.PORT}` : "http://127.0.0.1:3000");
 
+  // Crossref's cursor pagination is slow (~2 s/page) and the shared-IP daily
+  // budget is small, so walking the full result set (410k+ for "predictors of
+  // insulin resistance" 2021-2026) is not feasible inside a search budget.
+  // Cap at a practical ceiling (1 000 records) so the evidence-synthesis
+  // pipeline gets a real, usable Crossref result set instead of a hard
+  // "timed out" error. The interactive research pipeline still applies its own
+  // tighter cap via `limit`.
+  const crossrefPracticalCeiling = 1000;
+
   while (pages < MAX_PAGINATION_PAGES) {
-    if (papers.length >= cap) break;
+    if (papers.length >= cap || papers.length >= crossrefPracticalCeiling) break;
     pages++;
     const term = buildDatabaseSearch("Crossref", query).term;
     const data = await httpJson<any>(`${base}/api/crossref`, {
       method: "POST",
-      timeoutMs: 30000,
+      timeoutMs: 60000,
       retries: 3,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: term, rows: 100, cursor, filter: filters.length ? filters.join(",") : undefined }),
+      body: JSON.stringify({ query: term, rows: 100, cursor, filter: filters.length ? filters.join(",") : undefined, timeoutMs: 60000 }),
     });
     const results = data.message?.items || [];
     if (results.length === 0) break;

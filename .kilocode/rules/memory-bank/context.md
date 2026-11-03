@@ -23,6 +23,15 @@ Every fetcher in `src/lib/database-apis.ts` declared `const maxResults = limit ?
 ### Concept-aware term fix (2026-11-03)
 `buildConceptAwareTerm` in `src/lib/database-apis.ts` previously wrapped a concept label with no MeSH expansion in quotes (`"predictors of insulin resistance"[Title/Abstract]`), which PubMed treats as an exact phrase and returned **0 hits** for natural-language questions. It now emits the label's content words as separate `[Title/Abstract]` terms (`"predictors"[Title/Abstract] AND "insulin"[Title/Abstract] AND "resistance"[Title/Abstract]`) when there is no MeSH heading to OR together, and emits `(MeSH OR free-text)` when there is one. Verified: "predictors of insulin resistance" (2021–2026) → 975 PubMed hits (was 0).
 
+## v0.6.5 — Crossref searchable in evidence-synthesis pipeline (2026-11-03)
+
+- `src/app/api/crossref/route.ts` now appends `mailto:<contact email>` to the query — Crossref's polite pool gets a much higher rate limit than the shared-IP default, which is what the daily-budget 429s came from. Verified: `POST /api/crossref` → 200 with 1 133 098 total results in 0.8 s (was 429).
+- `fetchCrossref` filter syntax fixed: Crossref requires full dates (`from-pub-date:2021-01-01`); a bare year (`from-pub-date:2021`) returns an empty result set.
+- Cursor pagination is slow (~2 s/page), so a practical ceiling of 1 000 records is applied in the uncapped evidence-synthesis pipeline (was timing out at 120 s); the interactive research pipeline still applies its own tighter cap via `limit`.
+- Research pipeline default raised to **200 records per database** (`Step1Search.tsx` `useState(200)`).
+- Re-audited "predictors of insulin resistance" (2021–2026): research pipeline **9/9 succeeded, 940 records, 8.4 s**; evidence-synthesis pipeline **8/9 succeeded, 7 265 records** (Europe PMC 4 999, Crossref 1 000, PubMed 973, Zenodo 114, medRxiv 101, ClinicalTrials.gov 44, bioRxiv 29, arXiv 5; only OpenAIRE timed out at 120 s).
+- `package.json` → **0.6.5**; tag `v0.6.5` triggers the "Build Desktop App" workflow which produces the Windows `.exe` (plus macOS `.dmg` and Linux `.AppImage`).
+
 ## v0.6.4 published to GitHub (2026-11-03)
 
 - Tag `v0.6.4` → commit `4541209`; `origin/main` and `kilo/blissful-gadget-wvn` both point at it.
