@@ -20,6 +20,14 @@ Every fetcher in `src/lib/database-apis.ts` declared `const maxResults = limit ?
 - Uncapped evidence-synthesis search (`timeoutMs: 120000`, 9 databases): **6/9 succeeded, 28 322 records** (PubMed 9 999, Europe PMC 5 000, bioRxiv 5 000, medRxiv 5 000, arXiv 2 073, Zenodo 1 250); remaining failures are hard upstream errors (Crossref HTTP 429, ClinicalTrials.gov/OpenAIRE slow upstreams) — no longer false timeouts.
 - `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
 
+## Crossref routed through a server proxy route (2026-11-03)
+
+Crossref was queried directly from the server, so a 429 from the shared-IP daily budget surfaced as a hard failure and the search reported `Crossref: HTTP 429 Too Many Requests`.
+
+- New `src/app/api/crossref/route.ts` — proxies `https://api.crossref.org/works` with a server-side retry/backoff layer (descriptive `User-Agent`, `Retry-After` honoured and capped at 12 s, 3 retries on 408/425/429/5xx). Returns the upstream JSON on success, or `{ error, status }` with the real HTTP status on failure.
+- `fetchCrossref` in `src/lib/database-apis.ts` now POSTs to `/api/crossref` instead of the upstream directly; `sourceBackend` updated to `"Crossref REST API (via /api/crossref)"`.
+- Verified: `POST /api/crossref` → 200 with real Crossref JSON; bounded search (50/db, 30 s) → Crossref 50 records in 4.8 s (was failing with HTTP 429).
+
 ## Evidence Synthesis Step 1 — unlimited search + scispacy-style keyword extraction (2026-10-30)
 
 ### Per-database result caps removed
