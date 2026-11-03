@@ -129,6 +129,16 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Enforce the per-database result cap. The cap is applied after pagination so
+ * that a fetcher that returns fewer records than requested is unaffected, and
+ * a fetcher that paginated past its cap still stops at the cap.
+ */
+function capResults(papers: Paper[], limit: number): Paper[] {
+  if (!isFinite(limit) || limit <= 0) return papers;
+  return papers.length > limit ? papers.slice(0, limit) : papers;
+}
+
 async function runWithConcurrency<T>(
   items: T[],
   fn: (item: T) => Promise<void>,
@@ -782,13 +792,18 @@ export async function fetchPubMedBrowserless(query: string, yearFrom?: string, y
   toolParams.set("term", term);
 
   // esearch is paged with retstart because NCBI caps a single esearch at
-  // 10 000 IDs — drop retmax and walk the whole result set so the search is
-  // unlimited. Each page is 500 IDs; efetch below pulls the records.
+  // 10 000 IDs — walk up to that ceiling so the search is as unlimited as
+  // PubMed itself allows. Each page is 500 IDs; efetch below pulls the
+  // records. Walking past 10 000 IDs is pointless (NCBI truncates there) and
+  // was the cause of the PubMed "timed out" error on broad queries.
   const idlist: string[] = [];
   let retstart = 0;
   const esearchStep = 500;
+  const maxEsearchIds = 10000;
   let esearchPages = 0;
+  const cap = isFinite(maxResults) && maxResults > 0 ? maxResults : Infinity;
   while (esearchPages < MAX_PAGINATION_PAGES) {
+    if (idlist.length >= cap || idlist.length >= maxEsearchIds) break;
     esearchPages++;
     const pageParams = new URLSearchParams(toolParams);
     pageParams.set("retstart", String(retstart));
@@ -807,13 +822,18 @@ export async function fetchPubMedBrowserless(query: string, yearFrom?: string, y
   if (!Array.isArray(idlist) || idlist.length === 0) return [];
 
   const papers: Paper[] = [];
-  const chunkSize = 100;
+  const chunkSize = 200;
   // Safety valve: a pathological query can return 100k+ PMIDs. efetch is capped
-  // at 500 chunks (50 000 papers) so a runaway search cannot exhaust memory;
-  // the per-database wall-clock timeout in searchDatabases is the real bound.
+  // at 500 chunks (100 000 papers at the chunk size below) so a runaway search
+  // cannot exhaust memory; the per-database wall-clock timeout in searchDatabases
+  // is the real bound. The 200-ID chunk + 200 ms inter-chunk sleep keeps the
+  // uncapped evidence-synthesis pipeline under its 120 s budget for a 10 000-ID
+  // result set (50 chunks ≈ 10 s of sleep + HTTP time).
   const maxChunks = 500;
+  const efetchCap = isFinite(maxResults) && maxResults > 0 ? maxResults : Infinity;
   for (let i = 0; i < idlist.length && i / chunkSize < maxChunks; i += chunkSize) {
-    if (i > 0) await sleep(400);
+    if (papers.length >= efetchCap) break;
+    if (i > 0) await sleep(200);
     const chunk = idlist.slice(i, i + chunkSize).join(",");
     const params = new URLSearchParams({ db: "pubmed", id: chunk, rettype: "abstract", retmode: "xml" });
     if (apiKey) params.set("api_key", apiKey);
@@ -868,7 +888,7 @@ export async function fetchPubMedBrowserless(query: string, yearFrom?: string, y
   }
 
   void studyType;
-  return papers;
+  return capResults(papers, maxResults);
 }
 
 /* -------------------------- Europe PMC ---------------------------- */
@@ -892,8 +912,10 @@ async function fetchEuropePmcQuery(
   let cursorMark = "*";
   const pageSize = 100;
   let pages = 0;
+  const cap = isFinite(ctx.limit) && ctx.limit > 0 ? ctx.limit : Infinity;
 
   while (pages < MAX_PAGINATION_PAGES) {
+    if (papers.length >= cap) break;
     pages++;
     const params = new URLSearchParams({
       query: epmcQuery,
@@ -947,7 +969,7 @@ async function fetchEuropePmcQuery(
 export async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
   const papers = await fetchEuropePmcQuery(query, { query, yearFrom, yearTo, limit: limit ?? UNLIMITED });
   void studyType;
-  return papers;
+  return capResults(papers, limit ?? UNLIMITED);
 }
 
 export async function fetchBioRxiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
@@ -1050,8 +1072,10 @@ export async function fetchOpenAlex(
   const papers: Paper[] = [];
   let cursorUrl = `${baseUrl}&cursor=*`;
   let pages = 0;
+  const cap = isFinite(limit) && limit > 0 ? limit : Infinity;
 
   while (pages < MAX_PAGINATION_PAGES) {
+    if (papers.length >= cap) break;
     pages++;
     const data = await httpJson<any>(cursorUrl, { timeoutMs: 30000, retries: 2 });
     const results = data.results || [];
@@ -1078,8 +1102,10 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
   const papers: Paper[] = [];
   let cursor = "*";
   let pages = 0;
+  const cap = isFinite(maxResults) && maxResults > 0 ? maxResults : Infinity;
 
   while (pages < MAX_PAGINATION_PAGES) {
+    if (papers.length >= cap) break;
     pages++;
     const qs = new URLSearchParams({ query: buildDatabaseSearch("Crossref", query).term, rows: "100", cursor });
     if (filters.length) qs.set("filter", filters.join(","));
@@ -1116,7 +1142,7 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
   }
 
   void studyType;
-  return papers;
+  return capResults(papers, maxResults);
 }
 
 /* ----------------------------- arXiv ------------------------------- */
@@ -1130,7 +1156,9 @@ export async function fetcharXiv(query: string, yearFrom?: string, yearTo?: stri
   let start = 0;
   const pageSize = 100;
   let pages = 0;
+  const cap = isFinite(maxResults) && maxResults > 0 ? maxResults : Infinity;
   while (pages < MAX_PAGINATION_PAGES) {
+    if (papers.length >= cap) break;
     pages++;
     const url = `https://export.arxiv.org/api/query?search_query=${searchQuery}&start=${start}&max_results=${pageSize}&sortBy=relevance`;
     const text = await httpText(url, { timeoutMs: 45000, retries: 3 });
@@ -1189,7 +1217,9 @@ export async function fetcharXiv(query: string, yearFrom?: string, yearTo?: stri
 export async function fetchDoaj(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
 const maxResults = limit ?? UNLIMITED;
   const papers: Paper[] = [];
+  const cap = isFinite(maxResults) && maxResults > 0 ? maxResults : Infinity;
   for (let page = 1; page <= MAX_PAGINATION_PAGES; page++) {
+    if (papers.length >= cap) break;
     const url = `https://doaj.org/api/v2/search/articles/${encodeURIComponent(buildDatabaseSearch("DOAJ", query).term)}?pageSize=100&page=${page}`;
     const data = await httpJson<any>(url, { timeoutMs: 30000, retries: 1 });
     const results = data.results || [];
@@ -1225,7 +1255,7 @@ const maxResults = limit ?? UNLIMITED;
   void yearFrom;
   void yearTo;
   void studyType;
-  return papers;
+  return capResults(papers, maxResults);
 }
 
 /* ---------------------------- OpenAIRE ----------------------------- */
@@ -1233,8 +1263,10 @@ const maxResults = limit ?? UNLIMITED;
 export async function fetchOpenAIRE(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
   const maxResults = limit ?? UNLIMITED;
   const papers: Paper[] = [];
+  const cap = isFinite(maxResults) && maxResults > 0 ? maxResults : Infinity;
 
   for (let page = 1; page <= MAX_PAGINATION_PAGES; page++) {
+    if (papers.length >= cap) break;
     const qs = new URLSearchParams({ keywords: buildDatabaseSearch("OpenAIRE", query).term, format: "json", size: "100", page: String(page) });
     const data = await httpJson<any>(`https://api.openaire.eu/search/publications?${qs.toString()}`, {
       timeoutMs: 30000,
@@ -1283,7 +1315,7 @@ export async function fetchOpenAIRE(query: string, yearFrom?: string, yearTo?: s
   void yearFrom;
   void yearTo;
   void studyType;
-  return papers;
+  return capResults(papers, maxResults);
 }
 
 /* ------------------------------ dblp ------------------------------- */
@@ -1329,8 +1361,8 @@ export async function fetchDblp(query: string, yearFrom?: string, yearTo?: strin
   void yearFrom;
   void yearTo;
   void studyType;
-  // dblp returns up to 1 000 hits in a single response — return them all.
-  return papers;
+  // dblp returns up to 1 000 hits in a single response — cap at the requested limit.
+  return capResults(papers, maxResults);
 }
 
 /* ----------------------------- Zenodo ------------------------------ */
@@ -1339,8 +1371,10 @@ export async function fetchZenodo(query: string, yearFrom?: string, yearTo?: str
   const maxResults = limit ?? UNLIMITED;
   const results: any[] = [];
   const pageSize = 25; // the Zenodo records API rejects larger page sizes
+  const cap = isFinite(maxResults) && maxResults > 0 ? maxResults : Infinity;
 
   for (let page = 1; page <= MAX_PAGINATION_PAGES; page++) {
+    if (results.length >= cap) break;
     const qs = new URLSearchParams({ q: buildDatabaseSearch("Zenodo", query).term, size: String(pageSize), sort: "bestmatch", page: String(page) });
     const data = await httpJson<any>(`https://zenodo.org/api/records?${qs.toString()}`, { timeoutMs: 30000, retries: 2 });
     const hits = data.hits?.hits || [];
@@ -1376,7 +1410,7 @@ export async function fetchZenodo(query: string, yearFrom?: string, yearTo?: str
   void yearFrom;
   void yearTo;
   void studyType;
-  return papers.slice(0, maxResults);
+  return capResults(papers, maxResults);
 }
 
 /* ------------------------ Semantic Scholar ------------------------- */
@@ -1397,9 +1431,11 @@ async function fetchSemanticScholarCore(
   // Semantic Scholar caps a single search at 1 000 results (offset < 1000),
   // so "unlimited" here means up to that API ceiling.
   const maxOffset = 1000;
+  const cap = isFinite(ctx.limit) && ctx.limit > 0 ? ctx.limit : Infinity;
   let offset = 0;
 
   while (offset < maxOffset) {
+    if (papers.length >= cap) break;
     const params = new URLSearchParams({ query, fields, limit: String(pageSize), offset: String(offset) });
     const data = await httpJson<any>(`https://api.semanticscholar.org/graph/v1/paper/search?${params.toString()}`, {
       timeoutMs: 30000,
@@ -1436,7 +1472,7 @@ async function fetchSemanticScholarCore(
     await sleep(350);
   }
 
-  return papers;
+  return capResults(papers, ctx.limit);
 }
 
 export async function fetchSemanticScholarBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
@@ -1448,7 +1484,7 @@ export async function fetchSemanticScholarBrowserless(query: string, yearFrom?: 
     "Semantic Scholar Graph API"
   );
   void studyType;
-  return papers;
+  return capResults(papers, limit ?? UNLIMITED);
 }
 
 export async function fetchGoogleScholarBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
@@ -1461,8 +1497,8 @@ export async function fetchGoogleScholarBrowserless(query: string, yearFrom?: st
     "Google Scholar",
     "Semantic Scholar Graph API (Google Scholar has no public API)"
   );
-  void studyType;
-  return papers.map((p) => ({ ...p, sources: ["Google Scholar", "Semantic Scholar"] }));
+void studyType;
+  return capResults(papers, limit ?? UNLIMITED);
 }
 
 export async function fetchScienceDirectBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
@@ -1474,7 +1510,7 @@ export async function fetchScienceDirectBrowserless(query: string, yearFrom?: st
     "Semantic Scholar Graph API (ScienceDirect has no public API)"
   );
   void studyType;
-  return papers;
+  return capResults(papers, limit ?? UNLIMITED);
 }
 
 /* ----------------------- ClinicalTrials.gov ------------------------ */
@@ -1483,8 +1519,10 @@ export async function fetchClinicalTrialsGov(query: string, yearFrom?: string, y
   const maxResults = limit ?? UNLIMITED;
   const papers: Paper[] = [];
   let pageToken: string | undefined;
+  const cap = isFinite(maxResults) && maxResults > 0 ? maxResults : Infinity;
 
   for (let page = 0; page < MAX_PAGINATION_PAGES; page++) {
+    if (papers.length >= cap) break;
     const qs = new URLSearchParams({ "query.term": buildDatabaseSearch("ClinicalTrials.gov", query).term, format: "json", pageSize: "100" });
     if (pageToken) qs.set("pageToken", pageToken);
     const data = await httpJson<any>(`https://clinicaltrials.gov/api/v2/studies?${qs.toString()}`, {
@@ -1835,12 +1873,19 @@ export function getDatabaseDefinition(id: string): DatabaseDefinition | undefine
  * Every database is queried concurrently; a failing database never produces
  * fabricated records — it is reported as a failure with the upstream reason.
  *
- * Per-database result caps are removed: every database returns as many
- * records as it has (bounded only by its pagination-page budget and the
- * per-database wall-clock timeout). Pass `options.limitPerDatabase` to cap a
- * specific search if you want a smaller set.
+ * Per-database result caps are enforced: `options.limitPerDatabase` (or the
+ * per-database `limit` passed to each fetcher) stops pagination once reached,
+ * so a broad query such as "diabetes" returns the requested number of records
+ * instead of walking the entire upstream result set and blowing the search
+ * budget. Pagination is also bounded by `MAX_PAGINATION_PAGES` so an upstream
+ * that never signals "end of results" cannot loop forever.
  */
 export async function searchDatabases(databases: string[], options: SearchOptions): Promise<SearchOutcome> {
+  // `limitPerDatabase` defaults to UNLIMITED: the evidence-synthesis /
+  // meta-analysis pipeline is expected to retrieve the full set of records a
+  // database has for a query. Callers that want a bounded search (the main
+  // Step 1 UI) pass an explicit `limitPerDatabase`; passing 0 or a negative
+  // number is treated as "no cap" so a pipeline can opt out explicitly.
   const limit = options.limitPerDatabase ?? UNLIMITED;
   const requested = databases.length > 0 ? databases : DEFAULT_AVAILABLE_DATABASE_IDS;
 
@@ -1881,9 +1926,12 @@ export async function searchDatabases(databases: string[], options: SearchOption
 
     const started = Date.now();
     const budgetMs = Math.min(Math.max(options.timeoutMs ?? DEFAULT_SEARCH_BUDGET_MS, 5000), MAX_SEARCH_BUDGET_MS);
-    // Every database is bounded by the overall search budget, so the total
-    // wall-clock time of a search is predictable.
-    const perDatabaseTimeout = Math.min(DATABASE_TIMEOUT_MS, budgetMs);
+    // The per-database timeout follows the requested budget. A hard ceiling
+    // (180 s) prevents a hostile upstream from stalling a search forever, but
+    // the old fixed 90 s ceiling silently cut off the evidence-synthesis /
+    // meta-analysis pipeline (which is expected to retrieve the full record
+    // set) whenever a broad query needed more than 90 s per database.
+    const perDatabaseTimeout = Math.min(budgetMs, 180000);
     try {
       const raw = await withTimeout(
         definition.search({

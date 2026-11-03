@@ -447,6 +447,12 @@ export default function EvidenceSynthesisTab() {
     setPerDatabaseResults([]);
     try {
       const dbs = selectedDbs.length > 0 ? selectedDbs : ["PubMed", "Europe PMC", "Crossref"];
+      // The evidence-synthesis / meta-analysis pipeline is expected to retrieve
+      // the full set of records a database has for a query (no per-database
+      // cap), so it gets a longer wall-clock budget than the interactive Step 1
+      // search. A broad query such as "diabetes" therefore completes instead of
+      // being cut off as a per-database "timed out" error.
+      const timeoutMs = 120000;
       // In semantic mode the raw query is sent so retrieval matches on meaning
       // across the broad area of research instead of exact boolean co-occurrence.
       const effectiveQuery = semanticSearch ? query : applySearchLogic(query, searchLogic);
@@ -462,6 +468,7 @@ export default function EvidenceSynthesisTab() {
           searchLogic,
           semanticSearch,
           keywordExtract,
+          timeoutMs,
         }),
       });
 

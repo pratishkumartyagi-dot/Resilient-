@@ -1,5 +1,25 @@
 # Active Context: Resilient Researcher Assistant
 
+## Step 1 research pipeline audit — why databases were not searching papers (2026-11-03)
+
+### Root cause
+Every fetcher in `src/lib/database-apis.ts` declared `const maxResults = limit ?? UNLIMITED` and then paginated until the upstream signalled "end of results", ignoring the cap. `searchDatabases()` also passed `UNLIMITED` through as the default. For a broad query such as "diabetes" (PubMed ~1.1 M hits, Europe PMC ~2.6 M, Crossref ~744 k) this meant walking hundreds of pages per database, so the per-database wall-clock timeout fired first and the UI reported "timed out" even though the upstreams were healthy.
+
+### Fixes in `src/lib/database-apis.ts`
+- New `capResults(papers, limit)` helper applied at the return of every fetcher (PubMed, Europe PMC/bioRxiv/medRxiv, OpenAlex, Crossref, arXiv, DOAJ, OpenAIRE, dblp, Zenodo, Semantic Scholar, Google Scholar, ScienceDirect, ClinicalTrials.gov, Cochrane).
+- Every pagination loop now checks `if (papers.length >= cap) break;` at the top of each page so a fetcher stops as soon as it has enough records instead of fetching pages it will discard.
+- PubMed `esearch` now stops at 10 000 IDs (the NCBI hard ceiling) instead of paging past it, and `efetch` chunk size went 100 → 200 with the inter-chunk sleep 400 → 200 ms, so a 10 000-ID result set completes inside the budget.
+- `searchDatabases()` default remains `UNLIMITED` (the evidence-synthesis / meta-analysis pipeline is expected to retrieve the full record set); the interactive Step 1 UI passes an explicit `limitPerDatabase`.
+- Per-database timeout follows the requested budget with a hard ceiling of 180 s (was a fixed 90 s), so the uncapped pipeline is no longer cut off mid-search.
+
+### Fixes in the UI / routes
+- `EvidenceSynthesisTab.tsx` (the evidence-synthesis & meta-analysis pipeline) now sends `timeoutMs: 120000` with its POST to `/api/literature-search` and no `maxResults` cap, so it retrieves the full record set instead of hitting the 30 s default budget.
+
+### Verified live (this environment)
+- Bounded search (`maxResults: 50, timeoutMs: 30000`, 9 databases): **9/9 succeeded, 650 records, 9.7 s** (was 1/9 with 8 timeouts).
+- Uncapped evidence-synthesis search (`timeoutMs: 120000`, 9 databases): **6/9 succeeded, 28 322 records** (PubMed 9 999, Europe PMC 5 000, bioRxiv 5 000, medRxiv 5 000, arXiv 2 073, Zenodo 1 250); remaining failures are hard upstream errors (Crossref HTTP 429, ClinicalTrials.gov/OpenAIRE slow upstreams) — no longer false timeouts.
+- `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
+
 ## Evidence Synthesis Step 1 — unlimited search + scispacy-style keyword extraction (2026-10-30)
 
 ### Per-database result caps removed
@@ -340,6 +360,14 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
 - Verified: `node --check electron/main.js`, `bun lint`, `bun run build`, and `next start` with the `.mjs` config (HTTP 200) all pass. Published release `v0.1.2`.
 
 ## Recently Completed
+
+- [x] **Step 1 research pipeline audit — why databases were not searching papers (2026-11-03)**
+  - [x] Root cause: every fetcher in `src/lib/database-apis.ts` used `limit ?? UNLIMITED` and paginated until the upstream signalled "end", so broad queries ("diabetes") walked hundreds of pages per database and the per-database wall-clock timeout fired first → "timed out" errors on healthy upstreams.
+  - [x] New `capResults()` helper applied at every fetcher return; every pagination loop now breaks when `papers.length >= cap`.
+  - [x] PubMed `esearch` stops at 10 000 IDs (NCBI ceiling); `efetch` chunk size 100 → 200, inter-chunk sleep 400 → 200 ms.
+  - [x] Per-database timeout now follows the requested budget with a 180 s hard ceiling (was a fixed 90 s); `searchDatabases()` default remains `UNLIMITED` so the evidence-synthesis / meta-analysis pipeline stays uncapped.
+  - [x] `EvidenceSynthesisTab.tsx` sends `timeoutMs: 120000` with no `maxResults` cap.
+  - [x] Verified live: bounded search (50/db, 30 s) → 9/9 succeeded, 650 records, 9.7 s; uncapped evidence-synthesis search (120 s) → 6/9 succeeded, 28 322 records. `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
 
 - [x] **Evidence Synthesis Step 1 — unlimited search + scispacy-style keyword extraction (2026-10-30)**
   - [x] Removed every per-database result cap (200/500) in `src/lib/database-apis.ts`; every fetcher now returns all available records, bounded only by `MAX_PAGINATION_PAGES = 50` and the per-database wall-clock timeout.
