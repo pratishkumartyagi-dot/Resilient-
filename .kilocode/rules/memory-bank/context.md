@@ -23,6 +23,16 @@ Every fetcher in `src/lib/database-apis.ts` declared `const maxResults = limit ?
 ### Concept-aware term fix (2026-11-03)
 `buildConceptAwareTerm` in `src/lib/database-apis.ts` previously wrapped a concept label with no MeSH expansion in quotes (`"predictors of insulin resistance"[Title/Abstract]`), which PubMed treats as an exact phrase and returned **0 hits** for natural-language questions. It now emits the label's content words as separate `[Title/Abstract]` terms (`"predictors"[Title/Abstract] AND "insulin"[Title/Abstract] AND "resistance"[Title/Abstract]`) when there is no MeSH heading to OR together, and emits `(MeSH OR free-text)` when there is one. Verified: "predictors of insulin resistance" (2021–2026) → 975 PubMed hits (was 0).
 
+## v0.6.6 — relevance ranking in the evidence-synthesis pipeline (2026-11-04)
+
+The evidence-synthesis / meta-analysis pipeline was returning raw database hits with no relevance ordering, so the most relevant papers ended up buried under thousands of loosely-related hits — the "most papers searched are irrelevant" symptom (crawly's `default_sort: "relevance"` was missing).
+
+- New `rankPapersByQuery(papers, query)` + `extractRelevanceKeywords(query)` in `src/lib/database-apis.ts`: scores each paper by title/abstract overlap with the query keywords (+4 per keyword in the title, +1 per keyword in the abstract) and sorts highest-first. Deterministic, no network, no model.
+- `/api/literature-search` accepts a new `rankByRelevance` body flag (default off, so the interactive research pipeline is unchanged) and returns it in the payload.
+- `EvidenceSynthesisTab.tsx` sends `rankByRelevance: true` with every search; `EvidenceSynthesisStep1.tsx` unchanged (the toggle is on the search button).
+- Verified live: "predictors of insulin resistance" (2021–2026, 9 databases, 200/db) with `rankByRelevance: true` → 934 records, top hit is "Body mass index-stratified inflammatory predictors of insulin resistance in non-obese adults" (PeerJ 2026) — directly on-topic instead of buried.
+- `package.json` → **0.6.6**; tag `v0.6.6` triggers the "Build Desktop App" workflow which produces the Windows `.exe` (plus macOS `.dmg` and Linux `.AppImage`).
+
 ## v0.6.5 — Crossref searchable in evidence-synthesis pipeline (2026-11-03)
 
 - `src/app/api/crossref/route.ts` now appends `mailto:<contact email>` to the query — Crossref's polite pool gets a much higher rate limit than the shared-IP default, which is what the daily-budget 429s came from. Verified: `POST /api/crossref` → 200 with 1 133 098 total results in 0.8 s (was 429).

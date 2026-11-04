@@ -8,6 +8,7 @@ import {
   extractSearchConcepts,
   buildConceptAwareTerm,
   buildDatabaseSearch,
+  rankPapersByQuery,
   type Paper,
 } from "@/lib/database-apis";
 import { expandQueryWithMesh } from "@/lib/mesh-expansion";
@@ -27,6 +28,11 @@ interface LiteratureSearchRequestBody {
    *  concepts AND-ed) so a natural-language question is turned into a
    *  librarian-style query instead of AND-ing every content word. */
   keywordExtract?: boolean;
+  /** Score and sort returned papers by title/abstract overlap with the query
+   *  keywords (crawly's `default_sort: "relevance"`). Raw database hits are not
+   *  ordered by relevance, so without this the most relevant papers end up
+   *  buried under thousands of loosely-related hits. */
+  rankByRelevance?: boolean;
 }
 
 function corsHeaders() {
@@ -88,6 +94,13 @@ export async function POST(request: Request) {
     const timeoutMs = typeof body.timeoutMs === "number" ? body.timeoutMs : undefined;
     const semanticSearch = body.semanticSearch === true;
     const keywordExtract = body.keywordExtract === true;
+    // The evidence-synthesis / meta-analysis pipeline is expected to retrieve
+    // the full record set, but raw database hits are not ordered by relevance to
+    // the research question — the most relevant papers end up buried under
+    // thousands of loosely-related hits (the "most papers searched are
+    // irrelevant" symptom). Enable this to score and sort the returned papers
+    // by title/abstract overlap with the query keywords.
+    const rankByRelevance = body.rankByRelevance === true;
 
     if (!query) {
       return NextResponse.json({ error: "Missing query parameter" }, { status: 400, headers: corsHeaders() });
@@ -128,7 +141,13 @@ export async function POST(request: Request) {
 
     const papers = outcome.papers;
 
-    const enriched: Paper[] = papers.map((p) => ({
+    // Relevance ranking: score each paper by title/abstract overlap with the
+    // query keywords and sort highest-first. Raw database hits are not ordered
+    // by relevance to the research question, so without this the evidence-
+    // synthesis pipeline surfaces the most relevant papers last.
+    const rankedPapers = rankByRelevance ? rankPapersByQuery(papers, query) : papers;
+
+    const enriched: Paper[] = rankedPapers.map((p) => ({
       ...p,
       citationStatus: p.doi ? ("unverified" as const) : ("no-doi" as const),
       citationMessage: p.doi ? "Pending verification in Step 2" : "No DOI available",
@@ -168,6 +187,7 @@ export async function POST(request: Request) {
       dedupedCount: outcome.dedupedCount,
       totalBeforeDedup: outcome.totalBeforeDedup,
       elapsedMs: Date.now() - started,
+      rankByRelevance,
       meshExpansion: {
         expandedQuery: meshExpandedQuery,
         meshTerms: meshResult.meshTerms,

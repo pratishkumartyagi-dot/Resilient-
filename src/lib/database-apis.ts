@@ -2070,6 +2070,56 @@ export function deduplicatePapers(papers: Paper[]): Paper[] {
   return Array.from(seen.values());
 }
 
+/**
+ * Score papers by overlap between their title/abstract and the query keywords,
+ * then sort highest-first. Raw database hits are not ordered by relevance to
+ * the research question — the most relevant papers end up buried under
+ * thousands of loosely-related hits, which is the "most papers searched are
+ * irrelevant" symptom in the evidence-synthesis pipeline.
+ *
+ * The score is intentionally simple and deterministic (no network, no model):
+ * +4 per keyword found in the title, +1 per keyword found in the abstract.
+ */
+export function rankPapersByQuery(papers: Paper[], query: string): Paper[] {
+  const keywords = extractRelevanceKeywords(query);
+  if (keywords.length === 0) return papers;
+
+  return papers
+    .map((p) => {
+      const title = p.title.toLowerCase();
+      const abstract = (p.abstract || "").toLowerCase();
+      let score = 0;
+      for (const kw of keywords) {
+        if (title.includes(kw)) score += 4;
+        if (abstract.includes(kw)) score += 1;
+      }
+      return { paper: p, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .map((entry) => entry.paper);
+}
+
+function extractRelevanceKeywords(query: string): string[] {
+  const stopWords = new Set([
+    "the", "and", "for", "with", "from", "this", "that", "these", "those",
+    "study", "studies", "review", "meta", "analysis", "systematic", "narrative",
+    "using", "based", "between", "among", "their", "have", "been", "were", "was",
+    "will", "would", "could", "should", "about", "which", "where", "when", "what",
+    "who", "how", "much", "many", "more", "most", "some", "any", "all", "each",
+    "every", "both", "few", "other", "than", "then", "also", "into", "upon",
+    "within", "without", "through", "during", "before", "after", "above",
+    "below", "under", "over", "again", "further", "once", "here", "there", "why",
+    "like", "well", "even", "still", "since", "until", "while", "because",
+    "although", "though", "however", "therefore", "thus", "hence", "yet",
+    "of", "in", "to", "a", "an", "is", "are", "as", "at", "by", "on", "or",
+  ]);
+  return query
+    .toLowerCase()
+    .replace(/[:"?!.,;()\[\]{}<>]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 3 && !stopWords.has(w));
+}
+
 export function getOpenClawSkillDatabaseMapping(): Array<{ skill: string; supportedDatabases: string[]; notes: string }> {
   return [
     {

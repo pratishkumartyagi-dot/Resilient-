@@ -469,6 +469,12 @@ export default function EvidenceSynthesisTab() {
           semanticSearch,
           keywordExtract,
           timeoutMs,
+          // Raw database hits are not ordered by relevance to the research
+          // question — the most relevant papers end up buried under thousands
+          // of loosely-related hits (the "most papers searched are
+          // irrelevant" symptom). Score and sort by title/abstract overlap
+          // with the query keywords, like crawly's default_sort: "relevance".
+          rankByRelevance: true,
         }),
       });
 
