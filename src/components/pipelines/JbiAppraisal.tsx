@@ -105,7 +105,7 @@ export default function JbiAppraisal() {
       }
       return out;
     },
-    [aiKey, state.geminiApiKey],
+    [aiKey]
   );
 
   const runAppraisal = useCallback(async () => {

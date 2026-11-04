@@ -132,35 +132,47 @@ export function buildProtocol(q: SLRQuestion, databases: string[]): string {
 
 /**
  * Skill 3 — Literature Search
+ * Generates the combined search string from the research question.
+ *
+ * Unlike `buildSearchQueries` (which produces one prefixed string per
+ * database), this returns the bare combined query so a single search can be
+ * routed to `searchDatabases` and run against every selected database
+ * concurrently. The per-database `[db]` prefix is intentionally omitted — it
+ * would otherwise leak into the actual search term and return zero hits.
+ */
+export function buildSearchQuery(q: SLRQuestion): string {
+  if (q.framework === "freeflow") {
+    return (q.freeQuery || "").trim();
+  }
+  const p = q.population || "";
+  const i = q.framework === "PECO" || q.framework === "PECOT" ? q.exposure || "" : q.intervention || "";
+  const c = q.comparator || "";
+  const o = q.outcome || "";
+  const t = q.timeframe || "";
+
+  const popTerms = p.split(/\s+/).filter(Boolean).map((w) => `(${w})`).join(" OR ");
+  const intTerms = i.split(/\s+/).filter(Boolean).map((w) => `(${w})`).join(" OR ");
+  const compTerms = c.split(/\s+/).filter(Boolean).map((w) => `(${w})`).join(" OR ");
+  const outTerms = o.split(/\s+/).filter(Boolean).map((w) => `(${w})`).join(" OR ");
+  const timeTerms = t.split(/\s+/).filter(Boolean).map((w) => `(${w})`).join(" OR ");
+
+  const terms: string[] = [];
+  if (popTerms) terms.push(`(${popTerms})`);
+  if (intTerms) terms.push(`(${intTerms})`);
+  if (compTerms) terms.push(`(${compTerms})`);
+  if (outTerms) terms.push(`(${outTerms})`);
+  if (timeTerms) terms.push(`(${timeTerms})`);
+
+  return terms.join(" AND ");
+}
+
+/**
+ * Skill 3 — Literature Search
  * Generates compiled database queries from the research question.
  */
 export function buildSearchQueries(q: SLRQuestion, databases: string[]): string[] {
+  const combined = buildSearchQuery(q);
   const queries: string[] = [];
-  const terms: string[] = [];
-
-  if (q.framework === "freeflow") {
-    terms.push(q.freeQuery || "");
-  } else {
-    const p = q.population || "";
-    const i = q.framework === "PECO" || q.framework === "PECOT" ? q.exposure || "" : q.intervention || "";
-    const c = q.comparator || "";
-    const o = q.outcome || "";
-    const t = q.timeframe || "";
-
-    const popTerms = p.split(/\s+/).filter(Boolean).map((w) => `(${w})`).join(" OR ");
-    const intTerms = i.split(/\s+/).filter(Boolean).map((w) => `(${w})`).join(" OR ");
-    const compTerms = c.split(/\s+/).filter(Boolean).map((w) => `(${w})`).join(" OR ");
-    const outTerms = o.split(/\s+/).filter(Boolean).map((w) => `(${w})`).join(" OR ");
-    const timeTerms = t.split(/\s+/).filter(Boolean).map((w) => `(${w})`).join(" OR ");
-
-    if (popTerms) terms.push(`(${popTerms})`);
-    if (intTerms) terms.push(`(${intTerms})`);
-    if (compTerms) terms.push(`(${compTerms})`);
-    if (outTerms) terms.push(`(${outTerms})`);
-    if (timeTerms) terms.push(`(${timeTerms})`);
-  }
-
-  const combined = terms.join(" AND ");
   for (const db of databases) {
     queries.push(`[${db}] ${combined} ${q.yearFrom && q.yearTo ? `(${q.yearFrom}:${q.yearTo}[dp])` : ""}`.trim());
   }

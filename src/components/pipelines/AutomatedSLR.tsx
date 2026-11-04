@@ -10,9 +10,10 @@ import {
   RefreshCw, MapPin, Layers, ClipboardList, Brain
 } from "lucide-react";
 import {
-  fetchRealPapers, type Paper, deduplicatePapers,
+  searchDatabases, type Paper, deduplicatePapers,
 } from "@/lib/database-apis";
 import { extractPICOForPapers } from "@/lib/pico-extractor";
+import { buildSearchQuery } from "@/lib/slr-skills";
 import {
   buildProblemFormulation,
   buildProtocol,
@@ -136,32 +137,30 @@ export default function AutomatedSLR() {
   const handleRunSearch = async () => {
     setSearching(true);
     try {
-      const queries = buildSearchQueries(question, databases);
-      const allPapers: Paper[] = [];
+      // Build ONE combined query from the PICO/PECO/PECOT/free-flow question
+      // and run it against every selected database concurrently. The previous
+      // per-database loop prefixed each query with "[<db>]" and then routed
+      // query i to database i, which (a) leaked the "[PubMed]" prefix into the
+      // actual search term and (b) silently skipped databases when the query
+      // count did not line up one-to-one with the database list.
+      const combinedQuery = buildSearchQuery(question);
+      const dbList = databases.length > 0 ? databases : ALL_DATABASES;
 
-      for (let i = 0; i < queries.length; i++) {
-        try {
-          const papers = await fetchRealPapers(
-            queries[i],
-            [databases[i % databases.length]],
-            yearFrom,
-            yearTo,
-            "All Study Types",
-          );
-          papers.forEach((p) => {
-            if (!p.database) p.database = databases[i % databases.length];
-          });
-          allPapers.push(...papers);
-        } catch (err) {
-          console.warn(`Search failed for ${databases[i % databases.length]}:`, err);
-        }
-      }
+      const outcome = await searchDatabases(dbList, {
+        query: combinedQuery,
+        yearFrom,
+        yearTo,
+        studyType: "All Study Types",
+        limitPerDatabase: 500,
+        timeoutMs: 120000,
+      });
 
+      const allPapers = outcome.papers;
       const deduped = deduplicatePapers(allPapers);
       dispatch({ type: "SET_SLR_PAPERS", payload: deduped });
       dispatch({ type: "SET_SLR_PRISMA", payload: {
-        identified: deduped.length,
-        screened: 0,
+        identified: outcome.totalBeforeDedup || allPapers.length,
+        screened: deduped.length,
         eligible: 0,
         included: 0,
       }});

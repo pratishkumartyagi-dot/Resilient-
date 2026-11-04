@@ -115,7 +115,7 @@ export default function CriticalAppraisal() {
       }
       return out;
     },
-    [aiKey, state.geminiApiKey]
+    [aiKey]
   );
 
   const runAppraisal = useCallback(async () => {
