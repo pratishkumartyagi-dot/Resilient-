@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { Sparkles, Plus, Trash2, FlaskConical, Beaker } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
+import { callAiWithFallback, type AICallOptions } from "@/lib/ai";
 import { buildStep6Prompt } from "@/lib/research-skills";
 import { decomposeClaim } from "@/lib/medical-skills/robust-lit-review";
 
@@ -83,21 +83,8 @@ export default function Step6ResearchQuestions() {
     try {
       const prompt = buildStep6Prompt(state.papers, state.themes, state.searchQuery, questionType);
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: state.searchQuery };
-
-      let responseText: string = "";
-      try {
-        responseText = await callGemini(state.geminiApiKey || "", prompt, searchOptions);
-      } catch {
-        try {
-          responseText = await callGroq(state.groqApiKey || "", prompt, searchOptions);
-        } catch {
-          try {
-            responseText = await callDeepSeek(prompt, searchOptions);
-          } catch {
-            responseText = "";
-          }
-        }
-      }
+      // Single fallback chain (Gemini -> Groq -> in-browser local model).
+      const responseText = await callAiWithFallback(prompt, searchOptions);
 
       const cleaned = responseText.replace(/```markdown/g, "").replace(/```/g, "").trim();
 

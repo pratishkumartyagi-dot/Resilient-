@@ -225,13 +225,13 @@ export default function AutomatedSLR() {
     const fullPrompt = `${systemPrompt}\n\n${buildReportingPrompt(question, included, state.slrResults || "")}`;
 
     try {
-      const res = await callGemini(state.geminiApiKey || "", fullPrompt, {
-        searchEnabled: false,
-      });
+      const res = await callAi(fullPrompt);
+      if (!res.trim()) throw new Error("The AI model returned an empty report");
       dispatch({ type: "SET_SLR_RESULTS", payload: res });
       goToStep(8);
     } catch (err) {
       console.error("Report generation failed:", err);
+      dispatch({ type: "SET_SLR_RESULTS", payload: `> Report generation failed: ${err instanceof Error ? err.message : "Unknown error"}. Configure a Gemini or Groq API key in Settings (gear icon) for AI-assisted SLR reports.` });
     }
   };
 

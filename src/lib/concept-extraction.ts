@@ -11,7 +11,7 @@
 // Gemini is used when an API key is available; a deterministic local parser is
 // used as a fallback so the pipeline never blocks on a missing key.
 
-import { callGemini } from "./ai";
+import { callAiWithFallback } from "./ai";
 import { lookupConceptExpansion } from "./mesh-expansion";
 
 export type ConceptRole = "condition" | "predictor" | "outcome" | "design";
@@ -290,7 +290,10 @@ export async function extractConcepts(
   ].join("\n");
 
   try {
-    const content = await callGemini(apiKey, prompt);
+    // Use the shared fallback chain (Gemini -> Groq -> in-browser local model)
+    // instead of Gemini-only, so a quota exhaustion on one provider is covered
+    // by the other before the deterministic local parser takes over.
+    const content = await callAiWithFallback(prompt, { searchEnabled: false });
     const parsed = extractJsonArray(content);
     if (!parsed || parsed.length === 0) {
       return { blocks: enrichConcepts(local), source: "local" };

@@ -25,7 +25,7 @@ import {
   type AppraisalResult,
   type CaspJudgment,
 } from "@/lib/critical-appraisal";
-import { callGemini, callGroq } from "@/lib/ai";
+import { callAiWithFallback, type AICallOptions } from "@/lib/ai";
 import { downloadMarkdownAsPDF, downloadMarkdownAsWord } from "@/lib/exporters";
 
 const JUDGMENT_STYLE: Record<CaspJudgment, { label: string; className: string; icon: React.ReactNode }> = {
@@ -91,9 +91,12 @@ export default function CriticalAppraisal() {
     async (checklistId: string, text: string): Promise<Record<string, { judgment: CaspJudgment; evidence?: string; rationale?: string }>> => {
       if (!aiKey) return {};
       const prompt = buildCaspAiPrompt(checklistId, text);
-      const raw = aiKey === state.geminiApiKey
-        ? await callGemini(aiKey, prompt, { searchEnabled: false })
-        : await callGroq(aiKey, prompt, { searchEnabled: false });
+      // Use the shared fallback chain (Gemini -> Groq -> in-browser local model).
+      // The previous "aiKey === state.geminiApiKey" string comparison was
+      // unreliable: when only one key is set it always picks the right one,
+      // but when both keys are configured and identical-looking it could route
+      // to the wrong provider, and it never fell back to the local model.
+      const raw = await callAiWithFallback(prompt, { searchEnabled: false });
 
       const match = raw.match(/\[[\s\S]*\]/);
       if (!match) throw new Error("The AI reviewer did not return a usable judgement list.");

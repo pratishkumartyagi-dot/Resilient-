@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { Sparkles, ChevronRight, RotateCcw } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
+import { callAiWithFallback, type AICallOptions } from "@/lib/ai";
 import { buildStep7Prompt } from "@/lib/research-skills";
 
 const generateMockTitles = () => [
@@ -57,21 +57,8 @@ export default function Step7ResearchTitles() {
     try {
       const prompt = buildStep7Prompt(state.researchQuestions, state.synthesisTable, state.themes);
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: state.searchQuery };
-
-      let responseText: string = "";
-      try {
-        responseText = await callGemini(state.geminiApiKey || "", prompt, searchOptions);
-      } catch {
-        try {
-          responseText = await callGroq(state.groqApiKey || "", prompt, searchOptions);
-        } catch {
-          try {
-            responseText = await callDeepSeek(prompt, searchOptions);
-          } catch {
-            responseText = "";
-          }
-        }
-      }
+      // Single fallback chain (Gemini -> Groq -> in-browser local model).
+      const responseText = await callAiWithFallback(prompt, searchOptions);
 
       const cleaned = responseText.replace(/```markdown/g, "").replace(/```/g, "").trim();
 

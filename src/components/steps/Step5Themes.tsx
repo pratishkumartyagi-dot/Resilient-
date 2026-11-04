@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { Sparkles, Plus, Trash2, Lightbulb } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import type { SynthesisRow, Theme } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
+import { callAiWithFallback, type AICallOptions } from "@/lib/ai";
 import { buildStep5Prompt } from "@/lib/research-skills";
 
 const generateMockThemes = (synthesisTable: SynthesisRow[]): Theme[] => {
@@ -66,21 +66,11 @@ export default function Step5Themes() {
     try {
       const prompt = buildStep5Prompt(state.papers, state.synthesisTable);
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: state.searchQuery };
-
-      let responseText: string = "";
-      try {
-        responseText = await callGemini(state.geminiApiKey || "", prompt, searchOptions);
-      } catch {
-        try {
-          responseText = await callGroq(state.groqApiKey || "", prompt, searchOptions);
-        } catch {
-          try {
-            responseText = await callDeepSeek(prompt, searchOptions);
-          } catch {
-            responseText = "";
-          }
-        }
-      }
+      // Single fallback chain (Gemini -> Groq -> in-browser local model). The
+      // previous nested try/catch swallowed every error and left responseText
+      // as "", which then fell through to the "No JSON found" branch and
+      // produced low-quality mock themes without ever surfacing the failure.
+      const responseText = await callAiWithFallback(prompt, searchOptions);
 
       const cleaned = responseText.replace(/```json/g, "").replace(/```/g, "").replace(/```markdown/g, "").trim();
 

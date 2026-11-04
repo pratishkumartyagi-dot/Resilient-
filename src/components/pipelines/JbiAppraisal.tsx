@@ -25,7 +25,7 @@ import {
   type AppraisalResult,
   type JbiJudgment,
 } from "@/lib/jbi-appraisal";
-import { callGemini, callGroq } from "@/lib/ai";
+import { callAiWithFallback } from "@/lib/ai";
 import { downloadMarkdownAsPDF, downloadMarkdownAsWord } from "@/lib/exporters";
 
 const JUDGMENT_STYLE: Record<JbiJudgment, { label: string; className: string; icon: React.ReactNode }> = {
@@ -85,7 +85,9 @@ export default function JbiAppraisal() {
   const requestAiJudgements = useCallback(
     async (checklistId: string, text: string): Promise<Record<string, { judgment: JbiJudgment; evidence?: string; rationale?: string }>> => {
       if (!aiKey) return {};
-      const raw = aiKey === state.geminiApiKey ? await callGemini(aiKey, text, { searchEnabled: false }) : await callGroq(aiKey, text, { searchEnabled: false });
+      // Shared fallback chain (Gemini -> Groq -> in-browser local model) instead
+      // of the unreliable "aiKey === state.geminiApiKey" string comparison.
+      const raw = await callAiWithFallback(buildJbiAiPrompt(checklistId, text), { searchEnabled: false });
       const match = raw.match(/\[[\s\S]*\]/);
       if (!match) throw new Error("The AI reviewer did not return a usable judgement list.");
       const parsed = JSON.parse(match[0]);

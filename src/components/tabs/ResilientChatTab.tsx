@@ -147,7 +147,7 @@ export default function ResilientChatTab() {
 
     const apiKey = state.geminiApiKey || state.groqApiKey;
 
-    if (apiKey || true) {
+    if (apiKey) {
       try {
         const pipelineContext = `
 Current research pipeline state:

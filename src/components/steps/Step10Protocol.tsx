@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { ChevronRight, ChevronLeft, FileText, Save, Sparkles } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
+import { callAiWithFallback, type AICallOptions } from "@/lib/ai";
 import { buildStep10Prompt } from "@/lib/research-skills";
 import { downloadMarkdownAsWord } from "@/lib/exporters";
 
@@ -80,20 +80,12 @@ export default function Step10Protocol() {
     try {
       const prompt = buildStep10Prompt(state.aimObjectives, state.papers, state.studyType, state.synthesisTable);
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: state.searchQuery };
-
-      let responseText: string = "";
+      // Single fallback chain (Gemini -> Groq -> in-browser local model).
+      let responseText = "";
       try {
-        responseText = await callGemini(state.geminiApiKey || "", prompt, searchOptions);
+        responseText = await callAiWithFallback(prompt, searchOptions);
       } catch {
-        try {
-          responseText = await callGroq(state.groqApiKey || "", prompt, searchOptions);
-        } catch {
-          try {
-            responseText = await callDeepSeek(prompt, searchOptions);
-          } catch {
-            responseText = "";
-          }
-        }
+        responseText = "";
       }
 
       if (!responseText.trim()) {
