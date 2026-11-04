@@ -7,7 +7,10 @@ export interface AICallOptions {
   searchEnabled?: boolean;
 }
 
-export type AiProviderName = "gemini" | "groq" | "local";
+export type AiProviderName = "gemini" | "groq" | "local" | "anythingllm";
+
+/** Default AnythingLLM endpoint — override via `ANYTHINGLLM_BASE_URL`. */
+export const DEFAULT_ANYTHINGLLM_BASE_URL = "http://localhost:3001/api/v1";
 
 export interface AiFallbackEvent {
   /** Provider whose output was actually used. */
@@ -61,6 +64,7 @@ export function isProviderExhausted(error: unknown): boolean {
 interface AiKeys {
   gemini?: string;
   groq?: string;
+  anythingllm?: string;
 }
 
 let registeredKeys: AiKeys = {};
@@ -90,8 +94,8 @@ function markExhausted(provider: AiProviderName): void {
 }
 
 export function getAiProviderStatus(): Record<AiProviderName, "ok" | "exhausted" | "unknown"> {
-  const status: Record<AiProviderName, "ok" | "exhausted" | "unknown"> = { gemini: "unknown", groq: "unknown", local: "ok" };
-  for (const provider of ["gemini", "groq"] as const) {
+  const status: Record<AiProviderName, "ok" | "exhausted" | "unknown"> = { gemini: "unknown", groq: "unknown", local: "ok", anythingllm: "unknown" };
+  for (const provider of ["gemini", "groq", "anythingllm"] as const) {
     if (isCoolingDown(provider)) status[provider] = "exhausted";
     else if (registeredKeys[provider]) status[provider] = "ok";
   }
@@ -240,7 +244,7 @@ export async function callAiWithFallback(
   const failures: Array<{ provider: AiProviderName; error: AiProviderError }> = [];
 
   for (const provider of order) {
-    if (provider !== "local" && isCoolingDown(provider)) {
+    if (provider !== "local" && provider !== "anythingllm" && isCoolingDown(provider)) {
       failures.push({
         provider,
         error: new AiProviderError(provider, `${provider} is in a cooldown after an exhausted quota`),
@@ -254,6 +258,8 @@ export async function callAiWithFallback(
         content = await callProvider("gemini", keys.gemini || "", prompt, options);
       } else if (provider === "groq") {
         content = await callProvider("groq", keys.groq || "", prompt, options);
+      } else if (provider === "anythingllm") {
+        content = await callAnythingLLM(keys.anythingllm || "", prompt, options);
       } else {
         content = await callDeepSeekWithTimeout(prompt, LOCAL_MODEL_TIMEOUT_MS, options);
       }
@@ -296,6 +302,83 @@ export async function callAiWithFallback(
  * Gemini call. If Gemini fails (most often: the quota is used up) the request
  * is served by Groq and finally by the local in-browser model.
  */
+/**
+ * AnythingLLM (https://github.com/Mintplex-Labs/anything-llm) is a
+ * local-first AI app that exposes an OpenAI-compatible chat completions API.
+ * It is used here as an additional fallback provider in the chain, so a
+ * research pipeline that has a self-hosted AnythingLLM instance configured
+ * can use it when Gemini/Groq are unavailable.
+ *
+ * Endpoint: `<baseUrl>/api/v1/chat/completions?workspace=<ws>`
+ * Auth:     `Authorization: Bearer <token>`
+ * Body:     OpenAI chat-completions shape with a `model` field (AnythingLLM
+ *           ignores the model name and uses the workspace's configured LLM).
+ */
+async function postAnythingLLM(
+  baseUrl: string,
+  apiKey: string,
+  prompt: string,
+  options?: AICallOptions
+): Promise<{ content: string; searchPerformed: boolean }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), CHAT_TIMEOUT_MS);
+  const url = new URL(`${baseUrl.replace(/\/$/, "")}/api/v1/chat/completions`);
+  const workspace = process.env.ANYTHINGLLM_WORKSPACE;
+  if (workspace) url.searchParams.set("workspace", workspace);
+
+  let res: Response;
+  try {
+    res = await fetch(url.toString(), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: process.env.ANYTHINGLLM_MODEL || "anything-llm",
+        messages: [{ role: "user", content: prompt }],
+        stream: false,
+      }),
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (controller.signal.aborted) throw new AiProviderError("anythingllm", "AnythingLLM request timed out");
+    throw new AiProviderError("anythingllm", e instanceof Error ? e.message : "AnythingLLM request failed");
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!res.ok) {
+    let message = `AnythingLLM request failed: ${res.status}`;
+    try {
+      const data = await res.json();
+      message = data?.error || data?.message || message;
+    } catch {
+      /* ignore parse errors */
+    }
+    throw new AiProviderError("anythingllm", message, res.status);
+  }
+
+  const data = await res.json();
+  const content = data?.choices?.[0]?.message?.content;
+  if (!content) throw new AiProviderError("anythingllm", "AnythingLLM returned empty content", 502);
+  return { content, searchPerformed: false };
+}
+
+/** Raw AnythingLLM call — no fallback. */
+export async function callAnythingLLM(
+  apiKey: string,
+  prompt: string,
+  options?: AICallOptions
+): Promise<string> {
+  if (!apiKey) {
+    throw new AiProviderError("anythingllm", "No AnythingLLM API key is configured");
+  }
+  const baseUrl = process.env.ANYTHINGLLM_BASE_URL || DEFAULT_ANYTHINGLLM_BASE_URL;
+  const result = await postAnythingLLM(baseUrl, apiKey, prompt, options);
+  return result.content;
+}
+
 export async function callGemini(apiKey: string, prompt: string, options?: AICallOptions): Promise<string> {
   try {
     return await callProvider("gemini", apiKey, prompt, options);
