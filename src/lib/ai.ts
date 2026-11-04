@@ -68,6 +68,8 @@ interface AiKeys {
 }
 
 let registeredKeys: AiKeys = {};
+/** Runtime-configurable AnythingLLM base URL (falls back to the env var). */
+let anythingllmBaseUrl: string | undefined;
 
 /**
  * Registers the API keys that are configured in the app so that a failing
@@ -75,6 +77,15 @@ let registeredKeys: AiKeys = {};
  */
 export function configureAiKeys(keys: AiKeys): void {
   registeredKeys = { ...keys };
+}
+
+/** Lets the runtime override the AnythingLLM base URL (e.g. a LAN IP). */
+export function configureAnythingLLMBaseUrl(url: string | undefined): void {
+  anythingllmBaseUrl = url && url.trim() ? url.trim() : undefined;
+}
+
+export function getAnythingLLMBaseUrl(): string | undefined {
+  return anythingllmBaseUrl ?? (typeof process !== "undefined" ? process.env.ANYTHINGLLM_BASE_URL : undefined);
 }
 
 /** Providers that recently ran out of quota are skipped for a while. */
@@ -374,7 +385,7 @@ export async function callAnythingLLM(
   if (!apiKey) {
     throw new AiProviderError("anythingllm", "No AnythingLLM API key is configured");
   }
-  const baseUrl = process.env.ANYTHINGLLM_BASE_URL || DEFAULT_ANYTHINGLLM_BASE_URL;
+  const baseUrl = getAnythingLLMBaseUrl() || DEFAULT_ANYTHINGLLM_BASE_URL;
   const result = await postAnythingLLM(baseUrl, apiKey, prompt, options);
   return result.content;
 }

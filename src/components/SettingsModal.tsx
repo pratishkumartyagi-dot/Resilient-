@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useState } from "react";
-import { X, Settings as SettingsIcon, Key, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { X, Settings as SettingsIcon, Key, CheckCircle2, XCircle, Loader2, Server } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { testGeminiKey, testGroqKey } from "@/lib/ai";
+import { testGeminiKey, testGroqKey, callAnythingLLM } from "@/lib/ai";
 
 // Keep in sync with LOCAL_MODEL_LABEL in src/lib/local-llm.ts. Inlined here
 // (instead of importing) so this modal doesn't drag @huggingface/transformers
@@ -31,15 +31,35 @@ export default function SettingsModal() {
   });
   const [testingGemini, setTestingGemini] = useState(false);
   const [testingGroq, setTestingGroq] = useState(false);
+  const [testingAnythingLLM, setTestingAnythingLLM] = useState(false);
   const [geminiResult, setGeminiResult] = useState<{ ok: boolean; error?: string } | null>(null);
   const [groqResult, setGroqResult] = useState<{ ok: boolean; error?: string } | null>(null);
+  const [anythingllmResult, setAnythingllmResult] = useState<{ ok: boolean; error?: string } | null>(null);
+  const [anythingllmKey, setAnythingllmKey] = useState(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      return localStorage.getItem("resilient_anythingllm_api_key") || "";
+    } catch {
+      return "";
+    }
+  });
+  const [anythingllmBaseUrl, setAnythingllmBaseUrl] = useState(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      return localStorage.getItem("resilient_anythingllm_base_url") || "";
+    } catch {
+      return "";
+    }
+  });
 
   // Push any keys persisted from a previous session into the global context once,
   // on mount only — no cascading renders from setState-in-effect.
   React.useEffect(() => {
-    if (geminiKey || groqKey) {
+    if (geminiKey || groqKey || anythingllmKey) {
       dispatch({ type: "SET_GEMINI_KEY", payload: geminiKey });
       dispatch({ type: "SET_GROQ_KEY", payload: groqKey });
+      dispatch({ type: "SET_ANYTHINGLLM_KEY", payload: anythingllmKey });
+      dispatch({ type: "SET_ANYTHINGLLM_BASE_URL", payload: anythingllmBaseUrl });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -53,15 +73,20 @@ export default function SettingsModal() {
   const handleSave = () => {
     dispatch({ type: "SET_GEMINI_KEY", payload: geminiKey });
     dispatch({ type: "SET_GROQ_KEY", payload: groqKey });
+    dispatch({ type: "SET_ANYTHINGLLM_KEY", payload: anythingllmKey });
+    dispatch({ type: "SET_ANYTHINGLLM_BASE_URL", payload: anythingllmBaseUrl });
     try {
       localStorage.setItem("resilient_gemini_api_key", geminiKey);
       localStorage.setItem("resilient_groq_api_key", groqKey);
+      localStorage.setItem("resilient_anythingllm_api_key", anythingllmKey);
+      localStorage.setItem("resilient_anythingllm_base_url", anythingllmBaseUrl);
     } catch {
       // Storage unavailable
     }
     setIsOpen(false);
     setGeminiResult(null);
     setGroqResult(null);
+    setAnythingllmResult(null);
   };
 
   const handleTestGemini = async () => {
@@ -78,6 +103,20 @@ export default function SettingsModal() {
     const result = await testGroqKey(groqKey);
     setGroqResult(result);
     setTestingGroq(false);
+  };
+
+  const handleTestAnythingLLM = async () => {
+    if (!anythingllmKey.trim()) return;
+    setTestingAnythingLLM(true);
+    setAnythingllmResult(null);
+    try {
+      await callAnythingLLM(anythingllmKey, "Hello, this is a test message. Please respond with OK.");
+      setAnythingllmResult({ ok: true });
+    } catch (e) {
+      setAnythingllmResult({ ok: false, error: e instanceof Error ? e.message : "Unknown error" });
+    } finally {
+      setTestingAnythingLLM(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -167,9 +206,52 @@ export default function SettingsModal() {
             </div>
           </div>
 
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-sm font-medium text-blue-200">
+              <Server size={14} className="text-emerald-400" />
+              AnythingLLM API Key <span className="text-xs text-blue-400">(OpenAI-compatible, local-first)</span>
+            </label>
+            <input
+              type="password"
+              value={anythingllmKey}
+              onChange={(e) => setAnythingllmKey(e.target.value)}
+              placeholder="Enter AnythingLLM API key..."
+              className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-2.5 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+            />
+            <div className="space-y-2">
+              <input
+                type="text"
+                value={anythingllmBaseUrl}
+                onChange={(e) => setAnythingllmBaseUrl(e.target.value)}
+                placeholder="Base URL (optional, default http://localhost:3001/api/v1)"
+                className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-2 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleTestAnythingLLM}
+                  disabled={testingAnythingLLM || !anythingllmKey.trim()}
+                  className="text-xs bg-emerald-900/50 text-emerald-200 px-3 py-1.5 rounded hover:bg-emerald-900/70 disabled:opacity-50 flex items-center gap-1"
+                >
+                  {testingAnythingLLM ? <Loader2 size={12} className="animate-spin" /> : null}
+                  Test Connection
+                </button>
+                {anythingllmResult && anythingllmResult.ok && (
+                  <span className="text-xs text-green-300 flex items-center gap-1">
+                    <CheckCircle2 size={12} /> Connected
+                  </span>
+                )}
+                {anythingllmResult && !anythingllmResult.ok && (
+                  <span className="text-xs text-red-300 flex items-center gap-1">
+                    <XCircle size={12} /> Failed: {anythingllmResult.error || "Check key and network"}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
           <div className="bg-blue-950/50 border border-blue-900/50 rounded-lg p-3">
             <p className="text-xs text-blue-300">
-              Keys are stored locally in your browser. Gemini 3.1 Flash Lite is the primary AI provider and Groq (Llama 3.3 70B) is the secondary fallback.
+              Keys are stored locally in your browser. Gemini 3.1 Flash Lite is the primary AI provider, Groq (Llama 3.3 70B) is the secondary fallback, and AnythingLLM (https://github.com/Mintplex-Labs/anything-llm) is a self-hosted OpenAI-compatible fallback.
             </p>
             <p className="text-xs text-blue-400 mt-2">
               No key? A local {LOCAL_MODEL_LABEL} model runs directly in your browser as a free fallback. It downloads once (~350&nbsp;MB) on first use and is cached. WebGPU is used when available; otherwise it falls back to CPU, which is slower. For fastest, highest-quality results, add an API key above.
