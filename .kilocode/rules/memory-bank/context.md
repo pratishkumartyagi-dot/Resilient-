@@ -20,6 +20,17 @@ Every fetcher in `src/lib/database-apis.ts` declared `const maxResults = limit ?
 - Uncapped evidence-synthesis search (`timeoutMs: 120000`, 9 databases): **6/9 succeeded, 28 322 records** (PubMed 9 999, Europe PMC 5 000, bioRxiv 5 000, medRxiv 5 000, arXiv 2 073, Zenodo 1 250); remaining failures are hard upstream errors (Crossref HTTP 429, ClinicalTrials.gov/OpenAIRE slow upstreams) — no longer false timeouts.
 - `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
 
+## v0.6.7 published to GitHub (2026-11-05)
+
+- Bumped `package.json` version 0.6.4 → **0.6.7**.
+- **paper-search-mcp made functional**: installed `paper-search-mcp==0.1.4` via pip (Python 3.13), pinned `mcp[cli]>=1.27.2,<2` (v1.30.0) to satisfy the FastMCP import. Binary available at `/usr/local/bin/paper-search-mcp`.
+- **`src/app/api/paper-search-mcp/route.ts`**: switched MCP invocation from `node` to direct execution of the Python entry point; updated `search_papers` arguments to `max_results_per_source` / `sources`; improved paper object mapping to handle `paper_id`, `published_date`, and `citations` fields from the MCP response schema.
+- **`src/lib/database-apis.ts`**: re-enabled `paper-search-mcp` database definition by default (`disabled: false`); updated description to reflect 20+ supported academic sources.
+- **`.github/workflows/build-exe.yml`**: new GitHub Actions workflow that builds the Windows installer on `windows-latest`, installs Python 3.12 + `paper-search-mcp` + pinned `mcp<2`, runs `npm ci`, `npm run build`, then `npm run dist:win`. Artifacts uploaded as `Resilient-Research-App-Windows` (`.exe` + NSIS metadata, 30-day retention). Auto-creates a GitHub Release on tag pushes.
+- **`README.md`**: updated Windows installer version reference to 0.6.7; documented the Actions workflow for one-click Windows builds.
+- Validation: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅ (12 pages, all routes including `/api/paper-search-mcp` registered).
+- End-to-end test: MCP `initialize` + `tools/call search_papers` returned 3 real arXiv papers for "machine learning".
+
 ## v0.6.4 published to GitHub (2026-11-03)
 
 - Tag `v0.6.4` → commit `4541209`; `origin/main` and `kilo/blissful-gadget-wvn` both point at it.
