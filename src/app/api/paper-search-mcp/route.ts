@@ -18,8 +18,9 @@ export async function OPTIONS() {
   });
 }
 
-// @turbopack-ignore
-const MCP_BINARY = process.env.PAPER_SEARCH_MCP_BIN || eval('"paper-search-mcp"');
+// paper-search-mcp is a Python MCP server. Allow override via env var, otherwise
+// invoke the installed `paper-search-mcp` entry point directly.
+const MCP_BINARY = process.env.PAPER_SEARCH_MCP_BIN || "paper-search-mcp";
 
 function sendMcpRequest(proc: ReturnType<typeof spawn>, id: number, method: string, params: any = {}): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -73,7 +74,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing query parameter" }, { status: 400, headers: corsHeaders() });
     }
 
-    const proc = spawn("node", [MCP_BINARY], {
+    const proc = spawn(MCP_BINARY, [], {
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env },
     });
@@ -89,9 +90,8 @@ export async function POST(request: Request) {
         name: "search_papers",
         arguments: {
           query,
-          platform: source,
-          maxResults,
-          sortBy: "relevance",
+          max_results_per_source: maxResults,
+          sources: source,
         },
       });
 
@@ -108,22 +108,33 @@ export async function POST(request: Request) {
         );
       }
 
-      const papers = (parsed.papers || []).map((p: any) => ({
-        id: p.paperId || p.id || `mcp-${Math.random().toString(36).slice(2, 8)}`,
-        title: p.title || "",
-        authors: Array.isArray(p.authors) ? p.authors.join(", ") : (p.authors || "Unknown authors"),
-        year: p.year || new Date().getFullYear(),
-        abstract: p.abstract || "",
-        doi: p.doi || "",
-        url: p.url || (p.doi ? `https://doi.org/${p.doi}` : ""),
-        database: p.source || "paper-search-mcp",
-        studyType: p.paperType || p.studyType || "Journal Article",
-        selected: false,
-        citationCount: p.citationCount || 0,
-        keywords: p.keywords || [],
-        sourceBackend: "openags/paper-search-mcp",
-        sources: p.source ? [p.source] : ["paper-search-mcp"],
-      }));
+      const papers = (parsed.papers || []).map((p: any) => {
+        // paper-search-mcp returns: paper_id, title, authors, abstract, doi,
+        // published_date, url, source, citations, categories, keywords, pdf_url
+        const year = p.year
+          ? parseInt(String(p.year), 10)
+          : (p.published_date ? parseInt(String(p.published_date).slice(0, 4), 10) : undefined)
+            || new Date().getFullYear();
+        const authors = Array.isArray(p.authors)
+          ? p.authors.join(", ")
+          : (p.authors || "Unknown authors");
+        return {
+          id: p.paperId || p.paper_id || p.id || `mcp-${Math.random().toString(36).slice(2, 8)}`,
+          title: p.title || "",
+          authors,
+          year,
+          abstract: p.abstract || "",
+          doi: p.doi || "",
+          url: p.url || (p.doi ? `https://doi.org/${p.doi}` : ""),
+          database: p.source || "paper-search-mcp",
+          studyType: p.paperType || p.studyType || "Journal Article",
+          selected: false,
+          citationCount: p.citations || p.citationCount || 0,
+          keywords: p.keywords || [],
+          sourceBackend: "openags/paper-search-mcp",
+          sources: p.source ? [p.source] : ["paper-search-mcp"],
+        };
+      });
 
       return NextResponse.json({
         query: parsed.query || query,
