@@ -1836,9 +1836,8 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     id: "paper-search-mcp",
     label: "paper-search-mcp",
     url: "https://github.com/openags/paper-search-mcp",
-    description: "Local paper-search-mcp bridge (optional external tool)",
-    disabled: true,
-    disabledReason: "Optional local bridge: it requires the paper-search-mcp binary to be installed. Set PAPER_SEARCH_MCP_BIN and re-enable (disabled: false) to use it.",
+    description: "Local paper-search-mcp bridge — 20+ academic sources via MCP (arXiv, PubMed, Europe PMC, Crossref, OpenAlex, Semantic Scholar, Zenodo, etc.)",
+    disabled: false,
     search: (ctx) => fetchPaperSearchMcp(ctx.query, "all", ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
   },
 ];
