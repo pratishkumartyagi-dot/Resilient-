@@ -917,3 +917,23 @@ export function generateLitLLMSynthesis(
 
   return standardOutput;
 }
+
+export function enrichResearchGaps(synthesis: SynthesisRow[], papers: { id?: string; title?: string; abstract?: string; studyType?: string; reference?: string }[]): SynthesisRow[] {
+  const used = new Set<number>();
+  return synthesis.map((row) => {
+    let idx = papers.findIndex((p, i) => !used.has(i) && (p.reference === row.reference || (p.title && row.reference?.includes(p.title))));
+    if (idx === -1) {
+      // fallback: first unused paper
+      idx = papers.findIndex((_, i) => !used.has(i));
+    }
+    if (idx === -1) return row;
+    used.add(idx);
+    const paper = papers[idx];
+    if (!paper) return row;
+    const local = extractResearchGaps(paper.abstract || "", paper.studyType || "");
+    const aiFuture = (row.researchGaps || "").match(/Future Work \/ Recommendations:([\s\S]*)/)?.[1]?.trim();
+    const future = aiFuture && aiFuture.length > 20 ? aiFuture : local.match(/Future Work \/ Recommendations:([\s\S]*)/)?.[1]?.trim() || "";
+    const limitationsPart = local.split("\n\nFuture Work")[0];
+    return { ...row, researchGaps: `${limitationsPart}\n\nFuture Work / Recommendations: ${future}` };
+  });
+}
