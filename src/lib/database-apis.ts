@@ -27,6 +27,10 @@ export interface Paper {
   sources?: string[];
   citationStatus?: "verified" | "unverified" | "no-doi";
   citationMessage?: string;
+  outcome?: string;
+  sampleSize?: string;
+  effectEstimate?: string;
+  researchGaps?: string;
 }
 
 export type DatabaseStatus = "success" | "empty" | "failed";
@@ -785,10 +789,19 @@ export async function fetchPubMedBrowserless(query: string, yearFrom?: string, y
   // like "effect of diabetes on kidney function in patients" no longer ANDs
   // every content word — which previously returned 0 results. Explicit boolean
   // queries are passed through unchanged.
+  //
+  // IMPORTANT: ctx.query may already be a concept-expanded PubMed query (when
+  // keywordExtract was enabled on the client). Do NOT re-expand an already
+  // field-tagged query — re-running splitTerms + buildConceptAwareTerm would
+  // mangle [Title/Abstract]/[MeSH Tags] into double-tagged garbage that
+  // PubMed rejects with zero results.
+  const alreadyFieldTagged = /\[(Title\/Abstract|MeSH Terms|Publication Type|Date - Publication)\]/i.test(query);
   const isBooleanQuery = /\b(AND|OR|NOT)\b/i.test(query) || /[\(\)]/.test(query);
-  const term = isBooleanQuery
-    ? buildDatabaseSearch("PubMed", query, { yearFrom, yearTo, studyType }).term
-    : buildConceptAwareTerm(query, { yearFrom, yearTo, studyType });
+  const term = alreadyFieldTagged
+    ? query
+    : isBooleanQuery
+      ? buildDatabaseSearch("PubMed", query, { yearFrom, yearTo, studyType }).term
+      : buildConceptAwareTerm(query, { yearFrom, yearTo, studyType });
   toolParams.set("term", term);
 
   // esearch is paged with retstart because NCBI caps a single esearch at
@@ -1117,14 +1130,21 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
     if (papers.length >= cap) break;
     pages++;
     const term = buildDatabaseSearch("Crossref", query).term;
-    const data = await httpJson<any>(`${base}/api/crossref`, {
+    const data = await httpText(`${base}/api/crossref`, {
       method: "POST",
       timeoutMs: 30000,
       retries: 3,
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ query: term, rows: 100, cursor, filter: filters.length ? filters.join(",") : undefined }),
-    });
-    const results = data.message?.items || [];
+    }) as unknown as string;
+    const text = typeof data === "string" ? data : JSON.stringify(data);
+    let parsed: any;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = { message: { items: [] } };
+    }
+    const results = parsed?.message?.items || [];
     if (results.length === 0) break;
 
     for (const w of results) {
@@ -1149,7 +1169,7 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
       });
     }
 
-    const next = data.message?.["next-cursor"];
+    const next = parsed?.message?.["next-cursor"];
     if (!next || next === cursor || results.length < 100) break;
     cursor = next;
     await sleep(150);

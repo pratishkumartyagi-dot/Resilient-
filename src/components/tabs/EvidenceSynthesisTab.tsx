@@ -1056,9 +1056,12 @@ Return a concise markdown report with a "## PROBAST+AI Assessment" heading and a
   };
 
   const runExtraction = async () => {
-    const selected = papers.filter((p) => selectedPaperIds.has(p.id));
+    // Extract every paper that has an abstract (full-text screening input),
+    // not only the manually-checked subset, so the evidence-synthesis table
+    // includes all abstract/full-text records.
+    const selected = papers.filter((p) => (p.abstract || "").trim().length > 0);
     if (selected.length === 0) {
-      alert("Please select at least one paper in Step 1.");
+      alert("No papers with abstracts found. Please search again.");
       return;
     }
     setExtractionLoading(true);
@@ -1067,6 +1070,7 @@ Return a concise markdown report with a "## PROBAST+AI Assessment" heading and a
       assessments[p.id] = initRobAssessment(p.id, { studyType: p.studyType, year: p.year, title: p.title });
     });
     setRobAssessments(assessments);
+    setSelectedPaperIds(new Set(selected.map((p) => p.id)));
 
     const apiKey = state.geminiApiKey || state.groqApiKey;
 
@@ -1403,6 +1407,27 @@ ${buildSynthesisToolReference()}`;
 
       const tableText = response || "No table generated.";
       const rows = parseSynthesisTable(tableText);
+      if (rows.length === 0) {
+        // Local fallback: build rows from extracted data when AI/table parsing fails.
+        const localRows = selected.map((p, i) => ({
+          id: `synth-local-${i}`,
+          reference: `${p.authors || "Unknown"} (${p.year})`,
+          year: String(p.year || ""),
+          setting: p.journal || "—",
+          population: p.abstract ? "See abstract" : "—",
+          intervention: "—",
+          comparison: "—",
+          outcome: p.outcome || "—",
+          sampleSize: p.sampleSize || "—",
+          effectEstimate: p.effectEstimate || "—",
+          riskRatio: "—",
+          studyType: p.studyType || "—",
+          researchGaps: p.researchGaps || "—",
+        }));
+        setSynthesisTable(localRows);
+        setPipelineStep(2);
+        return;
+      }
       setSynthesisTable(rows);
       setPipelineStep(2);
     } catch (err: any) {
@@ -2219,7 +2244,23 @@ ${buildReportingToolReference()}`;
 
       const apiKey = state.geminiApiKey || state.groqApiKey;
       if (!apiKey) {
-        setStormDraft("# STORM Draft\n\nNo API key configured. Please add your Gemini or Groq API key in Settings to generate the STORM research-paper draft.\n\n## References\n\n1. Page MJ, McKenzie JE, Bossuyt PM, et al. The PRISMA 2020 statement. BMJ. 2021;372:n71.\n");
+        // Local fallback so STORM drafts are always generable without an API key.
+        const localPapers = extractedData.filter((p) => selectedPaperIds.has(p.id));
+        const localReview = generateLocalLiteratureReview(
+          localPapers.map((p: any) => ({
+            authors: p.authors || "Unknown authors",
+            year: typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || new Date().getFullYear(),
+            title: p.title || "Untitled",
+            journal: p.journal || "Unknown journal",
+            abstract: p.abstract || "",
+            doi: p.doi || undefined,
+            studyType: p.studyType || "Observational Study",
+            database: p.database || "Unknown",
+          })),
+          query || "the research topic",
+          { enableRobustReview: true }
+        );
+        setStormDraft(`# STORM Research Paper Draft (Local Generation)\n\nGenerated without an API key using the deterministic local synthesis engine.\n\n---\n\n${localReview}`);
         setStormLoading(false);
         return;
       }
@@ -2768,9 +2809,16 @@ ${stormReview}
             onStudyTypeFilterChange={setStudyTypeFilter}
             onSearch={handleSearch}
             onProceed={() => {
+              // Auto-select all papers with abstracts when none are manually
+              // selected, so every abstract/full-text record moves to step 3.
+              let idsToSelect = selectedPaperIds;
               if (selectedPaperIds.size === 0) {
-                setSearchError("Select at least one paper before proceeding to extraction.");
-                return;
+                idsToSelect = new Set(papers.filter((p) => (p.abstract || "").trim().length > 0).map((p) => p.id));
+                if (idsToSelect.size === 0) {
+                  setSearchError("No papers with abstracts found. Please search again or widen the year range.");
+                  return;
+                }
+                setSelectedPaperIds(idsToSelect);
               }
               setSearchError(null);
               setPipelineStep(2);
