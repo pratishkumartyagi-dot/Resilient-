@@ -917,3 +917,16 @@ export function generateLitLLMSynthesis(
 
   return standardOutput;
 }
+
+export function enrichResearchGaps(synthesis: SynthesisRow[], papers: { abstract?: string; studyType?: string }[]): SynthesisRow[] {
+  return synthesis.map((row, i) => {
+    const paper = papers[i];
+    if (!paper) return row;
+    const local = extractResearchGaps(paper.abstract || "", paper.studyType || "");
+    // preserve future work from AI if present and not standard
+    const aiFuture = (row.researchGaps || "").match(/Future Work \/ Recommendations:([\s\S]*)/)?.[1]?.trim();
+    const future = aiFuture && aiFuture.length > 20 ? aiFuture : local.match(/Future Work \/ Recommendations:([\s\S]*)/)?.[1]?.trim() || "";
+    const limitationsPart = local.split("\n\nFuture Work")[0];
+    return { ...row, researchGaps: `${limitationsPart}\n\nFuture Work / Recommendations: ${future}` };
+  });
+}

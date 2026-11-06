@@ -5,7 +5,7 @@ import { Download, FileUp, Sparkles, Trash2, ChevronDown, FileText, AlertCircle,
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
 import { buildStep3Prompt } from "@/lib/research-skills";
-import { generateLocalSynthesis, type SynthesisRow } from "@/lib/local-synthesis";
+import { generateLocalSynthesis, type SynthesisRow, enrichResearchGaps } from "@/lib/local-synthesis";
 import type { AICallOptions } from "@/lib/ai";
 
 const MAX_EXTRACT_CHARS = 8000;
@@ -88,16 +88,16 @@ export default function Step3Synthesis() {
         synthesis = await generateLocalSynthesis(filteredPapers);
       }
 
-      dispatch({ type: "SET_SYNTHESIS", payload: synthesis });
-      setLocalSynthesis(synthesis);
+      dispatch({ type: "SET_SYNTHESIS", payload: enrichResearchGaps(synthesis, filteredPapers) });
+      setLocalSynthesis(enrichResearchGaps(synthesis, filteredPapers));
     } catch (err: any) {
       console.error("Synthesis generation failed:", err);
       const message = err.message || "Failed to generate synthesis table.";
       setError(message + " — showing partial result.");
       try {
         const synthesis = await generateLocalSynthesis(filteredPapers);
-        dispatch({ type: "SET_SYNTHESIS", payload: synthesis });
-        setLocalSynthesis(synthesis);
+        dispatch({ type: "SET_SYNTHESIS", payload: enrichResearchGaps(synthesis, filteredPapers) });
+        setLocalSynthesis(enrichResearchGaps(synthesis, filteredPapers));
       } catch {
         dispatch({ type: "SET_SYNTHESIS", payload: [] });
         setLocalSynthesis([]);
