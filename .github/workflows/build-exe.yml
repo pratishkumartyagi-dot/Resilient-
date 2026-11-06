@@ -38,18 +38,22 @@ jobs:
           which paper-search-mcp
         shell: bash
 
-      - name: Install dependencies (npm)
-        run: npm ci
-        shell: bash
+      - name: Install dependencies (bun)
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
 
       - name: Build Next.js app
-        run: npm run build
+        run: bun run build
         shell: bash
         env:
           NEXT_TELEMETRY_DISABLED: "1"
 
       - name: Package Electron app
-        run: npm run dist:win
+        run: bun run dist:win
         shell: bash
         env:
           NEXT_TELEMETRY_DISABLED: "1"
@@ -60,7 +64,7 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
 
       - name: List artifacts
-        run: Get-ChildItem -Path dist -Recurse -File | Select-Object Name, Length, FullName
+        run: Get-ChildItem -Path dist-electron -Recurse -File | Select-Object Name, Length, FullName
         shell: pwsh
 
       - name: Upload Windows installer
@@ -68,8 +72,8 @@ jobs:
         with:
           name: Resilient-Research-App-Windows
           path: |
-            dist/*.exe
-            dist/*.nsis*
+            dist-electron/*.exe
+            dist-electron/*.nsis*
           retention-days: 30
 
       - name: Create GitHub Release
@@ -77,7 +81,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/*.exe
+            dist-electron/*.exe
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

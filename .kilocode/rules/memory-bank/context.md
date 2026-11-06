@@ -464,6 +464,15 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
   - [x] **Automated SLR — Select-all toggle + AI bias**: Added "Select All → Include" toggle in Step 4 screening. Step 6 Quality Assessment now runs automated AI bias assessment (Robtreviewer/Robvis style) with RoB-2/NOS/AMSTAR-2/QUADAS-2 frameworks, with manual override per paper.
   - [x] Verified: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
 
+- [x] **Research Pipeline + Evidence Synthesis fixes (2026-11-06)**
+  - [x] Fixed `fetchPubMedBrowserless` double-expansion bug: when `keywordExtract` was enabled, the route already sent a concept-expanded PubMed query as `ctx.query`, but the fetcher re-applied `buildConceptAwareTerm`/`buildDatabaseSearch`, mangling field tags into double-tagged garbage that PubMed rejected (0 results → "PubMed failing"). Now `fetchPubMedBrowserless` detects already-field-tagged queries and passes them through unchanged. (`src/lib/database-apis.ts`)
+  - [x] Fixed `fetchCrossref` crash on non-JSON proxy response: switched from `httpJson` (which calls `JSON.parse` and throws on non-JSON) to `httpText` with manual `JSON.parse` + graceful fallback to empty items. (`src/lib/database-apis.ts`)
+  - [x] Auto-select all papers with abstracts when proceeding from Step 1 → Step 2 in `EvidenceSynthesisTab.tsx`, so every abstract/full-text record moves to step 3 instead of only manually-checked ones.
+  - [x] Added local fallback to `generateStormDraft` (no API key) using `generateLocalLiteratureReview`, so STORM drafts are always generable. (`src/components/tabs/EvidenceSynthesisTab.tsx`)
+  - [x] Added local fallback to `generateSynthesisTable` when AI/table parsing fails. (`src/components/tabs/EvidenceSynthesisTab.tsx`)
+  - [x] Added `outcome`, `sampleSize`, `effectEstimate`, `researchGaps` optional fields to `Paper` interface. (`src/lib/database-apis.ts`)
+  - [x] Verified: `bun typecheck` ✅, `bun lint` ✅.
+
 ## Research Pipeline — Themes Grounded in Synthesis Table + Per-Style References + OpenDraft Report (2026-10-25)
 
 - [x] **Step 5 Generate Themes no longer ships a hard-coded demo set**: `src/components/steps/Step5Themes.tsx` `generateMockThemes()` now takes `synthesisTable` and derives themes from each row's `researchGaps` field (Limitations / Contradictions / Exclusions / Gaps + Future Work / Recommendations). Falls back to a single "no research-gap data" theme when the synthesis table is empty, instead of the previous LTBI-specific demo themes. `bun typecheck` ✅, `bun lint` ✅.
