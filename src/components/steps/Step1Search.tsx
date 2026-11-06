@@ -95,8 +95,8 @@ export default function Step1Search() {
   const [titleFilter, setTitleFilter] = useState("");
   const [perDatabaseResults, setPerDatabaseResults] = useState<PerDatabaseRow[]>([]);
   const [citationCounts, setCitationCounts] = useState<{ verified: number; unverified: number; noDoi: number }>({ verified: 0, unverified: 0, noDoi: 0 });
-  const [resultLimit, setResultLimit] = useState(200);
-  const [searchBudget, setSearchBudget] = useState(30);
+  const [resultLimit, setResultLimit] = useState(500);
+  const [searchBudget, setSearchBudget] = useState(60);
   const [semanticSearch, setSemanticSearch] = useState(false);
   const [searchFailed, setSearchFailed] = useState(false);
   const [webFallbackBusy, setWebFallbackBusy] = useState(false);

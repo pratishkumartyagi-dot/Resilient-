@@ -1645,54 +1645,6 @@ export async function fetchCochraneLibrary(query: string, yearFrom?: string, yea
   return papers;
 }
 
-/* ------------------------ paper-search-mcp ------------------------- */
-
-export async function fetchPaperSearchMcp(query: string, source: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
-  const base =
-    typeof window !== "undefined"
-      ? ""
-      : process.env.PAPER_SEARCH_API_BASE ||
-        (process.env.PORT ? `http://127.0.0.1:${process.env.PORT}` : "http://127.0.0.1:3000");
-
-  if (!base) {
-    throw new HttpError("paper-search-mcp bridge is not reachable from the browser context");
-  }
-
-  const res = await httpRequest(`${base}/api/paper-search-mcp`, {
-    method: "POST",
-    timeoutMs: 60000,
-    retries: 1,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query, source, maxResults: limit ?? UNLIMITED, yearFrom, yearTo, studyType }),
-  });
-
-  const data: any = await res.json();
-  const papers: Paper[] = (data.papers || []).map((p: any) => {
-    const title = p.title || "Untitled";
-    const abstract = truncate(stripTags(p.abstract || ""));
-    return {
-      id: p.id || `mcp-${Math.random().toString(36).slice(2, 8)}`,
-      title,
-      authors: p.authors || "Unknown authors",
-      journal: p.journal || p.source || "paper-search-mcp",
-      year: p.year || new Date().getFullYear(),
-      doi: p.doi || "",
-      abstract,
-      database: p.source || "paper-search-mcp",
-      studyType: p.studyType || classifyStudyType(title, abstract),
-      selected: false,
-      url: p.url || (p.doi ? `https://doi.org/${p.doi}` : ""),
-      sourceBackend: "paper-search-mcp",
-      sources: p.source ? [p.source] : ["paper-search-mcp"],
-    };
-  });
-
-  void yearFrom;
-  void yearTo;
-  void studyType;
-  return papers;
-}
-
 /* ------------------------------------------------------------------ */
 /* Database registry + orchestration                                   */
 /* ------------------------------------------------------------------ */
@@ -1832,16 +1784,7 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     requiresKey: "TAVILY_API_KEY",
     search: (ctx) => fetchCochraneLibrary(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
   },
-  {
-    id: "paper-search-mcp",
-    label: "paper-search-mcp",
-    url: "https://github.com/openags/paper-search-mcp",
-    description: "Local paper-search-mcp bridge — 20+ academic sources via MCP (arXiv, PubMed, Europe PMC, Crossref, OpenAlex, Semantic Scholar, Zenodo, etc.)",
-    disabled: false,
-    search: (ctx) => fetchPaperSearchMcp(ctx.query, "all", ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
-  },
 ];
-
 export const DATABASE_IDS = DATABASE_DEFINITIONS.map((d) => d.id);
 
 /**
@@ -2050,11 +1993,6 @@ export function getOpenClawSkillDatabaseMapping(): Array<{ skill: string; suppor
       skill: "literature-review",
       supportedDatabases: ["PubMed", "OpenAlex", "Europe PMC", "Google Scholar", "Semantic Scholar", "arXiv", "bioRxiv", "medRxiv"],
       notes: "All sources are queried through their public REST APIs in src/lib/database-apis.ts",
-    },
-    {
-      skill: "paper-search-mcp",
-      supportedDatabases: ["arXiv", "PubMed", "bioRxiv", "medRxiv", "Semantic Scholar", "Crossref", "OpenAlex", "Europe PMC", "DOAJ", "Zenodo"],
-      notes: "Optional local bridge; requires the paper-search-mcp binary to be installed",
     },
     {
       skill: "biomedical-search",
