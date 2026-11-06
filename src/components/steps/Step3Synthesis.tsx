@@ -88,16 +88,18 @@ export default function Step3Synthesis() {
         synthesis = await generateLocalSynthesis(filteredPapers);
       }
 
-      dispatch({ type: "SET_SYNTHESIS", payload: enrichResearchGaps(synthesis, filteredPapers) });
-      setLocalSynthesis(enrichResearchGaps(synthesis, filteredPapers));
+      const enriched = enrichResearchGaps(synthesis, filteredPapers);
+      dispatch({ type: "SET_SYNTHESIS", payload: enriched });
+      setLocalSynthesis(enriched);
     } catch (err: any) {
       console.error("Synthesis generation failed:", err);
       const message = err.message || "Failed to generate synthesis table.";
       setError(message + " — showing partial result.");
       try {
         const synthesis = await generateLocalSynthesis(filteredPapers);
-        dispatch({ type: "SET_SYNTHESIS", payload: enrichResearchGaps(synthesis, filteredPapers) });
-        setLocalSynthesis(enrichResearchGaps(synthesis, filteredPapers));
+        const enriched = enrichResearchGaps(synthesis, filteredPapers);
+        dispatch({ type: "SET_SYNTHESIS", payload: enriched });
+        setLocalSynthesis(enriched);
       } catch {
         dispatch({ type: "SET_SYNTHESIS", payload: [] });
         setLocalSynthesis([]);
