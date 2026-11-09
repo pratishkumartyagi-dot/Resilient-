@@ -476,6 +476,15 @@ interface FetchContext {
   yearTo?: string;
   studyType?: string;
   limit: number;
+  /** When true the caller wants a scispacy-style concept-aware term built
+   *  from the natural-language query (MeSH headings + synonyms OR-ed per
+   *  concept, concepts AND-ed) instead of a raw boolean query. */
+  keywordExtract?: boolean;
+  /** When true the query has been broadened with MeSH/ATM expansion and
+   *  boolean operators have been stripped. */
+  semanticSearch?: boolean;
+  /** "boolean" | "semantic" | "natural" — how the caller wants the term built. */
+  queryMode?: "boolean" | "semantic" | "natural";
 }
 
 function yearFilterForApi(from?: string, to?: string): string {
@@ -614,6 +623,39 @@ export function buildConceptAwareTerm(query: string, options: { studyType?: stri
     term = `(${term}) AND ("${from}"[Date - Publication] : "${to}"[Date - Publication])`;
   }
   return term;
+}
+
+/**
+ * Resolve the effective PubMed term from a FetchContext.
+ *
+ * This is the single decision point for how a natural-language question is
+ * turned into a PubMed query. The route/server decides the mode and the
+ * fetcher just follows it:
+ *  - "boolean"  — the caller already wrote a boolean query; pass through.
+ *  - "semantic" — MeSH/ATM expansion with boolean operators stripped.
+ *  - "natural" / keywordExtract — scispacy-style concept-aware term.
+ *
+ * Previously each fetcher re-derived the mode from the raw query string, so a
+ * route that had already decided "keyword extract" was ignored and PubMed fell
+ * back to AND-ing every content word — which silently returned 0 results.
+ */
+export function resolveEffectiveTerm(ctx: FetchContext): string {
+  const query = ctx.query || "";
+  const isBoolean = /\b(AND|OR|NOT)\b/i.test(query) || /[\(\)]/.test(query);
+  const opts = { yearFrom: ctx.yearFrom, yearTo: ctx.yearTo, studyType: ctx.studyType };
+
+  if (ctx.queryMode === "boolean" || (ctx.queryMode === undefined && isBoolean)) {
+    return buildDatabaseSearch("PubMed", query, opts).term;
+  }
+  if (ctx.queryMode === "semantic" || ctx.semanticSearch) {
+    const mesh = expandQueryWithMesh(query);
+    return (mesh.expandedQuery || query)
+      .replace(/\b(AND|OR|NOT)\b/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim() || query;
+  }
+  // natural / keyword extract
+  return buildConceptAwareTerm(query, opts);
 }
 
 /** Builds the search string for one database from the research question. */
@@ -771,24 +813,20 @@ function buildStudyTypeFilter(studyType?: string): string | null {
   return STUDY_TYPE_FILTERS[studyType] || null;
 }
 
-export async function fetchPubMedBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
-  const maxResults = limit ?? UNLIMITED;
+export async function fetchPubMedBrowserless(ctx: FetchContext): Promise<Paper[]> {
+  const query = ctx.query || "";
+  const maxResults = ctx.limit ?? UNLIMITED;
   const apiKey = process.env.NCBI_API_KEY || process.env.PUBMED_API_KEY;
   const toolParams = new URLSearchParams({ db: "pubmed", retmode: "json", sort: "relevance" });
   if (apiKey) toolParams.set("api_key", apiKey);
   toolParams.set("tool", "resilient_research_app");
   toolParams.set("email", CONTACT_EMAIL);
 
-// PubMed scheme: MeSH + [Title/Abstract] + publication-type and date filters.
-  // Natural-language questions go through the scispacy-style concept extractor
-  // (MeSH headings + synonyms OR-ed per concept, concepts AND-ed) so a query
-  // like "effect of diabetes on kidney function in patients" no longer ANDs
-  // every content word — which previously returned 0 results. Explicit boolean
-  // queries are passed through unchanged.
-  const isBooleanQuery = /\b(AND|OR|NOT)\b/i.test(query) || /[\(\)]/.test(query);
-  const term = isBooleanQuery
-    ? buildDatabaseSearch("PubMed", query, { yearFrom, yearTo, studyType }).term
-    : buildConceptAwareTerm(query, { yearFrom, yearTo, studyType });
+  // PubMed scheme: MeSH + [Title/Abstract] + publication-type and date filters.
+  // The route/server now decides how the natural-language question is turned
+  // into a PubMed query (semantic / keyword-extract / boolean) and the
+  // fetcher just follows that decision — see resolveEffectiveTerm.
+  const term = resolveEffectiveTerm(ctx);
   toolParams.set("term", term);
 
   // esearch is paged with retstart because NCBI caps a single esearch at
@@ -901,7 +939,9 @@ async function fetchEuropePmcQuery(
 ): Promise<Paper[]> {
   // Europe PMC scheme: quoted terms ORed/ANDed with the TITLE and ABST
   // fields, plus the date range and (for preprints) the source filter.
-  const translated = buildDatabaseSearch(label, query, {
+  // The route/server decides how the natural-language question is turned into
+  // a query (semantic / keyword-extract / boolean) and the fetcher follows it.
+  const translated = buildDatabaseSearch(label, resolveEffectiveTerm(ctx), {
     yearFrom: ctx.yearFrom,
     yearTo: ctx.yearTo,
   });
