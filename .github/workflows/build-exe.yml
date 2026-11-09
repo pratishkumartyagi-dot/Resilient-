@@ -8,6 +8,12 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: write
+  actions: read
+  pull-requests: read
+  issues: read
+
 jobs:
   build-windows:
     runs-on: windows-latest
