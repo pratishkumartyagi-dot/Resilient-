@@ -562,6 +562,7 @@ function quote(term: string): string {
  * whether it is required, and the expanded MeSH/synonym terms to OR together.
  */
 import { extractConceptsLocally, enrichConcepts } from "./concept-extraction";
+import { expandQueryWithMesh } from "./mesh-expansion";
 
 export interface ExtractedConcept {
   id: string;
@@ -925,7 +926,6 @@ export async function fetchPubMedBrowserless(ctx: FetchContext): Promise<Paper[]
     }
   }
 
-  void studyType;
   return capResults(papers, maxResults);
 }
 
@@ -1760,7 +1760,7 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "PubMed",
     url: "https://pubmed.ncbi.nlm.nih.gov/",
     description: "NLM E-utilities search over MEDLINE/PMC (NCBI_API_KEY only raises the request rate)",
-    search: (ctx) => fetchPubMedBrowserless(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit),
+    search: (ctx) => fetchPubMedBrowserless(ctx),
   },
   {
     id: "OpenAlex",
