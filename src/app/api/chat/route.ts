@@ -88,12 +88,17 @@ export async function POST(request: NextRequest) {
     }
 
     if (provider === "gemini") {
-       const url = `https://generativelanguage.googleapis.com/v1/models/gemini-3.1-flash-lite:generateContent?key=${encodeURIComponent(apiKey)}`;
-       const res = await fetchWithTimeout(url, {
-         method: "POST",
-         headers: { "Content-Type": "application/json" },
-         body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: finalPrompt }] }] }),
-       });
+        const res = await fetchWithTimeout(
+          `https://generativelanguage.googleapis.com/v1/models/gemini-3.1-flash-lite:generateContent`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-goog-api-key": apiKey,
+            },
+            body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: finalPrompt }] }] }),
+          }
+        );
 
        if (!res.ok) {
          const text = await res.text();
