@@ -1,5 +1,23 @@
 # Active Context: Resilient Researcher Assistant
 
+## Step 1 research pipeline audit — zero results across most databases (2026-11-10)
+
+### Root cause
+Commit `58f0f0c` ("feat(db): implement explicit query mode resolution") made `fetchEuropePmcQuery` call `resolveEffectiveTerm(ctx)` — a PubMeD-specific term builder that emits `[Title/Abstract]` / `[MeSH Terms]` field tags — and pipe that PubMeD syntax into `buildDatabaseSearch("Europe PMC", ...)`. Europe PMC / bioRxiv / medRxiv cannot parse PubMeD field syntax, so they returned zero results. Separately, the `/api/literature-search` route pre-baked a PubMeD-specific concept-aware term (`buildConceptAwareTerm`) and broadcast it as `ctx.query` to *every* database. Since `keywordExtract` defaults to `true` in `EvidenceSynthesisTab.tsx`, OpenAlex / Crossref / arXiv / DOAJ / OpenAIRE / Zenodo / ClinicalTrials.gov all received unparseable PubMeD syntax and returned zero results — "most databases returning zero results."
+
+### Fixes in `src/lib/database-apis.ts`
+- `fetchEuropePmcQuery` now uses the passed `query` parameter directly (`buildDatabaseSearch(label, query, ...)`) instead of `resolveEffectiveTerm(ctx)`, so Europe PMC / bioRxiv / medRxiv receive scheme-appropriate Europe PMC syntax.
+- `SearchOptions` gained a `queryMode?: "boolean" | "semantic" | "natural"` hint, threaded through `searchDatabases()` into the `FetchContext`.
+
+### Fixes in `src/app/api/literature-search/route.ts`
+- The route no longer broadcasts the PubMeD `keywordExpandedQuery` to all databases as `effectiveQuery`. It keeps the raw query and signals `queryMode` (`semantic` / `natural`) so only PubMed's `resolveEffectiveTerm` performs concept extraction / mesh expansion; every other database builds its own scheme term via `buildDatabaseSearch`.
+- `keywordExpandedQuery` is still computed for the `keywordExtraction.expandedQuery` audit-trail payload.
+- `bun typecheck` ✅, `bun lint` ✅.
+
+### Version + build
+- `package.json` version bumped 0.7.2 → **0.7.4**.
+- Windows build produced `dist-electron/win-unpacked/Resilient Research App.exe` (valid PE `MZ` header, ~245 MB). Electron-builder NSIS/portable installers were not re-finalized because the build command hit the sandbox per-command time cap; the unpacked `.exe` is complete.
+
 ## Step 1 research pipeline audit — why databases were not searching papers (2026-11-03)
 
 ### Root cause

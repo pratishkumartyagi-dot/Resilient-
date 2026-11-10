@@ -100,20 +100,40 @@ export async function POST(request: Request) {
     const meshExpandedQuery = meshResult.expandedQuery || query;
 
     // Keyword-extract mode (scispacy-style): recognise the concepts in the
-    // natural-language question and build a librarian-style PubMed/Europe PMC
-    // query from them (MeSH headings + synonyms OR-ed per concept, concepts
-    // AND-ed). This is what turns "effect of diabetes on kidney function in
-    // patients" into a query that actually returns records.
+    // natural-language question and build a librarian-style PubMed query from
+    // them (MeSH headings + synonyms OR-ed per concept, concepts AND-ed). This
+    // is computed for the audit trail below; the raw query is still sent to the
+    // fetchers so that only PubMed resolves the term internally (see
+    // resolveEffectiveTerm) and non-PubMed databases build their own
+    // scheme-appropriate term via buildDatabaseSearch.
     const keywordConcepts = keywordExtract ? extractSearchConcepts(query) : [];
     const keywordExpandedQuery = keywordConcepts.length > 0
       ? buildConceptAwareTerm(query, { yearFrom, yearTo, studyType })
       : buildDatabaseSearch("PubMed", query, { yearFrom, yearTo, studyType }).term;
 
-    const effectiveQuery = semanticSearch
-      ? meshExpandedQuery.replace(/\b(AND|OR|NOT)\b/gi, " ").replace(/\s+/g, " ").trim() || meshExpandedQuery
-      : keywordExtract
-        ? keywordExpandedQuery
-        : query;
+    // Only PubMed resolves the search term internally (resolveEffectiveTerm
+    // applies concept extraction / mesh expansion). Every other database
+    // receives the raw effective query and builds its own scheme-appropriate
+    // term via buildDatabaseSearch. Previously the PubMeD-specific
+    // keywordExpandedQuery (with [Title/Abstract] / [MeSH Terms] field tags)
+    // was broadcast as ctx.query to every database, which made OpenAlex,
+    // Crossref, arXiv, DOAJ, OpenAIRE, Zenodo and ClinicalTrials.gov return
+    // zero results because none of them parse PubMeD field syntax.
+    let queryMode: "boolean" | "semantic" | "natural" | undefined;
+    let effectiveQuery = query;
+
+    if (semanticSearch) {
+      queryMode = "semantic";
+      effectiveQuery = meshExpandedQuery.replace(/\b(AND|OR|NOT)\b/gi, " ").replace(/\s+/g, " ").trim() || meshExpandedQuery;
+    } else if (keywordExtract) {
+      queryMode = "natural";
+      // Keep the raw query: PubMed's resolveEffectiveTerm performs concept
+      // extraction internally and produces the same keywordExpandedQuery above.
+      effectiveQuery = query;
+    }
+    // Otherwise raw / boolean query: boolean detection happens inside
+    // resolveEffectiveTerm for PubMed; other databases build their scheme term
+    // from the raw query.
 
     const dbsToSearch = databases.length > 0 ? databases : DEFAULT_DATABASES;
 
@@ -124,6 +144,7 @@ export async function POST(request: Request) {
       studyType,
       limitPerDatabase: maxResults,
       timeoutMs,
+      queryMode,
     });
 
     const papers = outcome.papers;

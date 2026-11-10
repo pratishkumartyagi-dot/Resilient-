@@ -57,6 +57,12 @@ export interface SearchOptions {
   limitPerDatabase?: number;
   /** Overall wall-clock budget for the whole multi-database search. */
   timeoutMs?: number;
+  /** Search strategy hint. Only PubMed resolves the term internally
+   *  (resolveEffectiveTerm applies concept extraction / mesh expansion);
+   *  every other database builds its own scheme-appropriate term from the
+   *  raw query via buildDatabaseSearch. Broadcasting a PubMeD-specific
+   *  concept-aware term to all databases made most of them return zero. */
+  queryMode?: "boolean" | "semantic" | "natural";
 }
 
 const STUDY_TYPE_KEYWORDS: Record<string, string[]> = {
@@ -939,9 +945,13 @@ async function fetchEuropePmcQuery(
 ): Promise<Paper[]> {
   // Europe PMC scheme: quoted terms ORed/ANDed with the TITLE and ABST
   // fields, plus the date range and (for preprints) the source filter.
-  // The route/server decides how the natural-language question is turned into
-  // a query (semantic / keyword-extract / boolean) and the fetcher follows it.
-  const translated = buildDatabaseSearch(label, resolveEffectiveTerm(ctx), {
+  // The route/server decides the search strategy (queryMode) and the fetcher
+  // builds its own scheme-appropriate term from the passed query via
+  // buildDatabaseSearch. resolveEffectiveTerm is PubMeD-specific (it emits
+  // [Title/Abstract] / [MeSH Terms] field tags) and must NOT be applied to
+  // Europe PMC — previously it made Europe PMC, bioRxiv and medRxiv return
+  // zero results because Europe PMC cannot parse PubMeD field syntax.
+  const translated = buildDatabaseSearch(label, query, {
     yearFrom: ctx.yearFrom,
     yearTo: ctx.yearTo,
   });
@@ -1993,6 +2003,7 @@ export async function searchDatabases(databases: string[], options: SearchOption
           yearTo: options.yearTo,
           studyType: options.studyType,
           limit,
+          queryMode: options.queryMode,
         }),
         perDatabaseTimeout,
         `${definition.label} search timed out after ${(perDatabaseTimeout / 1000).toFixed(0)}s`
