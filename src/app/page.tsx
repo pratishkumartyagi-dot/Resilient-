@@ -120,6 +120,14 @@ function AppContent() {
     return () => window.removeEventListener("open-slr", onOpenSLR);
   }, [dispatch]);
 
+  // Header dispatches "open-master-review" to switch directly to the Master Review
+  // workspace (14-stage systematic review pipeline in the Evidence Synthesis tab).
+  useEffect(() => {
+    const onOpenMasterReview = () => dispatch({ type: "SET_TAB", payload: "systematic" });
+    window.addEventListener("open-master-review", onOpenMasterReview);
+    return () => window.removeEventListener("open-master-review", onOpenMasterReview);
+  }, [dispatch]);
+
   return (
     <div className="min-h-screen flex flex-col bg-[#0f172a]">
       <Header />

@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
-import { Settings, BookOpen, Microscope, ClipboardCheck, Cpu } from "lucide-react";
+import { Settings, BookOpen, Microscope, ClipboardCheck, Cpu, FileText } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { APP_VERSION } from "@/lib/version";
 import type { AiFallbackEvent } from "@/lib/ai";
@@ -91,6 +91,17 @@ export default function Header() {
             title="Automated SLR"
           >
             <Microscope size={20} />
+          </button>
+          <button
+            onClick={() => {
+              const event = new CustomEvent("open-master-review");
+              window.dispatchEvent(event);
+            }}
+            className="p-2 rounded-lg bg-violet-900/40 text-violet-300 hover:bg-violet-900/60"
+            title="Master Review"
+            aria-label="Master Review"
+          >
+            <FileText size={20} />
           </button>
           <button
             onClick={() => {
