@@ -10,6 +10,7 @@ import {
   AlertCircle,
   Loader2,
   Copy,
+  ExternalLink,
 } from "lucide-react";
 import { useApp, type Paper } from "@/context/AppContext";
 import {
@@ -329,6 +330,14 @@ export default function Step2Results() {
     );
   };
 
+  /** Resolve a clickable web URL for a paper — DOI preferred, then stored url. */
+  const paperWebLink = (paper: Paper): string | null => {
+    if (paper.doi) return `https://doi.org/${paper.doi}`;
+    if (paper.url && /^https?:\/\//i.test(paper.url)) return paper.url;
+    if (paper.pmid) return `https://pubmed.ncbi.nlm.nih.gov/${paper.pmid}/`;
+    return null;
+  };
+
   return (
     <div className="space-y-6">
       <div className="bg-[#0d1b3e] border border-blue-900/50 rounded-lg p-6 shadow">
@@ -473,6 +482,21 @@ export default function Step2Results() {
                                 {paper.studyType}
                               </span>
                               {getCitationBadge(paper)}
+                              {(() => {
+                                const link = paperWebLink(paper);
+                                return link ? (
+                                  <a
+                                    href={link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="text-[10px] bg-emerald-900/40 text-emerald-300 px-1.5 py-0.5 rounded flex items-center gap-0.5 hover:bg-emerald-900/60"
+                                    title={`Verify on the web: ${link}`}
+                                  >
+                                    <ExternalLink size={9} /> on web
+                                  </a>
+                                ) : null;
+                              })()}
                               {otherSources.length > 0 && (
                                 <span
                                   className="text-[10px] bg-indigo-900/40 text-indigo-300 px-2 py-0.5 rounded"

@@ -114,6 +114,29 @@ function stripQuotesAndFences(text: string): string {
     .trim();
 }
 
+/**
+ * Detects whether a paper record originates from a GitHub / code-hosting
+ * resource rather than a peer-reviewed or scholarly database. Such records
+ * (repos, preprint mirrors, code snippets) are excluded from the literature
+ * review so only citable scholarly sources feed the synthesis.
+ */
+function isGitHubResource(p: {
+  database?: string;
+  url?: string;
+  title?: string;
+  journal?: string;
+}): boolean {
+  const db = (p.database || "").toLowerCase();
+  if (/github|gitlab|bitbucket|sourceforge|codeberg|code\.com|repo|repository/i.test(db)) return true;
+  const url = (p.url || "").toLowerCase();
+  if (/github\.com|gitlab\.com|bitbucket\.org|sourceforge\.net/i.test(url)) return true;
+  const title = (p.title || "").toLowerCase();
+  const journal = (p.journal || "").toLowerCase();
+  if (/github|gitlab|bitbucket|repository|repo\b/i.test(title)) return true;
+  if (/github|gitlab|bitbucket|repository|repo\b/i.test(journal)) return true;
+  return false;
+}
+
 interface DeepReasoningEntry {
   paperIndex: number;
   reference: string;
@@ -257,10 +280,14 @@ export default function Step4LiteratureReview() {
   const [copied, setCopied] = useState(false);
   const [deepReasoning, setDeepReasoning] = useState<string>("");
   const [deepReasoningLoading, setDeepReasoningLoading] = useState(false);
+  const [openNotebookMode, setOpenNotebookMode] = useState(false);
 
-  const selectedPapers = useMemo(() => state.papers.filter((p) => p.selected), [
-    state.papers,
-  ]);
+  // GitHub / code-hosting resources are excluded from the literature review so
+  // only citable scholarly sources feed the synthesis and references.
+  const selectedPapers = useMemo(
+    () => state.papers.filter((p) => p.selected && !isGitHubResource(p)),
+    [state.papers],
+  );
   const studyCount = state.synthesisTable.length > 0 ? state.synthesisTable.length : selectedPapers.length;
 
   // Section 6 — References auto-populated from the evidence synthesis table's
@@ -268,6 +295,7 @@ export default function Step4LiteratureReview() {
   const referencesText = useMemo(() => {
     if (state.synthesisTable.length > 0) {
       return state.synthesisTable
+        .filter((r) => !isGitHubResource({ title: r.reference }))
         .map((r, i) => `${i + 1}. ${r.reference}`)
         .join("\n");
     }
@@ -299,10 +327,58 @@ export default function Step4LiteratureReview() {
     [state.searchQuery]
   );
 
+  const buildOpenNotebookPrompt = useCallback(
+    (
+      meta: SectionMeta,
+      synthesisRows: { reference: string; keyFindings: string; synopsis: string; studyDetails: string; researchGaps: string }[],
+      deepReasoning: string,
+      query: string,
+    ): string => {
+      const evidence = synthesisRows
+        .map(
+          (r, i) =>
+            `[${i + 1}] Reference: ${r.reference}
+   Key findings: ${r.keyFindings}
+   Synopsis: ${r.synopsis}
+   Study conducted: ${r.studyDetails}
+   Research gaps: ${r.researchGaps}`,
+        )
+        .join("\n\n");
+
+      return `You are an expert evidence-synthesis researcher working in an OPEN-NOTEBOOK style (https://github.com/lfnovo/open-notebook). You perform comprehensive, cross-paper reasoning before writing any section.
+
+RESEARCH TOPIC: ${query || "the research topic"}
+
+EVIDENCE SYNTHESIS TABLE (Step 3 — single source of truth; cite ONLY these studies by their bracketed number):
+${evidence}
+
+DEEP REASONING / CROSS-PAPER ANALYSIS (notebook-style — your analytical foundation):
+${deepReasoning}
+
+OPEN-NOTEBOOK WORKFLOW:
+1. Before writing, reason about how the studies in the table relate to one another — where they agree, where they diverge, what methods they share, what populations they miss.
+2. Every claim you make must be traceable to a specific synthesis-table row. Cite inline using Vancouver-style bracketed numbers, e.g. "[1]", "[2,3]". Aim for 3-8 citations per paragraph.
+3. Write in a publication-ready, comprehensive narrative style. Use subheadings (###) to organize content.
+4. Do NOT include a reference list — Section 6 is auto-filled from the Vancouver reference column.
+
+SECTION TO WRITE: ${meta.number}. ${meta.title}
+SECTION FOCUS: ${meta.blurb}
+SUBHEADINGS TO USE: ${meta.subheadings.join("\n")}
+
+TASK: Write 8-12 substantial paragraphs for this section. Ground every claim in the deep-reasoning analysis and cite the synthesis table inline using Vancouver-style bracketed numbers. Be comprehensive, analytical, and publication-ready.`;
+    },
+    [],
+  );
+
   // Evidence synthesis table used as the single source of truth for every section.
+  // GitHub / code-hosting resources are excluded so only citable scholarly
+  // sources feed the review text.
   const evidenceBase = useMemo(() => {
-    if (state.synthesisTable.length > 0) {
-      return state.synthesisTable
+    const rows = state.synthesisTable.length > 0
+      ? state.synthesisTable.filter((r) => !isGitHubResource({ title: r.reference }))
+      : selectedPapers;
+    if (rows.length > 0 && "reference" in rows[0]) {
+      return (rows as typeof state.synthesisTable)
         .map((r, i) => {
           return `${i + 1}. ${r.reference}
    Key findings: ${r.keyFindings}
@@ -312,7 +388,7 @@ export default function Step4LiteratureReview() {
         })
         .join("\n\n");
     }
-    return selectedPapers
+    return (rows as typeof selectedPapers)
       .map(
         (p, i) =>
           `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal}.${
@@ -320,7 +396,7 @@ export default function Step4LiteratureReview() {
           }\n   Study type: ${p.studyType}\n   Abstract: ${p.abstract}`,
       )
       .join("\n\n");
-  }, [state.synthesisTable, selectedPapers]);
+  }, [state, selectedPapers]);
 
   /**
    * Deterministic local review (no API key, no model download): themes, PRISMA
@@ -348,12 +424,20 @@ export default function Step4LiteratureReview() {
     }
   }, [selectedPapers, state.searchQuery]);
 
-  const generateSection = useCallback(    async (meta: SectionMeta): Promise<string> => {
+  const generateSection = useCallback(
+    async (meta: SectionMeta): Promise<string> => {
       if (meta.key === "references") return referencesText;
       try {
-        const text = await callAi(
-          buildSectionPrompt(meta, evidenceBase, deepReasoning, state.searchQuery),
-        );
+        const prompt =
+          openNotebookMode && state.synthesisTable.length > 0
+            ? buildOpenNotebookPrompt(
+                meta,
+                state.synthesisTable,
+                deepReasoning,
+                state.searchQuery,
+              )
+            : buildSectionPrompt(meta, evidenceBase, deepReasoning, state.searchQuery);
+        const text = await callAi(prompt);
         return stripQuotesAndFences(text);
       } catch (err: any) {
         // Every AI provider (including the local model) failed: the section is
@@ -363,7 +447,17 @@ export default function Step4LiteratureReview() {
         return `${local}\n\n*Section "${meta.title}" was written by the local generator because the AI providers were unavailable (${err?.message || "unknown error"}).*`;
       }
     },
-    [callAi, referencesText, evidenceBase, deepReasoning, state.searchQuery, buildLocalReviewFallback],
+    [
+      callAi,
+      referencesText,
+      evidenceBase,
+      deepReasoning,
+      state.searchQuery,
+      buildLocalReviewFallback,
+      openNotebookMode,
+      state.synthesisTable,
+      buildOpenNotebookPrompt,
+    ],
   );
 
   const persist = useCallback(
@@ -411,25 +505,41 @@ export default function Step4LiteratureReview() {
       alert("Please select papers in Step 1 / generate a synthesis table in Step 3 first.");
       return;
     }
-    const papersForReasoning = selectedPapers;
     setDeepReasoningLoading(true);
     setDeepReasoning("");
     try {
-      const prompt = buildDeepReasoningPrompt(papersForReasoning, state.searchQuery);
+      // In Open-Notebook mode the synthesis table (Step 3) is the single source
+      // of truth; the deep reasoning is built from its Vancouver reference rows.
+      const reasoningInput = openNotebookMode && state.synthesisTable.length > 0
+        ? state.synthesisTable.map((r, i) => ({
+            authors: `[${i + 1}] ${r.reference}`,
+            year: 0,
+            title: r.synopsis || r.keyFindings,
+            journal: "",
+            abstract: `${r.keyFindings}\n\n${r.studyDetails}\n\n${r.researchGaps}`,
+            doi: "",
+            studyType: "",
+            database: "",
+          }))
+        : selectedPapers;
+      const prompt = buildDeepReasoningPrompt(reasoningInput, state.searchQuery);
       const text = await callAi(prompt);
       setDeepReasoning(stripQuotesAndFences(text));
     } catch (err: any) {
       console.error("Deep reasoning generation failed:", err);
-      const localReasoning = papersForReasoning.map((p, i) => {
-        return `Paper ${i + 1}: ${p.authors} (${p.year}). ${p.title}. ${p.journal}${
+      const localReasoning = (openNotebookMode && state.synthesisTable.length > 0
+        ? state.synthesisTable
+        : selectedPapers
+      ).map((p: any, i: number) => {
+        return `Paper ${i + 1}: ${p.authors} (${p.year || "n.d."}). ${p.title || p.reference}. ${p.journal || ""}${
           p.doi ? ` doi:${p.doi}` : ""
         }
 
-Chain-of-thought reasoning: This study by ${p.authors} (${p.year}) addresses ${state.searchQuery || "the research topic"} using a ${p.studyType} design. The abstract reports findings related to the topic, though specific methodological details are limited to what is available in the abstract. The paper's relevance to the research question should be assessed in context of the full evidence base.
+Chain-of-thought reasoning: This study addresses ${state.searchQuery || "the research topic"}. The abstract reports findings related to the topic, though specific methodological details are limited to what is available.
 
 Key claims: ${p.abstract ? p.abstract.substring(0, 200) : "No abstract available"}...
 
-Methodological assessment: Study type is ${p.studyType}. Limitations cannot be fully assessed from abstract-level data alone.
+Methodological assessment: Study type is ${p.studyType || "not specified"}. Limitations cannot be fully assessed from abstract-level data alone.
 
 Limitations: Reliance on abstract-level data; potential selection and measurement bias; limited longitudinal follow-up may not be evident from abstract.
 
@@ -522,8 +632,26 @@ Connections to other papers: This paper contributes to the evidence base on ${st
             Review based on <span className="font-semibold text-white">{studyCount}</span> studies from evidence
             synthesis table. Generates 6 sections with deep chain-of-thought reasoning and references only at the end.
           </p>
+          {selectedPapers.length < state.papers.filter((p) => p.selected).length && (
+            <p className="text-[11px] text-amber-400 mt-1">
+              {state.papers.filter((p) => p.selected).length - selectedPapers.length} GitHub / code-hosting
+              resource(s) excluded from this review.
+            </p>
+          )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setOpenNotebookMode((v) => !v)}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
+              openNotebookMode
+                ? "bg-violet-900/50 text-violet-300 border-violet-700"
+                : "bg-blue-900/50 text-blue-200 border-blue-800 hover:bg-blue-900/70"
+            }`}
+            title="Use the lfnovo/open-notebook workflow: synthesis table as source of truth, Vancouver bracketed citations"
+          >
+            <BookOpen size={14} />
+            {openNotebookMode ? "Open-Notebook: ON" : "Open-Notebook: OFF"}
+          </button>
           <button
             onClick={handleCopy}
             disabled={!hasContent}
@@ -552,12 +680,17 @@ Connections to other papers: This paper contributes to the evidence base on ${st
 
       {/* Deep Reasoning / Chain-of-Thought panel */}
       <div className="bg-[#1e1b4b]/50 border border-purple-900/40 rounded-lg p-4">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <Brain size={14} className="text-purple-400" />
             <h3 className="text-sm font-bold text-purple-200">
               Deep Reasoning / Chain-of-Thought Analysis
             </h3>
+            {openNotebookMode && (
+              <span className="text-[10px] bg-violet-900/50 text-violet-300 px-1.5 py-0.5 rounded">
+                Open-Notebook mode
+              </span>
+            )}
           </div>
           <span className="text-[10px] text-purple-400">
             {deepReasoning.split("Paper ").length - 1} papers analyzed
@@ -570,9 +703,12 @@ Connections to other papers: This paper contributes to the evidence base on ${st
         ) : (
           <p className="text-sm text-purple-400/70">
             Click &quot;Deep Reasoning (CoT)&quot; to run per-paper chain-of-thought analysis before generating sections.
+            {openNotebookMode && (
+              <> In Open-Notebook mode the analysis is built from the Step 3 synthesis table and every section cites Vancouver-style bracketed numbers.</>
+            )}
           </p>
         )}
-        <div className="flex gap-2 mt-3">
+        <div className="flex gap-2 mt-3 flex-wrap">
           <button
             onClick={handleGenerateDeepReasoning}
             disabled={deepReasoningLoading || studyCount === 0}
@@ -585,9 +721,23 @@ Connections to other papers: This paper contributes to the evidence base on ${st
             {deepReasoningLoading ? <Loader2 size={14} className="animate-spin" /> : <Brain size={14} />}
             {deepReasoning ? "Regenerate Deep Reasoning" : "Deep Reasoning (CoT)"}
           </button>
+          <button
+            onClick={() => setOpenNotebookMode((v) => !v)}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
+              openNotebookMode
+                ? "bg-violet-900/50 text-violet-300 border-violet-700"
+                : "bg-blue-900/50 text-blue-200 border-blue-800"
+            }`}
+          >
+            <BookOpen size={14} />
+            {openNotebookMode ? "Open-Notebook: ON" : "Open-Notebook: OFF"}
+          </button>
         </div>
         <p className="text-[11px] text-purple-300/80 mt-2">
           This per-paper chain-of-thought analysis is used as the analytical foundation for all literature-review sections.
+          {openNotebookMode && (
+            <> Sections 1-5 cite the Step 3 synthesis table using Vancouver-style bracketed numbers; Section 6 is auto-filled from the Vancouver reference column.</>
+          )}
         </p>
       </div>
 
