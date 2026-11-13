@@ -387,6 +387,13 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
 
 ## Recently Completed
 
+- [x] **AI Researcher autonomous pipeline upgrade (2026-11-13)** — integrated hkuds/ai-researcher's multi-agent loop into the app.
+  - [x] New `src/lib/research-agent.ts` — server-side autonomous research agent: literature survey (evidence-graded T1–T4) → research idea → research plan → critical appraisal (judge) → manuscript draft, chained so each stage builds on the previous one.
+  - [x] New `src/app/api/research-agent/route.ts` — `POST /api/research-agent` runs the full loop; driven by the user's configured Gemini key (Groq fallback), no local model on the server, absolute upstream URLs so it works from API routes.
+  - [x] New `src/components/tabs/AIResearcherTab.tsx` — client UI: query + reference papers, provider select, run/stop, per-stage collapsible output with copy and markdown download.
+  - [x] New "AI Researcher" tab registered in `src/components/TopTabs.tsx` and lazy-loaded in `src/app/page.tsx` (`case "researcher"`).
+  - [x] `bun typecheck` ✅, `bun lint` ✅ (full build not re-run; route/page/tabs verified type-safe).
+
 - [x] **Step 1 research pipeline audit — why databases were not searching papers (2026-11-03)**
   - [x] Root cause: every fetcher in `src/lib/database-apis.ts` used `limit ?? UNLIMITED` and paginated until the upstream signalled "end", so broad queries ("diabetes") walked hundreds of pages per database and the per-database wall-clock timeout fired first → "timed out" errors on healthy upstreams.
   - [x] New `capResults()` helper applied at every fetcher return; every pagination loop now breaks when `papers.length >= cap`.
