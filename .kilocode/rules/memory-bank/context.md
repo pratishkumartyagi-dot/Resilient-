@@ -387,10 +387,11 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
 
 ## Recently Completed
 
-- [x] **Release v0.8.0 + Windows .exe build triggered (2026-11-13)**
-  - [x] Bumped `package.json` version 0.7.2 → **0.8.0** (AI Researcher feature release).
-  - [x] Committed `4c65729 feat(release): bump version to 0.8.0` and pushed branch `kilo/icy-module-l9y`.
-  - [x] Created and pushed tag `v0.8.0` → triggers GitHub Actions `build-windows.yml` (`bun run dist:win` on `windows-latest`) producing the Windows `.exe` installer.
+- [x] **Release v0.7.5 + Windows .exe build triggered (2026-11-13)**
+  - [x] Set `package.json` version to **0.7.5** (AI Researcher feature release, supersedes the erroneous 0.8.0).
+  - [x] Committed `376b450 feat(release): bump version to 0.7.5` and pushed branch `kilo/icy-module-l9y`.
+  - [x] Created and pushed tag `v0.7.5` → triggers GitHub Actions `build-windows.yml` (`bun run dist:win` on `windows-latest`) producing the Windows `.exe` installer.
+  - [x] Deleted erroneous `v0.8.0` tag (local and remote).
   - [x] `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
 
 - [x] **AI Researcher autonomous pipeline upgrade (2026-11-13)** — integrated hkuds/ai-researcher's multi-agent loop into the app.
