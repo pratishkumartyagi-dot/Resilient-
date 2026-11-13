@@ -387,6 +387,12 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
 
 ## Recently Completed
 
+- [x] **Release v0.8.0 + Windows .exe build triggered (2026-11-13)**
+  - [x] Bumped `package.json` version 0.7.2 → **0.8.0** (AI Researcher feature release).
+  - [x] Committed `4c65729 feat(release): bump version to 0.8.0` and pushed branch `kilo/icy-module-l9y`.
+  - [x] Created and pushed tag `v0.8.0` → triggers GitHub Actions `build-windows.yml` (`bun run dist:win` on `windows-latest`) producing the Windows `.exe` installer.
+  - [x] `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
+
 - [x] **AI Researcher autonomous pipeline upgrade (2026-11-13)** — integrated hkuds/ai-researcher's multi-agent loop into the app.
   - [x] New `src/lib/research-agent.ts` — server-side autonomous research agent: literature survey (evidence-graded T1–T4) → research idea → research plan → critical appraisal (judge) → manuscript draft, chained so each stage builds on the previous one.
   - [x] New `src/app/api/research-agent/route.ts` — `POST /api/research-agent` runs the full loop; driven by the user's configured Gemini key (Groq fallback), no local model on the server, absolute upstream URLs so it works from API routes.
