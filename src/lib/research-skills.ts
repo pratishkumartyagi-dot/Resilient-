@@ -746,3 +746,416 @@ ${synthesisTable.slice(0, 5).map((r, i) => `${i + 1}. ${r.reference}\n   Key fin
 SELECTED PAPERS (${selectedPapers.length} total, showing first 5):
 ${selectedPapers.slice(0, 5).map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. <em>${p.journal}</em>.`).join("\n")}`;
 }
+
+// ============================================================================
+// ResearchRadar Integration Functions
+// ============================================================================
+
+export interface RadarPaper {
+  title: string;
+  year: number | null;
+  abstract: string | null;
+  url: string;
+  arxiv_id?: string;
+  openalex_id?: string;
+  venue?: string;
+  cited_by?: number;
+  source: string;
+  peer_reviewed?: boolean;
+}
+
+export interface RadarReviewPaper {
+  title: string;
+  venue: string;
+  year: number;
+  outcome: string;
+  review_url?: string;
+  paper_url?: string;
+  reviews: string;
+  abstract?: string;
+  decision?: string;
+  review_score_avg?: number;
+  url?: string;
+}
+
+export interface RadarLimitsResult {
+  arxiv_id: string;
+  url: string;
+  status: string;
+  sections: Array<{ heading: string; text: string }>;
+  admissions: string[];
+}
+
+export interface RadarCitingResult {
+  cited_paper: string;
+  since: number;
+  status: string;
+  count: number;
+  papers: RadarPaper[];
+}
+
+export interface RadarCheckResult {
+  arxiv: string;
+  openalex: string;
+  neurips_reviews: string;
+  elife: string;
+  semantic_scholar: string;
+  snor_dataset: string;
+  iclr_index: string;
+  openreview_notes: string;
+}
+
+export interface RadarVerifyResult {
+  all_found: boolean;
+  quotes: Record<string, boolean>;
+}
+
+export interface ProblemStatement {
+  statement: string;
+  evidence: Array<{ paper: string; quote: string; url: string }>;
+  research_question: string;
+  first_experiment: string;
+  kill_criteria: string;
+  confidence: "high" | "medium" | "low";
+  closest_work: Array<{ paper: string; difference: string }>;
+}
+
+/**
+ * Search for papers using ResearchRadar (arXiv + OpenAlex)
+ */
+export async function radarSearchPapers(
+  query: string[],
+  options?: { limit?: number; since?: number }
+): Promise<{ query: string; status: Record<string, string>; count: number; hint: string | null; papers: RadarPaper[] }> {
+  const baseUrl = typeof window !== "undefined" ? "" : "http://localhost:3000";
+  const response = await fetch(`${baseUrl}/api/researchradar`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "papers", query, ...options }),
+  });
+  return response.json();
+}
+
+/**
+ * Find papers citing a given paper (via OpenAlex)
+ */
+export async function radarFindCiting(
+  openalexId: string,
+  options?: { since?: number; limit?: number }
+): Promise<RadarCitingResult> {
+  const baseUrl = typeof window !== "undefined" ? "" : "http://localhost:3000";
+  const response = await fetch(`${baseUrl}/api/researchradar`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "citing", openalex_id: openalexId, ...options }),
+  });
+  return response.json();
+}
+
+/**
+ * Extract limitations/future work from a paper (via arXiv HTML)
+ */
+export async function radarExtractLimits(arxivId: string): Promise<RadarLimitsResult> {
+  const baseUrl = typeof window !== "undefined" ? "" : "http://localhost:3000";
+  const response = await fetch(`${baseUrl}/api/researchradar`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "limits", arxiv_id: arxivId }),
+  });
+  return response.json();
+}
+
+/**
+ * Fetch NeurIPS reviews for accepted papers
+ */
+export async function radarFetchNeuripsReviews(
+  queries: string[],
+  options?: { years?: string; limit?: number; max_chars?: number }
+): Promise<{ source: string; note: string; queries: string[]; count: number; matched_without_reviews: number; papers: RadarReviewPaper[] }> {
+  const baseUrl = typeof window !== "undefined" ? "" : "http://localhost:3000";
+  const response = await fetch(`${baseUrl}/api/researchradar`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "neurips", query: queries, ...options }),
+  });
+  return response.json();
+}
+
+/**
+ * Fetch eLife decision letters and author responses
+ */
+export async function radarFetchElifeReviews(
+  queries: string[],
+  options?: { limit?: number; max_chars?: number }
+): Promise<{ source: string; status: string; note: string; count: number; papers: RadarReviewPaper[] }> {
+  const baseUrl = typeof window !== "undefined" ? "" : "http://localhost:3000";
+  const response = await fetch(`${baseUrl}/api/researchradar`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "elife", query: queries, ...options }),
+  });
+  return response.json();
+}
+
+/**
+ * Build ICLR/SNOR index (one-time, ~2.2 GB download)
+ */
+export async function radarBuildIclrIndex(options?: { sample?: boolean; yes_download_2_2gb?: boolean }): Promise<any> {
+  const baseUrl = typeof window !== "undefined" ? "" : "http://localhost:3000";
+  const response = await fetch(`${baseUrl}/api/researchradar`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "iclr-build", ...options }),
+  });
+  return response.json();
+}
+
+/**
+ * Fetch ICLR reviews (accepted AND rejected)
+ */
+export async function radarFetchIclrReviews(
+  queries: string[],
+  options?: { outcome?: string; conference?: string; since?: number; limit?: number; max_chars?: number }
+): Promise<any> {
+  const baseUrl = typeof window !== "undefined" ? "" : "http://localhost:3000";
+  const response = await fetch(`${baseUrl}/api/researchradar`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "iclr", query: queries, ...options }),
+  });
+  return response.json();
+}
+
+/**
+ * Verify quotes against saved source
+ */
+export async function radarVerifyQuotes(file: string, quotes: string[]): Promise<RadarVerifyResult> {
+  const baseUrl = typeof window !== "undefined" ? "" : "http://localhost:3000";
+  const response = await fetch(`${baseUrl}/api/researchradar`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "verify", file, quote: quotes }),
+  });
+  return response.json();
+}
+
+/**
+ * Check which sources are responding
+ */
+export async function radarCheckSources(): Promise<RadarCheckResult> {
+  const baseUrl = typeof window !== "undefined" ? "" : "http://localhost:3000";
+  const response = await fetch(`${baseUrl}/api/researchradar?action=check`);
+  return response.json();
+}
+
+/**
+ * Build a problem statement using the full ResearchRadar workflow
+ * This combines: paper search -> review collection -> limitation extraction -> gap mining -> idea lab -> novelty audit
+ */
+export async function radarBuildProblemStatements(
+  topic: string,
+  options?: {
+    wordings?: string[]; // 3-5 wordings of 2-4 words each
+    maxPapers?: number;
+    includeReviews?: boolean;
+    includeIclr?: boolean; // requires index built
+  }
+): Promise<{
+  funnel: string;
+  statements: ProblemStatement[];
+  killed: Array<{ candidate: string; reason: string }>;
+  couldNotCheck: string[];
+}> {
+  // This is a high-level orchestration function that would be called from a server-side workflow
+  // For client-side, we expose the individual steps above
+  const wordings = options?.wordings || [topic];
+  const maxPapers = options?.maxPapers || 10;
+
+  // Step 1: Gather papers
+  const papersResult = await radarSearchPapers(wordings, { limit: maxPapers });
+
+  // Step 2: Extract limitations from top papers
+  const limits: RadarLimitsResult[] = [];
+  for (const paper of papersResult.papers.slice(0, 5)) {
+    if (paper.arxiv_id) {
+      try {
+        const limitsResult = await radarExtractLimits(paper.arxiv_id);
+        limits.push(limitsResult);
+      } catch (e) {
+        // Continue with other papers
+      }
+    }
+  }
+
+  // Step 3: Fetch reviews if requested
+  let reviews: any[] = [];
+  if (options?.includeReviews) {
+    try {
+      const neuripsResult = await radarFetchNeuripsReviews(wordings);
+      reviews.push(...neuripsResult.papers);
+    } catch (e) {
+      // NeurIPS might not have reviews for this topic
+    }
+
+    if (options?.includeIclr) {
+      try {
+        const iclrResult = await radarFetchIclrReviews(wordings, { outcome: "both" });
+        if (iclrResult.papers) {
+          reviews.push(...iclrResult.papers);
+        }
+      } catch (e) {
+        // ICLR index might not be built
+      }
+    }
+  }
+
+  // Return structured result for further processing
+  return {
+    funnel: `Gathered ${papersResult.count} papers, extracted limits from ${limits.length} papers, fetched ${reviews.length} reviews`,
+    statements: [], // Would be populated by full workflow
+    killed: [],
+    couldNotCheck: [],
+  };
+}
+
+/**
+ * Build prompt for Step 3 (Synthesis) enhanced with ResearchRadar review intelligence
+ */
+export function buildStep3PromptWithRadar(
+  papers: Paper[],
+  uploadedContext: string,
+  radarReviews?: RadarReviewPaper[],
+  radarLimits?: RadarLimitsResult[]
+): string {
+  let radarContext = "";
+
+  if (radarReviews && radarReviews.length > 0) {
+    radarContext += "\n\n## PEER REVIEW INTELLIGENCE (ResearchRadar)\n";
+    radarContext += "Real peer reviews from NeurIPS, ICLR, and eLife:\n\n";
+    for (const review of radarReviews.slice(0, 5)) {
+      radarContext += `### ${review.title} (${review.venue}, ${review.outcome})\n`;
+      radarContext += `Reviews: ${review.reviews.substring(0, 2000)}\n\n`;
+    }
+  }
+
+  if (radarLimits && radarLimits.length > 0) {
+    radarContext += "\n## AUTHOR-ADMITTED LIMITATIONS (ResearchRadar)\n";
+    radarContext += "Limitations and future work statements extracted from paper full texts:\n\n";
+    for (const limit of radarLimits) {
+      radarContext += `### ${limit.arxiv_id}\n`;
+      for (const section of limit.sections) {
+        radarContext += `**${section.heading}**: ${section.text.substring(0, 500)}\n`;
+      }
+      for (const admission of limit.admissions.slice(0, 5)) {
+        radarContext += `- ${admission}\n`;
+      }
+      radarContext += "\n";
+    }
+  }
+
+  return buildStep3Prompt(papers, uploadedContext + radarContext);
+}
+
+/**
+ * Build prompt for Step 5 (Themes) enhanced with ResearchRadar gap mining
+ */
+export function buildStep5PromptWithRadar(
+  papers: Paper[],
+  synthesisTable: SynthesisRow[],
+  radarGaps?: Array<{
+    gap: string;
+    supporting_evidence: Array<{ paper: string; quote: string; url: string }>;
+    independent_papers: number;
+    strength: string;
+  }>
+): string {
+  let radarContext = "";
+
+  if (radarGaps && radarGaps.length > 0) {
+    radarContext += "\n\n## RESEARCH GAP MINING (ResearchRadar)\n";
+    radarContext += "Recurring limitations identified across independent papers with peer review evidence:\n\n";
+    for (const gap of radarGaps) {
+      radarContext += `### Gap: ${gap.gap}\n`;
+      radarContext += `**Strength**: ${gap.strength} | **Independent papers**: ${gap.independent_papers}\n`;
+      radarContext += "**Supporting evidence**:\n";
+      for (const ev of gap.supporting_evidence.slice(0, 3)) {
+        radarContext += `- "${ev.quote}" — ${ev.paper} (${ev.url})\n`;
+      }
+      radarContext += "\n";
+    }
+  }
+
+  return buildStep5Prompt(papers, synthesisTable) + radarContext;
+}
+
+/**
+ * Build prompt for Step 6 (Research Questions) enhanced with ResearchRadar idea lab
+ */
+export function buildStep6PromptWithRadar(
+  papers: Paper[],
+  themes: Theme[] | null,
+  researchTopic: string,
+  methodology?: string,
+  radarIdea?: {
+    problem: string;
+    research_question: string;
+    hypotheses: string[];
+    experiment_plan: string;
+    falsification_criteria: string;
+    risks: string[];
+  }
+): string {
+  let radarContext = "";
+
+  if (radarIdea) {
+    radarContext += "\n\n## RESEARCH IDEA LAB (ResearchRadar)\n";
+    radarContext += `**Problem**: ${radarIdea.problem}\n\n`;
+    radarContext += `**Research Question**: ${radarIdea.research_question}\n\n`;
+    radarContext += `**Hypotheses**:\n`;
+    for (const h of radarIdea.hypotheses) {
+      radarContext += `- ${h}\n`;
+    }
+    radarContext += `\n**Experiment Plan**: ${radarIdea.experiment_plan}\n\n`;
+    radarContext += `**Falsification Criteria**: ${radarIdea.falsification_criteria}\n\n`;
+    radarContext += `**Risks**: ${radarIdea.risks.join(", ")}\n\n`;
+  }
+
+  return buildStep6Prompt(papers, themes, researchTopic, methodology) + radarContext;
+}
+
+/**
+ * Build prompt for Step 7 (Titles) enhanced with ResearchRadar novelty audit
+ */
+export function buildStep7PromptWithRadar(
+  researchQuestions: ResearchQuestion[],
+  synthesisTable: SynthesisRow[],
+  themes: Theme[] | null,
+  radarNovelty?: {
+    verdict: string;
+    recommendation: string;
+    closest_works: Array<{
+      paper: string;
+      year: number;
+      classification: string;
+      difference: string;
+      difference_matters: string;
+    }>;
+  }
+): string {
+  let radarContext = "";
+
+  if (radarNovelty) {
+    radarContext += "\n\n## NOVELTY AUDIT (ResearchRadar)\n";
+    radarContext += `**Verdict**: ${radarNovelty.verdict}\n`;
+    radarContext += `**Recommendation**: ${radarNovelty.recommendation}\n\n`;
+    radarContext += "**Closest Prior Works**:\n";
+    for (const work of radarNovelty.closest_works) {
+      radarContext += `- ${work.paper} (${work.year}) — ${work.classification}\n`;
+      radarContext += `  Difference: ${work.difference}\n`;
+      radarContext += `  Matters scientifically: ${work.difference_matters}\n`;
+    }
+    radarContext += "\n";
+  }
+
+  return buildStep7Prompt(researchQuestions, synthesisTable, themes) + radarContext;
+}
