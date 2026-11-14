@@ -44,3 +44,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# slr engine
+slr.db
+slr_*_export.json
+slr_*_papers.csv
+slr_*_prisma.json

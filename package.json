@@ -1,6 +1,6 @@
 {
   "name": "resilient-research-app",
-  "version": "0.7.2",
+  "version": "0.7.6",
   "private": true,
   "description": "AI-powered research intelligence platform for systematic reviews, evidence synthesis, and academic writing.",
   "author": "Resilient Research App",
@@ -17,7 +17,9 @@
     "dist:win": "next build && electron-builder --win --publish never",
     "dist:mac": "next build && electron-builder --mac --publish never",
     "dist:linux": "next build && electron-builder --linux --publish never",
-    "dist:dir": "next build && electron-builder --dir --publish never"
+    "dist:dir": "next build && electron-builder --dir --publish never",
+    "researchradar": "python3 scripts/researchradar.py",
+    "slr-engine": "python3 scripts/slr_engine/slr_wrapper.py"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",

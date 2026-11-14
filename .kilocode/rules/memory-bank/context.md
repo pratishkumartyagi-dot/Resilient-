@@ -387,7 +387,27 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
 
 ## Recently Completed
 
-- [x] **Step 1 research pipeline audit — why databases were not searching papers (2026-11-03)**
+- [x] **ResearchRadar Skills Integration (2026-11-14)**
+  - [x] Added 6 ResearchRadar skills to `.kilocode/skills/researchradar/`:
+    - `problem-statement-finder` — Turns research topics into evidence-backed problem statements
+    - `openreview-miner` — Collects papers and reviews from NeurIPS, eLife, SNOR (ICLR/NeurIPS)
+    - `review-intelligence` — Extracts criticisms, questions, strengths from peer reviews
+    - `research-gap-miner` — Finds recurring limitations across papers, tests against counterevidence
+    - `research-idea-lab` — Turns gaps into research questions, hypotheses, experiment plans
+    - `novelty-auditor` — Checks novelty by searching prior work, detailed comparisons
+  - [x] Created `scripts/researchradar.py` — Python standard library implementation ported from ResearchRadar
+    - Paper search via arXiv + OpenAlex
+    - Review collection from NeurIPS (2013-2020), eLife, SNOR dataset
+    - Limitation extraction from paper full texts
+    - Citation tracking via OpenAlex
+    - Quote verification
+    - ICLR index building (2.2 GB download)
+  - [x] Created `/api/researchradar` route — Next.js API wrapper for all radar.py commands
+  - [x] Extended `src/lib/research-skills.ts` with ResearchRadar integration functions:
+    - `radarSearchPapers`, `radarFindCiting`, `radarExtractLimits`, `radarFetchNeuripsReviews`, `radarFetchElifeReviews`, `radarBuildIclrIndex`, `radarFetchIclrReviews`, `radarVerifyQuotes`, `radarCheckSources`
+    - Enhanced prompt builders: `buildStep3PromptWithRadar`, `buildStep5PromptWithRadar`, `buildStep6PromptWithRadar`, `buildStep7PromptWithRadar`
+  - [x] Updated `package.json` version to **0.7.5** with `researchradar` script
+  - [x] Verified: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅, `python3 scripts/researchradar.py check` ✅
   - [x] Root cause: every fetcher in `src/lib/database-apis.ts` used `limit ?? UNLIMITED` and paginated until the upstream signalled "end", so broad queries ("diabetes") walked hundreds of pages per database and the per-database wall-clock timeout fired first → "timed out" errors on healthy upstreams.
   - [x] New `capResults()` helper applied at every fetcher return; every pagination loop now breaks when `papers.length >= cap`.
   - [x] PubMed `esearch` stops at 10 000 IDs (NCBI ceiling); `efetch` chunk size 100 → 200, inter-chunk sleep 400 → 200 ms.
