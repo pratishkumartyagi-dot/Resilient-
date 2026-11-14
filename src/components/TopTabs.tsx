@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useApp } from "@/context/AppContext";
-import { FlaskConical as FlaskConicalIcon, Dna, MessageSquare, BarChart3, Sigma, FileText, PenLine, ScrollText, DollarSign, BookOpen, Microscope, ClipboardCheck } from "lucide-react";
+import { FlaskConical as FlaskConicalIcon, Dna, MessageSquare, BarChart3, Sigma, FileText, PenLine, ScrollText, DollarSign, BookOpen, Microscope, ClipboardCheck, Bot } from "lucide-react";
 
 const MAIN_TABS = [
   { id: "main", label: "Research Pipeline", icon: FlaskConicalIcon },
@@ -19,6 +19,7 @@ const MAIN_TABS = [
   { id: "slr", label: "Automated SLR", icon: Microscope },
   { id: "appraisal", label: "Critical Appraisal", icon: ClipboardCheck },
   { id: "jbi", label: "JBI Appraisal", icon: ClipboardCheck },
+  { id: "researcher", label: "AI Researcher", icon: Bot },
 ];
 
 export default function TopTabs() {
