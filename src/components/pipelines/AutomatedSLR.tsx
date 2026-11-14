@@ -1,13 +1,14 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
 import {
   Microscope, Search, Database, List, CheckCircle2, X,
   ChevronRight, ChevronLeft, Filter, ShieldAlert, BarChart3,
   FileText, Save, Download, Copy, Loader2, Plus, Trash2,
-  RefreshCw, MapPin, Layers, ClipboardList, Brain
+  RefreshCw, MapPin, Layers, ClipboardList, Brain,
+  FileType, LayoutDashboard, Settings
 } from "lucide-react";
 import {
   fetchRealPapers, type Paper, deduplicatePapers,
@@ -28,6 +29,10 @@ import {
   type SLRQuestion,
 } from "@/lib/slr-skills";
 import { marked } from "marked";
+import {
+  downloadWord, downloadPDF, downloadExcel, downloadCSV,
+  downloadLiteratureReviewWord, downloadLiteratureReviewPDF,
+} from "@/lib/exporters";
 
 const STEP_LABELS: Record<number, string> = {
   1: "Problem Formulation",
@@ -65,6 +70,59 @@ const FRAMEWORK_FIELDS: Record<string, Array<{ key: string; label: string; place
   freeflow: [],
 };
 
+interface SLREngineProtocol {
+  id: string;
+  title: string;
+  research_questions: string[];
+  inclusion_criteria: string[];
+  exclusion_criteria: string[];
+  databases: string[];
+  status: string;
+  created_at: string;
+}
+
+interface SLREnginePaper {
+  id: string;
+  title: string;
+  authors: string[];
+  year: number;
+  venue: string;
+  doi: string | null;
+  url: string | null;
+  abstract: string | null;
+  keywords: string[];
+  database: string;
+  title_abstract_screen: "include" | "exclude" | "maybe" | null;
+  full_text_screen: "include" | "exclude" | "maybe" | null;
+  screen_notes: string;
+  extraction_data: Record<string, string>;
+}
+
+interface SLREnginePRISMA {
+  records_identified?: number;
+  records_after_dedup?: number;
+  records_screened?: number;
+  records_excluded?: number;
+  reports_sought?: number;
+  reports_not_retrieved?: number;
+  reports_assessed?: number;
+  reports_excluded_eligibility?: number;
+  studies_included?: number;
+}
+
+interface SLREngineExportResult {
+  export_files: string[];
+}
+
+const ALL_DATABASES = [
+  "PubMed", "Europe PMC", "DOAJ", "bioRxiv", "medRxiv", "Crossref",
+  "arXiv", "OpenAIRE", "Zenodo", "ClinicalTrials.gov",
+];
+
+const SLR_ENGINE_DATABASES = [
+  "pubmed", "ieee", "acm", "scopus", "web_of_science"
+];
+
 export default function AutomatedSLR() {
   const { state, dispatch } = useApp();
 
@@ -78,12 +136,17 @@ export default function AutomatedSLR() {
   const [timeframe, setTimeframe] = useState(state.slrTimeframe || "");
   const [yearFrom, setYearFrom] = useState(state.slrYearFrom || "");
   const [yearTo, setYearTo] = useState(state.slrYearTo || "");
-  const [databases, setDatabases] = useState<string[]>(state.slrDatabases || [
-    "PubMed", "Europe PMC", "DOAJ", "bioRxiv", "medRxiv", "Crossref",
-    "arXiv", "OpenAIRE", "Zenodo", "ClinicalTrials.gov",
-  ]);
+  const [databases, setDatabases] = useState<string[]>(state.slrDatabases || ALL_DATABASES);
   const [biasAssessing, setBiasAssessing] = useState(false);
   const [slrBias, setSlrBias] = useState<Record<string, { risk: "low" | "some" | "high"; aiGenerated: boolean }>>({});
+  
+  // SLR-Engine state
+  const [useSLREngine, setUseSLREngine] = useState(false);
+  const [slrEngineProtocol, setSlrEngineProtocol] = useState<SLREngineProtocol | null>(null);
+  const [slrEnginePapers, setSlrEnginePapers] = useState<SLREnginePaper[]>([]);
+  const [slrEnginePrisma, setSlrEnginePrisma] = useState<SLREnginePRISMA>({});
+  const [slrEngineLoading, setSlrEngineLoading] = useState(false);
+  const [slrEngineStage, setSlrEngineStage] = useState<"protocol" | "search" | "screening" | "extraction" | "synthesis" | "export" | null>(null);
 
   const callAi = useCallback(
     async (prompt: string): Promise<string> => {
@@ -96,11 +159,6 @@ export default function AutomatedSLR() {
   );
   const [searching, setSearching] = useState(false);
   const [extracting, setExtracting] = useState(false);
-
-  const ALL_DATABASES = [
-    "PubMed", "Europe PMC", "DOAJ", "bioRxiv", "medRxiv", "Crossref",
-    "arXiv", "OpenAIRE", "Zenodo", "ClinicalTrials.gov",
-  ];
 
   const goToStep = (step: number) => {
     setActiveStep(step);
@@ -131,6 +189,159 @@ export default function AutomatedSLR() {
     freeQuery,
     yearFrom,
     yearTo,
+  };
+
+  // SLR-Engine API calls
+  const slrEngineApi = async (action: string, params: Record<string, any> = {}) => {
+    const res = await fetch("/api/slr-engine", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, ...params }),
+    });
+    return res.json();
+  };
+
+  const slrEngineApiGet = async (action: string, params: Record<string, string> = {}) => {
+    const searchParams = new URLSearchParams({ action, ...params });
+    const res = await fetch(`/api/slr-engine?${searchParams}`);
+    return res.json();
+  };
+
+  const handleCreateSLREngineProtocol = async () => {
+    setSlrEngineLoading(true);
+    setSlrEngineStage("protocol");
+    try {
+      const protocolId = `slr-${Date.now()}`;
+      const result = await slrEngineApi("create-protocol", {
+        id: protocolId,
+        title: freeQuery || `${population} ${intervention} ${comparator} ${outcome}`.trim(),
+        questions: freeQuery ? [freeQuery] : [
+          `What is the effect of ${intervention} on ${outcome} in ${population}?`,
+          `How does ${comparator} compare to ${intervention} for ${outcome}?`,
+        ],
+        inclusion: [
+          "Peer-reviewed studies",
+          `Published after ${yearFrom || "2020"}`,
+          `Relevant to ${population}`,
+          `Studies examining ${intervention}`,
+        ],
+        exclusion: [
+          "Non-English papers",
+          "Preprints without peer review",
+          "No relevant intervention/exposure",
+          "No relevant population",
+        ],
+        databases: SLR_ENGINE_DATABASES,
+      });
+      
+      if (result.success) {
+        const protocol = await slrEngineApiGet("get-protocol", { protocolId });
+        setSlrEngineProtocol({ id: protocolId, title: protocol.output || "", research_questions: [], inclusion_criteria: [], exclusion_criteria: [], databases: SLR_ENGINE_DATABASES, status: "active", created_at: new Date().toISOString() });
+        setSlrEngineStage("search");
+      } else {
+        console.error("Failed to create protocol:", result.error);
+      }
+    } finally {
+      setSlrEngineLoading(false);
+    }
+  };
+
+  const handleRunSLREngineSearch = async () => {
+    if (!slrEngineProtocol) return;
+    setSlrEngineLoading(true);
+    setSlrEngineStage("search");
+    try {
+      await slrEngineApi("search", { protocolId: slrEngineProtocol.id, mock: true });
+      const papersResult = await slrEngineApiGet("get-papers", { protocolId: slrEngineProtocol.id, stage: "" });
+      const papers = JSON.parse(papersResult.output || "[]");
+      setSlrEnginePapers(papers);
+      
+      const prismaResult = await slrEngineApiGet("get-prisma", { protocolId: slrEngineProtocol.id });
+      const prisma = JSON.parse(prismaResult.output || "{}");
+      setSlrEnginePrisma(prisma);
+      setSlrEngineStage("screening");
+    } finally {
+      setSlrEngineLoading(false);
+    }
+  };
+
+  const handleSLREngineScreen = async (paperId: string, decision: "include" | "exclude" | "maybe") => {
+    if (!slrEngineProtocol) return;
+    await slrEngineApi("screen", { protocolId: slrEngineProtocol.id, paperId, stage: "title_abstract", decision, notes: "" });
+    const papersResult = await slrEngineApiGet("get-papers", { protocolId: slrEngineProtocol.id, stage: "" });
+    const papers = JSON.parse(papersResult.output || "[]");
+    setSlrEnginePapers(papers);
+    
+    const prismaResult = await slrEngineApiGet("get-prisma", { protocolId: slrEngineProtocol.id });
+    const prisma = JSON.parse(prismaResult.output || "{}");
+    setSlrEnginePrisma(prisma);
+  };
+
+  const handleSLREngineExtract = async (paperId: string, field: string, value: string) => {
+    if (!slrEngineProtocol) return;
+    await slrEngineApi("extract", { protocolId: slrEngineProtocol.id, paperId, field, value });
+  };
+
+  const handleSLREngineExport = async (format: "json" | "csv" | "prisma" | "all" = "all") => {
+    if (!slrEngineProtocol) return;
+    setSlrEngineLoading(true);
+    setSlrEngineStage("export");
+    try {
+      const result = await slrEngineApi("export", { protocolId: slrEngineProtocol.id, format });
+      return result;
+    } finally {
+      setSlrEngineLoading(false);
+    }
+  };
+
+  const handleGenerateWordReport = () => {
+    if (state.slrResults) {
+      downloadLiteratureReviewWord({
+        introduction: "Introduction / Background",
+        problemGlobal: "Problem Statement — Global",
+        gaps: "Research Gaps",
+        future: "Future Studies to Be Carried Out",
+        conclusion: "Conclusion",
+        references: "References",
+      }, "systematic-review-report.docx");
+    }
+  };
+
+  const handleGeneratePDFReport = () => {
+    if (state.slrResults) {
+      downloadLiteratureReviewPDF({
+        introduction: "Introduction / Background",
+        problemGlobal: "Problem Statement — Global",
+        gaps: "Research Gaps",
+        future: "Future Studies to Be Carried Out",
+        conclusion: "Conclusion",
+        references: "References",
+      }, "Systematic Review Report");
+    }
+  };
+
+  const handleGenerateSynthesisWord = () => {
+    if (state.slrSynthesisRows.length > 0) {
+      downloadWord(state.slrSynthesisRows, "evidence-synthesis-table.docx");
+    }
+  };
+
+  const handleGenerateSynthesisPDF = () => {
+    if (state.slrSynthesisRows.length > 0) {
+      downloadPDF(state.slrSynthesisRows, "evidence-synthesis-table.pdf");
+    }
+  };
+
+  const handleGenerateSynthesisExcel = () => {
+    if (state.slrSynthesisRows.length > 0) {
+      downloadExcel(state.slrSynthesisRows, "evidence-synthesis-table.xlsx");
+    }
+  };
+
+  const handleGenerateSynthesisCSV = () => {
+    if (state.slrSynthesisRows.length > 0) {
+      downloadCSV(state.slrSynthesisRows, "evidence-synthesis-table.csv");
+    }
   };
 
   const handleRunSearch = async () => {
@@ -248,6 +459,11 @@ export default function AutomatedSLR() {
     setYearFrom("");
     setYearTo("");
     setDatabases(ALL_DATABASES);
+    setSlrEngineProtocol(null);
+    setSlrEnginePapers([]);
+    setSlrEnginePrisma({});
+    setSlrEngineStage(null);
+    setUseSLREngine(false);
   };
 
   const setBiasRating = (paperId: string, risk: "low" | "some" | "high") => {
@@ -328,7 +544,7 @@ export default function AutomatedSLR() {
             <Microscope size={24} className="text-emerald-400" /> Automated SLR
           </h2>
           <p className="text-sm text-blue-300 mt-1">
-            Systematic Literature Review pipeline — PICO/PECO/PECOT/freeflow
+            Systematic Literature Review pipeline — PICO/PECO/PECOT/freeflow + SLR-Engine
           </p>
         </div>
         <div className="flex gap-2">
@@ -339,6 +555,20 @@ export default function AutomatedSLR() {
             Reset Pipeline
           </button>
         </div>
+      </div>
+
+      {/* Engine Selection Toggle */}
+      <div className="bg-[#0f172a] p-3 rounded-lg border border-blue-900/50">
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={useSLREngine}
+            onChange={(e) => setUseSLREngine(e.target.checked)}
+            className="w-4 h-4 text-emerald-500 border-blue-500 rounded focus:ring-emerald-500"
+          />
+          <span className="text-sm text-white font-medium">Use SLR-Engine Backend (Automated PRISMA + Export)</span>
+          <span className="text-xs text-blue-400/70">(SQLite + PRISMA flow + Word/PDF/CSV export)</span>
+        </label>
       </div>
 
       <div className="w-full">
@@ -382,9 +612,13 @@ export default function AutomatedSLR() {
       </div>
 
       <div className="space-y-4">
+        {/* Step 1: Problem Formulation */}
         {activeStep === 1 && (
           <div className="bg-[#0f172a] p-4 rounded-xl border border-blue-900/50">
-            <h3 className="text-lg font-bold text-white mb-3">Step 1 — Problem Formulation</h3>
+            <h3 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
+              <LayoutDashboard size={20} className="text-emerald-400" />
+              Step 1 — Problem Formulation
+            </h3>
             <p className="text-blue-300 text-sm mb-4">
               Define your research question using PICO, PECO, PECOT, or freeflow.
             </p>
@@ -406,15 +640,18 @@ export default function AutomatedSLR() {
               </div>
               <div className="flex items-end">
                 <button
-                  onClick={() => goToStep(2)}
+                  onClick={useSLREngine ? handleCreateSLREngineProtocol : () => goToStep(2)}
                   disabled={!(framework === "freeflow" ? freeQuery : population || intervention || outcome)}
                   className={`px-4 py-2 rounded-lg text-white font-medium transition-colors ${
                     !(framework === "freeflow" ? freeQuery : population || intervention || outcome)
                       ? "bg-blue-900/30 text-blue-400"
+                      : useSLREngine
+                      ? "bg-purple-600 hover:bg-purple-500"
                       : "bg-emerald-600 hover:bg-emerald-500"
                   }`}
                 >
-                  Next: Protocol
+                  {useSLREngine ? <Settings size={14} className="mr-2" /> : ""}
+                  {useSLREngine ? "Create SLR-Engine Protocol" : "Next: Protocol"}
                 </button>
               </div>
             </div>
@@ -479,6 +716,7 @@ export default function AutomatedSLR() {
           </div>
         )}
 
+        {/* Step 2: Protocol Development */}
         {activeStep === 2 && (
           <div className="bg-[#0f172a] p-4 rounded-xl border border-blue-900/50">
             <h3 className="text-lg font-bold text-white mb-3">Step 2 — Protocol Development</h3>
@@ -535,7 +773,8 @@ export default function AutomatedSLR() {
           </div>
         )}
 
-        {activeStep === 3 && (
+        {/* Step 3: Literature Search (Legacy) */}
+        {activeStep === 3 && !useSLREngine && (
           <div className="bg-[#0f172a] p-4 rounded-xl border border-blue-900/50">
             <h3 className="text-lg font-bold text-white mb-3">Step 3 — Literature Search</h3>
             <p className="text-blue-300 text-sm mb-4">
@@ -617,7 +856,79 @@ export default function AutomatedSLR() {
           </div>
         )}
 
-        {activeStep === 4 && (
+        {/* Step 3: SLR-Engine Search */}
+        {useSLREngine && slrEngineStage === "search" && (
+          <div className="bg-[#0f172a] p-4 rounded-xl border border-blue-900/50">
+            <h3 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
+              <Search size={20} className="text-emerald-400" />
+              Step 3 — SLR-Engine Literature Search
+            </h3>
+            {slrEngineLoading && (
+              <div className="flex items-center gap-2">
+                <Loader2 size={16} className="animate-spin" />
+                <span className="text-blue-300">Searching databases (PubMed, IEEE, ACM, Scopus, Web of Science)...</span>
+              </div>
+            )}
+            {!slrEngineLoading && slrEnginePapers.length > 0 && (
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-blue-300">Papers identified:</span>
+                  <span className="font-mono text-emerald-300">{slrEnginePapers.length}</span>
+                </div>
+                <div className="p-3 bg-[#1e293b] rounded border border-blue-900/30 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-xs text-blue-400/70 border-b border-blue-900/50">
+                        <th className="text-left pb-2">Title</th>
+                        <th className="text-left pb-2">Venue</th>
+                        <th className="text-left pb-2">Year</th>
+                        <th className="text-left pb-2">Database</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {slrEnginePapers.slice(0, 20).map((p) => (
+                        <tr key={p.id} className="border-b border-blue-900/20 hover:bg-blue-900/10">
+                          <td className="pb-2 truncate max-w-[300px]">{p.title}</td>
+                          <td className="pb-2">{p.venue}</td>
+                          <td className="pb-2">{p.year}</td>
+                          <td className="pb-2">{p.database}</td>
+                        </tr>
+                      ))}
+                      {slrEnginePapers.length > 20 && (
+                        <tr>
+                          <td colSpan={4} className="pb-2 text-xs text-blue-500/70 italic">
+                            ...and {slrEnginePapers.length - 20} more papers
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => setSlrEngineStage("screening")}
+                    className="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-500"
+                  >
+                    Proceed to Study Selection
+                  </button>
+                </div>
+              </div>
+            )}
+            {!slrEngineLoading && slrEnginePapers.length === 0 && slrEngineProtocol && (
+              <div className="text-center py-8">
+                <button
+                  onClick={handleRunSLREngineSearch}
+                  className="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-500"
+                >
+                  Run SLR-Engine Search (Mock Data)
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Step 4: Study Selection (Legacy) */}
+        {activeStep === 4 && !useSLREngine && (
           <div className="bg-[#0f172a] p-4 rounded-xl border border-blue-900/50">
             <h3 className="text-lg font-bold text-white mb-3">Step 4 — Study Selection</h3>
             <p className="text-blue-300 text-sm mb-4">
@@ -709,7 +1020,110 @@ export default function AutomatedSLR() {
           </div>
         )}
 
-        {activeStep === 5 && (
+        {/* Step 4: SLR-Engine Screening */}
+        {useSLREngine && slrEngineStage === "screening" && (
+          <div className="bg-[#0f172a] p-4 rounded-xl border border-blue-900/50">
+            <h3 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
+              <Filter size={20} className="text-emerald-400" />
+              Step 4 — SLR-Engine Study Selection (Title/Abstract Screening)
+            </h3>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-xs font-bold text-blue-400">
+                    To Screen ({slrEnginePapers.filter((p) => !p.title_abstract_screen).length})
+                  </h4>
+                  <button
+                    onClick={() => {
+                      const unscreened = slrEnginePapers.filter((p) => !p.title_abstract_screen);
+                      unscreened.forEach((p) => handleSLREngineScreen(p.id, "include"));
+                    }}
+                    className="text-xs text-emerald-400 hover:text-emerald-300 hover:underline"
+                  >
+                    Select All → Include
+                  </button>
+                </div>
+                <div className="max-h-96 overflow-y-auto space-y-2 bg-[#1e293b] p-3 rounded border border-blue-900/30">
+                  {slrEnginePapers.filter((p) => !p.title_abstract_screen).map((p) => (
+                    <div key={p.id} className="p-2 border border-blue-900/30 rounded hover:bg-blue-900/10">
+                      <div className="text-sm text-blue-200 truncate">{p.title}</div>
+                      <div className="text-xs text-blue-500/70 mt-1">{p.venue} • {p.year}</div>
+                      <div className="flex gap-2 mt-2">
+                        <button
+                          onClick={() => handleSLREngineScreen(p.id, "include")}
+                          className="px-2 py-1 text-xs bg-emerald-900/30 text-emerald-300 rounded hover:bg-emerald-900/50"
+                        >
+                          Include
+                        </button>
+                        <button
+                          onClick={() => handleSLREngineScreen(p.id, "exclude")}
+                          className="px-2 py-1 text-xs bg-red-900/30 text-red-300 rounded hover:bg-red-900/50"
+                        >
+                          Exclude
+                        </button>
+                        <button
+                          onClick={() => handleSLREngineScreen(p.id, "maybe")}
+                          className="px-2 py-1 text-xs bg-yellow-900/30 text-yellow-300 rounded hover:bg-yellow-900/50"
+                        >
+                          Maybe
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {slrEnginePapers.filter((p) => !p.title_abstract_screen).length === 0 && (
+                    <p className="text-xs text-blue-400/70 text-center py-2">All papers screened.</p>
+                  )}
+                </div>
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-emerald-400 mb-2">
+                  Included ({slrEnginePapers.filter((p) => p.title_abstract_screen === "include").length})
+                </h4>
+                <div className="max-h-96 overflow-y-auto space-y-2 bg-emerald-900/10 p-3 rounded border border-emerald-900/30">
+                  {slrEnginePapers.filter((p) => p.title_abstract_screen === "include").map((p) => (
+                    <div key={p.id} className="p-2 border border-emerald-900/30 rounded">
+                      <div className="text-sm text-emerald-200 truncate">{p.title}</div>
+                      <button
+                        onClick={() => handleSLREngineScreen(p.id, "exclude")}
+                        className="text-xs text-red-400 mt-1 hover:underline"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-blue-400 mb-2">PRISMA Flow</h4>
+                <div className="p-3 bg-[#1e293b] rounded border border-blue-900/30">
+                  <pre className="text-xs text-blue-200">{JSON.stringify(slrEnginePrisma, null, 2)}</pre>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-between mt-4">
+              <button
+                onClick={() => setSlrEngineStage("search")}
+                className="px-4 py-2 rounded-lg text-blue-300 hover:bg-blue-900/30"
+              >
+                ← Back
+              </button>
+              <button
+                onClick={() => setSlrEngineStage("extraction")}
+                disabled={slrEnginePapers.filter((p) => p.title_abstract_screen === "include").length === 0}
+                className={`ml-2 px-4 py-2 rounded-lg text-white font-medium transition-colors ${
+                  slrEnginePapers.filter((p) => p.title_abstract_screen === "include").length === 0
+                    ? "bg-blue-900/30 text-blue-400"
+                    : "bg-emerald-600 hover:bg-emerald-500"
+                }`}
+              >
+                Proceed to Data Extraction
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 5: Data Extraction (Legacy) */}
+        {activeStep === 5 && !useSLREngine && (
           <div className="bg-[#0f172a] p-4 rounded-xl border border-blue-900/50">
             <h3 className="text-lg font-bold text-white mb-3">Step 5 — Data Extraction</h3>
             <p className="text-blue-300 text-sm mb-4">
@@ -779,7 +1193,58 @@ export default function AutomatedSLR() {
           </div>
         )}
 
-        {activeStep === 6 && (
+        {/* Step 5: SLR-Engine Extraction */}
+        {useSLREngine && slrEngineStage === "extraction" && (
+          <div className="bg-[#0f172a] p-4 rounded-xl border border-blue-900/50">
+            <h3 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
+              <ClipboardList size={20} className="text-emerald-400" />
+              Step 5 — SLR-Engine Data Extraction
+            </h3>
+            <p className="text-blue-300 text-sm mb-4">
+              Extract structured data from included full-text papers.
+            </p>
+            <div className="space-y-4">
+              {slrEnginePapers.filter((p) => p.title_abstract_screen === "include").map((paper) => (
+                <div key={paper.id} className="p-3 bg-[#1e293b] rounded border border-blue-900/30">
+                  <div className="font-medium text-blue-200 mb-2">{paper.title}</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {["study_design", "sample_size", "population", "intervention", "comparator", "outcome", "results", "limitations"].map((field) => (
+                      <div key={field} className="space-y-1">
+                        <label className="text-xs font-semibold text-blue-400 capitalize">
+                          {field.replace("_", " ")}
+                        </label>
+                        <input
+                          type="text"
+                          value={paper.extraction_data[field] || ""}
+                          onChange={(e) => handleSLREngineExtract(paper.id, field, e.target.value)}
+                          placeholder={`Enter ${field.replace("_", " ")}`}
+                          className="w-full bg-[#0d1b3e] border-blue-900/50 text-white rounded px-2 py-1 text-sm"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-between mt-4">
+              <button
+                onClick={() => setSlrEngineStage("screening")}
+                className="px-4 py-2 rounded-lg text-blue-300 hover:bg-blue-900/30"
+              >
+                ← Back
+              </button>
+              <button
+                onClick={() => setSlrEngineStage("synthesis")}
+                className="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-500"
+              >
+                Proceed to Synthesis
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 6: Quality Assessment (Legacy) */}
+        {activeStep === 6 && !useSLREngine && (
           <div className="bg-[#0f172a] p-4 rounded-xl border border-blue-900/50">
             <h3 className="text-lg font-bold text-white mb-3">Step 6 — Quality Assessment (Robtreviewer / Robvis)</h3>
             <p className="text-blue-300 text-sm mb-4">
@@ -869,7 +1334,8 @@ export default function AutomatedSLR() {
           </div>
         )}
 
-        {activeStep === 7 && (
+        {/* Step 7: Data Synthesis (Legacy) */}
+        {activeStep === 7 && !useSLREngine && (
           <div className="bg-[#0f172a] p-4 rounded-xl border border-blue-900/50">
             <h3 className="text-lg font-bold text-white mb-3">Step 7 — Data Synthesis</h3>
             <p className="text-blue-300 text-sm mb-4">
@@ -913,7 +1379,87 @@ export default function AutomatedSLR() {
           </div>
         )}
 
-        {activeStep === 8 && (
+        {/* Step 7: SLR-Engine Synthesis */}
+        {useSLREngine && slrEngineStage === "synthesis" && (
+          <div className="bg-[#0f172a] p-4 rounded-xl border border-blue-900/50">
+            <h3 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
+              <BarChart3 size={20} className="text-emerald-400" />
+              Step 7 — SLR-Engine Data Synthesis & PRISMA Flow
+            </h3>
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="p-3 bg-[#1e293b] rounded border border-blue-900/30">
+                <h4 className="text-xs font-bold text-blue-400 mb-2">PRISMA Flow Diagram</h4>
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between"><span>Records Identified:</span> <span className="font-mono text-emerald-300">{slrEnginePrisma.records_identified || 0}</span></div>
+                  <div className="flex justify-between"><span>Records After Dedup:</span> <span className="font-mono text-emerald-300">{slrEnginePrisma.records_after_dedup || 0}</span></div>
+                  <div className="flex justify-between"><span>Records Screened:</span> <span className="font-mono text-emerald-300">{slrEnginePrisma.records_screened || 0}</span></div>
+                  <div className="flex justify-between"><span>Records Excluded:</span> <span className="font-mono text-emerald-300">{slrEnginePrisma.records_excluded || 0}</span></div>
+                  <div className="flex justify-between"><span>Reports Sought:</span> <span className="font-mono text-emerald-300">{slrEnginePrisma.reports_sought || 0}</span></div>
+                  <div className="flex justify-between"><span>Reports Not Retrieved:</span> <span className="font-mono text-emerald-300">{slrEnginePrisma.reports_not_retrieved || 0}</span></div>
+                  <div className="flex justify-between"><span>Reports Assessed:</span> <span className="font-mono text-emerald-300">{slrEnginePrisma.reports_assessed || 0}</span></div>
+                  <div className="flex justify-between"><span>Reports Excluded:</span> <span className="font-mono text-emerald-300">{slrEnginePrisma.reports_excluded_eligibility || 0}</span></div>
+                  <div className="flex justify-between font-bold"><span>Studies Included:</span> <span className="font-mono text-emerald-300">{slrEnginePrisma.studies_included || 0}</span></div>
+                </div>
+              </div>
+              <div className="p-3 bg-[#1e293b] rounded border border-blue-900/30">
+                <h4 className="text-xs font-bold text-blue-400 mb-2">Included Studies with Extracted Data</h4>
+                <div className="text-sm text-blue-200">
+                  {slrEnginePapers.filter((p) => p.title_abstract_screen === "include").length} papers
+                </div>
+              </div>
+            </div>
+            <div className="mb-4">
+              <h4 className="text-xs font-bold text-blue-400 mb-2">Export Options</h4>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => handleSLREngineExport("all")}
+                  disabled={slrEngineLoading}
+                  className="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-500"
+                >
+                  <FileType size={12} className="mr-1" /> Export All (JSON, CSV, PRISMA)
+                </button>
+                <button
+                  onClick={() => handleSLREngineExport("json")}
+                  disabled={slrEngineLoading}
+                  className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-500"
+                >
+                  <FileText size={12} className="mr-1" /> Export JSON
+                </button>
+                <button
+                  onClick={() => handleSLREngineExport("csv")}
+                  disabled={slrEngineLoading}
+                  className="px-3 py-1.5 text-xs bg-purple-600 text-white rounded hover:bg-purple-500"
+                >
+                  <FileText size={12} className="mr-1" /> Export CSV
+                </button>
+                <button
+                  onClick={() => handleSLREngineExport("prisma")}
+                  disabled={slrEngineLoading}
+                  className="px-3 py-1.5 text-xs bg-orange-600 text-white rounded hover:bg-orange-500"
+                >
+                  <BarChart3 size={12} className="mr-1" /> Export PRISMA
+                </button>
+              </div>
+            </div>
+            <div className="flex justify-between mt-4">
+              <button
+                onClick={() => setSlrEngineStage("extraction")}
+                className="px-4 py-2 rounded-lg text-blue-300 hover:bg-blue-900/30"
+              >
+                ← Back
+              </button>
+              <button
+                onClick={() => setSlrEngineStage("export")}
+                className="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-500"
+              >
+                Proceed to Export
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 8: Reporting (Legacy) */}
+        {activeStep === 8 && !useSLREngine && (
           <div className="bg-[#0f172a] p-4 rounded-xl border border-blue-900/50">
             <h3 className="text-lg font-bold text-white mb-3">Step 8 — Reporting</h3>
             <p className="text-blue-300 text-sm mb-4">
@@ -948,6 +1494,42 @@ export default function AutomatedSLR() {
                   <Download size={14} className="mr-1" /> Download MD
                 </button>
                 <button
+                  onClick={handleGenerateWordReport}
+                  className="px-3 py-1.5 text-xs bg-emerald-900/30 text-emerald-300 rounded hover:bg-emerald-900/50"
+                >
+                  <FileType size={14} className="mr-1" /> Download Word
+                </button>
+                <button
+                  onClick={handleGeneratePDFReport}
+                  className="px-3 py-1.5 text-xs bg-red-900/30 text-red-300 rounded hover:bg-red-900/50"
+                >
+                  <FileText size={14} className="mr-1" /> Download PDF
+                </button>
+                <button
+                  onClick={handleGenerateSynthesisWord}
+                  className="px-3 py-1.5 text-xs bg-purple-900/30 text-purple-300 rounded hover:bg-purple-900/50"
+                >
+                  <FileType size={14} className="mr-1" /> Synthesis Word
+                </button>
+                <button
+                  onClick={handleGenerateSynthesisPDF}
+                  className="px-3 py-1.5 text-xs bg-orange-900/30 text-orange-300 rounded hover:bg-orange-900/50"
+                >
+                  <FileText size={14} className="mr-1" /> Synthesis PDF
+                </button>
+                <button
+                  onClick={handleGenerateSynthesisExcel}
+                  className="px-3 py-1.5 text-xs bg-green-900/30 text-green-300 rounded hover:bg-green-900/50"
+                >
+                  <FileText size={14} className="mr-1" /> Synthesis Excel
+                </button>
+                <button
+                  onClick={handleGenerateSynthesisCSV}
+                  className="px-3 py-1.5 text-xs bg-teal-900/30 text-teal-300 rounded hover:bg-teal-900/50"
+                >
+                  <FileText size={14} className="mr-1" /> Synthesis CSV
+                </button>
+                <button
                   onClick={() => {
                     navigator.clipboard.writeText(state.slrResults || "");
                   }}
@@ -960,6 +1542,74 @@ export default function AutomatedSLR() {
             <div className="flex justify-between mt-4">
               <button
                 onClick={() => goToStep(7)}
+                className="px-4 py-2 rounded-lg text-blue-300 hover:bg-blue-900/30"
+              >
+                ← Back
+              </button>
+              <button
+                onClick={handleReset}
+                className="px-4 py-2 rounded-lg bg-red-900/20 text-red-300 hover:bg-red-900/40"
+              >
+                Start New SLR
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* SLR-Engine Export */}
+        {useSLREngine && slrEngineStage === "export" && (
+          <div className="bg-[#0f172a] p-4 rounded-xl border border-blue-900/50">
+            <h3 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
+              <Download size={20} className="text-emerald-400" />
+              Step 8 — SLR-Engine Export & Reporting
+            </h3>
+            <p className="text-blue-300 text-sm mb-4">
+              Export your completed systematic review in multiple formats.
+            </p>
+            <div className="space-y-3">
+              <div className="p-3 bg-[#1e293b] rounded border border-blue-900/30">
+                <h4 className="text-xs font-bold text-blue-400 mb-2">Complete Export (JSON + CSV + PRISMA)</h4>
+                <button
+                  onClick={() => handleSLREngineExport("all")}
+                  disabled={slrEngineLoading}
+                  className="w-full py-2 px-3 bg-emerald-600 text-white rounded hover:bg-emerald-500 flex items-center justify-center gap-2"
+                >
+                  <FileType size={16} /> Download Complete SLR Package
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => handleSLREngineExport("json")}
+                  disabled={slrEngineLoading}
+                  className="py-2 px-3 bg-blue-600 text-white rounded hover:bg-blue-500 text-center"
+                >
+                  <FileText size={14} className="block mx-auto mb-1" /> Export JSON
+                </button>
+                <button
+                  onClick={() => handleSLREngineExport("csv")}
+                  disabled={slrEngineLoading}
+                  className="py-2 px-3 bg-purple-600 text-white rounded hover:bg-purple-500 text-center"
+                >
+                  <FileText size={14} className="block mx-auto mb-1" /> Export CSV
+                </button>
+                <button
+                  onClick={() => handleSLREngineExport("prisma")}
+                  disabled={slrEngineLoading}
+                  className="py-2 px-3 bg-orange-600 text-white rounded hover:bg-orange-500 text-center"
+                >
+                  <BarChart3 size={14} className="block mx-auto mb-1" /> Export PRISMA
+                </button>
+              </div>
+              <div className="p-3 bg-[#1e293b] rounded border border-blue-900/30">
+                <h4 className="text-xs font-bold text-blue-400 mb-2">Generated Files</h4>
+                <p className="text-xs text-blue-400/70">
+                  Files are saved to the server filesystem. Use the export buttons above to generate and download.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-between mt-4">
+              <button
+                onClick={() => setSlrEngineStage("synthesis")}
                 className="px-4 py-2 rounded-lg text-blue-300 hover:bg-blue-900/30"
               >
                 ← Back
