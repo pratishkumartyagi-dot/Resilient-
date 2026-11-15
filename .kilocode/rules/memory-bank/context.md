@@ -498,6 +498,15 @@ Full audit of every pipeline found several were mock/alert-only or had defects. 
   - [x] DeepSeek API key configurable in Settings modal with test connection
 - [x] **Step 1 search audit fix**: Restored 14 direct API database fetchers (PubMed, OpenAlex, Europe PMC, DOAJ, bioRxiv, medRxiv, Crossref, arXiv, OpenAIRE, dblp, Zenodo, Google Scholar, Semantic Scholar, ClinicalTrials.gov) after `paper-search-mcp` binary integration returned no papers. Removed `paper-search-mcp` from visible database lists in both Research Pipeline and Evidence Synthesis pipeline. Replaced all `Dianel555/paper-search-mcp-nodejs` references with `openags/paper-search-mcp`. Fixed fallback chain to web-search and mock data.
 
+- [x] **PaperOrchestra multi-agent manuscript writer integrated (kilo/warm-key-dj6, v0.7.7)**:
+  - New `src/lib/paper-orchestra.ts` — TS port of google-research/paper-orchestra's four-agent pipeline (Outline → Literature Review → Section Writing → Content Refinement). `orchestratePaperOrchestra()` is provider-agnostic; `runPaperOrchestraPipeline()` wraps `callAiWithFallback` → existing `/api/chat` API (Gemini → Groq → local Qwen2.5). `generateLiteratureReviewSections()` generates first 5 lit-review sections individually. `content` field on `OrchestraSection` made optional.
+  - New `src/app/api/paper-orchestra-write/route.ts` — server POST endpoint running orchestration directly against Gemini/Groq using client-supplied API key; returns `{outline, literatureSections, manuscript, citations, agentLog}`.
+  - Evidence Synthesis Step 6 (last step): new "PaperOrchestra Manuscript (Google Research)" block — generates/edits/exports (PDF/Word/LaTeX) a PRISMA-aligned, Vancouver-cited manuscript from extracted studies via `/api/paper-orchestra-write`.
+  - Review of Literature Step 4: new "PaperOrchestra Sections" button generates the first 5 sections (introduction/globalIndian/gaps/futureAdvice/summary) via the section-writing agent; persists to `state.literatureReview`.
+  - Bumped `package.json` version 0.7.6 → 0.7.7; added `AUDIT_REPORT.md` auditing both pipelines (main research + evidence synthesis/meta-analysis) plus the PaperOrchestra integration.
+  - `bun typecheck` ✅, `bun lint` ✅; commit `8af48f3` pushed to `kilo/warm-key-dj6`.
+  - Note: Windows `.exe` build (`dist:win`) requires a Windows runner (this Linux sandbox lacks Wine); tag `v0.7.7` requires GitHub credentials not available here.
+
 ## Recent Enhancements (2026-06-23)
 
 - [x] Header layout update: moved "AI-Powered Research Intelligence Platform" from below logo to below centered "Resilient Research App" title; removed "Powered Research Intelligence Platform" subtitle
