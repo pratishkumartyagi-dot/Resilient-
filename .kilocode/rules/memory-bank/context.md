@@ -1,4 +1,31 @@
-# Active Context: Resilient Researcher Assistant
+# Active Context: Resilient Research App
+
+## v0.7.7 — main research pipeline & evidence-synthesis/meta-analysis zero-result fix (2026-11-15)
+
+### Root cause (both pipelines affected, shared backend)
+`POST /api/literature-search` rewrote natural-language queries (keyword-extract/semantic) into PubMed-shaped terms but did **not** propagate the chosen mode/flags to `searchDatabases` → per-database fetchers. `SearchOptions` lacked `semanticSearch`/`keywordExtract`/`queryMode`, and `searchDatabases` forwarded only `query/year/studyType/limit`, so:
+- Non-PubMed sources (Europe PMC, OpenAlex, Crossref, arXiv, OpenAIRE, Zenodo, ClinicalTrials.gov) received pre-mangled terms or were translated without per-source context, often producing invalid/native-incompatible queries and **zero results**.
+- Europe PMC in particular could inherit PubMed-only field tags (`[MeSH Terms]`, `[Title/Abstract]`) from upstream rewriting, yielding empty responses.
+- Natural-language queries and explicit boolean queries were not consistently distinguished across fetchers.
+
+### Fixes
+- `src/lib/database-apis.ts`
+  - Extended `SearchOptions` and fetch orchestration to carry `semanticSearch`, `keywordExtract`, `queryMode` through `searchDatabases` into every fetcher.
+  - Europe PMC/bioRxiv/medRxiv: build native queries from the original question (concept-aware AND of concepts with ORed MeSH/synonyms/labels for natural language; preserve explicit boolean user queries; keep `FIRST_PDATE` and preprint source filters).
+  - OpenAlex/Crossref: derive clean bibliographic/concept keyword terms from the original question (concept labels/keywords for natural language, stripped boolean text for explicit boolean) instead of PubMed-tagged strings.
+  - arXiv/OpenAIRE/Zenodo/ClinicalTrials.gov: natural-language → concept/keyword terms; explicit boolean preserved/normalized per API.
+  - PubMed path remains concept-aware via `resolveEffectiveTerm` (MeSH + `[Title/Abstract]`, stop-word filtering, study-type/date filters).
+  - Maintained uncapped retrieval semantics for the evidence-synthesis/meta-analysis pipeline (no default per-DB cap) with budgeted timeouts; Step 1 UI continues to pass `maxResults` (limit per DB).
+- `src/app/api/literature-search/route.ts`
+  - Detects query mode: `semantic` when requested, `boolean` for explicit boolean/parenthesized queries, otherwise `natural`.
+  - Extracts concepts for natural/keyword-extract mode and passes raw query + `semanticSearch`/`keywordExtract`/`queryMode` to `searchDatabases` so each source applies its own translation (avoids cross-database syntax leakage).
+- Pipelines (distinct UIs, shared search backend)
+  - **Main research pipeline (Step 1, `Step1Search.tsx`)**: bounded per-database search (`maxResults`, search budget) with live per-database outcomes; now receives records correctly for natural-language and boolean queries.
+  - **Evidence synthesis & meta-analysis pipeline (`EvidenceSynthesisTab.tsx` + `EvidenceSynthesisStep1.tsx`)**: full-set retrieval (`timeoutMs: 120000`, no `maxResults` cap) with keyword-extract/semantic toggles; same corrected translation fixes zero-result searches.
+- Version bumped to **0.7.7** (`package.json`, `package-lock.json`).
+
+### Validation notes
+- Static code inspection/sanity checks applied across route, database API, and both pipeline entry points. Full `typecheck/lint/build` could not be executed in this environment because project tool binaries are not installed (`tsc/eslint/next` unavailable; no local `node_modules/.bin`).
 
 ## Step 1 research pipeline audit — why databases were not searching papers (2026-11-03)
 

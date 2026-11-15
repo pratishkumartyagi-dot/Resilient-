@@ -57,6 +57,13 @@ export interface SearchOptions {
   limitPerDatabase?: number;
   /** Overall wall-clock budget for the whole multi-database search. */
   timeoutMs?: number;
+  /** When true, broaden retrieval with MeSH/ATM expansion (meaning-based). */
+  semanticSearch?: boolean;
+  /** When true, build a concept-aware (MeSH + synonyms, AND-ed concepts) query
+   *  from a natural-language question instead of AND-ing every content word. */
+  keywordExtract?: boolean;
+  /** Explicit query mode chosen by the caller/route. */
+  queryMode?: "boolean" | "semantic" | "natural";
 }
 
 const STUDY_TYPE_KEYWORDS: Record<string, string[]> = {
@@ -939,9 +946,32 @@ async function fetchEuropePmcQuery(
 ): Promise<Paper[]> {
   // Europe PMC scheme: quoted terms ORed/ANDed with the TITLE and ABST
   // fields, plus the date range and (for preprints) the source filter.
-  // The route/server decides how the natural-language question is turned into
-  // a query (semantic / keyword-extract / boolean) and the fetcher follows it.
-  const translated = buildDatabaseSearch(label, resolveEffectiveTerm(ctx), {
+  // Build from the original question/keywords (not a pre-expanded PubMed
+  // term) so Europe PMC never receives PubMed-only field tags.
+  const raw = (ctx.query || query || "").trim();
+  const isExplicitBoolean = /\b(AND|OR|NOT)\b/i.test(raw) || /[()]/.test(raw);
+  let term: string;
+  if (isExplicitBoolean && !ctx.keywordExtract && !ctx.semanticSearch) {
+    term = raw;
+  } else if (ctx.semanticSearch) {
+    term = splitTerms(raw).map((t) => `"${t}"`).join(" AND ") || raw;
+  } else {
+    // Concept-aware / keyword extract (default for natural language): AND
+    // the recognised concepts and OR MeSH headings + synonyms within each.
+    const concepts = extractSearchConcepts(raw);
+    if (concepts.length > 0) {
+      const parts = concepts.map((c) => {
+        const vals = Array.from(new Set([c.label, ...c.synonyms, ...c.meshTerms].filter(Boolean)));
+        if (vals.length === 0) return "";
+        const orPart = vals.map((v) => `"${v.replace(/"/g, "")}"`).join(" OR ");
+        return vals.length > 1 ? `(${orPart})` : orPart;
+      }).filter(Boolean);
+      term = parts.join(" AND ") || splitTerms(raw).map((t) => `"${t}"`).join(" AND ") || raw;
+    } else {
+      term = splitTerms(raw).map((t) => `"${t}"`).join(" AND ") || raw;
+    }
+  }
+  const translated = buildDatabaseSearch(label, term, {
     yearFrom: ctx.yearFrom,
     yearTo: ctx.yearTo,
   });
@@ -1090,7 +1120,7 @@ export async function fetchOpenAlex(
   yearFrom?: string,
   yearTo?: string,
   studyType?: string,
-  options?: { limit?: number; sort?: string; filter?: string }
+  options?: { limit?: number; sort?: string; filter?: string; semanticSearch?: boolean; keywordExtract?: boolean; queryMode?: "boolean" | "semantic" | "natural" }
 ): Promise<Paper[]> {
   const limit = options?.limit ?? UNLIMITED;
   const filterParts: string[] = [];
@@ -1098,8 +1128,25 @@ export async function fetchOpenAlex(
   if (yearTo) filterParts.push(`to_publication_date:${yearTo}-12-31`);
   if (options?.filter) filterParts.push(options.filter);
 
+  const raw = (query || "").trim();
+  const isExplicitBoolean = /\b(AND|OR|NOT)\b/i.test(raw) || /[()]/.test(raw);
+  let searchTerm: string;
+  if (isExplicitBoolean && !options?.keywordExtract && !options?.semanticSearch) {
+    searchTerm = raw.replace(/\b(AND|OR|NOT)\b/gi, " ").replace(/[()]/g, " ").replace(/\s+/g, " ").trim();
+  } else if (options?.semanticSearch) {
+    searchTerm = splitTerms(raw).join(" ") || raw;
+  } else {
+    // Prefer concept labels/keywords for natural-language questions.
+    const concepts = extractSearchConcepts(raw);
+    if (concepts.length > 0) {
+      searchTerm = concepts.map((c) => c.label || c.meshTerms[0] || c.synonyms[0]).filter(Boolean).join(" ");
+    } else {
+      searchTerm = splitTerms(raw).join(" ") || raw;
+    }
+  }
+
   const params = new URLSearchParams({
-    search: buildDatabaseSearch("OpenAlex", query, { yearFrom, yearTo }).term,
+    search: searchTerm,
     "per-page": "100",
     mailto: CONTACT_EMAIL,
   });
@@ -1133,7 +1180,14 @@ export async function fetchOpenAlex(
 
 /* --------------------------- Crossref ----------------------------- */
 
-export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
+export async function fetchCrossref(
+  query: string,
+  yearFrom?: string,
+  yearTo?: string,
+  studyType?: string,
+  limit?: number,
+  options?: { semanticSearch?: boolean; keywordExtract?: boolean; queryMode?: "boolean" | "semantic" | "natural" }
+): Promise<Paper[]> {
   const maxResults = limit ?? UNLIMITED;
   const filters: string[] = [];
   if (yearFrom) filters.push(`from-pub-date:${yearFrom}`);
@@ -1153,10 +1207,25 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
     ? ""
     : (process.env.PORT ? `http://127.0.0.1:${process.env.PORT}` : "http://127.0.0.1:3000");
 
+  const raw = (query || "").trim();
+  const isExplicitBoolean = /\b(AND|OR|NOT)\b/i.test(raw) || /[()]/.test(raw);
+  let term: string;
+  if (isExplicitBoolean && !options?.keywordExtract && !options?.semanticSearch) {
+    term = raw.replace(/\b(AND|OR|NOT)\b/gi, " ").replace(/[()]/g, " ").replace(/\s+/g, " ").trim();
+  } else if (options?.semanticSearch) {
+    term = splitTerms(raw).join(" ") || raw;
+  } else {
+    const concepts = extractSearchConcepts(raw);
+    if (concepts.length > 0) {
+      term = concepts.map((c) => c.label || c.meshTerms[0] || c.synonyms[0]).filter(Boolean).join(" ");
+    } else {
+      term = splitTerms(raw).join(" ") || raw;
+    }
+  }
+
   while (pages < MAX_PAGINATION_PAGES) {
     if (papers.length >= cap) break;
     pages++;
-    const term = buildDatabaseSearch("Crossref", query).term;
     const data = await httpJson<any>(`${base}/api/crossref`, {
       method: "POST",
       timeoutMs: 30000,
@@ -1203,7 +1272,12 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
 
 export async function fetcharXiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
   const maxResults = limit ?? UNLIMITED;
-  const searchQuery = encodeURIComponent(buildDatabaseSearch("arXiv", query).term);
+  const raw = (query || "").trim();
+  const isExplicitBoolean = /\b(AND|OR|NOT)\b/i.test(raw) || /[()]/.test(raw);
+  const arxivTerm = isExplicitBoolean
+    ? raw.replace(/\b(AND|OR|NOT)\b/gi, " ").replace(/[()]/g, " ").replace(/\s+/g, " ").trim()
+    : (splitTerms(raw).join(" ") || raw);
+  const searchQuery = encodeURIComponent(buildDatabaseSearch("arXiv", arxivTerm).term);
   // arXiv caps a single API call at 3 000 results; paginate with start= to
   // walk the full set. Each page is 100.
   const papers: Paper[] = [];
@@ -1318,10 +1392,15 @@ export async function fetchOpenAIRE(query: string, yearFrom?: string, yearTo?: s
   const maxResults = limit ?? UNLIMITED;
   const papers: Paper[] = [];
   const cap = isFinite(maxResults) && maxResults > 0 ? maxResults : Infinity;
+  const raw = (query || "").trim();
+  const isExplicitBoolean = /\b(AND|OR|NOT)\b/i.test(raw) || /[()]/.test(raw);
+  const oaTerm = isExplicitBoolean
+    ? raw.replace(/\b(AND|OR|NOT)\b/gi, " ").replace(/[()]/g, " ").replace(/\s+/g, " ").trim()
+    : (extractSearchConcepts(raw).map((c) => c.label || c.meshTerms[0] || c.synonyms[0]).filter(Boolean).join(" ") || splitTerms(raw).join(" ") || raw);
 
   for (let page = 1; page <= MAX_PAGINATION_PAGES; page++) {
     if (papers.length >= cap) break;
-    const qs = new URLSearchParams({ keywords: buildDatabaseSearch("OpenAIRE", query).term, format: "json", size: "100", page: String(page) });
+    const qs = new URLSearchParams({ keywords: oaTerm, format: "json", size: "100", page: String(page) });
     const data = await httpJson<any>(`https://api.openaire.eu/search/publications?${qs.toString()}`, {
       timeoutMs: 30000,
       retries: 3,
@@ -1426,10 +1505,15 @@ export async function fetchZenodo(query: string, yearFrom?: string, yearTo?: str
   const results: any[] = [];
   const pageSize = 25; // the Zenodo records API rejects larger page sizes
   const cap = isFinite(maxResults) && maxResults > 0 ? maxResults : Infinity;
+  const raw = (query || "").trim();
+  const isExplicitBoolean = /\b(AND|OR|NOT)\b/i.test(raw) || /[()]/.test(raw);
+  const zenodoTerm = isExplicitBoolean
+    ? raw
+    : (extractSearchConcepts(raw).map((c) => c.label || c.meshTerms[0] || c.synonyms[0]).filter(Boolean).join(" ") || splitTerms(raw).join(" ") || raw);
 
   for (let page = 1; page <= MAX_PAGINATION_PAGES; page++) {
     if (results.length >= cap) break;
-    const qs = new URLSearchParams({ q: buildDatabaseSearch("Zenodo", query).term, size: String(pageSize), sort: "bestmatch", page: String(page) });
+    const qs = new URLSearchParams({ q: zenodoTerm, size: String(pageSize), sort: "bestmatch", page: String(page) });
     const data = await httpJson<any>(`https://zenodo.org/api/records?${qs.toString()}`, { timeoutMs: 30000, retries: 2 });
     const hits = data.hits?.hits || [];
     if (hits.length === 0) break;
@@ -1575,9 +1659,14 @@ export async function fetchClinicalTrialsGov(query: string, yearFrom?: string, y
   let pageToken: string | undefined;
   const cap = isFinite(maxResults) && maxResults > 0 ? maxResults : Infinity;
 
+  const rawCt = (query || "").trim();
+  const isExplicitBooleanCt = /\b(AND|OR|NOT)\b/i.test(rawCt) || /[()]/.test(rawCt);
+  const ctTerm = isExplicitBooleanCt
+    ? rawCt.replace(/\b(AND|OR|NOT)\b/gi, " ").replace(/[()]/g, " ").replace(/\s+/g, " ").trim()
+    : (extractSearchConcepts(rawCt).map((c) => c.label || c.meshTerms[0] || c.synonyms[0]).filter(Boolean).join(" ") || splitTerms(rawCt).join(" ") || rawCt);
   for (let page = 0; page < MAX_PAGINATION_PAGES; page++) {
     if (papers.length >= cap) break;
-    const qs = new URLSearchParams({ "query.term": buildDatabaseSearch("ClinicalTrials.gov", query).term, format: "json", pageSize: "100" });
+    const qs = new URLSearchParams({ "query.term": ctTerm, format: "json", pageSize: "100" });
     if (pageToken) qs.set("pageToken", pageToken);
     const data = await httpJson<any>(`https://clinicaltrials.gov/api/v2/studies?${qs.toString()}`, {
       timeoutMs: 30000,
@@ -1770,13 +1859,14 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     requiresKey: "OPENALEX_API_KEY",
     keyHint: "Without a key the API answers HTTP 429 because the shared-IP daily budget is exhausted.",
     rateLimitHint: "the shared-IP daily budget is exhausted; set OPENALEX_API_KEY in .env.local to lift the limit",
-    search: (ctx) => fetchOpenAlex(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, { limit: ctx.limit }),
-  },  {
+    search: (ctx) => fetchOpenAlex(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, { limit: ctx.limit, semanticSearch: ctx.semanticSearch, keywordExtract: ctx.keywordExtract, queryMode: ctx.queryMode }),
+  },
+  {
     id: "Europe PMC",
     label: "Europe PMC",
     url: "https://europepmc.org/",
     description: "Europe PMC literature database",
-    search: (ctx) => fetchEuropePMC(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchEuropePMC(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit),
   },
   {
     id: "DOAJ",
@@ -1792,35 +1882,35 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "bioRxiv",
     url: "https://www.biorxiv.org/",
     description: "bioRxiv preprints (via the Europe PMC preprint index)",
-    search: (ctx) => fetchBioRxiv(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchBioRxiv(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit),
   },
   {
     id: "medRxiv",
     label: "medRxiv",
     url: "https://www.medrxiv.org/",
     description: "medRxiv preprints (via the Europe PMC preprint index)",
-    search: (ctx) => fetchMedRxiv(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchMedRxiv(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit),
   },
   {
     id: "Crossref",
     label: "Crossref",
     url: "https://www.crossref.org/",
     description: "Crossref DOI metadata registry",
-    search: (ctx) => fetchCrossref(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchCrossref(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, { semanticSearch: ctx.semanticSearch, keywordExtract: ctx.keywordExtract, queryMode: ctx.queryMode }),
   },
   {
     id: "arXiv",
     label: "arXiv",
     url: "https://arxiv.org/",
     description: "arXiv preprint repository",
-    search: (ctx) => fetcharXiv(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetcharXiv(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit),
   },
   {
     id: "OpenAIRE",
     label: "OpenAIRE",
     url: "https://www.openaire.eu/",
     description: "OpenAIRE research graph",
-    search: (ctx) => fetchOpenAIRE(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchOpenAIRE(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit),
   },
   {
     id: "dblp",
@@ -1836,7 +1926,7 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "Zenodo",
     url: "https://zenodo.org/",
     description: "Zenodo open repository",
-    search: (ctx) => fetchZenodo(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => fetchZenodo(ctx.query, ctx.yearFrom, ctx.yearTo, ctx.studyType, ctx.limit),
   },
   {
     id: "Google Scholar",
@@ -1993,6 +2083,9 @@ export async function searchDatabases(databases: string[], options: SearchOption
           yearTo: options.yearTo,
           studyType: options.studyType,
           limit,
+          semanticSearch: options.semanticSearch,
+          keywordExtract: options.keywordExtract,
+          queryMode: options.queryMode,
         }),
         perDatabaseTimeout,
         `${definition.label} search timed out after ${(perDatabaseTimeout / 1000).toFixed(0)}s`

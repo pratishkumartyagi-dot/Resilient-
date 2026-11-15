@@ -99,21 +99,27 @@ export async function POST(request: Request) {
     const meshResult = expandQueryWithMesh(query);
     const meshExpandedQuery = meshResult.expandedQuery || query;
 
-    // Keyword-extract mode (scispacy-style): recognise the concepts in the
-    // natural-language question and build a librarian-style PubMed/Europe PMC
-    // query from them (MeSH headings + synonyms OR-ed per concept, concepts
-    // AND-ed). This is what turns "effect of diabetes on kidney function in
-    // patients" into a query that actually returns records.
-    const keywordConcepts = keywordExtract ? extractSearchConcepts(query) : [];
+    // Keyword-extract mode (scispacy-style): recognise concepts in a
+    // natural-language question (MeSH headings + synonyms). Respect explicit
+    // boolean queries as-is unless semantic expansion is requested.
+    const isExplicitBoolean = /\b(AND|OR|NOT)\b/i.test(query) || /[()]/.test(query);
+    const queryMode: "boolean" | "semantic" | "natural" = semanticSearch
+      ? "semantic"
+      : isExplicitBoolean
+        ? "boolean"
+        : "natural";
+    const keywordConcepts = (keywordExtract || queryMode === "natural") ? extractSearchConcepts(query) : [];
     const keywordExpandedQuery = keywordConcepts.length > 0
-      ? buildConceptAwareTerm(query, { yearFrom, yearTo, studyType })
-      : buildDatabaseSearch("PubMed", query, { yearFrom, yearTo, studyType }).term;
+      ? keywordConcepts
+          .map((c) => c.label || c.meshTerms[0] || c.synonyms[0])
+          .filter(Boolean)
+          .join(" AND ")
+      : undefined;
 
-    const effectiveQuery = semanticSearch
-      ? meshExpandedQuery.replace(/\b(AND|OR|NOT)\b/gi, " ").replace(/\s+/g, " ").trim() || meshExpandedQuery
-      : keywordExtract
-        ? keywordExpandedQuery
-        : query;
+    // Keep the raw/original question as the primary search input so each
+    // database fetcher can translate it into its own native scheme. The route
+    // only passes the chosen mode/flags and precomputed concept metadata.
+    const effectiveQuery = query;
 
     const dbsToSearch = databases.length > 0 ? databases : DEFAULT_DATABASES;
 
@@ -124,6 +130,9 @@ export async function POST(request: Request) {
       studyType,
       limitPerDatabase: maxResults,
       timeoutMs,
+      semanticSearch,
+      keywordExtract,
+      queryMode,
     });
 
     const papers = outcome.papers;
