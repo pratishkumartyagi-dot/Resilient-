@@ -15,7 +15,7 @@ import { appraiseEvidenceBase, buildEvidenceAppraisalMarkdown, buildNursestackTh
 
 export interface PipelineDeps {
   aiFn: (prompt: string, opts?: { searchEnabled?: boolean; searchQuery?: string }) => Promise<string>;
-  searchFn?: (query: string, opts?: { yearFrom?: number; yearTo?: number; studyDesign?: string }) => Promise<ThesisPaper[]>;
+  searchFn?: (query: string, opts?: { yearFrom?: number; yearTo?: number; studyDesign?: string; maxReferences?: number }) => Promise<ThesisPaper[]>;
   onProgress?: (stage: string, message: string) => void;
 }
 
@@ -81,16 +81,20 @@ export async function runThesisPipeline(
         yearFrom: config.yearFrom,
         yearTo: config.yearTo,
         studyDesign: config.studyDesign,
+        maxReferences: config.maxReferences,
       });
     } catch {
       papers = [];
     }
   }
 
+  // Limit grounding papers to maxReferences so the AI cites no more than requested.
+  const groundingPapers = papers.slice(0, config.maxReferences || 150);
+
   onProgress?.("prose", `Generating prose for ${outline.chapters.length} chapters...`);
   const proseResult = await generateThesis({
     outline,
-    papers,
+    papers: groundingPapers,
     config: {
       topic: config.topic,
       level: config.level,
