@@ -2265,3 +2265,19 @@ Rebuilt Steps 1 and 2 of the Research Pipeline into a systematic-review-grade fl
 - `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅ across all commits above
 - Note: `node_modules` is wiped between some sessions in this environment — run `bun install` before typecheck/lint/build if `tsc: command not found` appears
 
+## v0.7.9 — All databases searchable + thesis generator fixes (2026-11-15)
+
+### Dead code removal
+- `src/lib/references.ts`: Removed unused `formatApaReference`, `formatIeeeReference`, `formatMlaReference`, `formatHarvardReference`, `formatReferenceByStyle`, `formatReferenceListByStyle`, and `initials` (none imported outside the module). Kept `formatVancouverReference`, `formatVancouverList`, `extractCitations`.
+
+### All databases searchable
+- `src/lib/database-apis.ts`: Set `disabled: false` for DOAJ, dblp, Google Scholar; removed `requiresKey` from OpenAlex, Semantic Scholar, and Cochrane Library so all 14 databases are offered and attempted (failures surface as real errors, not silent skips).
+
+### Thesis generator fixes
+- **References count**: `searchThesisPapers()` now accepts `maxReferences` and slices results to that limit. `runThesisPipeline()` passes `maxReferences` to `searchFn` and limits grounding papers passed to the AI chapter generator, so the cited reference count matches the user's `maxReferences` setting.
+- **Literature review word count per level**: `buildLocalChapter()` now scales paragraph/section count to the chapter word target (≈150 words/paragraph) instead of always emitting 4 fixed paragraphs. Section titles are chosen per chapter type (Literature Review, Introduction, Methodology, Results, Discussion, Conclusion).
+
+### Version bump
+- `package.json`: 0.7.6 → 0.7.9; tag `v0.7.9` pushed to origin.
+- Validation: `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
+
