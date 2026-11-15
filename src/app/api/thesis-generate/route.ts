@@ -56,6 +56,7 @@ export async function POST(req: Request): Promise<Response> {
           yearFrom: opts?.yearFrom ? Number(opts.yearFrom) : undefined,
           yearTo: opts?.yearTo ? Number(opts.yearTo) : undefined,
           studyDesign: opts?.studyDesign,
+          maxReferences: config.maxReferences,
         });
         return papers.map(toThesisPaper);
       },

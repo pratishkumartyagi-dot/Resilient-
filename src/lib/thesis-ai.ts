@@ -149,20 +149,94 @@ function buildLocalChapter(prompt: string): string {
   const targetMatch = prompt.match(/CHAPTER WORD TARGET:\s*(\d+)/i);
   const target = targetMatch ? parseInt(targetMatch[1], 10) : 2000;
 
-  const paras = Math.ceil(target / 150);
+  // Generate ~150 words per paragraph; scale paragraph count to hit the target.
+  const paras = Math.max(3, Math.ceil(target / 150));
   const body: string[] = [];
   body.push(`# ${chapterTitle}\n`);
-  body.push(`## Introduction\n\nThis chapter examines ${topic.toLowerCase()} with particular attention to the ${chapterTitle.toLowerCase()} dimension. The discussion is framed within a ${level} level of academic inquiry and follows ${style.toUpperCase()} citation conventions.`);
-  body.push(`## Main Discussion\n\nThe central argument of this chapter concerns the relationship between ${topic.toLowerCase()} and ${chapterTitle.toLowerCase()}. Drawing on existing literature, the chapter develops a structured analysis that addresses the research questions and situates the findings within the broader academic context.`);
-  body.push(`## Analysis\n\nA detailed analysis is presented below. The evidence is considered systematically, with attention to methodological rigour and theoretical coherence. Key themes are identified and discussed in relation to the study objectives.`);
-  body.push(`## Conclusion\n\nIn conclusion, this chapter demonstrates that ${topic.toLowerCase()} is a significant area of inquiry. The findings contribute to the existing body of knowledge and suggest directions for further research. The implications for practice and policy are considered, and limitations are acknowledged.`);
+
+  const sectionTitles: string[] = [];
+  if (chapterTitle.toLowerCase().includes("literature review")) {
+    sectionTitles.push(
+      "Search Strategy and Appraisal Method",
+      "Overview of the Included Literature",
+      "Theme 1: Clinical and Empirical Evidence",
+      "Theme 2: Methodological and Contextual Evidence",
+      "Theme 3: Gaps or Contradictions",
+      "Synthesis and Rationale for the Current Study",
+    );
+  } else if (chapterTitle.toLowerCase().includes("introduction")) {
+    sectionTitles.push(
+      "Background and Clinical Context",
+      "Rationale — Why This Topic Matters Now",
+      "Research Question / Aim",
+      "Objectives",
+      "Structure of the Dissertation",
+    );
+  } else if (chapterTitle.toLowerCase().includes("methodology")) {
+    sectionTitles.push(
+      "Research Design and Justification",
+      "Setting and Sampling Strategy",
+      "Data Collection Method and Tool",
+      "Data Analysis Approach",
+      "Ethical Considerations and Governance",
+      "Rigour, Trustworthiness and Reflexivity",
+    );
+  } else if (chapterTitle.toLowerCase().includes("result")) {
+    sectionTitles.push(
+      "Overview of Results",
+      "Finding / Theme 1",
+      "Finding / Theme 2",
+      "Finding / Theme 3",
+      "Summary of Findings",
+    );
+  } else if (chapterTitle.toLowerCase().includes("discussion")) {
+    sectionTitles.push(
+      "How the Findings Answer the Research Question",
+      "Comparison with the Appraised Literature",
+      "Implications for Practice",
+      "Limitations",
+      "Recommendations for Practice and Future Research",
+    );
+  } else if (chapterTitle.toLowerCase().includes("conclusion")) {
+    sectionTitles.push(
+      "Summary of Key Findings",
+      "Contribution to Knowledge",
+      "Final Clinical / Practice Statement",
+    );
+  } else {
+    sectionTitles.push("Introduction", "Main Discussion", "Analysis", "Conclusion");
+  }
+
+  // Distribute the word target across sections.
+  const perSection = Math.floor(target / Math.max(sectionTitles.length, 1));
+  const parasPerSection = Math.max(2, Math.ceil(perSection / 150));
+
+  for (let si = 0; si < sectionTitles.length; si++) {
+    const secTitle = sectionTitles[si];
+    body.push(`## ${secTitle}\n`);
+    for (let pi = 0; pi < parasPerSection; pi++) {
+      const paraIndex = si * parasPerSection + pi + 1;
+      body.push(
+        `This section examines ${topic.toLowerCase()} with particular attention to the ${secTitle.toLowerCase()} dimension. The discussion is framed within a ${level} level of academic inquiry and follows ${style.toUpperCase()} citation conventions. Relevant evidence from the literature is considered systematically, with attention to methodological rigour and theoretical coherence. Key themes are identified and discussed in relation to the study objectives, and each claim is grounded in the retrieved evidence base. The analysis presented here contributes to the overall argument of the thesis by addressing the research questions and situating the findings within the broader academic context.`,
+      );
+    }
+  }
 
   const content = body.join("\n\n");
   const wordCount = content.split(/\s+/).length;
 
+  const sections = body
+    .filter((b) => b.startsWith("## "))
+    .map((b, i) => ({
+      id: `s${i + 1}`,
+      title: b.replace(/^##\s*/, "").trim(),
+      content: b,
+      wordTarget: Math.floor(target / Math.max(sectionTitles.length, 1)),
+    }));
+
   return JSON.stringify({
     content,
-    sections: body.map((b, i) => ({ id: `s${i + 1}`, title: b.match(/^#+\s(.+)/)?.[1] || `Section ${i + 1}`, content: b, wordTarget: Math.floor(target / body.length) })),
+    sections,
     wordCount,
     citations: [],
   });
@@ -267,6 +341,7 @@ export interface ThesisSearchOptions {
   yearFrom?: number;
   yearTo?: number;
   studyDesign?: string;
+  maxReferences?: number;
 }
 
 export async function searchThesisPapers(opts: ThesisSearchOptions): Promise<Paper[]> {
@@ -282,7 +357,8 @@ export async function searchThesisPapers(opts: ThesisSearchOptions): Promise<Pap
     opts.studyDesign || undefined,
   );
 
-  return papers;
+  const maxRefs = opts.maxReferences ?? 150;
+  return papers.slice(0, maxRefs);
 }
 
 export function toThesisPaper(p: Paper): ThesisPaper {
