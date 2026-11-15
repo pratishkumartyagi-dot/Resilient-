@@ -57,6 +57,26 @@ export interface SearchOptions {
   limitPerDatabase?: number;
   /** Overall wall-clock budget for the whole multi-database search. */
   timeoutMs?: number;
+  /** When true the caller wants a scispacy-style concept-aware term built
+   *  from the natural-language query (MeSH headings + synonyms OR-ed per
+   *  concept, concepts AND-ed) instead of a raw boolean query. */
+  keywordExtract?: boolean;
+  /** When true the query has been broadened with MeSH/ATM expansion and
+   *  boolean operators have been stripped. */
+  semanticSearch?: boolean;
+  /**
+   * How the caller wants the term built for databases that accept rich
+   * boolean syntax (PubMed, Europe PMC, ClinicalTrials.gov):
+   *  - "boolean"  — the caller already wrote a boolean query; pass through.
+   *  - "semantic" — MeSH/ATM expansion with boolean operators stripped.
+   *  - "natural" / keywordExtract — scispacy-style concept-aware term.
+   *
+   * Databases that do not understand boolean syntax (OpenAlex, Crossref,
+   * DOAJ, arXiv, Semantic Scholar, preprints, OpenAIRE, Zenodo) always
+   * receive a plain-text term with field tags and boolean operators
+   * stripped, regardless of this setting.
+   */
+  queryMode?: "boolean" | "semantic" | "natural";
 }
 
 const STUDY_TYPE_KEYWORDS: Record<string, string[]> = {
@@ -539,6 +559,20 @@ export interface QueryTranslation {
 function splitTerms(query: string): string[] {
   return query
     .replace(/[()]/g, " ")
+    // Strip PubMed/Europe-PMC field tags so every database receives clean
+    // terms. PubMed re-adds [Title/Abstract] in its own buildDatabaseSearch
+    // branch, so stripping here does not change PubMed behaviour — it only
+    // prevents OpenAlex/Crossref/DOAJ/arXiv/Semantic Scholar from receiving
+    // syntax they do not understand (which was the cause of the "only
+    // Crossref returns results" bug).
+    .replace(/\[Title\/Abstract\]/gi, "")
+    .replace(/\[Title\]/gi, "")
+    .replace(/\[Abstract\]/gi, "")
+    .replace(/\[MeSH Terms\]/gi, "")
+    .replace(/\[MeSH\]/gi, "")
+    .replace(/\[All Fields\]/gi, "")
+    .replace(/\[Publication Type\]/gi, "")
+    .replace(/\[Date - Publication\]/gi, "")
     .split(/\s+(?:AND|OR|NOT)\s+|\s*,\s*|\s+/i)
     .map((t) => t.trim())
     .filter((t) => t.length > 1 && !SEARCH_STOP_WORDS.has(t.toLowerCase()));
@@ -1980,6 +2014,12 @@ export async function searchDatabases(databases: string[], options: SearchOption
           yearTo: options.yearTo,
           studyType: options.studyType,
           limit,
+          // Pass the query-mode flags through so each fetcher can build the
+          // term it understands (PubMed/Europe PMC get the concept-aware
+          // boolean term; every other database gets a plain-text term).
+          keywordExtract: options.keywordExtract,
+          semanticSearch: options.semanticSearch,
+          queryMode: options.queryMode,
         }),
         perDatabaseTimeout,
         `${definition.label} search timed out after ${(perDatabaseTimeout / 1000).toFixed(0)}s`

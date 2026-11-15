@@ -268,8 +268,23 @@ ${selectedPapers
   .join("\n\n")}`;
 }
 
-export function buildStep5Prompt(papers: Paper[], synthesisTable: SynthesisRow[]): string {
+export function buildStep5Prompt(
+  papers: Paper[],
+  synthesisTable: SynthesisRow[],
+  researchTopic: string,
+  literatureReview: string = ""
+): string {
   const selectedPapers = papers.filter((p) => p.selected);
+  // When the Step 4 literature review has been generated, the themes are
+  // grounded in that narrative synthesis rather than only in the raw paper
+  // metadata — this is what lets the theme generator "move forward" from the
+  // review instead of starting from scratch.
+  const reviewBlock = literatureReview && literatureReview.trim().length > 0
+    ? `## STEP 4 LITERATURE REVIEW (narrative synthesis — the primary analytical foundation for theme extraction)
+
+${literatureReview.trim().slice(0, 12000)}
+`
+    : "";
   return `You are an expert biomedical research landscape analyst performing topic saturation and whitespace analysis following the AIPOCH Medical Topic Saturation and Whitespace Checker methodology.
 
 TASK: Analyze whether the research topic represented by the ${selectedPapers.length} selected papers is saturated, crowded, or contains meaningful whitespace for new entry. Extract key research themes from the evidence.
@@ -322,6 +337,7 @@ HARD RULES:
 - Always distinguish popularity from true field closure.
 - Always distinguish meaningful whitespace from cosmetic novelty.
 - When evidence is indirect, label as evidence-limited.
+- Ground every saturation claim in the Step 4 literature review above when it is available; the review is the analytical foundation for theme extraction.
 
 PAPERS ANALYZED:
 ${selectedPapers
@@ -332,7 +348,9 @@ ${selectedPapers
   .join("\n\n")}
 
 SYNTHESIS TABLE CONTEXT:
-${synthesisTable.length > 0 ? synthesisTable.map((r, i) => `${i + 1}. [${r.reference}] Key findings: ${r.keyFindings}`).join("\n") : "No synthesis data available."}`;
+${synthesisTable.length > 0 ? synthesisTable.map((r, i) => `${i + 1}. [${r.reference}] Key findings: ${r.keyFindings}`).join("\n") : "No synthesis data available."}
+
+${reviewBlock}`;
 }
 
 export function buildStep6Prompt(papers: Paper[], themes: Theme[] | null, researchTopic: string, methodology?: string): string {

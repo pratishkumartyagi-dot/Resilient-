@@ -85,6 +85,11 @@ export interface ThesisPipelineStats {
 export interface ThesisPipelineResult {
   outline: ThesisOutline;
   fullThesis: string;
+  /** The full thesis manuscript with a separate References section appended
+   *  after the final chapter (Vancouver style, numbered, with DOI links). */
+  fullThesisWithReferences: string;
+  /** The References section rendered as its own markdown block. */
+  referencesSection: string;
   markdownOutline: string;
   chapters: ChapterFile[];
   references: ThesisPaper[];

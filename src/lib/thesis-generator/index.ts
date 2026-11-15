@@ -60,6 +60,30 @@ function chapterPrompt(chapter: any, papers: ThesisPaper[], cfg: any, index: num
   const chapterTarget = chapter.wordTarget || Math.floor(levelTarget / Math.max((cfg as any).outline?.chapters?.length || 1, 1)) || 2000;
   const totalTarget = cfg.targetWordCount || levelTarget;
 
+  // The Discussion chapter is the analytical heart of the thesis: it must
+  // synthesise the findings against the appraised literature, acknowledge
+  // limitations explicitly, and state implications for theory, practice and
+  // future research. A thin Discussion undermines the whole argument, so the
+  // Discussion chapter gets an explicit, comprehensive instruction set.
+  const isDiscussion = /discussion/i.test(chapter.title || "");
+  const discussionExtra = isDiscussion
+    ? `
+
+DISCUSSION CHAPTER — COMPREHENSIVE REQUIREMENTS:
+This chapter is the analytical core of the thesis. In addition to the general requirements above you MUST:
+1. Restate the principal findings and explain how they answer the research question(s).
+2. Situate the findings within the broader appraised literature: agree, disagree, extend, or refine existing work.
+3. Provide a structured comparison with at least three distinct bodies of literature drawn from the grounding papers.
+4. Discuss theoretical implications: does the work confirm, challenge, or extend current theory?
+5. Discuss methodological implications: are the findings robust across designs, instruments, and populations?
+6. Explicitly enumerate strengths of the present work.
+7. Explicitly enumerate limitations, including methodological, conceptual, and generalisability limitations.
+8. Discuss implications for clinical practice, policy, and/or education where relevant.
+9. Propose a concrete agenda for future research, with prioritised directions.
+10. Conclude with a clear statement of what the work contributes to knowledge.
+`
+    : "";
+
   return `You are an academic writer. Write the full prose for ONE chapter of a thesis.
 
 TOPIC: ${cfg.topic}
@@ -81,7 +105,7 @@ Write academic prose for every section of this chapter. Requirements:
 - Target < 2% plagiarism; write originally, do not copy abstracts.
 - Markdown-only output. Use headings for sections.
 - Preserve any headings/lists/tables exactly; do not wrap the whole chapter in code fences.
-
+${discussionExtra}
 Return ONLY a JSON object (no markdown fences, no extra text):
 {
   "content": "full markdown chapter text",

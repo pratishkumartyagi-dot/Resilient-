@@ -29,13 +29,14 @@ export default function Step3Synthesis() {
   const fileTextRef = useRef<Map<string, string>>(new Map());
   const [localSynthesis, setLocalSynthesis] = useState<any[]>(state.synthesisTable);
 
+  // Every selected paper is eligible for synthesis. The previous implementation
+  // dropped records whose abstract was shorter than 50 characters, which
+  // silently discarded most papers from databases such as Crossref and
+  // ClinicalTrials.gov that only return a title. The synthesis table must
+  // reflect ALL selected papers, so the user sees every record they chose in
+  // Step 2 and the literature review in Step 4 is grounded in the full set.
   const getFilteredPapers = () => {
-    const selected = state.papers.filter((p) => p.selected);
-    const minAbstractLength = 50;
-    return selected.filter((p) => {
-      if (!p.abstract || p.abstract.length < minAbstractLength) return false;
-      return true;
-    });
+    return state.papers.filter((p) => p.selected);
   };
 
   const handleGenerateSynthesis = async () => {

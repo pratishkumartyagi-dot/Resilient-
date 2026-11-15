@@ -142,6 +142,13 @@ export async function runThesisPipeline(
   const references = papers.slice(0, config.maxReferences || 150);
   const markdownOutline = outlineResult.markdownOutline;
 
+  // The references are rendered as a SEPARATE section appended after the final
+  // chapter, in Vancouver style with numbered entries and DOI links. This is
+  // what the thesis pipeline requires: the references are not interleaved
+  // into the chapter prose but collected in their own section.
+  const referencesSection = refineResult.referencesSection || "";
+  const fullThesisWithReferences = refineResult.fullThesisWithReferences || fullThesis;
+
   const stats: any = {
     totalWords: fullThesis.split(/\s+/).filter(Boolean).length,
     totalReferences: references.length,
@@ -160,6 +167,8 @@ export async function runThesisPipeline(
   return {
     outline,
     fullThesis,
+    fullThesisWithReferences,
+    referencesSection,
     markdownOutline,
     chapters,
     references,

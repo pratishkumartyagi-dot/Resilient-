@@ -195,7 +195,12 @@ export default function ThesisGenerator() {
       });
 
       setResult(res);
-      setFullThesis(res.fullThesis || "");
+      // The references are rendered as a SEPARATE section appended after the
+      // final chapter, in Vancouver style with numbered entries and DOI
+      // links. This is what the thesis pipeline requires: the references are
+      // not interleaved into the chapter prose but collected in their own
+      // section so the reader can navigate to every source on the internet.
+      setFullThesis(res.fullThesisWithReferences || res.fullThesis || "");
       setStatus(res.stages.complete ? "completed" : "error");
       setProgress(100);
       saveSession(cfg, res);
@@ -965,7 +970,23 @@ export default function ThesisGenerator() {
             </div>
           )}
 
-          {/* References are managed on a separate screen (Critical Appraisal / References tab). */}
+          {/* References — rendered as a SEPARATE section appended after the final
+          chapter, in Vancouver style with numbered entries and DOI links so
+          the reader can navigate to every source on the internet. */}
+          {result?.referencesSection && (
+            <div className="bg-[#0a1530] border border-blue-800 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                  <BookOpen size={14} className="text-yellow-400" />
+                  References (separate section)
+                </h4>
+                <span className="text-[10px] text-blue-400">{refsList.length} grounding papers</span>
+              </div>
+              <pre className="text-[11px] text-blue-200 whitespace-pre-wrap max-h-[400px] overflow-y-auto bg-blue-950/40 border border-blue-900 rounded p-3 font-mono leading-relaxed">
+                {result.referencesSection}
+              </pre>
+            </div>
+          )}
 
           {/* Chapter files & argument audit */}
           {Array.isArray(result.chapters) && result.chapters.length > 0 && (

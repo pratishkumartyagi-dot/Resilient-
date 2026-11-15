@@ -7,11 +7,14 @@ import type { SynthesisRow, Theme } from "@/context/AppContext";
 import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
 import { buildStep5Prompt } from "@/lib/research-skills";
 
-const generateMockThemes = (synthesisTable: SynthesisRow[]): Theme[] => {
+const generateMockThemes = (synthesisTable: SynthesisRow[], literatureReview: string = ""): Theme[] => {
   // Derive themes from the actual research gaps recorded in the Step 3 synthesis
   // table rather than shipping hard-coded demo content. Each synthesis row's
   // researchGaps field carries "Limitations / Contradictions / Exclusions / Gaps"
   // plus "Future Work / Recommendations", which are the raw theme material.
+  // When the Step 4 literature review is available, themes are also grounded
+  // in the narrative synthesis so the theme generator "moves forward" from
+  // the review instead of starting from scratch.
   const gapPhrases = synthesisTable.flatMap((row) => {
     const text = row.researchGaps || "";
     return text
@@ -20,7 +23,21 @@ const generateMockThemes = (synthesisTable: SynthesisRow[]): Theme[] => {
       .filter(Boolean);
   });
 
-  if (gapPhrases.length === 0) {
+  // Pull theme headings from the Step 4 literature review when present so the
+  // themes are grounded in the narrative synthesis.
+  const reviewThemes: string[] = [];
+  if (literatureReview && literatureReview.trim().length > 0) {
+    const headingMatches = literatureReview.matchAll(/^#{1,4}\s+(.+)$/gm);
+    for (const m of headingMatches) {
+      const title = m[1].trim();
+      if (title && !title.toLowerCase().includes("abstract") && !title.toLowerCase().includes("methods")) {
+        reviewThemes.push(title);
+      }
+    }
+  }
+
+  const allSources = [...reviewThemes, ...gapPhrases];
+  if (allSources.length === 0) {
     return [
       {
         id: `theme-${Date.now()}-1`,
@@ -32,7 +49,7 @@ const generateMockThemes = (synthesisTable: SynthesisRow[]): Theme[] => {
     ];
   }
 
-  return gapPhrases.slice(0, 10).map((gap, i) => {
+  return allSources.slice(0, 10).map((gap, i) => {
     const title = gap
       .replace(/^(Limitations|Contradictions|Exclusion criteria|Gaps|Future Work\s*\/\s*Recommendations):\s*/i, "")
       .replace(/[|;].*$/, "")
@@ -42,7 +59,9 @@ const generateMockThemes = (synthesisTable: SynthesisRow[]): Theme[] => {
       id: `theme-${Date.now()}-${i}`,
       title,
       description: gap.slice(0, 200),
-      reasoning: "Derived from the research-gaps column of the Step 3 evidence synthesis table.",
+      reasoning: reviewThemes.includes(gap)
+        ? "Derived from the Step 4 literature review narrative synthesis."
+        : "Derived from the research-gaps column of the Step 3 evidence synthesis table.",
       selected: false,
     };
   });
@@ -52,6 +71,8 @@ export default function Step5Themes() {
   const { state, dispatch } = useApp();
   const [themes, setThemes] = useState<typeof state.themes>(state.themes);
   const [customTheme, setCustomTheme] = useState(state.userThemeInput);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const handleGenerateThemes = async () => {
     const selected = state.papers.filter((p) => p.selected);
@@ -60,11 +81,24 @@ export default function Step5Themes() {
       return;
     }
 
-    dispatch({ type: "SET_LOADING", payload: true });
+    // Step 5 analyses the research landscape. When the Step 4 literature
+    // review has already been generated, the themes are grounded in that
+    // narrative synthesis rather than only in the raw paper metadata — this
+    // is what lets the theme generator "move forward" from the review.
+    const reviewContext = state.literatureReview || "";
+    const hasReview = reviewContext.trim().length > 0;
+
+    setLoading(true);
+    setError("");
     setThemes([]);
 
     try {
-      const prompt = buildStep5Prompt(state.papers, state.synthesisTable);
+      const prompt = buildStep5Prompt(
+        state.papers,
+        state.synthesisTable,
+        state.searchQuery,
+        reviewContext,
+      );
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: state.searchQuery };
 
       let responseText: string = "";
@@ -119,7 +153,8 @@ export default function Step5Themes() {
       dispatch({ type: "SET_THEMES", payload: normalizedThemes });
     } catch (err: any) {
       console.error("Theme generation failed:", err);
-      const fallback = generateMockThemes(state.synthesisTable);
+      setError(err.message || "Failed to generate themes.");
+      const fallback = generateMockThemes(state.synthesisTable, reviewContext);
       setThemes(fallback);
       dispatch({ type: "SET_THEMES", payload: fallback });
     } finally {

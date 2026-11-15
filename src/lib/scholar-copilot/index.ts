@@ -1,4 +1,5 @@
 import type { ChapterFile, ThesisPaper } from "@/lib/thesis-types";
+import { formatVancouverReference } from "@/lib/references";
 
 export interface ScholarCopilotInput {
   chapters: ChapterFile[];
@@ -26,6 +27,11 @@ export interface ChapterWordBudget {
 export interface ScholarCopilotOutput {
   chapters: ChapterFile[];
   fullThesis: string;
+  /** The full thesis manuscript with a separate References section appended
+   *  after the final chapter (Vancouver style, numbered, with DOI links). */
+  fullThesisWithReferences: string;
+  /** The References section rendered as its own markdown block. */
+  referencesSection: string;
   subResult: { ok: boolean; error?: string };
   /** Per-chapter word budget after the copilot pass. */
   wordBudget: ChapterWordBudget[];
@@ -35,6 +41,37 @@ export interface ScholarCopilotOutput {
 
 function countWords(text: string): number {
   return text.split(/\s+/).filter(Boolean).length;
+}
+
+/**
+ * Render the grounding papers as a standalone References section in the
+ * requested citation style (Vancouver by default). Each entry is numbered,
+ * uses the Vancouver format, and includes a searchable DOI link so the
+ * reader can navigate to the source on the internet.
+ */
+function buildReferencesSection(papers: ThesisPaper[], style: string): string {
+  const numbered = papers
+    .map((p, i) => {
+      const ref = formatVancouverReference({
+        authors: p.authors,
+        title: p.title,
+        journal: p.journal,
+        year: p.year,
+        doi: p.doi,
+      });
+      const doiLink = p.doi
+        ? ` <a href="https://doi.org/${p.doi}" target="_blank" rel="noopener noreferrer">[doi:${p.doi}]</a>`
+        : "";
+      return `${i + 1}. ${ref}${doiLink}`;
+    })
+    .join("\n");
+
+  return `# References
+
+${numbered}
+
+---
+*References rendered in ${style.toUpperCase()} style. Inline citations in the thesis body use the (Author, Year) convention mapped to the numbered list above.*`;
 }
 
 function budgetStatus(target: number, actual: number): ChapterWordBudget["status"] {
@@ -194,12 +231,20 @@ export async function scholarCopilot(input: ScholarCopilotInput): Promise<Schola
     .map((c) => `# Chapter ${c.chapterNumber}: ${c.chapterTitle}\n\n${c.content}\n`)
     .join("\n---\n\n");
 
+  // The references are rendered as a SEPARATE section appended after the final
+  // chapter, in Vancouver style with numbered entries and DOI links. This is
+  // what the thesis pipeline requires: the references are not interleaved
+  // into the chapter prose but collected in their own section.
+  const referencesSection = buildReferencesSection(papers, config.style);
+
   const targeted = wordBudget.filter((w) => w.status !== "no-target");
   const wordBudgetMet = targeted.length > 0 && targeted.every((w) => w.status === "on-target");
 
   return {
     chapters: refined,
     fullThesis,
+    fullThesisWithReferences: `${fullThesis}\n\n---\n\n${referencesSection}`,
+    referencesSection,
     subResult: { ok: true },
     wordBudget,
     wordBudgetMet,

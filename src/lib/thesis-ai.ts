@@ -207,6 +207,22 @@ function buildLocalChapter(prompt: string): string {
     sectionTitles.push("Introduction", "Main Discussion", "Analysis", "Conclusion");
   }
 
+  // The Discussion chapter must be comprehensive: it synthesises the findings
+  // against the appraised literature, acknowledges limitations explicitly,
+  // and states implications for theory, practice and future research. The
+  // local generator produces the same structural depth the AI writer would.
+  if (chapterTitle.toLowerCase().includes("discussion")) {
+    sectionTitles.push(
+      "Theoretical Implications",
+      "Methodological Considerations",
+      "Strengths of the Present Work",
+      "Limitations and Reflexivity",
+      "Implications for Policy and Clinical Practice",
+      "Agenda for Future Research",
+      "Concluding Statement",
+    );
+  }
+
   // Distribute the word target across sections.
   const perSection = Math.floor(target / Math.max(sectionTitles.length, 1));
   const parasPerSection = Math.max(2, Math.ceil(perSection / 150));
