@@ -1,5 +1,8 @@
 # Active Context: Resilient Research App
 
+## v0.7.8 — release bump from v0.7.7 (2026-11-15)
+- Version bumped to **0.7.8** in `package.json` and `package-lock.json` (carries v0.7.7 zero-result search fixes for main research pipeline and evidence-synthesis/meta-analysis pipeline).
+
 ## v0.7.7 — main research pipeline & evidence-synthesis/meta-analysis zero-result fix (2026-11-15)
 
 ### Root cause (both pipelines affected, shared backend)
