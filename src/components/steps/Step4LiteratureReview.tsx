@@ -9,6 +9,7 @@ import { useApp } from "@/context/AppContext";
 import { callAiWithFallback, type AICallOptions } from "@/lib/ai";
 import { formatVancouverReference } from "@/lib/references";
 import { generateLocalLiteratureReview } from "@/lib/local-synthesis";
+import { generateLiteratureReviewSections } from "@/lib/paper-orchestra";
 
 type SectionKey =
   | "introduction"
@@ -257,6 +258,7 @@ export default function Step4LiteratureReview() {
   const [copied, setCopied] = useState(false);
   const [deepReasoning, setDeepReasoning] = useState<string>("");
   const [deepReasoningLoading, setDeepReasoningLoading] = useState(false);
+  const [orchestraLoading, setOrchestraLoading] = useState(false);
 
   const selectedPapers = useMemo(() => state.papers.filter((p) => p.selected), [
     state.papers,
@@ -406,6 +408,57 @@ export default function Step4LiteratureReview() {
     }
   };
 
+  const handleGeneratePaperOrchestraSections = async () => {
+    if (studyCount === 0) {
+      alert("Please select papers in Step 1 / generate a synthesis table in Step 3 first.");
+      return;
+    }
+    const provider: "gemini" | "groq" = state.geminiApiKey ? "gemini" : "groq";
+    const apiKey = state.geminiApiKey || state.groqApiKey;
+    if (!apiKey) {
+      alert("Please configure a Gemini or Groq API key in Settings to run PaperOrchestra.");
+      return;
+    }
+    setOrchestraLoading(true);
+    try {
+      const papersCtx = selectedPapers.map((p) => ({
+        id: p.id,
+        authors: p.authors,
+        year: p.year,
+        title: p.title,
+        journal: p.journal || "Unknown journal",
+        doi: p.doi || undefined,
+      }));
+      const synthesisOutput = state.synthesisTable.length > 0
+        ? state.synthesisTable
+            .map(
+              (r, i) =>
+                `${i + 1}. ${r.reference}\n   Key findings: ${r.keyFindings}\n   Synopsis: ${r.synopsis}\n   Research gaps: ${r.researchGaps}`,
+            )
+            .join("\n\n")
+        : undefined;
+      const orchestraSections = await generateLiteratureReviewSections(apiKey, provider, {
+        topic: state.searchQuery,
+        reviewType: "Narrative Review",
+        papers: papersCtx,
+        synthesisOutput,
+        query: state.searchQuery,
+        literatureSections: sections,
+      });
+      const next: Record<SectionKey, string> = { ...sections, references: referencesText };
+      for (const key of ["introduction", "globalIndian", "gaps", "futureAdvice", "summary"] as const) {
+        if (orchestraSections[key]) next[key] = orchestraSections[key];
+      }
+      setSections(next);
+      persist(next);
+    } catch (err: any) {
+      console.error("PaperOrchestra literature review failed:", err);
+      alert(`PaperOrchestra section generation failed: ${err?.message || String(err)}`);
+    } finally {
+      setOrchestraLoading(false);
+    }
+  };
+
   const handleGenerateDeepReasoning = async () => {
     if (studyCount === 0) {
       alert("Please select papers in Step 1 / generate a synthesis table in Step 3 first.");
@@ -546,6 +599,18 @@ Connections to other papers: This paper contributes to the evidence base on ${st
           >
             <RotateCcw size={14} />
             Reset
+          </button>
+          <button
+            onClick={handleGeneratePaperOrchestraSections}
+            disabled={orchestraLoading || studyCount === 0 || !(state.geminiApiKey || state.groqApiKey)}
+            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg disabled:opacity-50 text-sm"
+          >
+            {orchestraLoading ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Sparkles size={14} />
+            )}
+            {orchestraLoading ? "PaperOrchestra…" : "PaperOrchestra Sections"}
           </button>
         </div>
       </div>

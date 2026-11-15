@@ -353,6 +353,9 @@ export default function EvidenceSynthesisTab() {
   const [synthesisLoading, setSynthesisLoading] = useState(false);
   const [manuscript, setManuscript] = useState("");
   const [manuscriptLoading, setManuscriptLoading] = useState(false);
+  const [orchestraManuscript, setOrchestraManuscript] = useState("");
+  const [orchestraLoading, setOrchestraLoading] = useState(false);
+  const [orchestraLog, setOrchestraLog] = useState<any[]>([]);
   const [reviewReport, setReviewReport] = useState("");
   const [reviewLoading, setReviewLoading] = useState(false);
   const [finalManuscript, setFinalManuscript] = useState("");
@@ -2103,6 +2106,65 @@ ${buildReportingToolReference()}`;
       setManuscript(`> AI manuscript generation failed (${err?.message || "Unknown error"}). Showing the deterministic local literature review instead.\n\n${fallback}`);
     } finally {
       setManuscriptLoading(false);
+    }
+  };
+
+  const generatePaperOrchestraManuscript = async () => {
+    if (extractedData.length === 0) {
+      alert("Please complete data extraction first.");
+      return;
+    }
+    const provider: "gemini" | "groq" = state.geminiApiKey ? "gemini" : "groq";
+    const apiKey = state.geminiApiKey || state.groqApiKey;
+    if (!apiKey) {
+      alert("Please configure a Gemini or Groq API key in Settings to run PaperOrchestra.");
+      return;
+    }
+    const selected = extractedData.filter((p) => selectedPaperIds.has(p.id));
+    setOrchestraLoading(true);
+    setOrchestraManuscript("");
+    setOrchestraLog([]);
+    try {
+      const res = await fetch("/api/paper-orchestra-write", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider,
+          apiKey,
+          topic: query || "the research topic",
+          reviewType,
+          papers: selected.map((p) => ({
+            id: p.id,
+            authors: p.authors,
+            year: p.year,
+            title: p.title,
+            journal: p.journal || "Unknown journal",
+            doi: p.doi || undefined,
+          })),
+          synthesisOutput: synthesisOutput || undefined,
+          effectSizes,
+          robAssessments,
+          robTool,
+          robMode,
+          prismaCounts,
+          selectedDbs,
+          query,
+          requirements: reviewRequirements || undefined,
+          instructions: synthesisInstructions || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || `PaperOrchestra request failed (${res.status})`);
+      }
+      const data = await res.json();
+      setOrchestraManuscript(data.manuscript || "");
+      setOrchestraLog(Array.isArray(data.agentLog) ? data.agentLog : []);
+    } catch (err: any) {
+      setOrchestraManuscript(`# PaperOrchestra Error\n\n**Failed to generate manuscript:** ${err?.message || String(err)}\n\nPlease ensure your API key is valid and try again.`);
+      setOrchestraLog([{ agent: "PaperOrchestra", ok: false, detail: err?.message || String(err) }]);
+    } finally {
+      setOrchestraLoading(false);
     }
   };
 
@@ -3898,6 +3960,97 @@ semanticSearch={semanticSearch}
                   <Zap size={14} />
                   STORM (Stanford)
                 </button>
+              </div>
+
+              {/* PaperOrchestra (Google Research) — multi-agent manuscript */}
+              <div className="bg-[#0a1530] border border-blue-900/50 rounded-lg p-5 mb-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <PenTool size={18} className="text-yellow-400" />
+                  <h3 className="text-lg font-bold text-white">PaperOrchestra Manuscript (Google Research)</h3>
+                </div>
+                <p className="text-xs text-blue-400 mb-4">
+                  Multi-agent manuscript writer (google-research/paper-orchestra): Outline → Literature Review → Section Writing → Content Refinement. Produces a PRISMA-aligned, Vancouver-cited research paper draft from your extracted studies.
+                </p>
+                <button
+                  onClick={generatePaperOrchestraManuscript}
+                  disabled={orchestraLoading || extractedData.length === 0}
+                  className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50 mb-4"
+                >
+                  {orchestraLoading ? (
+                    <><Loader2 size={14} className="animate-spin" /> Generating PaperOrchestra Manuscript...</>
+                  ) : (
+                    <>
+                      <Sparkles size={16} /> Generate PaperOrchestra Manuscript
+                    </>
+                  )}
+                </button>
+                {orchestraLog.length > 0 && (
+                  <div className="bg-blue-950/40 border border-blue-800 rounded-lg p-3 mb-3 max-h-[200px] overflow-y-auto text-[10px]">
+                    {orchestraLog.map((entry, i) => (
+                      <div key={i} className="mb-1">
+                        <span className={entry.ok ? "text-green-400" : "text-red-400"}>
+                          {entry.ok ? "✓" : "✗"} {entry.agent}
+                        </span>{entry.detail ? ` — ${entry.detail}` : ""}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {orchestraManuscript && (
+                  <div className="space-y-2">
+                    <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-sm font-bold text-white">PaperOrchestra Manuscript (editable)</h4>
+                        <span className="text-[10px] text-blue-400">Edit then export</span>
+                      </div>
+                      <textarea
+                        value={orchestraManuscript}
+                        onChange={(e) => setOrchestraManuscript(e.target.value)}
+                        className="w-full h-[500px] bg-blue-950 border border-blue-800 text-white rounded-lg p-4 text-sm font-mono leading-relaxed placeholder:text-blue-600 focus:outline-none focus:ring-2 focus:ring-yellow-500 resize-y whitespace-pre-wrap"
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button
+                        onClick={() =>
+                          exportDoc(
+                            "pdf",
+                            orchestraManuscript,
+                            `paper-orchestra-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pdf`,
+                          )
+                        }
+                        className="flex items-center gap-1.5 bg-emerald-900/50 text-emerald-300 px-4 py-2 rounded-lg hover:bg-emerald-800/70 text-sm"
+                      >
+                        <Download size={14} />
+                        Export PDF
+                      </button>
+                      <button
+                        onClick={() =>
+                          exportDoc(
+                            "word",
+                            orchestraManuscript,
+                            `paper-orchestra-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.docx`,
+                          )
+                        }
+                        className="flex items-center gap-1.5 bg-blue-900/50 text-blue-200 px-4 py-2 rounded-lg hover:bg-blue-800/70 text-sm"
+                      >
+                        <Download size={14} />
+                        Export Word
+                      </button>
+                      <button
+                        onClick={() =>
+                          exportDoc(
+                            "latex",
+                            orchestraManuscript,
+                            `paper-orchestra-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.tex`,
+                          )
+                        }
+                        className="flex items-center gap-1.5 bg-purple-900/50 text-purple-200 px-4 py-2 rounded-lg hover:bg-purple-800/70 text-sm"
+                      >
+                        <FileCode size={14} />
+                        Export LaTeX
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {stormMode === "academic-agents" && (
