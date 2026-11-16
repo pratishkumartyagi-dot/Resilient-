@@ -40,7 +40,9 @@ interface ValidationInfo {
 export default function Step2Results() {
   const { state, dispatch } = useApp();
   const [searchFilter, setSearchFilter] = useState("");
-  const [onlyWithAbstract, setOnlyWithAbstract] = useState(true);
+  // Show all retrieved papers by default so users can select every relevant
+  // record (including those without abstracts) for synthesis in Step 3.
+  const [onlyWithAbstract, setOnlyWithAbstract] = useState(false);
   const [validations, setValidations] = useState<Record<string, ValidationInfo>>({});
   const [isValidating, setIsValidating] = useState(false);
   const validationStartedRef = useRef(false);
@@ -500,7 +502,7 @@ export default function Step2Results() {
           {filteredPapers.length === 0 && (
             <p className="text-xs text-blue-400 py-6 text-center">
               {onlyWithAbstract
-                ? "No papers with an abstract match the current filter."
+                ? "No papers with an abstract match the current filter. Turn off the abstract filter to see all retrieved papers."
                 : "No papers match the current filter."}
             </p>
           )}

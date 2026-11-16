@@ -384,9 +384,12 @@ export default function EvidenceSynthesisStep1({
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-xs font-semibold text-white line-clamp-2">{p.title}</p>
-                            <p className="text-[10px] text-blue-300 mt-0.5">{p.authors} · {p.year} · {p.studyType}</p>
-                            <div className="flex flex-wrap items-center gap-1 mt-0.5">
-                              {p.doi && (
+                            <p className="text-[10px] text-blue-200 mt-0.5 leading-relaxed">
+                              {formatVancouverReference({ authors: p.authors, title: p.title, journal: p.journal, year: p.year, doi: p.doi })}
+                            </p>
+                            <p className="text-[10px] text-blue-400 mt-0.5">{p.studyType} · {database}</p>
+                            <div className="flex flex-wrap items-center gap-1 mt-1">
+                              {p.doi ? (
                                 <a
                                   href={`https://doi.org/${p.doi}`}
                                   target="_blank"
@@ -394,7 +397,27 @@ export default function EvidenceSynthesisStep1({
                                   onClick={(e) => e.stopPropagation()}
                                   className="text-[10px] text-yellow-300 underline inline-flex items-center gap-0.5"
                                 >
-                                  <ExternalLink size={9} /> doi:{p.doi}
+                                  <ExternalLink size={9} /> DOI / Internet
+                                </a>
+                              ) : p.url ? (
+                                <a
+                                  href={p.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="text-[10px] text-yellow-300 underline inline-flex items-center gap-0.5"
+                                >
+                                  <ExternalLink size={9} /> Open on internet
+                                </a>
+                              ) : (
+                                <a
+                                  href={`https://scholar.google.com/scholar?q=${encodeURIComponent(p.title)}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="text-[10px] text-yellow-300 underline inline-flex items-center gap-0.5"
+                                >
+                                  <ExternalLink size={9} /> Search online
                                 </a>
                               )}
                               {p.citationStatus === "verified" && (

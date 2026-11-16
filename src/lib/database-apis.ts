@@ -971,11 +971,17 @@ async function fetchEuropePmcQuery(
   extraTerms: string[] = [],
   label = "Europe PMC"
 ): Promise<Paper[]> {
-  // Europe PMC scheme: quoted terms ORed/ANDed with the TITLE and ABST
-  // fields, plus the date range and (for preprints) the source filter.
-  // The route/server decides how the natural-language question is turned into
-  // a query (semantic / keyword-extract / boolean) and the fetcher follows it.
-  const translated = buildDatabaseSearch(label, resolveEffectiveTerm(ctx), {
+  // Europe PMC does not understand PubMed-only tags such as [MeSH Terms] or
+  // [Title/Abstract]. Always build a database-specific query from the
+  // original/plain/MeSH-expanded text so every database receives syntax it can
+  // actually search.
+  const baseQuery = ctx.semanticSearch
+    ? ((expandQueryWithMesh(ctx.query || "").expandedQuery || ctx.query || query)
+        .replace(/\b(AND|OR|NOT)\b/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim() || (ctx.query || query))
+    : (ctx.query || query);
+  const translated = buildDatabaseSearch(label, baseQuery, {
     yearFrom: ctx.yearFrom,
     yearTo: ctx.yearTo,
   });
@@ -1132,8 +1138,9 @@ export async function fetchOpenAlex(
   if (yearTo) filterParts.push(`to_publication_date:${yearTo}-12-31`);
   if (options?.filter) filterParts.push(options.filter);
 
+  const openAlexQuery = splitTerms(query).map((t) => t.replace(/"/g, "")).join(" ") || query;
   const params = new URLSearchParams({
-    search: buildDatabaseSearch("OpenAlex", query, { yearFrom, yearTo }).term,
+    search: openAlexQuery,
     "per-page": "100",
     mailto: CONTACT_EMAIL,
   });
@@ -1178,12 +1185,10 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
   let pages = 0;
   const cap = isFinite(maxResults) && maxResults > 0 ? maxResults : Infinity;
 
-  // Crossref is queried through the local /api/crossref route rather than the
-  // upstream directly: the route runs the request through the retry/backoff
-  // layer on the server, so a 429 from the shared-IP daily budget is retried
-  // with exponential backoff and the real upstream status is reported instead
-  // of a generic network error.
-  const base = typeof window !== "undefined"
+  // Crossref is queried through the local /api/crossref route when available,
+  // with a direct-upstream fallback so searches still work even if the local
+  // proxy route is not reachable in the current runtime.
+  const localBase = typeof window !== "undefined"
     ? ""
     : (process.env.PORT ? `http://127.0.0.1:${process.env.PORT}` : "http://127.0.0.1:3000");
 
@@ -1191,13 +1196,25 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
     if (papers.length >= cap) break;
     pages++;
     const term = buildDatabaseSearch("Crossref", query).term;
-    const data = await httpJson<any>(`${base}/api/crossref`, {
-      method: "POST",
-      timeoutMs: 30000,
-      retries: 3,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: term, rows: 100, cursor, filter: filters.length ? filters.join(",") : undefined }),
-    });
+    let data: any;
+    try {
+      data = await httpJson<any>(`${localBase}/api/crossref`, {
+        method: "POST",
+        timeoutMs: 25000,
+        retries: 1,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: term, rows: 100, cursor, filter: filters.length ? filters.join(",") : undefined }),
+      });
+    } catch {
+      const params = new URLSearchParams({ query: term, rows: "100", cursor, mailto: CONTACT_EMAIL });
+      if (filters.length) params.set("filter", filters.join(","));
+      params.set("select", "DOI,title,author,container-title,published,created,abstract,URL");
+      data = await httpJson<any>(`https://api.crossref.org/works?${params.toString()}`, {
+        timeoutMs: 30000,
+        retries: 3,
+        headers: { "User-Agent": USER_AGENT },
+      });
+    }
     const results = data.message?.items || [];
     if (results.length === 0) break;
 
@@ -1564,9 +1581,10 @@ async function fetchSemanticScholarCore(
 }
 
 export async function fetchSemanticScholarBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
+  const plain = splitTerms(query).join(" ") || query;
   const papers = await fetchSemanticScholarCore(
-    query,
-    { query, yearFrom, yearTo, limit: limit ?? UNLIMITED },
+    plain,
+    { query: plain, yearFrom, yearTo, limit: limit ?? UNLIMITED },
     "title,authors,year,abstract,externalIds,venue,publicationDate,citationCount",
     "Semantic Scholar",
     "Semantic Scholar Graph API"
@@ -1578,21 +1596,23 @@ export async function fetchSemanticScholarBrowserless(query: string, yearFrom?: 
 export async function fetchGoogleScholarBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
   // Google Scholar has no public API. The Semantic Scholar Graph API is used as
   // the index for this entry and the source is labelled truthfully.
+  const plain = splitTerms(query).join(" ") || query;
   const papers = await fetchSemanticScholarCore(
-    query,
-    { query, yearFrom, yearTo, limit: limit ?? UNLIMITED },
+    plain,
+    { query: plain, yearFrom, yearTo, limit: limit ?? UNLIMITED },
     "title,authors,year,abstract,externalIds,venue,citationCount",
     "Google Scholar",
     "Semantic Scholar Graph API (Google Scholar has no public API)"
   );
-void studyType;
+  void studyType;
   return capResults(papers, limit ?? UNLIMITED);
 }
 
 export async function fetchScienceDirectBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
+  const plain = splitTerms(query).join(" ") || query;
   const papers = await fetchSemanticScholarCore(
-    query,
-    { query, yearFrom, yearTo, limit: limit ?? UNLIMITED },
+    plain,
+    { query: plain, yearFrom, yearTo, limit: limit ?? UNLIMITED },
     "title,authors,year,abstract,externalIds,venue",
     "ScienceDirect",
     "Semantic Scholar Graph API (ScienceDirect has no public API)"

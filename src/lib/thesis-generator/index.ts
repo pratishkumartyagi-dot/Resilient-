@@ -69,18 +69,16 @@ function chapterPrompt(chapter: any, papers: ThesisPaper[], cfg: any, index: num
   const discussionExtra = isDiscussion
     ? `
 
-DISCUSSION CHAPTER — COMPREHENSIVE REQUIREMENTS:
-This chapter is the analytical core of the thesis. In addition to the general requirements above you MUST:
-1. Restate the principal findings and explain how they answer the research question(s).
-2. Situate the findings within the broader appraised literature: agree, disagree, extend, or refine existing work.
-3. Provide a structured comparison with at least three distinct bodies of literature drawn from the grounding papers.
-4. Discuss theoretical implications: does the work confirm, challenge, or extend current theory?
-5. Discuss methodological implications: are the findings robust across designs, instruments, and populations?
-6. Explicitly enumerate strengths of the present work.
-7. Explicitly enumerate limitations, including methodological, conceptual, and generalisability limitations.
-8. Discuss implications for clinical practice, policy, and/or education where relevant.
-9. Propose a concrete agenda for future research, with prioritised directions.
-10. Conclude with a clear statement of what the work contributes to knowledge.
+DISCUSSION CHAPTER — COMPREHENSIVE MANUSCRIPT REQUIREMENTS (MANDATORY):
+Write a full, publication-quality Discussion chapter with substantial depth and detailed academic prose. Do not summarize briefly. You MUST include all of the following with clear markdown headings and multiple paragraphs per subsection:
+1. **Summary of Principal Findings**: restate key results and directly answer each research question/objective.
+2. **Interpretation and Comparison with Existing Evidence**: compare and contrast findings with the grounding literature (agreement, disagreement, extensions), citing multiple studies.
+3. **Strengths**: methodological and analytical strengths of the work.
+4. **Limitations**: explicit, detailed limitations (design, sampling, bias/confounding, measurement, generalisability, evidence certainty, and reporting constraints).
+5. **Implications for Practice/Policy/Clinical Care**: actionable implications grounded in the evidence.
+6. **Implications for Future Research**: specific, prioritized recommendations for future studies.
+7. **Overall Conclusion**: clear statement of contribution to knowledge.
+Integrate inline citations (Author, Year) throughout and ensure the Discussion is comprehensive, coherent, and manuscript-ready.
 `
     : "";
 
@@ -165,7 +163,7 @@ SECTION WORD TARGET: ${secTarget} words (prose only)
 GROUNDING PAPERS:
 ${papers.map((p, k) => `${k + 1}. ${p.authors} (${p.year || "n.d."}). ${p.title}.`).join("\\n")}
 
-Write ${secTarget} words of substantive academic prose for this section. Use inline (Author, Year) citations. Markdown only. Return ONLY the prose text (no JSON, no headings beyond the section title).`;
+Write ${secTarget} words of substantive academic prose for this section. Use inline (Author, Year) citations. Markdown only. Return ONLY the prose text (no JSON, no headings beyond the section title).${/discussion/i.test(chapter.title || "") ? " Make this Discussion section comprehensive with interpretation, literature comparison, strengths, detailed limitations, implications, and future research." : ""}`;
         const secText = await withTimeout(aiFn(secPrompt), CHAPTER_TIMEOUT_MS, `Section timed out`);
         const cleaned = secText.replace(/```markdown/g, "").replace(/```/g, "").trim();
         sectionOutputs.push(`## ${sec.title}\n\n${cleaned}`);

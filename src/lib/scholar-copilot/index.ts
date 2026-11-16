@@ -98,7 +98,7 @@ CHAPTER CONTENT:
 ${chapter.content}
 
 TASK:
-1. Expand thin sections to meet the chapter's academic depth.
+1. Expand thin sections to meet the chapter's academic depth. For any Discussion chapter, produce a comprehensive manuscript-quality discussion including principal findings, comparison with literature, strengths, detailed limitations, implications, future research, and conclusion.
 2. Ensure every inline (Author, Year) citation maps to a paper in the grounding list above; remove or flag unsupported citations.
 3. Improve flow, tone, and academic rigor. Keep markdown structure.
 4. Preserve headings, lists, and tables. Do not wrap the entire output in code fences.

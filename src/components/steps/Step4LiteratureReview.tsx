@@ -523,7 +523,7 @@ Connections to other papers: This paper contributes to the evidence base on ${st
             synthesis table. Generates 6 sections with deep chain-of-thought reasoning and references only at the end.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={handleCopy}
             disabled={!hasContent}
@@ -546,6 +546,16 @@ Connections to other papers: This paper contributes to the evidence base on ${st
           >
             <RotateCcw size={14} />
             Reset
+          </button>
+          <button
+            onClick={() => {
+              const next: Record<SectionKey, string> = { ...sections, references: referencesText };
+              persist(next);
+              dispatch({ type: "SET_STEP", payload: 5 });
+            }}
+            className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-4 py-2 rounded-lg text-sm"
+          >
+            Proceed to Step 5: Generate Themes <ArrowRight size={16} />
           </button>
         </div>
       </div>
