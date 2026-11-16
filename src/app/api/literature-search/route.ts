@@ -109,11 +109,26 @@ export async function POST(request: Request) {
       ? buildConceptAwareTerm(query, { yearFrom, yearTo, studyType })
       : buildDatabaseSearch("PubMed", query, { yearFrom, yearTo, studyType }).term;
 
-    const effectiveQuery = semanticSearch
-      ? meshExpandedQuery.replace(/\b(AND|OR|NOT)\b/gi, " ").replace(/\s+/g, " ").trim() || meshExpandedQuery
+    // The route previously built ONE PubMed-style boolean query and passed it
+    // to every database. Databases such as OpenAlex, Crossref, DOAJ, arXiv and
+    // Semantic Scholar do not understand PubMed field tags ([Title/Abstract],
+    // [MeSH Terms]) or Europe-PMC-specific syntax, so they silently returned 0
+    // results while PubMed and Europe PMC worked.
+    //
+    // The fix: pass the natural-language query (plus the mode flags) to
+    // `searchDatabases`, and let each database's own fetcher build the term it
+    // understands via `buildDatabaseSearch` / `resolveEffectiveTerm`. Databases
+    // that accept rich boolean syntax (PubMed, Europe PMC, ClinicalTrials.gov)
+    // get the concept-aware term; every other database gets a plain-text term
+    // with field tags and boolean operators stripped.
+    const effectiveQuery = query;
+    const queryMode: "boolean" | "semantic" | "natural" = semanticSearch
+      ? "semantic"
       : keywordExtract
-        ? keywordExpandedQuery
-        : query;
+        ? "natural"
+        : /\b(AND|OR|NOT)\b/i.test(query) && /[()]/.test(query)
+          ? "boolean"
+          : "natural";
 
     const dbsToSearch = databases.length > 0 ? databases : DEFAULT_DATABASES;
 
@@ -124,6 +139,14 @@ export async function POST(request: Request) {
       studyType,
       limitPerDatabase: maxResults,
       timeoutMs,
+      // Pass the query-mode flags through so each database's fetcher can build
+      // the term it understands. Databases that accept rich boolean syntax
+      // (PubMed, Europe PMC, ClinicalTrials.gov) use the concept-aware term;
+      // every other database receives a plain-text term with field tags and
+      // boolean operators stripped.
+      keywordExtract,
+      semanticSearch,
+      queryMode,
     });
 
     const papers = outcome.papers;

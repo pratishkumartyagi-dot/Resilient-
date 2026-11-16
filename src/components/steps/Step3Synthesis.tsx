@@ -29,13 +29,14 @@ export default function Step3Synthesis() {
   const fileTextRef = useRef<Map<string, string>>(new Map());
   const [localSynthesis, setLocalSynthesis] = useState<any[]>(state.synthesisTable);
 
+  // Every selected paper is eligible for synthesis. The previous implementation
+  // dropped records whose abstract was shorter than 50 characters, which
+  // silently discarded most papers from databases such as Crossref and
+  // ClinicalTrials.gov that only return a title. The synthesis table must
+  // reflect ALL selected papers, so the user sees every record they chose in
+  // Step 2 and the literature review in Step 4 is grounded in the full set.
   const getFilteredPapers = () => {
-    const selected = state.papers.filter((p) => p.selected);
-    const minAbstractLength = 50;
-    return selected.filter((p) => {
-      if (!p.abstract || p.abstract.length < minAbstractLength) return false;
-      return true;
-    });
+    return state.papers.filter((p) => p.selected);
   };
 
   const handleGenerateSynthesis = async () => {
@@ -52,9 +53,10 @@ export default function Step3Synthesis() {
       return;
     }
 
+    // All selected papers are included (getFilteredPapers returns all selected).
     if (filteredPapers.length < selected.length) {
       const excludedCount = selected.length - filteredPapers.length;
-      alert(`Note: ${excludedCount} paper(s) were excluded due to missing/short abstracts. Synthesis will proceed with ${filteredPapers.length} paper(s).`);
+      console.warn(`Note: ${excludedCount} paper(s) differed from selection count; proceeding with ${filteredPapers.length} paper(s).`);
     }
 
     dispatch({ type: "SET_LOADING", payload: true });
@@ -249,8 +251,11 @@ export default function Step3Synthesis() {
     <div className="space-y-6">
       <div className="bg-[#0d1b3e] border border-blue-900/50 rounded-lg p-6 shadow">
         <h2 className="text-xl font-bold text-white mb-1">Step 3: Generate Synthesis Table</h2>
-        <p className="text-sm text-blue-300 mb-6">
-          Deep-search and reason through the selected papers to produce a structured evidence synthesis table including Vancouver-style references (ICMJE/NLM), key findings, synopsis, study details, and identified research gaps. The <strong>Research Gaps</strong> column combines two methodologies: (1) Tharinda-Pamindu/Research-Gap-table-generator for <em>Limitations / Contradictions / Exclusion criteria / Gaps</em>, and (2) IbrahimAlAzhar/FutureWorkGeneration for the <em>Future Work / Recommendations</em> sub-section.
+        <p className="text-sm text-blue-300 mb-2">
+          Deep-search and reason through the selected papers to produce a structured evidence synthesis table including Vancouver-style references (ICMJE/NLM), key findings, synopsis, study details, and identified research gaps.
+        </p>
+        <p className="text-xs text-blue-400 mb-6">
+          Selected for synthesis: <span className="text-white font-semibold">{state.papers.filter((p) => p.selected).length}</span> paper(s). All selected papers from Step 2 will be included in the synthesis table.
         </p>
 
         {error && (

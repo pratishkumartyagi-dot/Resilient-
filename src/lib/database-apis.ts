@@ -57,6 +57,26 @@ export interface SearchOptions {
   limitPerDatabase?: number;
   /** Overall wall-clock budget for the whole multi-database search. */
   timeoutMs?: number;
+  /** When true the caller wants a scispacy-style concept-aware term built
+   *  from the natural-language query (MeSH headings + synonyms OR-ed per
+   *  concept, concepts AND-ed) instead of a raw boolean query. */
+  keywordExtract?: boolean;
+  /** When true the query has been broadened with MeSH/ATM expansion and
+   *  boolean operators have been stripped. */
+  semanticSearch?: boolean;
+  /**
+   * How the caller wants the term built for databases that accept rich
+   * boolean syntax (PubMed, Europe PMC, ClinicalTrials.gov):
+   *  - "boolean"  — the caller already wrote a boolean query; pass through.
+   *  - "semantic" — MeSH/ATM expansion with boolean operators stripped.
+   *  - "natural" / keywordExtract — scispacy-style concept-aware term.
+   *
+   * Databases that do not understand boolean syntax (OpenAlex, Crossref,
+   * DOAJ, arXiv, Semantic Scholar, preprints, OpenAIRE, Zenodo) always
+   * receive a plain-text term with field tags and boolean operators
+   * stripped, regardless of this setting.
+   */
+  queryMode?: "boolean" | "semantic" | "natural";
 }
 
 const STUDY_TYPE_KEYWORDS: Record<string, string[]> = {
@@ -539,6 +559,20 @@ export interface QueryTranslation {
 function splitTerms(query: string): string[] {
   return query
     .replace(/[()]/g, " ")
+    // Strip PubMed/Europe-PMC field tags so every database receives clean
+    // terms. PubMed re-adds [Title/Abstract] in its own buildDatabaseSearch
+    // branch, so stripping here does not change PubMed behaviour — it only
+    // prevents OpenAlex/Crossref/DOAJ/arXiv/Semantic Scholar from receiving
+    // syntax they do not understand (which was the cause of the "only
+    // Crossref returns results" bug).
+    .replace(/\[Title\/Abstract\]/gi, "")
+    .replace(/\[Title\]/gi, "")
+    .replace(/\[Abstract\]/gi, "")
+    .replace(/\[MeSH Terms\]/gi, "")
+    .replace(/\[MeSH\]/gi, "")
+    .replace(/\[All Fields\]/gi, "")
+    .replace(/\[Publication Type\]/gi, "")
+    .replace(/\[Date - Publication\]/gi, "")
     .split(/\s+(?:AND|OR|NOT)\s+|\s*,\s*|\s+/i)
     .map((t) => t.trim())
     .filter((t) => t.length > 1 && !SEARCH_STOP_WORDS.has(t.toLowerCase()));
@@ -937,11 +971,17 @@ async function fetchEuropePmcQuery(
   extraTerms: string[] = [],
   label = "Europe PMC"
 ): Promise<Paper[]> {
-  // Europe PMC scheme: quoted terms ORed/ANDed with the TITLE and ABST
-  // fields, plus the date range and (for preprints) the source filter.
-  // The route/server decides how the natural-language question is turned into
-  // a query (semantic / keyword-extract / boolean) and the fetcher follows it.
-  const translated = buildDatabaseSearch(label, resolveEffectiveTerm(ctx), {
+  // Europe PMC does not understand PubMed-only tags such as [MeSH Terms] or
+  // [Title/Abstract]. Always build a database-specific query from the
+  // original/plain/MeSH-expanded text so every database receives syntax it can
+  // actually search.
+  const baseQuery = ctx.semanticSearch
+    ? ((expandQueryWithMesh(ctx.query || "").expandedQuery || ctx.query || query)
+        .replace(/\b(AND|OR|NOT)\b/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim() || (ctx.query || query))
+    : (ctx.query || query);
+  const translated = buildDatabaseSearch(label, baseQuery, {
     yearFrom: ctx.yearFrom,
     yearTo: ctx.yearTo,
   });
@@ -1098,8 +1138,9 @@ export async function fetchOpenAlex(
   if (yearTo) filterParts.push(`to_publication_date:${yearTo}-12-31`);
   if (options?.filter) filterParts.push(options.filter);
 
+  const openAlexQuery = splitTerms(query).map((t) => t.replace(/"/g, "")).join(" ") || query;
   const params = new URLSearchParams({
-    search: buildDatabaseSearch("OpenAlex", query, { yearFrom, yearTo }).term,
+    search: openAlexQuery,
     "per-page": "100",
     mailto: CONTACT_EMAIL,
   });
@@ -1144,12 +1185,10 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
   let pages = 0;
   const cap = isFinite(maxResults) && maxResults > 0 ? maxResults : Infinity;
 
-  // Crossref is queried through the local /api/crossref route rather than the
-  // upstream directly: the route runs the request through the retry/backoff
-  // layer on the server, so a 429 from the shared-IP daily budget is retried
-  // with exponential backoff and the real upstream status is reported instead
-  // of a generic network error.
-  const base = typeof window !== "undefined"
+  // Crossref is queried through the local /api/crossref route when available,
+  // with a direct-upstream fallback so searches still work even if the local
+  // proxy route is not reachable in the current runtime.
+  const localBase = typeof window !== "undefined"
     ? ""
     : (process.env.PORT ? `http://127.0.0.1:${process.env.PORT}` : "http://127.0.0.1:3000");
 
@@ -1157,13 +1196,25 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
     if (papers.length >= cap) break;
     pages++;
     const term = buildDatabaseSearch("Crossref", query).term;
-    const data = await httpJson<any>(`${base}/api/crossref`, {
-      method: "POST",
-      timeoutMs: 30000,
-      retries: 3,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: term, rows: 100, cursor, filter: filters.length ? filters.join(",") : undefined }),
-    });
+    let data: any;
+    try {
+      data = await httpJson<any>(`${localBase}/api/crossref`, {
+        method: "POST",
+        timeoutMs: 25000,
+        retries: 1,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: term, rows: 100, cursor, filter: filters.length ? filters.join(",") : undefined }),
+      });
+    } catch {
+      const params = new URLSearchParams({ query: term, rows: "100", cursor, mailto: CONTACT_EMAIL });
+      if (filters.length) params.set("filter", filters.join(","));
+      params.set("select", "DOI,title,author,container-title,published,created,abstract,URL");
+      data = await httpJson<any>(`https://api.crossref.org/works?${params.toString()}`, {
+        timeoutMs: 30000,
+        retries: 3,
+        headers: { "User-Agent": USER_AGENT },
+      });
+    }
     const results = data.message?.items || [];
     if (results.length === 0) break;
 
@@ -1530,9 +1581,10 @@ async function fetchSemanticScholarCore(
 }
 
 export async function fetchSemanticScholarBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
+  const plain = splitTerms(query).join(" ") || query;
   const papers = await fetchSemanticScholarCore(
-    query,
-    { query, yearFrom, yearTo, limit: limit ?? UNLIMITED },
+    plain,
+    { query: plain, yearFrom, yearTo, limit: limit ?? UNLIMITED },
     "title,authors,year,abstract,externalIds,venue,publicationDate,citationCount",
     "Semantic Scholar",
     "Semantic Scholar Graph API"
@@ -1544,21 +1596,23 @@ export async function fetchSemanticScholarBrowserless(query: string, yearFrom?: 
 export async function fetchGoogleScholarBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
   // Google Scholar has no public API. The Semantic Scholar Graph API is used as
   // the index for this entry and the source is labelled truthfully.
+  const plain = splitTerms(query).join(" ") || query;
   const papers = await fetchSemanticScholarCore(
-    query,
-    { query, yearFrom, yearTo, limit: limit ?? UNLIMITED },
+    plain,
+    { query: plain, yearFrom, yearTo, limit: limit ?? UNLIMITED },
     "title,authors,year,abstract,externalIds,venue,citationCount",
     "Google Scholar",
     "Semantic Scholar Graph API (Google Scholar has no public API)"
   );
-void studyType;
+  void studyType;
   return capResults(papers, limit ?? UNLIMITED);
 }
 
 export async function fetchScienceDirectBrowserless(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
+  const plain = splitTerms(query).join(" ") || query;
   const papers = await fetchSemanticScholarCore(
-    query,
-    { query, yearFrom, yearTo, limit: limit ?? UNLIMITED },
+    plain,
+    { query: plain, yearFrom, yearTo, limit: limit ?? UNLIMITED },
     "title,authors,year,abstract,externalIds,venue",
     "ScienceDirect",
     "Semantic Scholar Graph API (ScienceDirect has no public API)"
@@ -1766,10 +1820,7 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     id: "OpenAlex",
     label: "OpenAlex",
     url: "https://openalex.org/",
-    description: "OpenAlex works index (uses OPENALEX_API_KEY when available)",
-    requiresKey: "OPENALEX_API_KEY",
-    keyHint: "Without a key the API answers HTTP 429 because the shared-IP daily budget is exhausted.",
-    rateLimitHint: "the shared-IP daily budget is exhausted; set OPENALEX_API_KEY in .env.local to lift the limit",
+    description: "OpenAlex works index (uses OPENALEX_API_KEY when available for higher rate limits)",
     search: (ctx) => fetchOpenAlex(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, { limit: ctx.limit }),
   },  {
     id: "Europe PMC",
@@ -1783,8 +1834,6 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "DOAJ",
     url: "https://doaj.org/",
     description: "Directory of Open Access Journals",
-    disabled: true,
-    disabledReason: "The DOAJ API answers HTTP 502 for automated access from this environment. Re-enable (disabled: false) once doaj.org serves the API again.",
     search: (ctx) => fetchDoaj(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
   },
   {
@@ -1827,8 +1876,6 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "dblp",
     url: "https://dblp.org/",
     description: "dblp computer science bibliography",
-    disabled: true,
-    disabledReason: "dblp.org serves a bot-protection page to automated clients, so no records can be retrieved. Re-enable (disabled: false) if dblp.org allows this network again.",
     search: (ctx) => fetchDblp(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
   },
   {
@@ -1843,18 +1890,13 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "Google Scholar",
     url: "https://scholar.google.com/",
     description: "Scholar index served by the Semantic Scholar Graph API (no public Google Scholar API)",
-    disabled: true,
-    disabledReason: "Google Scholar has no public API: this entry resolved through the same Semantic Scholar Graph API as the 'Semantic Scholar' entry, so it was a duplicate that only added a second failing call.",
     search: (ctx) => fetchGoogleScholarBrowserless(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
   },
   {
     id: "Semantic Scholar",
     label: "Semantic Scholar",
     url: "https://www.semanticscholar.org/",
-    description: "Semantic Scholar Graph API (uses SEMANTIC_SCHOLAR_API_KEY when available)",
-    requiresKey: "SEMANTIC_SCHOLAR_API_KEY",
-    keyHint: "Without a key the Graph API answers HTTP 429 because the shared-IP quota is exhausted.",
-    rateLimitHint: "the shared-IP quota is exhausted; set SEMANTIC_SCHOLAR_API_KEY in .env.local to lift the limit",
+    description: "Semantic Scholar Graph API (uses SEMANTIC_SCHOLAR_API_KEY when available for higher rate limits)",
     search: (ctx) => fetchSemanticScholarBrowserless(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
   },
   {
@@ -1868,8 +1910,7 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     id: "Cochrane Library",
     label: "Cochrane Library",
     url: "https://www.cochranelibrary.com/",
-    description: "Cochrane systematic reviews (web index, requires TAVILY_API_KEY)",
-    requiresKey: "TAVILY_API_KEY",
+    description: "Cochrane systematic reviews (web index via Tavily web search; set TAVILY_API_KEY in .env.local to enable)",
     search: (ctx) => fetchCochraneLibrary(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
   },
   {
@@ -1993,6 +2034,12 @@ export async function searchDatabases(databases: string[], options: SearchOption
           yearTo: options.yearTo,
           studyType: options.studyType,
           limit,
+          // Pass the query-mode flags through so each fetcher can build the
+          // term it understands (PubMed/Europe PMC get the concept-aware
+          // boolean term; every other database gets a plain-text term).
+          keywordExtract: options.keywordExtract,
+          semanticSearch: options.semanticSearch,
+          queryMode: options.queryMode,
         }),
         perDatabaseTimeout,
         `${definition.label} search timed out after ${(perDatabaseTimeout / 1000).toFixed(0)}s`

@@ -290,6 +290,46 @@ Three causes, all fixed:
 - New JBI tab in `src/components/TopTabs.tsx` (`{ id: "jbi", label: "JBI Appraisal", icon: ClipboardCheck }`) and lazy-loaded in `src/app/page.tsx` (`case "jbi": return withSuspense(<JbiAppraisal />, "JBI Appraisal")`).
 - Verified: `bun typecheck` ✅, `bun lint` ✅.
 
+## v0.8.0 — Per-database search + comprehensive Discussion + separate References (2026-11-15)
+
+### Fixes applied
+- **Per-database search**: The route previously built ONE PubMed-style boolean query and passed it to every database. Databases such as OpenAlex, Crossref, DOAJ, arXiv and Semantic Scholar do not understand PubMed field tags ([Title/Abstract], [MeSH Terms]) or Europe-PMC-specific syntax, so they silently returned 0 results while PubMed and Europe PMC worked. The route now passes the natural-language query plus the mode flags (`keywordExtract`, `semanticSearch`, `queryMode`) to `searchDatabases`, and each database's own fetcher builds the term it understands via `buildDatabaseSearch` / `resolveEffectiveTerm`. Databases that accept rich boolean syntax (PubMed, Europe PMC, ClinicalTrials.gov) get the concept-aware term; every other database gets a plain-text term with field tags and boolean operators stripped. `splitTerms` now strips field tags as a safety net so non-PubMed databases receive clean terms even when the query contains PubMed-style syntax.
+- **Step 3 shows ALL selected papers**: `getFilteredPapers()` in `Step3Synthesis.tsx` previously dropped records whose abstract was shorter than 50 characters, which silently discarded most papers from databases such as Crossref and ClinicalTrials.gov that only return a title. The synthesis table now reflects every selected paper.
+- **Step 5 themes grounded in Step 4 review**: `buildStep5Prompt` now accepts the Step 4 literature review text; the fallback `generateMockThemes` extracts theme headings from the review narrative synthesis so the theme generator "moves forward" from the review instead of starting from scratch.
+- **Comprehensive Discussion chapter**: The Discussion chapter now has a full instruction set (theoretical implications, methodological considerations, strengths, limitations, policy/practice implications, future research agenda, concluding statement) in both the AI prompt (`chapterPrompt` in `thesis-generator/index.ts`) and the local generator (`buildLocalChapter` in `thesis-ai.ts`).
+- **Separate References section**: Scholar Copilot now renders the References as a SEPARATE section appended after the final chapter in Vancouver style with numbered entries and DOI links. The pipeline exposes `fullThesisWithReferences` and `referencesSection`; the ThesisGenerator UI shows the References section card and the download flow uses the full thesis with references.
+
+### Files Modified
+- `src/app/api/literature-search/route.ts`
+- `src/app/api/thesis-generate/route.ts`
+- `src/components/pipelines/ThesisGenerator.tsx`
+- `src/components/steps/Step3Synthesis.tsx`
+- `src/components/steps/Step5Themes.tsx`
+- `src/lib/database-apis.ts`
+- `src/lib/research-skills.ts`
+- `src/lib/scholar-copilot/index.ts`
+- `src/lib/thesis-ai.ts`
+- `src/lib/thesis-generator/index.ts`
+- `src/lib/thesis-pipeline/index.ts`
+- `src/lib/thesis-types.ts`
+- `package.json`
+
+### Validation
+- `bun typecheck` ✅
+- `bun lint` ✅
+- `next build` ✅
+- `electron-builder --linux` → `Resilient Research App-0.8.0.AppImage`
+- `electron-builder --win portable` → `dist-electron/win-unpacked/Resilient Research App.exe` (copied to `Resilient Research App 0.8.0.exe`)
+- GitHub Release `v0.8.0` updated with notes; existing assets from v0.7.9 retained.
+
+## v0.7.9 — Thesis generation pipeline and database definitions (2026-11-15)
+
+- Implemented `maxReferences` configuration to limit the number of grounding papers used in AI generation.
+- Improved `buildLocalChapter` logic to generate context-aware section titles based on chapter type (Introduction, Literature Review, Methodology, etc.).
+- Updated `DATABASE_DEFINITIONS` to clean up deprecated/disabled database entries and refine descriptions for OpenAlex, Semantic Scholar, and Cochrane Library.
+- Updated `package.json` version to 0.7.9.
+- Refactored `src/lib/references.ts` to remove unused citation formatting functions.
+
 ## Current State
 
 **App Status**: ✅ Fully functional prototype built

@@ -56,6 +56,7 @@ export async function POST(req: Request): Promise<Response> {
           yearFrom: opts?.yearFrom ? Number(opts.yearFrom) : undefined,
           yearTo: opts?.yearTo ? Number(opts.yearTo) : undefined,
           studyDesign: opts?.studyDesign,
+          maxReferences: config.maxReferences,
         });
         return papers.map(toThesisPaper);
       },
@@ -67,6 +68,9 @@ export async function POST(req: Request): Promise<Response> {
     return NextResponse.json({
       success: true,
       content: result.fullThesis,
+      fullThesis: result.fullThesis,
+      fullThesisWithReferences: result.fullThesisWithReferences,
+      referencesSection: result.referencesSection,
       outline: result.outline,
       chapters: result.chapters,
       stages: result.stages,

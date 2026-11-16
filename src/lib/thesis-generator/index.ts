@@ -60,6 +60,28 @@ function chapterPrompt(chapter: any, papers: ThesisPaper[], cfg: any, index: num
   const chapterTarget = chapter.wordTarget || Math.floor(levelTarget / Math.max((cfg as any).outline?.chapters?.length || 1, 1)) || 2000;
   const totalTarget = cfg.targetWordCount || levelTarget;
 
+  // The Discussion chapter is the analytical heart of the thesis: it must
+  // synthesise the findings against the appraised literature, acknowledge
+  // limitations explicitly, and state implications for theory, practice and
+  // future research. A thin Discussion undermines the whole argument, so the
+  // Discussion chapter gets an explicit, comprehensive instruction set.
+  const isDiscussion = /discussion/i.test(chapter.title || "");
+  const discussionExtra = isDiscussion
+    ? `
+
+DISCUSSION CHAPTER — COMPREHENSIVE MANUSCRIPT REQUIREMENTS (MANDATORY):
+Write a full, publication-quality Discussion chapter with substantial depth and detailed academic prose. Do not summarize briefly. You MUST include all of the following with clear markdown headings and multiple paragraphs per subsection:
+1. **Summary of Principal Findings**: restate key results and directly answer each research question/objective.
+2. **Interpretation and Comparison with Existing Evidence**: compare and contrast findings with the grounding literature (agreement, disagreement, extensions), citing multiple studies.
+3. **Strengths**: methodological and analytical strengths of the work.
+4. **Limitations**: explicit, detailed limitations (design, sampling, bias/confounding, measurement, generalisability, evidence certainty, and reporting constraints).
+5. **Implications for Practice/Policy/Clinical Care**: actionable implications grounded in the evidence.
+6. **Implications for Future Research**: specific, prioritized recommendations for future studies.
+7. **Overall Conclusion**: clear statement of contribution to knowledge.
+Integrate inline citations (Author, Year) throughout and ensure the Discussion is comprehensive, coherent, and manuscript-ready.
+`
+    : "";
+
   return `You are an academic writer. Write the full prose for ONE chapter of a thesis.
 
 TOPIC: ${cfg.topic}
@@ -81,7 +103,7 @@ Write academic prose for every section of this chapter. Requirements:
 - Target < 2% plagiarism; write originally, do not copy abstracts.
 - Markdown-only output. Use headings for sections.
 - Preserve any headings/lists/tables exactly; do not wrap the whole chapter in code fences.
-
+${discussionExtra}
 Return ONLY a JSON object (no markdown fences, no extra text):
 {
   "content": "full markdown chapter text",
@@ -141,7 +163,7 @@ SECTION WORD TARGET: ${secTarget} words (prose only)
 GROUNDING PAPERS:
 ${papers.map((p, k) => `${k + 1}. ${p.authors} (${p.year || "n.d."}). ${p.title}.`).join("\\n")}
 
-Write ${secTarget} words of substantive academic prose for this section. Use inline (Author, Year) citations. Markdown only. Return ONLY the prose text (no JSON, no headings beyond the section title).`;
+Write ${secTarget} words of substantive academic prose for this section. Use inline (Author, Year) citations. Markdown only. Return ONLY the prose text (no JSON, no headings beyond the section title).${/discussion/i.test(chapter.title || "") ? " Make this Discussion section comprehensive with interpretation, literature comparison, strengths, detailed limitations, implications, and future research." : ""}`;
         const secText = await withTimeout(aiFn(secPrompt), CHAPTER_TIMEOUT_MS, `Section timed out`);
         const cleaned = secText.replace(/```markdown/g, "").replace(/```/g, "").trim();
         sectionOutputs.push(`## ${sec.title}\n\n${cleaned}`);

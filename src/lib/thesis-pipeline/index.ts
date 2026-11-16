@@ -15,7 +15,7 @@ import { appraiseEvidenceBase, buildEvidenceAppraisalMarkdown, buildNursestackTh
 
 export interface PipelineDeps {
   aiFn: (prompt: string, opts?: { searchEnabled?: boolean; searchQuery?: string }) => Promise<string>;
-  searchFn?: (query: string, opts?: { yearFrom?: number; yearTo?: number; studyDesign?: string }) => Promise<ThesisPaper[]>;
+  searchFn?: (query: string, opts?: { yearFrom?: number; yearTo?: number; studyDesign?: string; maxReferences?: number }) => Promise<ThesisPaper[]>;
   onProgress?: (stage: string, message: string) => void;
 }
 
@@ -81,16 +81,20 @@ export async function runThesisPipeline(
         yearFrom: config.yearFrom,
         yearTo: config.yearTo,
         studyDesign: config.studyDesign,
+        maxReferences: config.maxReferences,
       });
     } catch {
       papers = [];
     }
   }
 
+  // Limit grounding papers to maxReferences so the AI cites no more than requested.
+  const groundingPapers = papers.slice(0, config.maxReferences || 150);
+
   onProgress?.("prose", `Generating prose for ${outline.chapters.length} chapters...`);
   const proseResult = await generateThesis({
     outline,
-    papers,
+    papers: groundingPapers,
     config: {
       topic: config.topic,
       level: config.level,
@@ -138,6 +142,13 @@ export async function runThesisPipeline(
   const references = papers.slice(0, config.maxReferences || 150);
   const markdownOutline = outlineResult.markdownOutline;
 
+  // The references are rendered as a SEPARATE section appended after the final
+  // chapter, in Vancouver style with numbered entries and DOI links. This is
+  // what the thesis pipeline requires: the references are not interleaved
+  // into the chapter prose but collected in their own section.
+  const referencesSection = refineResult.referencesSection || "";
+  const fullThesisWithReferences = refineResult.fullThesisWithReferences || fullThesis;
+
   const stats: any = {
     totalWords: fullThesis.split(/\s+/).filter(Boolean).length,
     totalReferences: references.length,
@@ -156,6 +167,8 @@ export async function runThesisPipeline(
   return {
     outline,
     fullThesis,
+    fullThesisWithReferences,
+    referencesSection,
     markdownOutline,
     chapters,
     references,
