@@ -10,7 +10,7 @@ import { LEVEL_WORD_RANGES } from "@/lib/thesis-types";
 import { openDraft } from "@/lib/opendraft";
 import { generateThesis } from "@/lib/thesis-generator";
 import { scholarCopilot } from "@/lib/scholar-copilot";
-import { formatVancouverList } from "@/lib/references";
+import { formatReferenceListByStyle, formatVancouverList, type CitationStyle } from "@/lib/references";
 import { appraiseEvidenceBase, buildEvidenceAppraisalMarkdown, buildNursestackThesisPlan, applyNursestackPlanToOutline, wordTargetsFromPlan } from "@/lib/thesis-nursestack";
 
 export interface PipelineDeps {
@@ -136,6 +136,22 @@ export async function runThesisPipeline(
 
   // Build references (Vancouver) from grounding papers
   const references = papers.slice(0, config.maxReferences || 150);
+
+  // Append a complete, citation-style-formatted reference list so every
+  // grounding paper used across the chapters appears in the thesis reference
+  // section, matching the configured citation style.
+  const referenceList = formatReferenceListByStyle(
+    config.style as CitationStyle,
+    references.map((p) => ({
+      authors: p.authors,
+      title: p.title,
+      journal: p.journal ?? "Unknown journal",
+      year: p.year,
+      doi: p.doi,
+    }))
+  );
+  fullThesis = `${fullThesis}\n\n---\n\n## References\n\n${referenceList}`;
+
   const markdownOutline = outlineResult.markdownOutline;
 
   const stats: any = {
