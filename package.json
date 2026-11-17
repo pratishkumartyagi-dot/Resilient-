@@ -67,7 +67,7 @@
     ],
     "win": {
       "target": [
-        "portable"
+        "nsis"
       ],
       "signAndEditExecutable": false
     },
