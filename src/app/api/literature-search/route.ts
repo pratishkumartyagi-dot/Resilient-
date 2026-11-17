@@ -109,16 +109,22 @@ export async function POST(request: Request) {
       ? buildConceptAwareTerm(query, { yearFrom, yearTo, studyType })
       : buildDatabaseSearch("PubMed", query, { yearFrom, yearTo, studyType }).term;
 
-    const effectiveQuery = semanticSearch
-      ? meshExpandedQuery.replace(/\b(AND|OR|NOT)\b/gi, " ").replace(/\s+/g, " ").trim() || meshExpandedQuery
-      : keywordExtract
-        ? keywordExpandedQuery
-        : query;
+    // Decide the query mode so each database fetcher builds its own
+    // scheme-appropriate syntax from the raw query instead of re-processing a
+    // PubMed-specific term (which previously mangled Europe PMC / OpenAlex /
+    // Crossref queries and returned zero results).
+    let queryMode: "boolean" | "semantic" | "natural" | undefined;
+    if (semanticSearch) {
+      queryMode = "semantic";
+    } else if (keywordExtract) {
+      queryMode = "natural";
+    }
 
     const dbsToSearch = databases.length > 0 ? databases : DEFAULT_DATABASES;
 
     const outcome = await searchDatabases(dbsToSearch, {
-      query: effectiveQuery,
+      query,
+      queryMode,
       yearFrom,
       yearTo,
       studyType,

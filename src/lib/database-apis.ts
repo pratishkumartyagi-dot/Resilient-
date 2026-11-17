@@ -51,6 +51,7 @@ export interface SearchOutcome {
 
 export interface SearchOptions {
   query: string;
+  queryMode?: "boolean" | "semantic" | "natural";
   yearFrom?: string;
   yearTo?: string;
   studyType?: string;
@@ -939,9 +940,10 @@ async function fetchEuropePmcQuery(
 ): Promise<Paper[]> {
   // Europe PMC scheme: quoted terms ORed/ANDed with the TITLE and ABST
   // fields, plus the date range and (for preprints) the source filter.
-  // The route/server decides how the natural-language question is turned into
-  // a query (semantic / keyword-extract / boolean) and the fetcher follows it.
-  const translated = buildDatabaseSearch(label, resolveEffectiveTerm(ctx), {
+  // The query is built with buildDatabaseSearch so it uses Europe PMC's own
+  // Lucene-style syntax (never PubMed's [MeSH Terms]/[Title/Abstract] field
+  // tags, which resolveEffectiveTerm produces and would mangle here).
+  const translated = buildDatabaseSearch(label, ctx.query, {
     yearFrom: ctx.yearFrom,
     yearTo: ctx.yearTo,
   });
@@ -1989,6 +1991,7 @@ export async function searchDatabases(databases: string[], options: SearchOption
       const raw = await withTimeout(
         definition.search({
           query: options.query,
+          queryMode: options.queryMode,
           yearFrom: options.yearFrom,
           yearTo: options.yearTo,
           studyType: options.studyType,

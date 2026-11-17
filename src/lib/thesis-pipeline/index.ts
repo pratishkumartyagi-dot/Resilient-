@@ -214,6 +214,7 @@ export async function runThesisPipeline(
 
   // CASP evidence-appraisal table removed from the written thesis.
 
+
   const markdownOutline = outlineResult.markdownOutline;
 
   const stats: any = {
