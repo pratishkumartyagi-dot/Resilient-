@@ -93,6 +93,7 @@ export interface ThesisPipelineResult {
   stages: {
     outline: boolean;
     prose: boolean;
+    literatureReview: boolean;
     refine: boolean;
     appraise: boolean;
     complete: boolean;
@@ -100,6 +101,7 @@ export interface ThesisPipelineResult {
   subResults: {
     outline: ThesisStageSubResult;
     prose: ThesisStageSubResult;
+    literatureReview: ThesisStageSubResult;
     refine: ThesisStageSubResult;
     appraise: ThesisStageSubResult;
   };
@@ -113,6 +115,8 @@ export interface ThesisPipelineResult {
   evidenceAppraisal?: import("./thesis-nursestack").EvidenceAppraisalRow[];
   /** Markdown section with the CASP appraisal of the evidence base. */
   evidenceAppraisalMarkdown?: string;
+  /** Formatted References section appended to the end of the thesis. */
+  referencesSection?: string;
 }
 
 export interface ThesisGeneratorConfig {

@@ -8,6 +8,10 @@ import {
 import { useApp } from "@/context/AppContext";
 import { callAiWithFallback, type AICallOptions } from "@/lib/ai";
 import { formatVancouverReference } from "@/lib/references";
+import {
+  generateLiteratureReviewSections,
+  type LitReviewSectionPlan,
+} from "@/lib/paper-orchestra";
 import { generateLocalLiteratureReview } from "@/lib/local-synthesis";
 
 type SectionKey =
@@ -106,6 +110,49 @@ const EMPTY_SECTIONS: Record<SectionKey, string> = {
   summary: "",
   references: "",
 };
+
+/**
+ * The five literature-review sections of the main research pipeline, generated
+ * INDIVIDUALLY via the PaperOrchestra-style engine (deep reasoning -> per-section
+ * writing -> refinement). Matches the Review of Literature step's five content
+ * sections; References is handled separately as section 6.
+ */
+const LIT_REVIEW_PLAN: LitReviewSectionPlan[] = [
+  {
+    id: "introduction",
+    title: "Introduction",
+    wordTarget: 1000,
+    focus: "Broad overview of the clinical/research field: background, significance, rationale and objectives of this review.",
+  },
+  {
+    id: "globalIndian",
+    title: "Global & Indian Situations",
+    wordTarget: 1000,
+    focus: "Burden data, global and regional epidemiology, Indian national programmes and the policy landscape.",
+  },
+  {
+    id: "gaps",
+    title: "Research Gaps / Limitations",
+    wordTarget: 1000,
+    focus: "Methodological limitations, under-studied populations and settings, unmeasured outcomes, contradictions between studies.",
+  },
+  {
+    id: "futureAdvice",
+    title: "Authors' Advice for Future Research",
+    wordTarget: 1000,
+    focus: "Concrete recommendations for future study designs, populations/settings, outcome measures, implementation and methodology.",
+  },
+  {
+    id: "summary",
+    title: "Summary of All Studies",
+    wordTarget: 1000,
+    focus: "Thematic synthesis of findings, convergence and divergence across studies, evidence-strength assessment, overall conclusions.",
+  },
+];
+
+function stripLeadingHeading(content: string): string {
+  return content.replace(/^#{1,6}\s+.*\n?/, "").trimStart();
+}
 
 function stripQuotesAndFences(text: string): string {
   return text
@@ -385,22 +432,52 @@ export default function Step4LiteratureReview() {
     const next: Record<SectionKey, string> = { ...EMPTY_SECTIONS, references: referencesText };
     setSections(next);
     try {
-      for (const meta of REVIEW_STRUCTURE) {
-        if (meta.key === "references") continue;
-        setSectionLoading(meta.key);
-        try {
-          const content = await generateSection(meta);
-          next[meta.key] = content;
-          setSections({ ...next });
-        } catch (err: any) {
-          next[meta.key] = `*Section generation failed: ${err?.message || String(err)}*`;
-          setSections({ ...next });
+      const thesisPapers = selectedPapers.map((p) => ({
+        id: p.id,
+        title: p.title,
+        authors: p.authors,
+        journal: p.journal,
+        year: p.year,
+        doi: p.doi,
+        abstract: p.abstract,
+        studyType: p.studyType,
+        database: p.database,
+      }));
+
+      // PaperOrchestra style: every literature-review section is generated
+      // INDIVIDUALLY (deep reasoning runs once over all papers, then each
+      // section is written and refined to its word target).
+      const lit = await generateLiteratureReviewSections({
+        topic: state.searchQuery,
+        papers: thesisPapers,
+        sections: LIT_REVIEW_PLAN,
+        style: "vancouver",
+        level: "master",
+        language: "en",
+        aiFn: callAi,
+        onProgress: (sid) => setSectionLoading(sid as SectionKey),
+      });
+
+      for (const section of lit.sections) {
+        const key = section.id as SectionKey;
+        if (key in next) {
+          next[key] = stripLeadingHeading(section.content) || `*Section "${section.title}" returned no content.*`;
         }
       }
       setSectionLoading(null);
+      setSections(next);
       persist(next);
     } catch (err: any) {
       console.error("Literature review generation failed:", err);
+      for (const meta of REVIEW_STRUCTURE) {
+        if (meta.key === "references") continue;
+        if (!next[meta.key]) {
+          next[meta.key] = `*Section generation failed: ${err?.message || String(err)}*`;
+        }
+      }
+      setSectionLoading(null);
+      setSections(next);
+      persist(next);
     } finally {
       setLoading(false);
     }
@@ -454,7 +531,33 @@ Connections to other papers: This paper contributes to the evidence base on ${st
     }
     setSectionLoading(meta.key);
     try {
-      const content = await generateSection(meta);
+      const thesisPapers = selectedPapers.map((p) => ({
+        id: p.id,
+        title: p.title,
+        authors: p.authors,
+        journal: p.journal,
+        year: p.year,
+        doi: p.doi,
+        abstract: p.abstract,
+        studyType: p.studyType,
+        database: p.database,
+      }));
+
+      const lit = await generateLiteratureReviewSections({
+        topic: state.searchQuery,
+        papers: thesisPapers,
+        sections: [{ id: meta.key, title: meta.title, wordTarget: 1000, focus: meta.blurb }],
+        style: "vancouver",
+        level: "master",
+        language: "en",
+        aiFn: callAi,
+      });
+
+      const section = lit.sections[0];
+      const content = section
+        ? stripLeadingHeading(section.content) || `*Section "${meta.title}" returned no content.*`
+        : `*Section "${meta.title}" returned no content.*`;
+
       setSections((prev) => {
         const nxt = { ...prev, [meta.key]: content };
         persist(nxt);

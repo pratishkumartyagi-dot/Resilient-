@@ -7,10 +7,17 @@ import type {
   ThesisStageSubResult,
 } from "@/lib/thesis-types";
 import { LEVEL_WORD_RANGES } from "@/lib/thesis-types";
+import type { CitationStyle } from "@/lib/references";
 import { openDraft } from "@/lib/opendraft";
 import { generateThesis } from "@/lib/thesis-generator";
 import { scholarCopilot } from "@/lib/scholar-copilot";
 import { formatVancouverList } from "@/lib/references";
+import {
+  generateLiteratureReviewSections,
+  buildReferencesSection,
+  DEFAULT_LIT_REVIEW_SECTIONS,
+  type LitReviewSectionPlan,
+} from "@/lib/paper-orchestra";
 import { appraiseEvidenceBase, buildEvidenceAppraisalMarkdown, buildNursestackThesisPlan, applyNursestackPlanToOutline, wordTargetsFromPlan } from "@/lib/thesis-nursestack";
 
 export interface PipelineDeps {
@@ -29,6 +36,7 @@ export async function runThesisPipeline(
   const subResults: Record<string, ThesisStageSubResult> = {
     outline: { ok: false },
     prose: { ok: false },
+    literatureReview: { ok: false },
     refine: { ok: false },
     appraise: { ok: false },
   };
@@ -106,6 +114,72 @@ export async function runThesisPipeline(
   subResults.prose = proseResult.subResult;
   let chapters: ChapterFile[] = proseResult.chapters;
 
+  // Stage 2b: Literature Review — generated AFTER all papers have been read,
+  // with each section produced INDIVIDUALLY (paper-orchestra style) and each
+  // section landing on the word target allocated by the NurseStack plan.
+  onProgress?.("literatureReview", "Generating literature-review sections individually...");
+  const litReviewResult = await (async () => {
+    const litIdx = chapters.findIndex((c) => /literature review/i.test(c.chapterTitle));
+    if (litIdx < 0) return { ok: true, chapters };
+    const litChapter = chapters[litIdx];
+
+    // Section plans come from the NurseStack-aligned outline (generateThesis
+    // intentionally stores an empty sections array on each chapter file), so
+    // every section carries the word target the plan allocated.
+    const litOutlineChapter = outline.chapters.find((c) => /literature review/i.test(c.title));
+    const outlineSections = Array.isArray(litOutlineChapter?.sections) ? litOutlineChapter.sections : [];
+    const plans: LitReviewSectionPlan[] =
+      outlineSections.length > 0
+        ? outlineSections.map((s, i) => ({
+            id: s.id || `lit-${litChapter.chapterNumber}-${i}`,
+            title: s.title || `Section ${i + 1}`,
+            wordTarget:
+              typeof s.wordTarget === "number" && s.wordTarget > 0
+                ? s.wordTarget
+                : Math.floor((litChapter.wordCount || 2000) / Math.max(outlineSections.length, 1)),
+          }))
+        : DEFAULT_LIT_REVIEW_SECTIONS;
+    if (plans.length === 0) return { ok: true, chapters };
+
+    const lit = await generateLiteratureReviewSections({
+      topic: config.topic,
+      papers,
+      sections: plans,
+      style: config.style as CitationStyle,
+      level: config.level,
+      language: config.language,
+      aiFn,
+      onProgress: (_sid, msg) => onProgress?.("literatureReview", msg),
+    });
+
+    const litContent = [`# ${litChapter.chapterTitle}`, ...lit.sections.map((s) => `## ${s.title}\n\n${s.content}`)].join("\n\n");
+    const litChapterFile: ChapterFile = {
+      chapterNumber: litChapter.chapterNumber,
+      chapterTitle: litChapter.chapterTitle,
+      content: litContent,
+      sections: lit.sections.map((s) => ({
+        id: s.id,
+        title: s.title,
+        wordTarget: plans.find((p) => p.id === s.id)?.wordTarget,
+        content: s.content,
+      })),
+      wordCount: lit.totalWords,
+      citations: lit.allCitations,
+      argumentAudit: litChapter.argumentAudit || {
+        claims: [],
+        evidenceGaps: [],
+        logicalFlowScore: 0,
+        citationCoverage: 0,
+        recommendations: [],
+      },
+    };
+    const nextChapters = [...chapters];
+    nextChapters[litIdx] = litChapterFile;
+    return { ok: lit.sections.length > 0, chapters: nextChapters };
+  })();
+  subResults.literatureReview = { ok: litReviewResult.ok };
+  chapters = litReviewResult.chapters;
+
   // Stage 3: Refine / citation validation
   onProgress?.("refine", "Refining chapters and validating citations...");
   const refineResult = await scholarCopilot({
@@ -119,6 +193,12 @@ export async function runThesisPipeline(
   subResults.refine = refineResult.subResult;
   chapters = refineResult.chapters;
   let fullThesis = refineResult.fullThesis;
+
+  // References section — appended at the end of the thesis, listing every
+  // paper used in thesis generation in the configured citation style.
+  const references = papers.slice(0, config.maxReferences || 150);
+  const referencesSection = buildReferencesSection(references, config.style as CitationStyle);
+  fullThesis = `${fullThesis}\n\n---\n\n${referencesSection}`;
 
   // Stage 4: CASP appraisal of the evidence base (NurseStack /review-evidence)
   onProgress?.("appraise", "Appraising the evidence base with CASP...");
@@ -134,8 +214,6 @@ export async function runThesisPipeline(
 
   // CASP evidence-appraisal table removed from the written thesis.
 
-  // Build references (Vancouver) from grounding papers
-  const references = papers.slice(0, config.maxReferences || 150);
   const markdownOutline = outlineResult.markdownOutline;
 
   const stats: any = {
@@ -148,9 +226,14 @@ export async function runThesisPipeline(
   const stages = {
     outline: subResults.outline.ok,
     prose: subResults.prose.ok,
+    literatureReview: subResults.literatureReview.ok,
     refine: subResults.refine.ok,
     appraise: subResults.appraise.ok,
-    complete: subResults.outline.ok && subResults.prose.ok && subResults.refine.ok,
+    complete:
+      subResults.outline.ok &&
+      subResults.prose.ok &&
+      subResults.literatureReview.ok &&
+      subResults.refine.ok,
   };
 
   return {
@@ -160,11 +243,13 @@ export async function runThesisPipeline(
     chapters,
     references,
     papers,
+    referencesSection,
     stats,
     stages,
     subResults: {
       outline: subResults.outline,
       prose: subResults.prose,
+      literatureReview: subResults.literatureReview,
       refine: subResults.refine,
       appraise: subResults.appraise,
     },
