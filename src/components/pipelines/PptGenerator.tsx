@@ -3,7 +3,7 @@
 import React, { useState, useCallback, useRef } from "react";
 import {
   Upload, Sparkles, Loader2, Download, FileText, ImageIcon, Table, BarChart2,
-  X, Plus, Minus, ChevronRight, Edit2, Save, Trash2, Settings,
+  X, Plus, Minus, ChevronRight, Edit2, Save, Trash2, Settings, FilePlus,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callAiWithFallback, type AICallOptions } from "@/lib/ai";

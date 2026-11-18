@@ -2045,31 +2045,46 @@ ${isNarrative ? `## Evidence Synthesis
           chapterNumber: 1,
           chapterTitle: "Introduction",
           content: `## Introduction\n\nThis comprehensive review examines the evidence on ${query || "the research topic"} based on ${papersForReview.length} included studies.\n\n### Background\n\nThe background and rationale for this review are derived from the selected studies.\n\n### Objectives\n\nTo systematically evaluate the evidence on ${query || "the research topic"}.`,
+          sections: [],
+          wordCount: 0,
           citations: [],
+          argumentAudit: { claims: [], evidenceGaps: [], logicalFlowScore: 0, citationCoverage: 0, recommendations: [] },
         },
         {
           chapterNumber: 2,
           chapterTitle: "Methods",
           content: `## Methods\n\n### Search Strategy\n\nStudies were identified through searches of ${reviewRequirements || "multiple databases"}.\n\n### Selection Criteria\n\n${synthesisInstructions || "Standard systematic review inclusion/exclusion criteria were applied."}\n\n### Data Extraction\n\nData were extracted using the meta-pipe and decipher-research-agent frameworks.\n\n### Risk of Bias Assessment\n\nRisk of bias was assessed using ${robMode === "probast" ? "PROBAST + AI" : "robvis (" + (getRobToolTemplate()?.label || robTool) + ")"}.\n\n### Synthesis Methods\n\n${reviewType.includes("Meta") ? "Meta-analysis was conducted using random-effects models." : "Narrative synthesis was conducted following awesome-evidence-synthesis principles."}`,
+          sections: [],
+          wordCount: 0,
           citations: [],
+          argumentAudit: { claims: [], evidenceGaps: [], logicalFlowScore: 0, citationCoverage: 0, recommendations: [] },
         },
         {
           chapterNumber: 3,
           chapterTitle: "Results",
           content: `## Results\n\n### Study Selection\n\n${papersForReview.length} studies were included in this review.\n\n### Study Characteristics\n\n${papersForReview.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || "Unknown journal"}. Study type: ${p.studyType || "Not specified"}. Outcome: ${p.outcome || "As reported"}.`).join("\n\n")}\n\n### Synthesis of Findings\n\n${synthesisOutput || "Synthesis output not yet generated. Run synthesis first for comprehensive results."}`,
+          sections: [],
+          wordCount: 0,
           citations: [],
+          argumentAudit: { claims: [], evidenceGaps: [], logicalFlowScore: 0, citationCoverage: 0, recommendations: [] },
         },
         {
           chapterNumber: 4,
           chapterTitle: "Discussion",
           content: `## Discussion\n\n### Summary of Evidence\n\nThe body of evidence comprises ${papersForReview.length} studies examining ${query || "the research topic"}.\n\n### Risk of Bias\n\nRisk of bias assessments were conducted for all included studies.\n\n### Limitations\n\nThis review is limited by the available abstract data and the scope of included databases.\n\n### Implications\n\nThe findings have implications for clinical practice and future research.`,
+          sections: [],
+          wordCount: 0,
           citations: [],
+          argumentAudit: { claims: [], evidenceGaps: [], logicalFlowScore: 0, citationCoverage: 0, recommendations: [] },
         },
         {
           chapterNumber: 5,
           chapterTitle: "Conclusion",
           content: `## Conclusion\n\nBased on the systematic evaluation of ${papersForReview.length} studies, this review provides comprehensive evidence on ${query || "the research topic"}. Further research is needed to address identified gaps.`,
+          sections: [],
+          wordCount: 0,
           citations: [],
+          argumentAudit: { claims: [], evidenceGaps: [], logicalFlowScore: 0, citationCoverage: 0, recommendations: [] },
         },
       ];
 
@@ -3362,7 +3377,7 @@ semanticSearch={semanticSearch}
                         ? `Generate AI Synthesis (${reviewType})`
                         : `Generate Local Synthesis (${reviewType})`}
                     </>
-                  ))}
+                  )}
                 </button>
                 <button
                   onClick={generateScholarCopilotReview}
