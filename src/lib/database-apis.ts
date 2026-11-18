@@ -57,6 +57,12 @@ export interface SearchOptions {
   limitPerDatabase?: number;
   /** Overall wall-clock budget for the whole multi-database search. */
   timeoutMs?: number;
+  /** "boolean" | "semantic" | "natural" — how the query term should be built. */
+  queryMode?: "boolean" | "semantic" | "natural";
+  /** Run the scispacy-style concept extractor (MeSH + synonyms per concept). */
+  keywordExtract?: boolean;
+  /** Broaden the query with MeSH/ATM expansion, stripping boolean operators. */
+  semanticSearch?: boolean;
 }
 
 const STUDY_TYPE_KEYWORDS: Record<string, string[]> = {
@@ -476,6 +482,9 @@ interface FetchContext {
   yearTo?: string;
   studyType?: string;
   limit: number;
+  /** Database being queried, so term building can apply the right field
+   *  syntax (MeSH + [Title/Abstract] for PubMed, plain boolean for the rest). */
+  database?: string;
   /** When true the caller wants a scispacy-style concept-aware term built
    *  from the natural-language query (MeSH headings + synonyms OR-ed per
    *  concept, concepts AND-ed) instead of a raw boolean query. */
@@ -627,26 +636,34 @@ export function buildConceptAwareTerm(query: string, options: { studyType?: stri
 }
 
 /**
- * Resolve the effective PubMed term from a FetchContext.
+ * Resolve the effective query term from a FetchContext.
  *
  * This is the single decision point for how a natural-language question is
- * turned into a PubMed query. The route/server decides the mode and the
- * fetcher just follows it:
- *  - "boolean"  — the caller already wrote a boolean query; pass through.
+ * turned into a database query. The route decides the mode and the fetcher
+ * just follows it:
+ *  - "boolean"  — the caller already wrote a boolean query; pass through with
+ *                 each database's own field syntax (via buildDatabaseSearch).
  *  - "semantic" — MeSH/ATM expansion with boolean operators stripped.
- *  - "natural" / keywordExtract — scispacy-style concept-aware term.
+ *  - "natural" / keyword extract — scispacy-style concept-aware term. PubMed
+ *                 gets MeSH + [Title/Abstract]; every other database gets a
+ *                 plain boolean query that its own buildDatabaseSearch
+ *                 translates into the correct field syntax.
  *
  * Previously each fetcher re-derived the mode from the raw query string, so a
  * route that had already decided "keyword extract" was ignored and PubMed fell
- * back to AND-ing every content word — which silently returned 0 results.
+ * back to AND-ing every content word — which silently returned 0 results. And
+ * PubMed-specific syntax ([Title/Abstract], [MeSH Terms]) was sent to Europe
+ * PMC, Crossref, arXiv etc., which returned 0 results because they don't
+ * understand PubMed field tags.
  */
 export function resolveEffectiveTerm(ctx: FetchContext): string {
   const query = ctx.query || "";
   const isBoolean = /\b(AND|OR|NOT)\b/i.test(query) || /[\(\)]/.test(query);
   const opts = { yearFrom: ctx.yearFrom, yearTo: ctx.yearTo, studyType: ctx.studyType };
+  const database = ctx.database || "PubMed";
 
   if (ctx.queryMode === "boolean" || (ctx.queryMode === undefined && isBoolean)) {
-    return buildDatabaseSearch("PubMed", query, opts).term;
+    return buildDatabaseSearch(database, query, opts).term;
   }
   if (ctx.queryMode === "semantic" || ctx.semanticSearch) {
     const mesh = expandQueryWithMesh(query);
@@ -655,8 +672,12 @@ export function resolveEffectiveTerm(ctx: FetchContext): string {
       .replace(/\s+/g, " ")
       .trim() || query;
   }
-  // natural / keyword extract
-  return buildConceptAwareTerm(query, opts);
+  // natural / keyword extract: PubMed gets the concept-aware MeSH term;
+  // every other database gets a plain query it translates itself.
+  if (database.toLowerCase() === "pubmed") {
+    return buildConceptAwareTerm(query, opts);
+  }
+  return query;
 }
 
 /** Builds the search string for one database from the research question. */
@@ -941,7 +962,7 @@ async function fetchEuropePmcQuery(
   // fields, plus the date range and (for preprints) the source filter.
   // The route/server decides how the natural-language question is turned into
   // a query (semantic / keyword-extract / boolean) and the fetcher follows it.
-  const translated = buildDatabaseSearch(label, resolveEffectiveTerm(ctx), {
+  const translated = buildDatabaseSearch(label, resolveEffectiveTerm({ ...ctx, database: label }), {
     yearFrom: ctx.yearFrom,
     yearTo: ctx.yearTo,
   });
@@ -1007,7 +1028,7 @@ async function fetchEuropePmcQuery(
 }
 
 export async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
-  const papers = await fetchEuropePmcQuery(query, { query, yearFrom, yearTo, limit: limit ?? UNLIMITED });
+  const papers = await fetchEuropePmcQuery(query, { query, yearFrom, yearTo, limit: limit ?? UNLIMITED, database: "Europe PMC" });
   void studyType;
   return capResults(papers, limit ?? UNLIMITED);
 }
@@ -1015,7 +1036,7 @@ export async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: 
 export async function fetchBioRxiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
   const papers = await fetchEuropePmcQuery(
     query,
-    { query, yearFrom, yearTo, limit: limit ?? UNLIMITED },
+    { query, yearFrom, yearTo, limit: limit ?? UNLIMITED, database: "bioRxiv" },
     ["SRC:PPR", "PUBLISHER:bioRxiv"],
     "bioRxiv"
   );
@@ -1026,7 +1047,7 @@ export async function fetchBioRxiv(query: string, yearFrom?: string, yearTo?: st
 export async function fetchMedRxiv(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
   const papers = await fetchEuropePmcQuery(
     query,
-    { query, yearFrom, yearTo, limit: limit ?? UNLIMITED },
+    { query, yearFrom, yearTo, limit: limit ?? UNLIMITED, database: "medRxiv" },
     ["SRC:PPR", "PUBLISHER:medRxiv"],
     "medRxiv"
   );
@@ -1144,26 +1165,31 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
   let pages = 0;
   const cap = isFinite(maxResults) && maxResults > 0 ? maxResults : Infinity;
 
-  // Query Crossref REST API directly. This works both in browser (via CORS)
-  // and on the server, avoiding the need for a local proxy route which may
-  // not be reachable from the API route's network context.
-  const baseUrl = "https://api.crossref.org/works";
+  // In the browser we go through the /api/crossref proxy route (same origin,
+  // relative URL — no port guesswork). On the server we call Crossref directly;
+  // httpRequest/httpJson already carry the retry/backoff layer, and calling
+  // ourselves on localhost:3000 would hit the wrong port because Next.js is
+  // started on an ephemeral port (not PORT env).
+  const isServer = typeof window === "undefined";
 
   while (pages < MAX_PAGINATION_PAGES) {
     if (papers.length >= cap) break;
     pages++;
     const term = buildDatabaseSearch("Crossref", query).term;
-    const qs = new URLSearchParams({
-      query: term,
-      rows: "100",
-      cursor,
-    });
-    if (filters.length) qs.set("filter", filters.join(","));
-
-    const data = await httpJson<any>(`${baseUrl}?${qs.toString()}`, {
-      timeoutMs: 30000,
-      retries: 3,
-    });
+    let data: any;
+    if (isServer) {
+      const qs = new URLSearchParams({ query: term, rows: "100", cursor });
+      if (filters.length) qs.set("filter", filters.join(","));
+      data = await httpJson<any>(`https://api.crossref.org/works?${qs.toString()}`, { timeoutMs: 30000, retries: 3 });
+    } else {
+      data = await httpJson<any>("/api/crossref", {
+        method: "POST",
+        timeoutMs: 30000,
+        retries: 3,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: term, rows: 100, cursor, filter: filters.length ? filters.join(",") : undefined }),
+      });
+    }
     const results = data.message?.items || [];
     if (results.length === 0) break;
 
@@ -1184,7 +1210,7 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
         studyType: classifyStudyType(title, abstract),
         selected: false,
         url: doi ? `https://doi.org/${doi}` : w.URL || w.url || "",
-        sourceBackend: "Crossref REST API (direct)",
+        sourceBackend: isServer ? "Crossref REST API (direct)" : "Crossref REST API (via /api/crossref)",
         sources: ["Crossref"],
       });
     }
@@ -1993,6 +2019,10 @@ export async function searchDatabases(databases: string[], options: SearchOption
           yearTo: options.yearTo,
           studyType: options.studyType,
           limit,
+          database,
+          queryMode: options.queryMode,
+          keywordExtract: options.keywordExtract,
+          semanticSearch: options.semanticSearch,
         }),
         perDatabaseTimeout,
         `${definition.label} search timed out after ${(perDatabaseTimeout / 1000).toFixed(0)}s`

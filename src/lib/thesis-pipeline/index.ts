@@ -10,7 +10,7 @@ import { LEVEL_WORD_RANGES } from "@/lib/thesis-types";
 import { openDraft } from "@/lib/opendraft";
 import { generateThesis } from "@/lib/thesis-generator";
 import { scholarCopilot } from "@/lib/scholar-copilot";
-import { formatVancouverList, formatReferenceListByStyle } from "@/lib/references";
+import { formatReferenceListByStyle } from "@/lib/references";
 import { appraiseEvidenceBase, buildEvidenceAppraisalMarkdown, buildNursestackThesisPlan, applyNursestackPlanToOutline, wordTargetsFromPlan } from "@/lib/thesis-nursestack";
 
 export interface PipelineDeps {
@@ -118,7 +118,6 @@ export async function runThesisPipeline(
   });
   subResults.refine = refineResult.subResult;
   chapters = refineResult.chapters;
-  let fullThesis = refineResult.fullThesis;
 
   // Stage 4: CASP appraisal of the evidence base (NurseStack /review-evidence)
   onProgress?.("appraise", "Appraising the evidence base with CASP...");
@@ -134,8 +133,11 @@ export async function runThesisPipeline(
 
   // CASP evidence-appraisal table removed from the written thesis.
 
-  // Build references (Vancouver) from grounding papers
+  // Build references (Vancouver / selected style) from grounding papers and
+  // append them to the thesis so the reference list appears after the
+  // conclusion chapter in the rendered document (Word / PDF / LaTeX exports).
   const references = papers.slice(0, config.maxReferences || 150);
+  let fullThesis = refineResult.fullThesis;
   const markdownOutline = outlineResult.markdownOutline;
 
   // Format references according to the selected citation style
