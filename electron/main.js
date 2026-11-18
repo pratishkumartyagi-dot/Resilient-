@@ -87,6 +87,9 @@ async function startServer() {
         ELECTRON_RUN_AS_NODE: "1",
         NODE_ENV: "production",
         NEXT_TELEMETRY_DISABLED: "1",
+        // The port is chosen at runtime (getFreePort), so export it: route
+        // handlers that call back into this server read process.env.PORT.
+        PORT: String(port),
       },
       stdio: ["ignore", "pipe", "pipe"],
     }
@@ -132,6 +135,8 @@ async function startServerInProcess() {
   const next = mod.default || mod;
   const port = await getFreePort();
   serverPort = port;
+  // Route handlers that call back into this server read process.env.PORT.
+  process.env.PORT = String(port);
   const nextApp = next({ dev: false, dir: appDir, hostname: "127.0.0.1", port });
   const handle = nextApp.getRequestHandler();
   await nextApp.prepare();
