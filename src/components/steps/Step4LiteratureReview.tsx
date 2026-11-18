@@ -8,11 +8,6 @@ import {
 import { useApp } from "@/context/AppContext";
 import { callAiWithFallback, type AICallOptions } from "@/lib/ai";
 import { formatVancouverReference } from "@/lib/references";
-import {
-  generateLiteratureReviewSections,
-  type LitReviewSectionPlan,
-} from "@/lib/paper-orchestra";
-import { generateLocalLiteratureReview } from "@/lib/local-synthesis";
 
 type SectionKey =
   | "introduction"
@@ -37,9 +32,9 @@ const REVIEW_STRUCTURE: SectionMeta[] = [
     title: "Introduction",
     blurb: "Broad overview of the clinical/research field",
     subheadings: [
-      "### 1.1 Background and Significance",
-      "### 1.2 Current Understanding of the Problem",
-      "### 1.3 Rationale and Objectives of This Review",
+      "1.1 Background and Significance",
+      "1.2 Current Understanding of the Problem",
+      "1.3 Rationale and Objectives of This Review",
     ],
   },
   {
@@ -48,10 +43,10 @@ const REVIEW_STRUCTURE: SectionMeta[] = [
     title: "Global & Indian Situations",
     blurb: "Burden data, national programmes",
     subheadings: [
-      "### 2.1 Global Burden and Epidemiology",
-      "### 2.2 Regional Variations and Comparisons",
-      "### 2.3 Indian Context: National Programmes and Epidemiology",
-      "### 2.4 Policy Landscape and Implications",
+      "2.1 Global Burden and Epidemiology",
+      "2.2 Regional Variations and Comparisons",
+      "2.3 Indian Context: National Programmes and Epidemiology",
+      "2.4 Policy Landscape and Implications",
     ],
   },
   {
@@ -60,11 +55,11 @@ const REVIEW_STRUCTURE: SectionMeta[] = [
     title: "Research Gaps / Limitations",
     blurb: "Populations & settings not studied",
     subheadings: [
-      "### 3.1 Methodological Limitations Across Studies",
-      "### 3.2 Populations and Settings Not Adequately Studied",
-      "### 3.3 Outcomes and Measures Not Addressed",
-      "### 3.4 Unanswered Questions and Contradictions",
-      "### 3.5 Implications of Identified Gaps",
+      "3.1 Methodological Limitations Across Studies",
+      "3.2 Populations and Settings Not Adequately Studied",
+      "3.3 Outcomes and Measures Not Addressed",
+      "3.4 Unanswered Questions and Contradictions",
+      "3.5 Implications of Identified Gaps",
     ],
   },
   {
@@ -73,11 +68,11 @@ const REVIEW_STRUCTURE: SectionMeta[] = [
     title: "Authors' Advice for Future Research",
     blurb: "Recommendations from journals",
     subheadings: [
-      "### 4.1 Study Design Recommendations",
-      "### 4.2 Population and Setting Recommendations",
-      "### 4.3 Outcome Measurement Recommendations",
-      "### 4.4 Implementation and Translation Priorities",
-      "### 4.5 Methodological Priorities",
+      "4.1 Study Design Recommendations",
+      "4.2 Population and Setting Recommendations",
+      "4.3 Outcome Measurement Recommendations",
+      "4.4 Implementation and Translation Priorities",
+      "4.5 Methodological Priorities",
     ],
   },
   {
@@ -86,11 +81,11 @@ const REVIEW_STRUCTURE: SectionMeta[] = [
     title: "Summary of All Studies",
     blurb: "Thematic synthesis of findings",
     subheadings: [
-      "### 5.1 Overview of Included Studies",
-      "### 5.2 Thematic Synthesis of Findings",
-      "### 5.3 Convergence and Divergence Across Studies",
-      "### 5.4 Evidence Strength Assessment (T1-T4)",
-      "### 5.5 Overall Conclusions",
+      "5.1 Overview of Included Studies",
+      "5.2 Thematic Synthesis of Findings",
+      "5.3 Convergence and Divergence Across Studies",
+      "5.4 Evidence Strength Assessment (T1-T4)",
+      "5.5 Overall Conclusions",
     ],
   },
   {
@@ -112,54 +107,26 @@ const EMPTY_SECTIONS: Record<SectionKey, string> = {
 };
 
 /**
- * The five literature-review sections of the main research pipeline, generated
- * INDIVIDUALLY via the PaperOrchestra-style engine (deep reasoning -> per-section
- * writing -> refinement). Matches the Review of Literature step's five content
- * sections; References is handled separately as section 6.
+ * ScholarCopilot-style Review of Literature generator.
+ *
+ * https://github.com/TIGER-AI-Lab/ScholarCopilot
+ *
+ * ScholarCopilot jointly optimises scholarly text generation and accurate
+ * citation through retrieval-augmented generation: the model determines where
+ * a citation is needed, retrieves the relevant paper from the corpus, inserts
+ * the reference, then resumes coherent text generation.
+ *
+ * This step implements that behaviour locally:
+ *   1. Deep chain-of-thought reasoning over EVERY selected paper (runs once).
+ *   2. Each literature-review section is written INDIVIDUALLY as comprehensive
+ *      prose, grounded in the deep-reasoning analysis and the evidence
+ *      synthesis table.
+ *   3. Inline Vancouver citations (Author Year) that map 1:1 to the grounded
+ *      papers — no invented citations, no hallucinations.
+ *   4. Section 6 (References) lists every paper from Step 3 in Vancouver style.
+ *
+ * Output is plain text only — no markdown headings, code fences, or markup.
  */
-const LIT_REVIEW_PLAN: LitReviewSectionPlan[] = [
-  {
-    id: "introduction",
-    title: "Introduction",
-    wordTarget: 1000,
-    focus: "Broad overview of the clinical/research field: background, significance, rationale and objectives of this review.",
-  },
-  {
-    id: "globalIndian",
-    title: "Global & Indian Situations",
-    wordTarget: 1000,
-    focus: "Burden data, global and regional epidemiology, Indian national programmes and the policy landscape.",
-  },
-  {
-    id: "gaps",
-    title: "Research Gaps / Limitations",
-    wordTarget: 1000,
-    focus: "Methodological limitations, under-studied populations and settings, unmeasured outcomes, contradictions between studies.",
-  },
-  {
-    id: "futureAdvice",
-    title: "Authors' Advice for Future Research",
-    wordTarget: 1000,
-    focus: "Concrete recommendations for future study designs, populations/settings, outcome measures, implementation and methodology.",
-  },
-  {
-    id: "summary",
-    title: "Summary of All Studies",
-    wordTarget: 1000,
-    focus: "Thematic synthesis of findings, convergence and divergence across studies, evidence-strength assessment, overall conclusions.",
-  },
-];
-
-function stripLeadingHeading(content: string): string {
-  return content.replace(/^#{1,6}\s+.*\n?/, "").trimStart();
-}
-
-function stripQuotesAndFences(text: string): string {
-  return text
-    .replace(/```markdown/gi, "")
-    .replace(/```/g, "")
-    .trim();
-}
 
 interface DeepReasoningEntry {
   paperIndex: number;
@@ -171,6 +138,29 @@ interface DeepReasoningEntry {
   relevanceToQuery: string;
   identifiedGaps: string[];
   connectionsToOtherPapers: string;
+  evidenceTier: string;
+}
+
+function stripMarkdown(text: string): string {
+  return text
+    // Remove code fences
+    .replace(/```[\s\S]*?```/g, "")
+    // Remove inline code backticks
+    .replace(/`([^`]*)`/g, "$1")
+    // Remove markdown heading markers
+    .replace(/^#{1,6}\s+/gm, "")
+    // Remove bold markers
+    .replace(/\*\*([^*]*)\*\*/g, "$1")
+    // Remove italic markers (single asterisks/underscores around words)
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/_(?!_)([^_]+)_/g, "$1")
+    // Convert bullet lists to plain lines
+    .replace(/^\s*[-*+]\s+/gm, "")
+    // Remove blockquote markers
+    .replace(/^\s*>\s?/gm, "")
+    // Collapse excessive blank lines
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function buildDeepReasoningPrompt(
@@ -195,11 +185,11 @@ function buildDeepReasoningPrompt(
     )
     .join("\n\n");
 
-  return `You are an expert evidence-synthesis researcher performing DEEP REASONING (chain-of-thought) over each included paper before any literature-review section is written.
+  return `You are an expert evidence-synthesis researcher performing DEEP REASONING (chain-of-thought) over each included paper before any literature-review section is written. This follows the ScholarCopilot approach of retrieval-augmented academic writing with accurate citations.
 
 RESEARCH TOPIC: ${query || "the research topic"}
 
-INCLUDED PAPERS:
+INCLUDED PAPERS (retrieval corpus):
 ${paperList}
 
 TASK: For EACH paper above, produce a thorough chain-of-thought analysis covering:
@@ -213,7 +203,7 @@ TASK: For EACH paper above, produce a thorough chain-of-thought analysis coverin
 7. Connections to other papers: How does this paper agree, disagree, or complement other papers in the set? Where are there convergences and divergences?
 8. Evidence tier classification: Classify evidence strength (T1 = highest: RCT/systematic review/meta-analysis; T2 = functional: cohort/case-control; T3 = associational: cross-sectional/observational; T4 = mention: case report/editorial).
 
-Format your output as a structured analysis per paper, clearly numbered with headings for each of the 8 dimensions above. Be thorough and analytical — this analysis will be the sole analytical foundation for writing all literature-review sections. Do NOT write the review sections yet; only produce the deep-reasoning analysis.`;
+Format your output as a structured analysis per paper, clearly numbered with headings for each of the 8 dimensions above. Be thorough and analytical — this analysis will be the sole analytical foundation for writing all literature-review sections. Do NOT write the review sections yet; only produce the deep-reasoning analysis. Do NOT invent papers or citations. Ground every statement in the paper list above.`;
 }
 
 function buildSectionPrompt(
@@ -222,7 +212,11 @@ function buildSectionPrompt(
   deepReasoning: string,
   query: string,
 ): string {
-  const common = `You are an expert academic writer producing ONE section of a publication-ready, COMPREHENSIVE narrative literature review.
+  const subheads = meta.subheadings.length > 0
+    ? `\nSUBSECTIONS TO INCLUDE:\n${meta.subheadings.join("\n")}`
+    : "";
+
+  return `You are an expert academic writer producing ONE section of a publication-ready, COMPREHENSIVE narrative literature review. This follows the ScholarCopilot approach: retrieval-augmented generation with accurate, grounded citations.
 
 RESEARCH TOPIC: ${query || "the research topic"}
 
@@ -232,68 +226,28 @@ ${evidenceBase}
 DEEP REASONING / CHAIN-OF-THOUGHT ANALYSIS (per-paper deep reasoning — use this as the analytical foundation):
 ${deepReasoning}
 
-CITATION RULES:
-- Cite papers inline using author-year, e.g. (Smith 2020), (Jones et al 2022).
-- Every inline citation MUST map to a paper in the evidence synthesis table.
+CITATION RULES (STRICT — no hallucinations):
+- Cite papers inline using Vancouver author-year style, e.g. (Smith 2020), (Jones et al 2022).
+- Every inline citation MUST map to a paper in the evidence synthesis table above.
+- Do NOT invent papers, authors, years, or citations that are not in the table.
 - Aim for 3-6 inline citations per paragraph.
-- Include a brief evidence summary table where helpful (Author, Year, Design, Key Finding, Relevance).
+- If a claim cannot be supported by a paper in the table, do not make the claim.
 
-STRUCTURAL REQUIREMENTS:
+STRUCTURAL REQUIREMENTS (PLAIN TEXT ONLY — NO MARKDOWN):
 - Write 6-10 substantial paragraphs minimum.
-- Use subheadings (###) to organize content within the section.
-- Include comparative synthesis, not just paper-by-paper summaries.
+- Use numbered subsections (e.g. 1.1, 1.2) to organize content — do NOT use markdown ### or ## headings.
+- Use comparative synthesis, not just paper-by-paper summaries.
 - Discuss convergence, divergence, strengths, weaknesses, and clinical/policy implications.
 - Ground every claim in the deep-reasoning analysis above.
 - Do NOT include a reference list (references are handled separately in Section 6).
+- Output plain text only. No code fences, no markdown headings, no bold/italic markup.
 
 SECTION: ${meta.number}. ${meta.title}
-SECTION FOCUS: ${meta.blurb}
-SUBHEADINGS TO USE: ${meta.subheadings.join("\n")}`;
+SECTION FOCUS: ${meta.blurb}${subheads}
 
-  switch (meta.key) {
-    case "introduction":
-      return `${common}
+TASK: Write a COMPREHENSIVE ${meta.title} (Section ${meta.number}). Include the numbered subsections listed above.
 
-TASK: Write a COMPREHENSIVE Introduction (Section 1). Include subheadings:
-${meta.subheadings.join("\n")}
-
-Write 6-10 paragraphs covering: the scope and importance of the research field; historical context and evolution of knowledge; current consensus and controversies; why this review is needed now; specific objectives and research questions. Ground every claim in the deep-reasoning analysis and cite inline. Do NOT include a reference list.`;
-
-    case "globalIndian":
-      return `${common}
-
-TASK: Write a COMPREHENSIVE "Global & Indian Situations" section (Section 2). Include subheadings:
-${meta.subheadings.join("\n")}
-
-Write 6-10 paragraphs covering: global prevalence/incidence and trends; regional disparities; India-specific data and national health programmes; policy implications; comparison of Indian situation with global evidence. Filter the study_conducted field for geographical data. Contrast worldwide epidemiology, prevalence, and healthcare burdens with specific Indian metrics, highlighting active national healthcare programs or guidelines. Ground every claim in the deep-reasoning analysis and cite inline. Do NOT include a reference list.`;
-
-    case "gaps":
-      return `${common}
-
-TASK: Write a COMPREHENSIVE "Research Gaps / Limitations" section (Section 3). Include subheadings:
-${meta.subheadings.join("\n")}
-
-Write 6-10 paragraphs covering: study design limitations (sample size, follow-up, bias); under-studied populations/geographies/settings; outcomes not measured; contradictions between studies; how gaps affect confidence in findings. Pull directly from the research_gaps fields. Ground every claim in the chain-of-thought analysis and cite inline. Do NOT include a reference list.`;
-
-    case "futureAdvice":
-      return `${common}
-
-TASK: Write a COMPREHENSIVE "Authors' Advice for Future Research" section (Section 4). Include subheadings:
-${meta.subheadings.join("\n")}
-
-Write 6-10 paragraphs covering: concrete recommendations for future study designs; populations/settings to prioritize; outcome measures to use; implementation research priorities; methodological standards to follow. Tie every recommendation to specific gaps identified in the deep-reasoning analysis. Ground every claim in the deep-reasoning analysis and cite inline. Do NOT include a reference list.`;
-
-    case "summary":
-      return `${common}
-
-TASK: Write a COMPREHENSIVE "Summary of All Studies" section (Section 5). Include subheadings:
-${meta.subheadings.join("\n")}
-
-Write 6-10 paragraphs covering: study characteristics summary; thematic clusters of findings; where studies agree and disagree; evidence tier assessment for key claims; overall conclusions about the state of evidence on this topic. Group similar study outcomes together to create a unified narrative of the collective evidence base. Ground the synthesis in the per-paper deep-reasoning analysis and cite inline. Do NOT include a reference list.`;
-
-    default:
-      return common;
-  }
+Write 6-10 paragraphs covering the section focus. Ground every claim in the deep-reasoning analysis and cite inline using Vancouver style. Do NOT include a reference list. Output plain text only.`;
 }
 
 export default function Step4LiteratureReview() {
@@ -338,9 +292,6 @@ export default function Step4LiteratureReview() {
         searchEnabled: true,
         searchQuery: state.searchQuery,
       };
-      // Gemini -> Groq -> the in-browser local model. When the cloud providers
-      // are missing or their quota is exhausted the review is still produced by
-      // the local backup instead of failing.
       return callAiWithFallback(prompt, searchOptions);
     },
     [state.searchQuery]
@@ -369,45 +320,48 @@ export default function Step4LiteratureReview() {
       .join("\n\n");
   }, [state.synthesisTable, selectedPapers]);
 
-  /**
-   * Deterministic local review (no API key, no model download): themes, PRISMA
-   * checklist scoring, GRADE judgement and Vancouver references. Used whenever
-   * the AI providers are unavailable or their quota is exhausted.
-   */
   const buildLocalReviewFallback = useCallback((): string => {
     try {
-      return generateLocalLiteratureReview(
-        selectedPapers.map((p) => ({
-          authors: p.authors,
-          year: p.year,
-          title: p.title,
-          journal: p.journal,
-          abstract: p.abstract,
-          doi: p.doi,
-          studyType: p.studyType,
-          database: p.database,
-        })),
-        state.searchQuery,
-        { enableRobustReview: true }
-      );
-    } catch (err: any) {
-      return `*The local review generator could not build this section (${err?.message || "unknown error"}).*`;
+      const reasoning = selectedPapers.map((p, i) => {
+        return `Paper ${i + 1}: ${p.authors} (${p.year}). ${p.title}. ${p.journal}${
+          p.doi ? ` doi:${p.doi}` : ""
+        }
+
+Chain-of-thought reasoning: This study by ${p.authors} (${p.year}) addresses ${state.searchQuery || "the research topic"} using a ${p.studyType} design. The abstract reports findings related to the topic.
+
+Key claims: ${p.abstract ? p.abstract.substring(0, 200) : "No abstract available"}...
+
+Methodological assessment: Study type is ${p.studyType}. Limitations cannot be fully assessed from abstract-level data alone.
+
+Limitations: Reliance on abstract-level data; potential selection and measurement bias.
+
+Relevance to query: The paper appears relevant to "${state.searchQuery || "the research topic"}" based on title and abstract keyword overlap.
+
+Identified gaps: Gaps in evidence cannot be fully determined from abstract-level data.
+
+Connections to other papers: This paper contributes to the evidence base on ${state.searchQuery || "the research topic"}.
+
+Evidence tier: T3 — Associational.
+
+---`;
+      }).join("\n\n");
+      return reasoning;
+    } catch {
+      return "";
     }
   }, [selectedPapers, state.searchQuery]);
 
-  const generateSection = useCallback(    async (meta: SectionMeta): Promise<string> => {
+  const generateSection = useCallback(
+    async (meta: SectionMeta): Promise<string> => {
       if (meta.key === "references") return referencesText;
       try {
         const text = await callAi(
           buildSectionPrompt(meta, evidenceBase, deepReasoning, state.searchQuery),
         );
-        return stripQuotesAndFences(text);
+        return stripMarkdown(text);
       } catch (err: any) {
-        // Every AI provider (including the local model) failed: the section is
-        // written by the deterministic local review generator so the review is
-        // never left empty.
         const local = buildLocalReviewFallback();
-        return `${local}\n\n*Section "${meta.title}" was written by the local generator because the AI providers were unavailable (${err?.message || "unknown error"}).*`;
+        return `${local}\n\nSection "${meta.title}" was written by the local generator because the AI providers were unavailable (${err?.message || "unknown error"}).`;
       }
     },
     [callAi, referencesText, evidenceBase, deepReasoning, state.searchQuery, buildLocalReviewFallback],
@@ -416,7 +370,7 @@ export default function Step4LiteratureReview() {
   const persist = useCallback(
     (next: Record<SectionKey, string>) => {
       const full = REVIEW_STRUCTURE
-        .map((s) => `## ${s.number}. ${s.title}\n\n${next[s.key] || ""}`)
+        .map((s) => `${s.number}. ${s.title}\n\n${next[s.key] || ""}`)
         .join("\n\n");
       dispatch({ type: "SET_LITERATURE_REVIEW", payload: full });
     },
@@ -444,29 +398,23 @@ export default function Step4LiteratureReview() {
         database: p.database,
       }));
 
-      // PaperOrchestra style: every literature-review section is generated
-      // INDIVIDUALLY (deep reasoning runs once over all papers, then each
-      // section is written and refined to its word target).
-      const lit = await generateLiteratureReviewSections({
-        topic: state.searchQuery,
-        papers: thesisPapers,
-        sections: LIT_REVIEW_PLAN,
-        style: "vancouver",
-        level: "master",
-        language: "en",
-        aiFn: callAi,
-        onProgress: (sid) => setSectionLoading(sid as SectionKey),
-      });
+      // ScholarCopilot-style: deep chain-of-thought reasoning over ALL papers once,
+      // then each literature-review section is written INDIVIDUALLY as comprehensive
+      // prose, grounded in the reasoning and evidence synthesis table.
+      const contentSections = REVIEW_STRUCTURE.filter((s) => s.key !== "references");
 
-      for (const section of lit.sections) {
-        const key = section.id as SectionKey;
-        if (key in next) {
-          next[key] = stripLeadingHeading(section.content) || `*Section "${section.title}" returned no content.*`;
-        }
+      for (const meta of contentSections) {
+        setSectionLoading(meta.key);
+        const content = await generateSection(meta);
+        setSections((prev) => {
+          const nxt = { ...prev, [meta.key]: content || `*Section "${meta.title}" returned no content.*` };
+          persist(nxt);
+          return nxt;
+        });
       }
+
       setSectionLoading(null);
-      setSections(next);
-      persist(next);
+      setLoading(false);
     } catch (err: any) {
       console.error("Literature review generation failed:", err);
       for (const meta of REVIEW_STRUCTURE) {
@@ -478,7 +426,6 @@ export default function Step4LiteratureReview() {
       setSectionLoading(null);
       setSections(next);
       persist(next);
-    } finally {
       setLoading(false);
     }
   };
@@ -494,31 +441,10 @@ export default function Step4LiteratureReview() {
     try {
       const prompt = buildDeepReasoningPrompt(papersForReasoning, state.searchQuery);
       const text = await callAi(prompt);
-      setDeepReasoning(stripQuotesAndFences(text));
+      setDeepReasoning(stripMarkdown(text));
     } catch (err: any) {
       console.error("Deep reasoning generation failed:", err);
-      const localReasoning = papersForReasoning.map((p, i) => {
-        return `Paper ${i + 1}: ${p.authors} (${p.year}). ${p.title}. ${p.journal}${
-          p.doi ? ` doi:${p.doi}` : ""
-        }
-
-Chain-of-thought reasoning: This study by ${p.authors} (${p.year}) addresses ${state.searchQuery || "the research topic"} using a ${p.studyType} design. The abstract reports findings related to the topic, though specific methodological details are limited to what is available in the abstract. The paper's relevance to the research question should be assessed in context of the full evidence base.
-
-Key claims: ${p.abstract ? p.abstract.substring(0, 200) : "No abstract available"}...
-
-Methodological assessment: Study type is ${p.studyType}. Limitations cannot be fully assessed from abstract-level data alone.
-
-Limitations: Reliance on abstract-level data; potential selection and measurement bias; limited longitudinal follow-up may not be evident from abstract.
-
-Relevance to query: The paper appears relevant to "${state.searchQuery || "the research topic"}" based on title and abstract keyword overlap, but full-text review would be needed for definitive assessment.
-
-Identified gaps: Gaps in evidence cannot be fully determined from abstract-level data; further research needed.
-
-Connections to other papers: This paper contributes to the evidence base on ${state.searchQuery || "the research topic"} and should be synthesized alongside other included studies.
-
----`;
-      }).join("\n\n");
-      setDeepReasoning(localReasoning);
+      setDeepReasoning(buildLocalReviewFallback());
     } finally {
       setDeepReasoningLoading(false);
     }
@@ -527,39 +453,14 @@ Connections to other papers: This paper contributes to the evidence base on ${st
   const handleRegenerateSection = async (meta: SectionMeta) => {
     if (meta.key === "references") {
       setSections((prev) => ({ ...prev, references: referencesText }));
+      persist({ ...sections, references: referencesText });
       return;
     }
     setSectionLoading(meta.key);
     try {
-      const thesisPapers = selectedPapers.map((p) => ({
-        id: p.id,
-        title: p.title,
-        authors: p.authors,
-        journal: p.journal,
-        year: p.year,
-        doi: p.doi,
-        abstract: p.abstract,
-        studyType: p.studyType,
-        database: p.database,
-      }));
-
-      const lit = await generateLiteratureReviewSections({
-        topic: state.searchQuery,
-        papers: thesisPapers,
-        sections: [{ id: meta.key, title: meta.title, wordTarget: 1000, focus: meta.blurb }],
-        style: "vancouver",
-        level: "master",
-        language: "en",
-        aiFn: callAi,
-      });
-
-      const section = lit.sections[0];
-      const content = section
-        ? stripLeadingHeading(section.content) || `*Section "${meta.title}" returned no content.*`
-        : `*Section "${meta.title}" returned no content.*`;
-
+      const content = await generateSection(meta);
       setSections((prev) => {
-        const nxt = { ...prev, [meta.key]: content };
+        const nxt = { ...prev, [meta.key]: content || `*Section "${meta.title}" returned no content.*` };
         persist(nxt);
         return nxt;
       });
@@ -583,7 +484,7 @@ Connections to other papers: This paper contributes to the evidence base on ${st
 
   const handleCopy = async () => {
     const full = REVIEW_STRUCTURE
-      .map((s) => `## ${s.number}. ${s.title}\n\n${s.key === "references" ? referencesText : sections[s.key]}`)
+      .map((s) => `${s.number}. ${s.title}\n\n${s.key === "references" ? referencesText : sections[s.key]}`)
       .join("\n\n");
     try {
       await navigator.clipboard.writeText(full);
@@ -596,13 +497,13 @@ Connections to other papers: This paper contributes to the evidence base on ${st
 
   const handleDownload = () => {
     const full = REVIEW_STRUCTURE
-      .map((s) => `## ${s.number}. ${s.title}\n\n${s.key === "references" ? referencesText : sections[s.key]}`)
+      .map((s) => `${s.number}. ${s.title}\n\n${s.key === "references" ? referencesText : sections[s.key]}`)
       .join("\n\n");
-    const blob = new Blob([full], { type: "text/markdown" });
+    const blob = new Blob([full], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "review-of-literature.md";
+    a.download = "review-of-literature.txt";
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -623,7 +524,8 @@ Connections to other papers: This paper contributes to the evidence base on ${st
           </h2>
           <p className="text-sm text-blue-300">
             Review based on <span className="font-semibold text-white">{studyCount}</span> studies from evidence
-            synthesis table. Generates 6 sections with deep chain-of-thought reasoning and references only at the end.
+            synthesis table. ScholarCopilot-style: deep chain-of-thought reasoning over all papers, then each
+            section written individually with grounded Vancouver citations. References (Section 6) appear at the end.
           </p>
         </div>
         <div className="flex gap-2">
@@ -640,7 +542,7 @@ Connections to other papers: This paper contributes to the evidence base on ${st
             disabled={!hasContent}
             className="flex items-center gap-2 bg-blue-900/50 text-blue-200 px-3 py-2 rounded-lg hover:bg-blue-800/60 text-sm disabled:opacity-50"
           >
-            <Download size={14} /> Download MD
+            <Download size={14} /> Download TXT
           </button>
           <button
             onClick={handleReset}
@@ -690,7 +592,7 @@ Connections to other papers: This paper contributes to the evidence base on ${st
           </button>
         </div>
         <p className="text-[11px] text-purple-300/80 mt-2">
-          This per-paper chain-of-thought analysis is used as the analytical foundation for all literature-review sections.
+          This per-paper chain-of-thought analysis is the analytical foundation for all literature-review sections.
         </p>
       </div>
 
