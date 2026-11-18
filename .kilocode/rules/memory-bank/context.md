@@ -20,6 +20,11 @@ Every fetcher in `src/lib/database-apis.ts` declared `const maxResults = limit ?
 - Uncapped evidence-synthesis search (`timeoutMs: 120000`, 9 databases): **6/9 succeeded, 28 322 records** (PubMed 9 999, Europe PMC 5 000, bioRxiv 5 000, medRxiv 5 000, arXiv 2 073, Zenodo 1 250); remaining failures are hard upstream errors (Crossref HTTP 429, ClinicalTrials.gov/OpenAIRE slow upstreams) — no longer false timeouts.
 - `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅.
 
+## v0.8.6 release link in README (2026-11-18)
+
+- `package.json` version is **0.8.6**; local HEAD (`c95a75d`) is at 0.7.6 and the latest remote tag is `v0.8.5`, so the release page for the current version is `https://github.com/pratishkumartyagi-dot/Resilient-/releases/tag/v0.8.6`.
+- `README.md` line 88: the Windows-install step now ends with a link to the **[v0.8.6 release page](https://github.com/pratishkumartyagi-dot/Resilient-/releases/tag/v0.8.6)** where pre-built installers (Windows `.exe`/portable, macOS `.dmg`, Linux `.AppImage`) are published.
+
 ## v0.6.7 published to GitHub (2026-11-05)
 
 - Bumped `package.json` version 0.6.4 → **0.6.7**.

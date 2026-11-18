@@ -85,7 +85,7 @@ bun run dist:linux   # Linux   → dist-electron/….AppImage
 
 1. On GitHub open the repo → **Actions** tab → **Build Desktop App** → **Run workflow**.
 2. When it finishes, open the completed run and download the **windows-installer** artifact.
-3. Unzip it and double-click **`Resilient Research App Setup 0.6.7.exe`**, click through the installer, then launch **Resilient Research App** from the Start menu.
+3. Unzip it and double-click **`Resilient Research App Setup 0.8.6.exe`**, click through the installer, then launch **Resilient Research App** from the Start menu. Pre-built installers for the current release are also on the [v0.8.6 release page](https://github.com/pratishkumartyagi-dot/Resilient-/releases/tag/v0.8.6).
    - The installer is unsigned, so Windows SmartScreen may warn: click **More info → Run anyway**.
    - The same artifact also contains a **portable** `.exe` you can run directly without installing.
 
