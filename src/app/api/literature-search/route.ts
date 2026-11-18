@@ -7,7 +7,6 @@ import {
   getUnavailableReason,
   extractSearchConcepts,
   buildConceptAwareTerm,
-  buildDatabaseSearch,
   type Paper,
 } from "@/lib/database-apis";
 import { expandQueryWithMesh } from "@/lib/mesh-expansion";
@@ -93,37 +92,36 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing query parameter" }, { status: 400, headers: corsHeaders() });
     }
 
-    // Semantic mode broadens the query with MeSH/ATM concept expansion and drops
-    // boolean operators, so retrieval matches on meaning instead of exact
-    // keyword co-occurrence.
+    // Semantic mode broadens the query with MeSH/ATM concept expansion and
+    // drops boolean operators, so retrieval matches on meaning instead of
+    // exact keyword co-occurrence.
     const meshResult = expandQueryWithMesh(query);
-    const meshExpandedQuery = meshResult.expandedQuery || query;
 
     // Keyword-extract mode (scispacy-style): recognise the concepts in the
-    // natural-language question and build a librarian-style PubMed/Europe PMC
-    // query from them (MeSH headings + synonyms OR-ed per concept, concepts
-    // AND-ed). This is what turns "effect of diabetes on kidney function in
-    // patients" into a query that actually returns records.
+    // natural-language question. The expanded query is reported in the
+    // response metadata; the actual per-database translation is handled by
+    // each database fetcher via resolveEffectiveTerm, so PubMed-specific
+    // syntax ([Title/Abstract], [MeSH Terms]) is never leaked to Europe PMC,
+    // Crossref, arXiv, etc.
     const keywordConcepts = keywordExtract ? extractSearchConcepts(query) : [];
     const keywordExpandedQuery = keywordConcepts.length > 0
       ? buildConceptAwareTerm(query, { yearFrom, yearTo, studyType })
-      : buildDatabaseSearch("PubMed", query, { yearFrom, yearTo, studyType }).term;
+      : undefined;
 
-    const effectiveQuery = semanticSearch
-      ? meshExpandedQuery.replace(/\b(AND|OR|NOT)\b/gi, " ").replace(/\s+/g, " ").trim() || meshExpandedQuery
-      : keywordExtract
-        ? keywordExpandedQuery
-        : query;
+    const queryMode = semanticSearch ? "semantic" : keywordExtract ? "natural" : undefined;
 
     const dbsToSearch = databases.length > 0 ? databases : DEFAULT_DATABASES;
 
     const outcome = await searchDatabases(dbsToSearch, {
-      query: effectiveQuery,
+      query,
       yearFrom,
       yearTo,
       studyType,
       limitPerDatabase: maxResults,
       timeoutMs,
+      queryMode,
+      keywordExtract,
+      semanticSearch,
     });
 
     const papers = outcome.papers;
@@ -169,7 +167,7 @@ export async function POST(request: Request) {
       totalBeforeDedup: outcome.totalBeforeDedup,
       elapsedMs: Date.now() - started,
       meshExpansion: {
-        expandedQuery: meshExpandedQuery,
+        expandedQuery: meshResult.expandedQuery || query,
         meshTerms: meshResult.meshTerms,
         atmMappings: meshResult.atmMappings,
         wildcardRoots: meshResult.wildcardRoots,

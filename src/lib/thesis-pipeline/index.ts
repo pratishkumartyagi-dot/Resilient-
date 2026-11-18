@@ -118,7 +118,6 @@ export async function runThesisPipeline(
   });
   subResults.refine = refineResult.subResult;
   chapters = refineResult.chapters;
-  let fullThesis = refineResult.fullThesis;
 
   // Stage 4: CASP appraisal of the evidence base (NurseStack /review-evidence)
   onProgress?.("appraise", "Appraising the evidence base with CASP...");
@@ -134,8 +133,20 @@ export async function runThesisPipeline(
 
   // CASP evidence-appraisal table removed from the written thesis.
 
-  // Build references (Vancouver) from grounding papers
+  // Build references (Vancouver) from grounding papers and append them to the
+  // thesis so the reference list appears after the conclusion chapter in the
+  // rendered document (Word / PDF / LaTeX exports).
   const references = papers.slice(0, config.maxReferences || 150);
+  const referencesMarkdown = references.length > 0
+    ? `\n\n---\n\n# References\n\n${formatVancouverList(references.map((p) => ({
+      authors: p.authors,
+      title: p.title,
+      journal: p.journal || "Unknown journal",
+      year: p.year,
+      doi: p.doi,
+    })))}`
+    : "";
+  let fullThesis = refineResult.fullThesis + referencesMarkdown;
   const markdownOutline = outlineResult.markdownOutline;
 
   const stats: any = {

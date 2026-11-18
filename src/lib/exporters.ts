@@ -7,6 +7,55 @@ function extractText(tokens: any[]): string {
   return tokens.map((t) => t.text || "").join("");
 }
 
+/**
+ * Render printable HTML in a hidden, same-origin iframe and trigger the
+ * browser's native print dialog (which offers "Save as PDF"). Using an
+ * iframe instead of `window.open("", "_blank")` avoids popup blockers and,
+ * in the Electron build, avoids the window-open handler that denies every
+ * new window.
+ */
+function printHtml(html: string): void {
+  const existing = document.getElementById("__resilient_print_iframe");
+  if (existing) existing.remove();
+
+  const iframe = document.createElement("iframe");
+  iframe.id = "__resilient_print_iframe";
+  iframe.setAttribute(
+    "style",
+    "position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;border:0;overflow:hidden;"
+  );
+  document.body.appendChild(iframe);
+
+  const doc = iframe.contentDocument || iframe.contentWindow?.document;
+  if (!doc) {
+    // Last resort: open a same-origin tab (may still be blocked by the browser).
+    const w = window.open("about:blank", "_blank");
+    if (w) {
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      w.print();
+      setTimeout(() => w.close(), 2000);
+    } else {
+      alert("Unable to open a print window. Please enable popups or use the Word export instead.");
+    }
+    return;
+  }
+
+  doc.open();
+  doc.write(html);
+  doc.close();
+
+  const win = iframe.contentWindow;
+  if (win) {
+    win.focus();
+    win.print();
+  }
+  setTimeout(() => {
+    try { document.body.removeChild(iframe); } catch { /* ignore */ }
+  }, 1500);
+}
+
 function textRunsFromTokens(tokens: any[]): TextRun[] {
   const runs: TextRun[] = [];
   for (const t of tokens) {
@@ -296,11 +345,6 @@ export async function downloadExcel(synthesis: any[], fileName = "synthesis-tabl
 }
 
 export function downloadPDF(synthesis: any[], fileName = "synthesis-table.pdf") {
-  const printWindow = window.open("", "_blank");
-  if (!printWindow) {
-    alert("Please allow popups to download PDF.");
-    return;
-  }
   const headers = ["Reference (Vancouver)", "Key Findings", "Synopsis / Takeaway", "Study Conducted", "Research Gaps"];
   const rows = synthesis.map((row) => [
     row.reference.replace(/<[^>]*>/g, ""),
@@ -341,18 +385,10 @@ export function downloadPDF(synthesis: any[], fileName = "synthesis-table.pdf") 
               .join("")}
           </tbody>
         </table>
-        <script>
-          window.onload = function() {
-            window.print();
-            setTimeout(() => window.close(), 100);
-          };
-        <\/script>
       </body>
     </html>
   `;
-  printWindow.document.open();
-  printWindow.document.write(html);
-  printWindow.document.close();
+  printHtml(html);
 }
 
 export async function downloadWord(synthesis: any[], fileName = "synthesis-table.docx") {
@@ -474,11 +510,6 @@ export function parseCSVText(text: string): string[][] {
 }
 
 export function downloadLiteratureReviewPDF(sections: Record<string, string>, title = "Literature Review") {
-  const printWindow = window.open("", "_blank");
-  if (!printWindow) {
-    alert("Please allow popups to download PDF.");
-    return;
-  }
   const sectionOrder = [
     "introduction",
     "problemGlobal",
@@ -533,18 +564,10 @@ export function downloadLiteratureReviewPDF(sections: Record<string, string>, ti
       <body>
         <h1>${title}</h1>
         ${body}
-        <script>
-          window.onload = function() {
-            window.print();
-            setTimeout(() => window.close(), 100);
-          };
-        <\/script>
       </body>
     </html>
   `;
-  printWindow.document.open();
-  printWindow.document.write(html);
-  printWindow.document.close();
+  printHtml(html);
 }
 
 export async function downloadLiteratureReviewWord(sections: Record<string, string>, fileName = "literature-review.docx") {
@@ -721,12 +744,6 @@ export async function downloadMarkdownAsLaTeX(markdown: string, filename = "docu
 export function downloadMarkdownAsPDF(markdown: string, filename = "document.pdf") {
   const htmlContent = marked.parse(markdown) as string;
 
-  const printWindow = window.open("", "_blank");
-  if (!printWindow) {
-    alert("Please allow popups to download PDF.");
-    return;
-  }
-
   const htmlDoc = `
     <html>
       <head>
@@ -755,19 +772,11 @@ export function downloadMarkdownAsPDF(markdown: string, filename = "document.pdf
       </head>
       <body>
         ${htmlContent}
-        <script>
-          window.onload = function() {
-            window.print();
-            setTimeout(() => window.close(), 100);
-          };
-        <\/script>
       </body>
     </html>
   `;
 
-  printWindow.document.open();
-  printWindow.document.write(htmlDoc);
-  printWindow.document.close();
+  printHtml(htmlDoc);
 }
 
 export async function downloadPPTX(markdown: string, filename = "presentation.pptx") {
@@ -927,14 +936,4 @@ export async function downloadPPTX(markdown: string, filename = "presentation.pp
 
   flushBullets();
   pptx.writeFile();
-}
-
-
-function escapeLatex(text: string): string {
-  return text
-    .replace(/\\/g, "\\textbackslash{}")
-    .replace(/[&%$#_{}~^]/g, (m) => "\\" + m)
-    .replace(/~/g, "\\textasciitilde{}")
-    .replace(/\^/g, "\\textasciicircum{}")
-    .replace(/\n/g, " ");
 }
