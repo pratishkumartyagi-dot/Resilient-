@@ -958,11 +958,11 @@ async function fetchEuropePmcQuery(
   extraTerms: string[] = [],
   label = "Europe PMC"
 ): Promise<Paper[]> {
-  // Europe PMC scheme: quoted terms ORed/ANDed with the TITLE and ABST
-  // fields, plus the date range and (for preprints) the source filter.
-  // The route/server decides how the natural-language question is turned into
-  // a query (semantic / keyword-extract / boolean) and the fetcher follows it.
-  const translated = buildDatabaseSearch(label, resolveEffectiveTerm({ ...ctx, database: label }), {
+  // Europe PMC scheme: simpler query for better performance.
+  // Use the effective term from resolveEffectiveTerm, then build a simpler
+  // Europe PMC query without overly complex MeSH expansions that cause timeouts.
+  const effectiveTerm = resolveEffectiveTerm({ ...ctx, database: label });
+  const translated = buildDatabaseSearch(label, effectiveTerm, {
     yearFrom: ctx.yearFrom,
     yearTo: ctx.yearTo,
   });
@@ -975,6 +975,9 @@ async function fetchEuropePmcQuery(
   let pages = 0;
   const cap = isFinite(ctx.limit) && ctx.limit > 0 ? ctx.limit : Infinity;
 
+  // Increase timeout for Europe PMC as complex queries can be slow
+  const EUROPE_PMC_TIMEOUT_MS = 60000;
+
   while (pages < MAX_PAGINATION_PAGES) {
     if (papers.length >= cap) break;
     pages++;
@@ -986,7 +989,7 @@ async function fetchEuropePmcQuery(
       cursorMark,
     });
     const data = await httpJson<any>(`https://www.ebi.ac.uk/europepmc/webservices/rest/search?${params.toString()}`, {
-      timeoutMs: 30000,
+      timeoutMs: EUROPE_PMC_TIMEOUT_MS,
       retries: 3,
     });
     const results = data.resultList?.result || [];
@@ -1021,7 +1024,7 @@ async function fetchEuropePmcQuery(
     const next = data.nextCursorMark;
     if (!next || next === cursorMark) break;
     cursorMark = next;
-    await sleep(150);
+    await sleep(200); // Slightly longer delay to be polite to the API
   }
 
   return papers;
@@ -1180,12 +1183,12 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
     if (isServer) {
       const qs = new URLSearchParams({ query: term, rows: "100", cursor });
       if (filters.length) qs.set("filter", filters.join(","));
-      data = await httpJson<any>(`https://api.crossref.org/works?${qs.toString()}`, { timeoutMs: 30000, retries: 3 });
+      data = await httpJson<any>(`https://api.crossref.org/works?${qs.toString()}`, { timeoutMs: 30000, retries: 5 });
     } else {
       data = await httpJson<any>("/api/crossref", {
         method: "POST",
         timeoutMs: 30000,
-        retries: 3,
+        retries: 5,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: term, rows: 100, cursor, filter: filters.length ? filters.join(",") : undefined }),
       });
@@ -1218,7 +1221,8 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
     const next = data.message?.["next-cursor"];
     if (!next || next === cursor || results.length < 100) break;
     cursor = next;
-    await sleep(150);
+    // Crossref polite pool recommends max 50 req/sec; use longer delay to avoid 429
+    await sleep(500);
   }
 
   void studyType;
