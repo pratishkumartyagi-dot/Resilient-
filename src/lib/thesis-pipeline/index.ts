@@ -10,7 +10,7 @@ import { LEVEL_WORD_RANGES } from "@/lib/thesis-types";
 import { openDraft } from "@/lib/opendraft";
 import { generateThesis } from "@/lib/thesis-generator";
 import { scholarCopilot } from "@/lib/scholar-copilot";
-import { formatVancouverList } from "@/lib/references";
+import { formatVancouverList, formatReferenceListByStyle } from "@/lib/references";
 import { appraiseEvidenceBase, buildEvidenceAppraisalMarkdown, buildNursestackThesisPlan, applyNursestackPlanToOutline, wordTargetsFromPlan } from "@/lib/thesis-nursestack";
 
 export interface PipelineDeps {
@@ -138,8 +138,24 @@ export async function runThesisPipeline(
   const references = papers.slice(0, config.maxReferences || 150);
   const markdownOutline = outlineResult.markdownOutline;
 
+  // Format references according to the selected citation style
+  const style = config.style || "vancouver";
+  let referencesMarkdown = "";
+  if (references.length > 0) {
+    referencesMarkdown = "\n\n---\n\n# References\n\n" + formatReferenceListByStyle(style as any, references.map(r => ({
+      authors: r.authors,
+      title: r.title,
+      journal: r.journal,
+      year: r.year,
+      doi: r.doi,
+    })));
+  }
+
+  // Append references to the full thesis after the conclusion
+  const fullThesisWithReferences = fullThesis + referencesMarkdown;
+
   const stats: any = {
-    totalWords: fullThesis.split(/\s+/).filter(Boolean).length,
+    totalWords: fullThesisWithReferences.split(/\s+/).filter(Boolean).length,
     totalReferences: references.length,
     totalChapters: chapters.length,
     generationTimeMs: Date.now() - start,
@@ -155,7 +171,7 @@ export async function runThesisPipeline(
 
   return {
     outline,
-    fullThesis,
+    fullThesis: fullThesisWithReferences,
     markdownOutline,
     chapters,
     references,

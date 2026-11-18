@@ -3,7 +3,7 @@
 import React, { useState, useCallback, useMemo } from "react";
 import {
   Sparkles, BookOpen, RotateCcw, Loader2, Copy, Check,
-  Brain, ArrowRight, FileText, Download, Trash2,
+  Brain, ArrowRight, FileText, Download, Trash2, ChevronRight,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callAiWithFallback, type AICallOptions } from "@/lib/ai";
@@ -546,6 +546,14 @@ Connections to other papers: This paper contributes to the evidence base on ${st
           >
             <RotateCcw size={14} />
             Reset
+          </button>
+          <button
+            onClick={() => dispatch({ type: "SET_STEP", payload: 5 })}
+            disabled={!hasContent || loading}
+            className="flex items-center gap-2 bg-yellow-500 text-[#0a1a3a] font-bold px-4 py-2 rounded-lg hover:bg-yellow-600 text-sm disabled:opacity-50"
+          >
+            Proceed to Themes
+            <ChevronRight size={14} />
           </button>
         </div>
       </div>

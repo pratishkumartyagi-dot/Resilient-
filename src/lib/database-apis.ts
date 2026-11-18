@@ -1144,25 +1144,25 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
   let pages = 0;
   const cap = isFinite(maxResults) && maxResults > 0 ? maxResults : Infinity;
 
-  // Crossref is queried through the local /api/crossref route rather than the
-  // upstream directly: the route runs the request through the retry/backoff
-  // layer on the server, so a 429 from the shared-IP daily budget is retried
-  // with exponential backoff and the real upstream status is reported instead
-  // of a generic network error.
-  const base = typeof window !== "undefined"
-    ? ""
-    : (process.env.PORT ? `http://127.0.0.1:${process.env.PORT}` : "http://127.0.0.1:3000");
+  // Query Crossref REST API directly. This works both in browser (via CORS)
+  // and on the server, avoiding the need for a local proxy route which may
+  // not be reachable from the API route's network context.
+  const baseUrl = "https://api.crossref.org/works";
 
   while (pages < MAX_PAGINATION_PAGES) {
     if (papers.length >= cap) break;
     pages++;
     const term = buildDatabaseSearch("Crossref", query).term;
-    const data = await httpJson<any>(`${base}/api/crossref`, {
-      method: "POST",
+    const qs = new URLSearchParams({
+      query: term,
+      rows: "100",
+      cursor,
+    });
+    if (filters.length) qs.set("filter", filters.join(","));
+
+    const data = await httpJson<any>(`${baseUrl}?${qs.toString()}`, {
       timeoutMs: 30000,
       retries: 3,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: term, rows: 100, cursor, filter: filters.length ? filters.join(",") : undefined }),
     });
     const results = data.message?.items || [];
     if (results.length === 0) break;
@@ -1184,7 +1184,7 @@ export async function fetchCrossref(query: string, yearFrom?: string, yearTo?: s
         studyType: classifyStudyType(title, abstract),
         selected: false,
         url: doi ? `https://doi.org/${doi}` : w.URL || w.url || "",
-        sourceBackend: "Crossref REST API (via /api/crossref)",
+        sourceBackend: "Crossref REST API (direct)",
         sources: ["Crossref"],
       });
     }
