@@ -7,8 +7,9 @@ import {
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { runThesisPipeline, buildDefaultConfig } from "@/lib/thesis-pipeline";
-import { buildThesisAiFn, searchThesisPapers, toThesisPaper } from "@/lib/thesis-ai";
+import { buildThesisAiFn, searchThesisPapers, toThesisPaper, vancouverRef } from "@/lib/thesis-ai";
 import type { ThesisGeneratorConfig } from "@/lib/thesis-types";
+import { formatVancouverList } from "@/lib/references";
 import {
   downloadMarkdownAsWord,
   downloadMarkdownAsPDF,
@@ -964,7 +965,29 @@ export default function ThesisGenerator() {
             </div>
           )}
 
-          {/* References are managed on a separate screen (Critical Appraisal / References tab). */}
+          {/* References — generated from grounding papers and appended to thesis exports */}
+          {refsList.length > 0 && (
+            <div className="bg-[#0a1530] border border-blue-800 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                  <FileText size={14} className="text-yellow-400" />
+                  References ({refsList.length})
+                </h4>
+                <span className="text-[10px] text-blue-400">{config.style.toUpperCase()} style</span>
+              </div>
+              <div className="bg-blue-950/40 border border-blue-900 rounded p-3 max-h-[300px] overflow-y-auto text-xs text-blue-100 font-mono leading-relaxed whitespace-pre-wrap">
+                {formatVancouverList(
+                  refsList.map((p: { authors: string; title: string; journal?: string; year?: number; doi?: string }) => ({
+                    authors: p.authors,
+                    title: p.title,
+                    journal: p.journal || "Unknown journal",
+                    year: p.year,
+                    doi: p.doi,
+                  }))
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Chapter files & argument audit */}
           {Array.isArray(result.chapters) && result.chapters.length > 0 && (

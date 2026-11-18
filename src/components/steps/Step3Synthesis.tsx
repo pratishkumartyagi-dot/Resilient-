@@ -31,11 +31,9 @@ export default function Step3Synthesis() {
 
   const getFilteredPapers = () => {
     const selected = state.papers.filter((p) => p.selected);
-    const minAbstractLength = 50;
-    return selected.filter((p) => {
-      if (!p.abstract || p.abstract.length < minAbstractLength) return false;
-      return true;
-    });
+    // Return ALL selected papers from Step 2, not just those with abstracts
+    // Papers without abstracts will get placeholder synthesis rows
+    return selected;
   };
 
   const handleGenerateSynthesis = async () => {
@@ -45,47 +43,70 @@ export default function Step3Synthesis() {
       return;
     }
 
-    const filteredPapers = getFilteredPapers();
+    const filteredPapers = getFilteredPapers(); // Now returns ALL selected papers
 
     if (filteredPapers.length === 0) {
-      setError("No papers with sufficient abstract content found. Please return to Step 2 and select papers with abstracts.");
+      setError("No papers selected. Please return to Step 2 and select papers.");
       return;
     }
 
-    if (filteredPapers.length < selected.length) {
-      const excludedCount = selected.length - filteredPapers.length;
-      alert(`Note: ${excludedCount} paper(s) were excluded due to missing/short abstracts. Synthesis will proceed with ${filteredPapers.length} paper(s).`);
+    // Check how many have sufficient abstracts for full synthesis
+    const papersWithAbstracts = filteredPapers.filter((p) => p.abstract && p.abstract.length >= 50);
+    const papersWithoutAbstracts = filteredPapers.filter((p) => !p.abstract || p.abstract.length < 50);
+    
+    if (papersWithoutAbstracts.length > 0) {
+      alert(`Note: ${papersWithoutAbstracts.length} paper(s) have missing/short abstracts. Placeholder rows will be created for them. Full synthesis will be generated for ${papersWithAbstracts.length} paper(s) with sufficient abstracts.`);
     }
 
     dispatch({ type: "SET_LOADING", payload: true });
     setError("");
 
     try {
+      // Split papers into those with and without sufficient abstracts
+      const papersWithAbstracts = filteredPapers.filter((p) => p.abstract && p.abstract.length >= 50);
+      const papersWithoutAbstracts = filteredPapers.filter((p) => !p.abstract || p.abstract.length < 50);
+
       let synthesis: SynthesisRow[] = [];
 
-      if (state.geminiApiKey || state.groqApiKey) {
-          const prompt = buildStep3Prompt(filteredPapers, uploadedText);
-        const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: state.searchQuery };
-        try {
-          let responseText = "";
-          if (state.geminiApiKey) {
-            responseText = await callGemini(state.geminiApiKey, prompt, searchOptions);
-          } else {
-            responseText = await callGroq(state.groqApiKey, prompt, searchOptions);
-          }
-          const cleaned = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
-          synthesis = JSON.parse(cleaned);
-        } catch {
+      // Generate synthesis for papers with abstracts
+      if (papersWithAbstracts.length > 0) {
+        if (state.geminiApiKey || state.groqApiKey) {
+          const prompt = buildStep3Prompt(papersWithAbstracts, uploadedText);
+          const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: state.searchQuery };
           try {
-            const deepSeekText = await callDeepSeek(prompt, searchOptions);
-            const cleaned = deepSeekText.replace(/```json/g, "").replace(/```/g, "").trim();
+            let responseText = "";
+            if (state.geminiApiKey) {
+              responseText = await callGemini(state.geminiApiKey, prompt, searchOptions);
+            } else {
+              responseText = await callGroq(state.groqApiKey, prompt, searchOptions);
+            }
+            const cleaned = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
             synthesis = JSON.parse(cleaned);
           } catch {
-            synthesis = await generateLocalSynthesis(filteredPapers);
+            try {
+              const deepSeekText = await callDeepSeek(prompt, searchOptions);
+              const cleaned = deepSeekText.replace(/```json/g, "").replace(/```/g, "").trim();
+              synthesis = JSON.parse(cleaned);
+            } catch {
+              synthesis = await generateLocalSynthesis(papersWithAbstracts);
+            }
           }
+        } else {
+          synthesis = await generateLocalSynthesis(papersWithAbstracts);
         }
-      } else {
-        synthesis = await generateLocalSynthesis(filteredPapers);
+      }
+
+      // Create placeholder rows for papers without abstracts
+      if (papersWithoutAbstracts.length > 0) {
+        const placeholderRows: SynthesisRow[] = papersWithoutAbstracts.map((paper, idx) => ({
+          id: `syn-placeholder-${Date.now()}-${idx}`,
+          reference: `${paper.authors}. "${paper.title}". ${paper.journal || "Unknown journal"}. ${paper.year}. [Abstract not available]${paper.doi ? ` doi:${paper.doi}` : ""}.`,
+          keyFindings: "Abstract not available — full text required for key findings extraction.",
+          synopsis: `${paper.studyType} examining "${paper.title}". Published in ${paper.journal || "Unknown journal"} (${paper.year}). Abstract unavailable; full text screening required.`,
+          studyDetails: `Population: Not specified (abstract unavailable) | Setting: ${paper.journal || "Unknown"} publication context | Time: Published ${paper.year} | Intervention: Not specified (abstract unavailable)`,
+          researchGaps: `Limitations: Abstract unavailable — cannot assess study limitations from metadata alone. | Contradictions: Not assessable without abstract. | Exclusion criteria: Not specified in available metadata. | Gaps: Full text required to identify research gaps.\n\nFuture Work / Recommendations: Obtain full text to enable complete evidence synthesis and critical appraisal.`,
+        }));
+        synthesis = [...synthesis, ...placeholderRows];
       }
 
       dispatch({ type: "SET_SYNTHESIS", payload: synthesis });
@@ -95,6 +116,7 @@ export default function Step3Synthesis() {
       const message = err.message || "Failed to generate synthesis table.";
       setError(message + " — showing partial result.");
       try {
+        // Fallback: generate local synthesis for all papers (will handle missing abstracts)
         const synthesis = await generateLocalSynthesis(filteredPapers);
         dispatch({ type: "SET_SYNTHESIS", payload: synthesis });
         setLocalSynthesis(synthesis);
