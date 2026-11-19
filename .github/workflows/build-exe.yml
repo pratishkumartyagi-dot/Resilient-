@@ -39,7 +39,7 @@ jobs:
         shell: bash
 
       - name: Install dependencies (npm)
-        run: npm ci
+        run: npm install
         shell: bash
 
       - name: Build Next.js app
