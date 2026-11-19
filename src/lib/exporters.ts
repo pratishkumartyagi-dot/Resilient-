@@ -2,7 +2,7 @@ import { marked } from "marked";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType, ShadingType } from "docx";
 import ExcelJS from "exceljs";
 import PptxGenJS from "pptxgenjs";
-import { buildSlidesMarkdownFromSynthesis } from "./presenton";
+import { generatePresentationPlan, getBestProvider, type PresentationOptions } from "./presentation-generator";
 
 function extractText(tokens: any[]): string {
   return tokens.map((t) => t.text || "").join("");
@@ -940,13 +940,11 @@ export async function downloadPPTX(markdown: string, filename = "presentation.pp
 }
 
 /**
- * Generate PPTX using Presenton AI Presentation Generator
- * This provides professional templates, AI-powered layout selection,
- * and fully editable PPTX output.
+ * Generate PPTX using native AI Presentation Generator
+ * Uses the app's existing LLM providers (Gemini, Groq, local) to create
+ * professional presentations with pptxgenjs. No external API required.
  */
-export interface PresentonPPTXOptions {
-  presentonBaseUrl: string;
-  presentonApiKey: string;
+export interface NativePPTXOptions {
   topic: string;
   synthesisRows?: Array<{
     reference: string;
@@ -962,108 +960,323 @@ export interface PresentonPPTXOptions {
     year: number;
     doi?: string;
   }>;
-  template?: string;
-  tone?: "default" | "casual" | "professional" | "funny" | "educational" | "sales_pitch";
-  verbosity?: "concise" | "standard" | "text-heavy";
+  template?: "academic" | "business" | "minimal" | "conference";
+  tone?: "professional" | "educational" | "concise" | "detailed";
   language?: string;
   includeTitleSlide?: boolean;
   includeTableOfContents?: boolean;
+  includeReferences?: boolean;
+  maxSlides?: number;
+  // Optional: pre-built slides as markdown (bypasses AI generation)
   customSlidesMarkdown?: string[];
+  // Optional: custom instructions for AI generation
   instructions?: string;
+  // Provider and API key are auto-detected from app state if not provided
+  provider?: "gemini" | "groq" | "local";
+  apiKey?: string;
 }
 
-export async function downloadPPTXWithPresenton(options: PresentonPPTXOptions): Promise<void> {
+export async function downloadPPTXWithAI(options: NativePPTXOptions): Promise<void> {
   const {
-    presentonBaseUrl,
-    presentonApiKey,
     topic,
     synthesisRows = [],
     selectedPapers = [],
-    template = "general",
+    template = "academic",
     tone = "professional",
-    verbosity = "standard",
     language = "English",
     includeTitleSlide = true,
-    includeTableOfContents = false,
+    includeTableOfContents = true,
+    includeReferences = true,
+    maxSlides = 20,
     customSlidesMarkdown,
     instructions,
+    provider,
+    apiKey,
   } = options;
 
-  // Build slides markdown from synthesis data if not provided
-  const slidesMarkdown = customSlidesMarkdown ?? buildSlidesMarkdownFromSynthesis(
+  // Generate presentation plan using AI
+  const plan = await generatePresentationPlan({
+    topic,
     synthesisRows,
     selectedPapers,
-    topic
-  );
-
-  // Prepare request for Presenton API
-  const requestBody = {
-    content: customSlidesMarkdown ? "" : `Evidence synthesis presentation on ${topic} based on ${selectedPapers.length} selected studies.`,
-    slides_markdown: slidesMarkdown,
-    instructions: instructions || "Create a professional evidence synthesis presentation with clear visual hierarchy. Use charts/tables for data slides. Include proper academic citations.",
-    tone,
-    verbosity,
-    web_search: false,
-    n_slides: slidesMarkdown.length,
-    language,
     template,
-    include_table_of_contents: includeTableOfContents,
-    include_title_slide: includeTitleSlide,
-    files: null,
-    export_as: "pptx" as const,
+    tone,
+    language,
+    includeTitleSlide,
+    includeTableOfContents,
+    includeReferences,
+    maxSlides,
+    provider: provider || "gemini",
+    apiKey: apiKey || "",
+    customSlidesMarkdown,
+    instructions,
+  });
+
+  // Build PPTX from plan using pptxgenjs
+  const pptx = new PptxGenJS();
+  pptx.author = "Research App";
+  pptx.title = plan.title;
+
+  // Apply template styling
+  const templateStyles = getTemplateStyles(template);
+
+  for (const slidePlan of plan.slides) {
+    const slide = pptx.addSlide();
+    slide.background = { color: templateStyles.backgroundColor };
+
+    switch (slidePlan.layout) {
+      case "title":
+        addTitleSlide(slide, slidePlan, templateStyles);
+        break;
+      case "section":
+        addSectionSlide(slide, slidePlan, templateStyles);
+        break;
+      case "content":
+        addContentSlide(slide, slidePlan, templateStyles);
+        break;
+      case "two-column":
+        addTwoColumnSlide(slide, slidePlan, templateStyles);
+        break;
+      case "table":
+        addTableSlide(slide, slidePlan, templateStyles);
+        break;
+      case "chart":
+        addChartSlide(slide, slidePlan, templateStyles);
+        break;
+      case "references":
+        addReferencesSlide(slide, slidePlan, templateStyles);
+        break;
+      default:
+        addContentSlide(slide, slidePlan, templateStyles);
+    }
+
+    if (slidePlan.notes) {
+      slide.addNotes(slidePlan.notes);
+    }
+  }
+
+  // Trigger download
+  const filename = `presentation_${topic.replace(/[^a-z0-9]/gi, "_")}.pptx`;
+  pptx.writeFile({ fileName: filename });
+}
+
+// Template style configurations
+function getTemplateStyles(template: string) {
+  const styles: Record<string, {
+    backgroundColor: string;
+    titleColor: string;
+    headingColor: string;
+    bodyColor: string;
+    accentColor: string;
+    fontFamily: string;
+  }> = {
+    academic: {
+      backgroundColor: "FFFFFF",
+      titleColor: "1e3a8a",
+      headingColor: "1e40af",
+      bodyColor: "333333",
+      accentColor: "3b82f6",
+      fontFamily: "Calibri",
+    },
+    business: {
+      backgroundColor: "FFFFFF",
+      titleColor: "111827",
+      headingColor: "374151",
+      bodyColor: "374151",
+      accentColor: "059669",
+      fontFamily: "Calibri",
+    },
+    minimal: {
+      backgroundColor: "FAFAFA",
+      titleColor: "18181b",
+      headingColor: "3f3f46",
+      bodyColor: "52525b",
+      accentColor: "a855f7",
+      fontFamily: "Inter, Calibri",
+    },
+    conference: {
+      backgroundColor: "0f172a",
+      titleColor: "f8fafc",
+      headingColor: "e2e8f0",
+      bodyColor: "cbd5e1",
+      accentColor: "f59e0b",
+      fontFamily: "Calibri",
+    },
   };
+  return styles[template] || styles.academic;
+}
 
-  // Call Presenton API via our proxy route
-  const response = await fetch("/api/presenton/generate", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      ...requestBody,
-      presentonBaseUrl,
-      presentonApiKey,
-    }),
-    signal: AbortSignal.timeout(300000), // 5 min timeout
+function addTitleSlide(slide: any, plan: any, styles: ReturnType<typeof getTemplateStyles>) {
+  if (plan.subtitle) {
+    slide.addText(plan.subtitle, {
+      x: 0.5, y: 2.0, w: "90%", h: 1,
+      fontSize: 24, color: styles.headingColor, bold: false,
+      align: "center", valign: "middle", fontFace: styles.fontFamily,
+    });
+  }
+  slide.addText(plan.title, {
+    x: 0.5, y: 2.8, w: "90%", h: 2,
+    fontSize: 40, color: styles.titleColor, bold: true,
+    align: "center", valign: "middle", fontFace: styles.fontFamily,
+  });
+  slide.addText("Evidence Synthesis Presentation", {
+    x: 0.5, y: 5.0, w: "90%", h: 0.8,
+    fontSize: 18, color: styles.accentColor, bold: false,
+    align: "center", valign: "middle", fontFace: styles.fontFamily,
+  });
+}
+
+function addSectionSlide(slide: any, plan: any, styles: ReturnType<typeof getTemplateStyles>) {
+  slide.addText(plan.title, {
+    x: 0.5, y: 2.5, w: "90%", h: 2,
+    fontSize: 36, color: styles.titleColor, bold: true,
+    align: "center", valign: "middle", fontFace: styles.fontFamily,
+  });
+  if (plan.content) {
+    slide.addText(plan.content, {
+      x: 0.5, y: 4.5, w: "90%", h: 1.5,
+      fontSize: 18, color: styles.bodyColor,
+      align: "center", valign: "middle", fontFace: styles.fontFamily,
+    });
+  }
+}
+
+function addContentSlide(slide: any, plan: any, styles: ReturnType<typeof getTemplateStyles>) {
+  // Title
+  slide.addText(plan.title, {
+    x: 0.5, y: 0.3, w: "90%", h: 0.8,
+    fontSize: 28, color: styles.headingColor, bold: true,
+    align: "left", fontFace: styles.fontFamily,
   });
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(
-      `Presenton generation failed (${response.status}): ${errorData.error || response.statusText}`
-    );
+  // Content - parse markdown-like content
+  const lines = plan.content.split("\n").filter((l: string) => l.trim());
+  let yPos = 1.3;
+  const bulletItems: string[] = [];
+
+  for (const line of lines) {
+    if (line.startsWith("•") || line.startsWith("-") || line.startsWith("*")) {
+      bulletItems.push(line.replace(/^[•\-*]\s*/, ""));
+    } else if (line.startsWith("**") && line.endsWith("**")) {
+      // Bold heading within content
+      if (bulletItems.length > 0) {
+        slide.addText(bulletItems, {
+          x: 0.5, y: yPos, w: "90%", h: Math.min(bulletItems.length * 0.5 + 0.5, 5),
+          fontSize: 16, color: styles.bodyColor, bullet: true,
+          valign: "top", fontFace: styles.fontFamily, lineSpacing: 1.15,
+        });
+        yPos += bulletItems.length * 0.5 + 0.5;
+        bulletItems.length = 0;
+      }
+      slide.addText(line.replace(/\*\*/g, ""), {
+        x: 0.5, y: yPos, w: "90%", h: 0.5,
+        fontSize: 18, color: styles.accentColor, bold: true,
+        fontFace: styles.fontFamily,
+      });
+      yPos += 0.5;
+    } else {
+      if (bulletItems.length > 0) {
+        slide.addText(bulletItems, {
+          x: 0.5, y: yPos, w: "90%", h: Math.min(bulletItems.length * 0.5 + 0.5, 5),
+          fontSize: 16, color: styles.bodyColor, bullet: true,
+          valign: "top", fontFace: styles.fontFamily, lineSpacing: 1.15,
+        });
+        yPos += bulletItems.length * 0.5 + 0.5;
+        bulletItems.length = 0;
+      }
+      slide.addText(line, {
+        x: 0.5, y: yPos, w: "90%", h: 0.5,
+        fontSize: 16, color: styles.bodyColor,
+        fontFace: styles.fontFamily,
+      });
+      yPos += 0.5;
+    }
   }
 
-  const result = await response.json() as { presentation_id: string; path: string; edit_path: string };
+  if (bulletItems.length > 0) {
+    slide.addText(bulletItems, {
+      x: 0.5, y: yPos, w: "90%", h: Math.min(bulletItems.length * 0.5 + 0.5, 5),
+      fontSize: 16, color: styles.bodyColor, bullet: true,
+      valign: "top", fontFace: styles.fontFamily, lineSpacing: 1.15,
+    });
+  }
+}
 
-  // Download the generated file
-  const downloadResponse = await fetch("/api/presenton/download", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      presentonBaseUrl,
-      presentonApiKey,
-      path: result.path,
-    }),
-    signal: AbortSignal.timeout(60000),
+function addTwoColumnSlide(slide: any, plan: any, styles: ReturnType<typeof getTemplateStyles>) {
+  slide.addText(plan.title, {
+    x: 0.5, y: 0.3, w: "90%", h: 0.8,
+    fontSize: 28, color: styles.headingColor, bold: true,
+    fontFace: styles.fontFamily,
   });
 
-  if (!downloadResponse.ok) {
-    const errorData = await downloadResponse.json().catch(() => ({}));
-    throw new Error(
-      `Presenton download failed (${downloadResponse.status}): ${errorData.error || downloadResponse.statusText}`
-    );
+  const parts = plan.content.split("|").map((p: string) => p.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    slide.addText(parts[0], {
+      x: 0.5, y: 1.3, w: "45%", h: "80%",
+      fontSize: 15, color: styles.bodyColor, bullet: true,
+      valign: "top", fontFace: styles.fontFamily, lineSpacing: 1.15,
+    });
+    slide.addText(parts[1], {
+      x: "50%", y: 1.3, w: "45%", h: "80%",
+      fontSize: 15, color: styles.bodyColor, bullet: true,
+      valign: "top", fontFace: styles.fontFamily, lineSpacing: 1.15,
+    });
+  } else {
+    addContentSlide(slide, plan, styles);
   }
+}
 
-  const blob = await downloadResponse.blob();
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `presentation_${topic.replace(/[^a-z0-9]/gi, "_")}.pptx`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+function addTableSlide(slide: any, plan: any, styles: ReturnType<typeof getTemplateStyles>) {
+  slide.addText(plan.title, {
+    x: 0.5, y: 0.3, w: "90%", h: 0.8,
+    fontSize: 28, color: styles.headingColor, bold: true,
+    fontFace: styles.fontFamily,
+  });
+
+  // Parse table from content (pipe-separated)
+  const rows = plan.content.split("\n").map((r: string) =>
+    r.split("|").map((c: string) => c.trim()).filter(Boolean)
+  ).filter((r: string[]) => r.length > 0);
+
+  if (rows.length > 0) {
+    slide.addTable(rows, {
+      x: 0.5, y: 1.3, w: "90%", h: "75%",
+      fontSize: 12, color: styles.bodyColor,
+      fontFace: styles.fontFamily,
+      border: { type: "solid", pt: 0.5, color: styles.accentColor },
+      fill: { color: styles.backgroundColor },
+      rowH: Array.from({ length: rows.length }, () => "auto"),
+    });
+  }
+}
+
+function addChartSlide(slide: any, plan: any, styles: ReturnType<typeof getTemplateStyles>) {
+  slide.addText(plan.title, {
+    x: 0.5, y: 0.3, w: "90%", h: 0.8,
+    fontSize: 28, color: styles.headingColor, bold: true,
+    fontFace: styles.fontFamily,
+  });
+
+  slide.addText(`[Chart: ${plan.content}]`, {
+    x: 0.5, y: 2.5, w: "90%", h: 3,
+    fontSize: 16, color: styles.bodyColor, italic: true,
+    align: "center", valign: "middle", fontFace: styles.fontFamily,
+  });
+}
+
+function addReferencesSlide(slide: any, plan: any, styles: ReturnType<typeof getTemplateStyles>) {
+  slide.addText(plan.title, {
+    x: 0.5, y: 0.3, w: "90%", h: 0.8,
+    fontSize: 28, color: styles.headingColor, bold: true,
+    fontFace: styles.fontFamily,
+  });
+
+  const refs = plan.content.split("\n\n").filter(Boolean);
+  const refText = refs.map((r: string, i: number) => `${i + 1}. ${r}`).join("\n\n");
+
+  slide.addText(refText, {
+    x: 0.5, y: 1.3, w: "90%", h: "80%",
+    fontSize: 11, color: styles.bodyColor,
+    valign: "top", fontFace: styles.fontFamily, lineSpacing: 1.2,
+  });
 }

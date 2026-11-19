@@ -385,47 +385,34 @@ export default function EvidenceSynthesisTab() {
     else if (kind === "word") await mod.downloadMarkdownAsWord(content, filename);
     else if (kind === "latex") mod.downloadMarkdownAsLaTeX(content, filename);
     else if (kind === "pptx") {
-      // Use presenton if API key is configured, otherwise fall back to local pptxgenjs
-      const presentonKey = state.presentonApiKey;
-      const presentonUrl = state.presentonBaseUrl || "http://localhost:5001";
-      if (presentonKey) {
-        try {
-          // Extract synthesis data for presenton
-          const synthesisRows = Array.isArray(extractedData) ? extractedData : [];
-          const selectedPapers = papers.filter((p) => selectedPaperIds.has(p.id));
-          await mod.downloadPPTXWithPresenton({
-            presentonBaseUrl: presentonUrl,
-            presentonApiKey: presentonKey,
-            topic: query || "Evidence Synthesis",
-            synthesisRows: synthesisRows.map((r: any) => ({
-              reference: r.reference || r.title || "Unknown",
-              keyFindings: r.keyFindings || r.findings || "",
-              synopsis: r.synopsis || r.summary || "",
-              studyDetails: r.studyDetails || r.design || "",
-              researchGaps: r.researchGaps || r.gaps || "",
-            })),
-            selectedPapers: selectedPapers.map((p) => ({
-              title: p.title,
-              authors: p.authors,
-              journal: p.journal,
-              year: p.year,
-              doi: p.doi,
-            })),
-            template: "academic",
-            tone: "professional",
-            verbosity: "text-heavy",
-            language: "English",
-            includeTitleSlide: true,
-            includeTableOfContents: true,
-            instructions: "Create a professional evidence synthesis presentation with clear visual hierarchy. Use charts/tables for data slides. Include proper academic citations and PRISMA flow.",
-          });
-        } catch (error) {
-          console.error("Presenton PPTX generation failed, falling back to local:", error);
-          mod.downloadPPTX(content, filename);
-        }
-      } else {
-        mod.downloadPPTX(content, filename);
-      }
+      // Use native AI presentation generator (Gemini/Groq/local)
+      const synthesisRows = Array.isArray(extractedData) ? extractedData : [];
+      const selectedPapers = papers.filter((p) => selectedPaperIds.has(p.id));
+      await mod.downloadPPTXWithAI({
+        topic: query || "Evidence Synthesis",
+        synthesisRows: synthesisRows.map((r: any) => ({
+          reference: r.reference || r.title || "Unknown",
+          keyFindings: r.keyFindings || r.findings || "",
+          synopsis: r.synopsis || r.summary || "",
+          studyDetails: r.studyDetails || r.design || "",
+          researchGaps: r.researchGaps || r.gaps || "",
+        })),
+        selectedPapers: selectedPapers.map((p) => ({
+          title: p.title,
+          authors: p.authors,
+          journal: p.journal,
+          year: p.year,
+          doi: p.doi,
+        })),
+        template: "academic",
+        tone: "professional",
+        language: "English",
+        includeTitleSlide: true,
+        includeTableOfContents: true,
+        includeReferences: true,
+        maxSlides: 20,
+        // Provider and API key auto-detected from app state in the exporter
+      });
     }
   };
 

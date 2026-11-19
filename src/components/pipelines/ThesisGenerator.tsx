@@ -14,9 +14,6 @@ import {
   downloadMarkdownAsWord,
   downloadMarkdownAsPDF,
   downloadMarkdownAsLaTeX,
-  downloadPPTX,
-  downloadPPTXWithPresenton,
-  type PresentonPPTXOptions,
 } from "@/lib/exporters";
 import {
   emptyNotebook,
@@ -240,29 +237,20 @@ export default function ThesisGenerator() {
     else if (kind === "word") downloadMarkdownAsWord(fullThesis, `${base}.docx`);
     else if (kind === "latex") downloadMarkdownAsLaTeX(fullThesis, `${base}.tex`);
     else if (kind === "pptx") {
-      // Use presenton if API key is configured, otherwise fall back to local pptxgenjs
-      const presentonKey = state.presentonApiKey;
-      const presentonUrl = state.presentonBaseUrl || "http://localhost:5001";
-      if (presentonKey) {
-        try {
-          await downloadPPTXWithPresenton({
-            presentonBaseUrl: presentonUrl,
-            presentonApiKey: presentonKey,
-            topic: config.topic,
-            template: "academic",
-            tone: "professional",
-            verbosity: "text-heavy",
-            language: config.language === "en" ? "English" : config.language,
-            customSlidesMarkdown: fullThesis.split(/\n#{1,2}\s+/).slice(1).map((s) => "# " + s.trim()),
-            instructions: "Create a professional academic thesis presentation with clear structure: title, outline, chapters, methods, results, discussion, conclusions, and references.",
-          });
-        } catch (error) {
-          console.error("Presenton PPTX generation failed, falling back to local:", error);
-          downloadPPTX(fullThesis, `${base}.pptx`);
-        }
-      } else {
-        downloadPPTX(fullThesis, `${base}.pptx`);
-      }
+      // Use native AI presentation generator (Gemini/Groq/local)
+      const mod = await import("@/lib/exporters");
+      await mod.downloadPPTXWithAI({
+        topic: config.topic,
+        template: "academic",
+        tone: "professional",
+        language: config.language === "en" ? "English" : config.language,
+        includeTitleSlide: true,
+        includeTableOfContents: true,
+        includeReferences: true,
+        maxSlides: 20,
+        customSlidesMarkdown: fullThesis.split(/\n#{1,2}\s+/).slice(1).map((s) => "# " + s.trim()),
+        instructions: "Create a professional academic thesis presentation with clear structure: title, outline, chapters, methods, results, discussion, conclusions, and references.",
+      });
     }
   };
 

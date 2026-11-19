@@ -138,8 +138,6 @@ export interface AppState {
   selectedDatabases: string[];
   geminiApiKey: string;
   groqApiKey: string;
-  presentonApiKey: string;
-  presentonBaseUrl: string;
   srStudyTypeCategory: "systematic" | "meta" | null;
   dedupPapers: Paper[];
   filteredPapers: Paper[];
@@ -226,8 +224,6 @@ type Action =
   | { type: "SET_SELECTED_PAPERS"; payload: Paper[] }
   | { type: "SET_GEMINI_KEY"; payload: string }
   | { type: "SET_GROQ_KEY"; payload: string }
-  | { type: "SET_PRESENTON_KEY"; payload: string }
-  | { type: "SET_PRESENTON_BASE_URL"; payload: string }
   | { type: "SET_SYSTEMATIC_STEP"; payload: number }
   | { type: "SET_SR_CATEGORY"; payload: "systematic" | "meta" | null }
   | { type: "SET_DEDUP_PAPERS"; payload: any[] }
@@ -337,8 +333,6 @@ const initialState: AppState = {
   ],
   geminiApiKey: "",
   groqApiKey: "",
-  presentonApiKey: "",
-  presentonBaseUrl: "http://localhost:5001",
   srStudyTypeCategory: null,
   dedupPapers: [],
   filteredPapers: [],
@@ -566,10 +560,6 @@ function appReducer(state: AppState, action: Action): AppState {
       return { ...state, geminiApiKey: action.payload };
     case "SET_GROQ_KEY":
       return { ...state, groqApiKey: action.payload };
-    case "SET_PRESENTON_KEY":
-      return { ...state, presentonApiKey: action.payload };
-    case "SET_PRESENTON_BASE_URL":
-      return { ...state, presentonBaseUrl: action.payload };
     case "SET_SYSTEMATIC_STEP":
       return { ...state, systematicStep: action.payload };
     case "SET_SR_CATEGORY":
