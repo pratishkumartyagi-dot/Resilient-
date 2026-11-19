@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { X, Settings as SettingsIcon, Key, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { testGeminiKey, testGroqKey } from "@/lib/ai";
+import { testPresentonConnection } from "@/lib/presenton";
 
 // Keep in sync with LOCAL_MODEL_LABEL in src/lib/local-llm.ts. Inlined here
 // (instead of importing) so this modal doesn't drag @huggingface/transformers
@@ -33,13 +34,33 @@ export default function SettingsModal() {
   const [testingGroq, setTestingGroq] = useState(false);
   const [geminiResult, setGeminiResult] = useState<{ ok: boolean; error?: string } | null>(null);
   const [groqResult, setGroqResult] = useState<{ ok: boolean; error?: string } | null>(null);
+  const [presentonKey, setPresentonKey] = useState(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      return localStorage.getItem("resilient_presenton_api_key") || "";
+    } catch {
+      return "";
+    }
+  });
+  const [presentonUrl, setPresentonUrl] = useState(() => {
+    if (typeof window === "undefined") return "http://localhost:5001";
+    try {
+      return localStorage.getItem("resilient_presenton_base_url") || "http://localhost:5001";
+    } catch {
+      return "http://localhost:5001";
+    }
+  });
+  const [testingPresenton, setTestingPresenton] = useState(false);
+  const [presentonResult, setPresentonResult] = useState<{ ok: boolean; error?: string } | null>(null);
 
   // Push any keys persisted from a previous session into the global context once,
   // on mount only — no cascading renders from setState-in-effect.
   React.useEffect(() => {
-    if (geminiKey || groqKey) {
+    if (geminiKey || groqKey || presentonKey) {
       dispatch({ type: "SET_GEMINI_KEY", payload: geminiKey });
       dispatch({ type: "SET_GROQ_KEY", payload: groqKey });
+      dispatch({ type: "SET_PRESENTON_KEY", payload: presentonKey });
+      dispatch({ type: "SET_PRESENTON_BASE_URL", payload: presentonUrl });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -53,15 +74,20 @@ export default function SettingsModal() {
   const handleSave = () => {
     dispatch({ type: "SET_GEMINI_KEY", payload: geminiKey });
     dispatch({ type: "SET_GROQ_KEY", payload: groqKey });
+    dispatch({ type: "SET_PRESENTON_KEY", payload: presentonKey });
+    dispatch({ type: "SET_PRESENTON_BASE_URL", payload: presentonUrl });
     try {
       localStorage.setItem("resilient_gemini_api_key", geminiKey);
       localStorage.setItem("resilient_groq_api_key", groqKey);
+      localStorage.setItem("resilient_presenton_api_key", presentonKey);
+      localStorage.setItem("resilient_presenton_base_url", presentonUrl);
     } catch {
       // Storage unavailable
     }
     setIsOpen(false);
     setGeminiResult(null);
     setGroqResult(null);
+    setPresentonResult(null);
   };
 
   const handleTestGemini = async () => {
@@ -78,6 +104,14 @@ export default function SettingsModal() {
     const result = await testGroqKey(groqKey);
     setGroqResult(result);
     setTestingGroq(false);
+  };
+
+  const handleTestPresenton = async () => {
+    setTestingPresenton(true);
+    setPresentonResult(null);
+    const result = await testPresentonConnection(presentonUrl, presentonKey);
+    setPresentonResult(result);
+    setTestingPresenton(false);
   };
 
   if (!isOpen) return null;
@@ -162,6 +196,51 @@ export default function SettingsModal() {
               {groqResult && !groqResult.ok && (
                 <span className="text-xs text-red-300 flex items-center gap-1">
                   <XCircle size={12} /> Failed: {groqResult.error || "Check key and network"}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-sm font-medium text-blue-200">
+              <Key size={14} className="text-yellow-400" />
+               Presenton API Key <span className="text-xs text-blue-400">(AI Presentation Generator)</span>
+            </label>
+            <input
+              type="password"
+              value={presentonKey}
+              onChange={(e) => setPresentonKey(e.target.value)}
+              placeholder="Enter Presenton API key (sk-presenton-...)"
+              className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-2.5 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+            />
+            <label className="flex items-center gap-2 text-sm font-medium text-blue-200 mt-3">
+              <Key size={14} className="text-yellow-400" />
+               Presenton Base URL
+            </label>
+            <input
+              type="text"
+              value={presentonUrl}
+              onChange={(e) => setPresentonUrl(e.target.value)}
+              placeholder="http://localhost:5001"
+              className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-4 py-2.5 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+            />
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleTestPresenton}
+                disabled={testingPresenton || !presentonKey.trim() || !presentonUrl.trim()}
+                className="text-xs bg-blue-900/50 text-blue-200 px-3 py-1.5 rounded hover:bg-blue-900/70 disabled:opacity-50 flex items-center gap-1"
+              >
+                {testingPresenton ? <Loader2 size={12} className="animate-spin" /> : null}
+                Test Connection
+              </button>
+              {presentonResult && presentonResult.ok && (
+                <span className="text-xs text-green-300 flex items-center gap-1">
+                  <CheckCircle2 size={12} /> Connected
+                </span>
+              )}
+              {presentonResult && !presentonResult.ok && (
+                <span className="text-xs text-red-300 flex items-center gap-1">
+                  <XCircle size={12} /> Failed: {presentonResult.error || "Check key, URL and network"}
                 </span>
               )}
             </div>

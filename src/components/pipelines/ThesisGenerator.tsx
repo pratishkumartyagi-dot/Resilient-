@@ -14,6 +14,9 @@ import {
   downloadMarkdownAsWord,
   downloadMarkdownAsPDF,
   downloadMarkdownAsLaTeX,
+  downloadPPTX,
+  downloadPPTXWithPresenton,
+  type PresentonPPTXOptions,
 } from "@/lib/exporters";
 import {
   emptyNotebook,
@@ -226,7 +229,7 @@ export default function ThesisGenerator() {
     if (result) setResult({ ...result, fullThesis: e.target.value });
   };
 
-  const handleExport = (kind: "pdf" | "word" | "latex") => {
+  const handleExport = async (kind: "pdf" | "word" | "latex" | "pptx") => {
     if (!fullThesis) return;
     if (!finalized) {
       setError("Please finalise the thesis before downloading. Review the text, then click “Finalise Thesis”.");
@@ -235,7 +238,32 @@ export default function ThesisGenerator() {
     const base = `thesis-${config.topic.replace(/\s+/g, "-").slice(0, 40)}-${new Date().toISOString().split("T")[0]}`;
     if (kind === "pdf") downloadMarkdownAsPDF(fullThesis, `${base}.pdf`);
     else if (kind === "word") downloadMarkdownAsWord(fullThesis, `${base}.docx`);
-    else downloadMarkdownAsLaTeX(fullThesis, `${base}.tex`);
+    else if (kind === "latex") downloadMarkdownAsLaTeX(fullThesis, `${base}.tex`);
+    else if (kind === "pptx") {
+      // Use presenton if API key is configured, otherwise fall back to local pptxgenjs
+      const presentonKey = state.presentonApiKey;
+      const presentonUrl = state.presentonBaseUrl || "http://localhost:5001";
+      if (presentonKey) {
+        try {
+          await downloadPPTXWithPresenton({
+            presentonBaseUrl: presentonUrl,
+            presentonApiKey: presentonKey,
+            topic: config.topic,
+            template: "academic",
+            tone: "professional",
+            verbosity: "text-heavy",
+            language: config.language === "en" ? "English" : config.language,
+            customSlidesMarkdown: fullThesis.split(/\n#{1,2}\s+/).slice(1).map((s) => "# " + s.trim()),
+            instructions: "Create a professional academic thesis presentation with clear structure: title, outline, chapters, methods, results, discussion, conclusions, and references.",
+          });
+        } catch (error) {
+          console.error("Presenton PPTX generation failed, falling back to local:", error);
+          downloadPPTX(fullThesis, `${base}.pptx`);
+        }
+      } else {
+        downloadPPTX(fullThesis, `${base}.pptx`);
+      }
+    }
   };
 
   const handleCopy = () => {

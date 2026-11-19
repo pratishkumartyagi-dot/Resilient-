@@ -379,11 +379,54 @@ export default function EvidenceSynthesisTab() {
 
   // Lazy-load heavy doc exporters (docx/exceljs/pptxgenjs) on demand so they
   // never enter the initial preview bundle. They load on first export click.
-  const exportDoc = async (kind: "pdf" | "word" | "latex", content: string, filename: string) => {
+  const exportDoc = async (kind: "pdf" | "word" | "latex" | "pptx", content: string, filename: string) => {
     const mod = await import("@/lib/exporters");
     if (kind === "pdf") mod.downloadMarkdownAsPDF(content, filename);
     else if (kind === "word") await mod.downloadMarkdownAsWord(content, filename);
-    else mod.downloadMarkdownAsLaTeX(content, filename);
+    else if (kind === "latex") mod.downloadMarkdownAsLaTeX(content, filename);
+    else if (kind === "pptx") {
+      // Use presenton if API key is configured, otherwise fall back to local pptxgenjs
+      const presentonKey = state.presentonApiKey;
+      const presentonUrl = state.presentonBaseUrl || "http://localhost:5001";
+      if (presentonKey) {
+        try {
+          // Extract synthesis data for presenton
+          const synthesisRows = Array.isArray(extractedData) ? extractedData : [];
+          const selectedPapers = papers.filter((p) => selectedPaperIds.has(p.id));
+          await mod.downloadPPTXWithPresenton({
+            presentonBaseUrl: presentonUrl,
+            presentonApiKey: presentonKey,
+            topic: query || "Evidence Synthesis",
+            synthesisRows: synthesisRows.map((r: any) => ({
+              reference: r.reference || r.title || "Unknown",
+              keyFindings: r.keyFindings || r.findings || "",
+              synopsis: r.synopsis || r.summary || "",
+              studyDetails: r.studyDetails || r.design || "",
+              researchGaps: r.researchGaps || r.gaps || "",
+            })),
+            selectedPapers: selectedPapers.map((p) => ({
+              title: p.title,
+              authors: p.authors,
+              journal: p.journal,
+              year: p.year,
+              doi: p.doi,
+            })),
+            template: "academic",
+            tone: "professional",
+            verbosity: "text-heavy",
+            language: "English",
+            includeTitleSlide: true,
+            includeTableOfContents: true,
+            instructions: "Create a professional evidence synthesis presentation with clear visual hierarchy. Use charts/tables for data slides. Include proper academic citations and PRISMA flow.",
+          });
+        } catch (error) {
+          console.error("Presenton PPTX generation failed, falling back to local:", error);
+          mod.downloadPPTX(content, filename);
+        }
+      } else {
+        mod.downloadPPTX(content, filename);
+      }
+    }
   };
 
   const manuscriptSlug = () => `${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}`;
@@ -4003,6 +4046,13 @@ semanticSearch={semanticSearch}
                           Export LaTeX
                         </button>
                         <button
+                          onClick={() => exportDoc("pptx", finalManuscript || manuscript, `academic-writing-agents-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pptx`)}
+                          className="flex items-center gap-1.5 bg-yellow-500/50 text-yellow-200 px-4 py-2 rounded-lg hover:bg-yellow-500/70 text-sm"
+                        >
+                          <Download size={14} />
+                          Export PPTX
+                        </button>
+                        <button
                           onClick={generateReview}
                           disabled={reviewLoading}
                           className="flex items-center gap-1.5 bg-indigo-900/50 text-indigo-200 px-4 py-2 rounded-lg hover:bg-indigo-800/70 text-sm disabled:opacity-50"
@@ -4090,6 +4140,13 @@ semanticSearch={semanticSearch}
                             >
                               <FileCode size={14} />
                               Export LaTeX
+                            </button>
+                            <button
+                              onClick={() => exportDoc("pptx", finalManuscript, `academic-writing-agents-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pptx`)}
+                              className="flex items-center gap-1.5 bg-yellow-500/50 text-yellow-200 px-4 py-2 rounded-lg hover:bg-yellow-500/70 text-sm"
+                            >
+                              <Download size={14} />
+                              Export PPTX
                             </button>
                           </div>
                         </div>
@@ -4273,6 +4330,13 @@ semanticSearch={semanticSearch}
                             >
                               <FileCode size={14} />
                               Export LaTeX
+                            </button>
+                            <button
+                              onClick={() => exportDoc("pptx", stormFinal, `storm-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pptx`)}
+                              className="flex items-center gap-1.5 bg-yellow-500/50 text-yellow-200 px-4 py-2 rounded-lg hover:bg-yellow-500/70 text-sm"
+                            >
+                              <Download size={14} />
+                              Export PPTX
                             </button>
                           </div>
                         </div>

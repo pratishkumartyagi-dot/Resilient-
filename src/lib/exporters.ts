@@ -2,6 +2,7 @@ import { marked } from "marked";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType, ShadingType } from "docx";
 import ExcelJS from "exceljs";
 import PptxGenJS from "pptxgenjs";
+import { buildSlidesMarkdownFromSynthesis } from "./presenton";
 
 function extractText(tokens: any[]): string {
   return tokens.map((t) => t.text || "").join("");
@@ -936,4 +937,133 @@ export async function downloadPPTX(markdown: string, filename = "presentation.pp
 
   flushBullets();
   pptx.writeFile();
+}
+
+/**
+ * Generate PPTX using Presenton AI Presentation Generator
+ * This provides professional templates, AI-powered layout selection,
+ * and fully editable PPTX output.
+ */
+export interface PresentonPPTXOptions {
+  presentonBaseUrl: string;
+  presentonApiKey: string;
+  topic: string;
+  synthesisRows?: Array<{
+    reference: string;
+    keyFindings: string;
+    synopsis: string;
+    studyDetails: string;
+    researchGaps: string;
+  }>;
+  selectedPapers?: Array<{
+    title: string;
+    authors: string;
+    journal: string;
+    year: number;
+    doi?: string;
+  }>;
+  template?: string;
+  tone?: "default" | "casual" | "professional" | "funny" | "educational" | "sales_pitch";
+  verbosity?: "concise" | "standard" | "text-heavy";
+  language?: string;
+  includeTitleSlide?: boolean;
+  includeTableOfContents?: boolean;
+  customSlidesMarkdown?: string[];
+  instructions?: string;
+}
+
+export async function downloadPPTXWithPresenton(options: PresentonPPTXOptions): Promise<void> {
+  const {
+    presentonBaseUrl,
+    presentonApiKey,
+    topic,
+    synthesisRows = [],
+    selectedPapers = [],
+    template = "general",
+    tone = "professional",
+    verbosity = "standard",
+    language = "English",
+    includeTitleSlide = true,
+    includeTableOfContents = false,
+    customSlidesMarkdown,
+    instructions,
+  } = options;
+
+  // Build slides markdown from synthesis data if not provided
+  const slidesMarkdown = customSlidesMarkdown ?? buildSlidesMarkdownFromSynthesis(
+    synthesisRows,
+    selectedPapers,
+    topic
+  );
+
+  // Prepare request for Presenton API
+  const requestBody = {
+    content: customSlidesMarkdown ? "" : `Evidence synthesis presentation on ${topic} based on ${selectedPapers.length} selected studies.`,
+    slides_markdown: slidesMarkdown,
+    instructions: instructions || "Create a professional evidence synthesis presentation with clear visual hierarchy. Use charts/tables for data slides. Include proper academic citations.",
+    tone,
+    verbosity,
+    web_search: false,
+    n_slides: slidesMarkdown.length,
+    language,
+    template,
+    include_table_of_contents: includeTableOfContents,
+    include_title_slide: includeTitleSlide,
+    files: null,
+    export_as: "pptx" as const,
+  };
+
+  // Call Presenton API via our proxy route
+  const response = await fetch("/api/presenton/generate", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ...requestBody,
+      presentonBaseUrl,
+      presentonApiKey,
+    }),
+    signal: AbortSignal.timeout(300000), // 5 min timeout
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(
+      `Presenton generation failed (${response.status}): ${errorData.error || response.statusText}`
+    );
+  }
+
+  const result = await response.json() as { presentation_id: string; path: string; edit_path: string };
+
+  // Download the generated file
+  const downloadResponse = await fetch("/api/presenton/download", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      presentonBaseUrl,
+      presentonApiKey,
+      path: result.path,
+    }),
+    signal: AbortSignal.timeout(60000),
+  });
+
+  if (!downloadResponse.ok) {
+    const errorData = await downloadResponse.json().catch(() => ({}));
+    throw new Error(
+      `Presenton download failed (${downloadResponse.status}): ${errorData.error || downloadResponse.statusText}`
+    );
+  }
+
+  const blob = await downloadResponse.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `presentation_${topic.replace(/[^a-z0-9]/gi, "_")}.pptx`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
