@@ -33,7 +33,7 @@ jobs:
           cache: 'npm'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Install dependencies
+      - name: Install root dependencies
         run: npm ci
         shell: bash
 
@@ -43,19 +43,26 @@ jobs:
         env:
           NEXT_TELEMETRY_DISABLED: 1
 
+      - name: Install electron dependencies
+        run: npm ci
+        shell: bash
+        working-directory: ./electron
+
       - name: Generate icons (Windows)
         run: |
           # Install ImageMagick for icon generation
           choco install imagemagick -y
           refreshenv
           # Generate icons from SVG
-          magick electron/build/icon.svg -define icon:auto-resize=256,128,64,48,32,16 electron/build/icon.ico
-          magick electron/build/icon.svg -resize 512x512 electron/build/icon.png
+          magick build/icon.svg -define icon:auto-resize=256,128,64,48,32,16 build/icon.ico
+          magick build/icon.svg -resize 512x512 build/icon.png
         shell: bash
+        working-directory: ./electron
 
       - name: Build Windows installer
-        run: npm run dist:win
+        run: npx electron-builder --win --publish=never
         shell: bash
+        working-directory: ./electron
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_ENV: production
@@ -65,7 +72,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: dist-electron/*.exe
+          path: electron/dist/*.exe
           retention-days: 30
 
   build-macos:
@@ -85,7 +92,7 @@ jobs:
           cache: 'npm'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Install dependencies
+      - name: Install root dependencies
         run: npm ci
         shell: bash
 
@@ -95,23 +102,30 @@ jobs:
         env:
           NEXT_TELEMETRY_DISABLED: 1
 
+      - name: Install electron dependencies
+        run: npm ci
+        shell: bash
+        working-directory: ./electron
+
       - name: Generate icons (macOS)
         run: |
           # Install ImageMagick
           brew install imagemagick
           # Generate iconset
-          mkdir -p electron/build/icon.iconset
+          mkdir -p build/icon.iconset
           for size in 16 32 64 128 256 512 1024; do
-            magick electron/build/icon.svg -resize ${size}x${size} electron/build/icon.iconset/icon_${size}x${size}.png
-            magick electron/build/icon.svg -resize $((size*2))x$((size*2)) electron/build/icon.iconset/icon_${size}x${size}@2x.png
+            magick build/icon.svg -resize ${size}x${size} build/icon.iconset/icon_${size}x${size}.png
+            magick build/icon.svg -resize $((size*2))x$((size*2)) build/icon.iconset/icon_${size}x${size}@2x.png
           done
           # Generate .icns
-          iconutil -c icns electron/build/icon.iconset -o electron/build/icon.icns
+          iconutil -c icns build/icon.iconset -o build/icon.icns
         shell: bash
+        working-directory: ./electron
 
       - name: Build macOS DMG
-        run: npm run dist:mac
+        run: npx electron-builder --mac --publish=never
         shell: bash
+        working-directory: ./electron
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_ENV: production
@@ -121,7 +135,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
-          path: dist-electron/*.dmg
+          path: electron/dist/*.dmg
           retention-days: 30
 
   build-linux:
@@ -147,7 +161,7 @@ jobs:
           sudo apt-get install -y imagemagick libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
         shell: bash
 
-      - name: Install dependencies
+      - name: Install root dependencies
         run: npm ci
         shell: bash
 
@@ -157,15 +171,22 @@ jobs:
         env:
           NEXT_TELEMETRY_DISABLED: 1
 
+      - name: Install electron dependencies
+        run: npm ci
+        shell: bash
+        working-directory: ./electron
+
       - name: Generate icons (Linux)
         run: |
-          magick electron/build/icon.svg -resize 512x512 electron/build/icon.png
-          magick electron/build/icon.svg -define icon:auto-resize=256,128,64,48,32,16 electron/build/icon.ico
+          magick build/icon.svg -resize 512x512 build/icon.png
+          magick build/icon.svg -define icon:auto-resize=256,128,64,48,32,16 build/icon.ico
         shell: bash
+        working-directory: ./electron
 
       - name: Build Linux packages
-        run: npm run dist:linux
+        run: npx electron-builder --linux --publish=never
         shell: bash
+        working-directory: ./electron
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_ENV: production
@@ -175,8 +196,8 @@ jobs:
         with:
           name: linux-packages
           path: |
-            dist-electron/*.AppImage
-            dist-electron/*.deb
+            electron/dist/*.AppImage
+            electron/dist/*.deb
           retention-days: 30
 
   release:
