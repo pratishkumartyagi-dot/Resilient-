@@ -1,0 +1,137 @@
+{
+  "name": "resilient-research-app",
+  "version": "0.9.0",
+  "description": "Resilient Research App - Evidence Synthesis Platform",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux",
+    "dist": "electron-builder --publish=never",
+    "dist:win": "electron-builder --win --publish=never",
+    "dist:mac": "electron-builder --mac --publish=never",
+    "dist:linux": "electron-builder --linux --publish=never"
+  },
+  "author": "Resilient Research Team",
+  "license": "MIT",
+  "dependencies": {
+    "electron-is-dev": "^3.0.1"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.resilient.research-app",
+    "productName": "Resilient Research App",
+    "copyright": "Copyright © 2024 Resilient Research Team",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "**/*",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+      "!**/node_modules/*.d.ts",
+      "!**/node_modules/.bin",
+      "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}",
+      "!**/.*",
+      "!**/node_modules/electron-builder",
+      "!**/node_modules/electron-builder/**/*",
+      "!**/dist",
+      "!**/dist/**/*",
+      "!**/.git",
+      "!**/.git/**/*",
+      "!**/.github",
+      "!**/.github/**/*",
+      "!**/docs",
+      "!**/docs/**/*",
+      "!**/README*",
+      "!**/LICENSE*"
+    ],
+    "extraResources": [
+      {
+        "from": "../.next",
+        "to": ".next"
+      },
+      {
+        "from": "../public",
+        "to": "public"
+      },
+      {
+        "from": "../next.config.js",
+        "to": "next.config.js"
+      },
+      {
+        "from": "../package.json",
+        "to": "package.json"
+      },
+      {
+        "from": "../node_modules",
+        "to": "node_modules"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Resilient Research App",
+      "uninstallDisplayName": "Resilient Research App",
+      "license": "build/license.txt",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "include": "build/installer.nsh",
+      "artifactName": "Resilient-Research-App-Setup-${version}.exe"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "icon": "build/icon.icns",
+      "category": "public.app-category.productivity"
+    },
+    "dmg": {
+      "title": "Resilient Research App",
+      "icon": "build/icon.icns",
+      "artifactName": "Resilient-Research-App-${version}.dmg"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        },
+        {
+          "target": "deb",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.png",
+      "category": "Office",
+      "artifactName": "Resilient-Research-App-${version}.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "pratishkumartyagi-dot",
+      "repo": "Resilient-"
+    }
+  }
+}
