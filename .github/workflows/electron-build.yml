@@ -44,7 +44,7 @@ jobs:
           NEXT_TELEMETRY_DISABLED: 1
 
       - name: Install electron dependencies
-        run: npm ci
+        run: npm install
         shell: bash
         working-directory: ./electron
 
@@ -103,7 +103,7 @@ jobs:
           NEXT_TELEMETRY_DISABLED: 1
 
       - name: Install electron dependencies
-        run: npm ci
+        run: npm install
         shell: bash
         working-directory: ./electron
 
@@ -172,7 +172,7 @@ jobs:
           NEXT_TELEMETRY_DISABLED: 1
 
       - name: Install electron dependencies
-        run: npm ci
+        run: npm install
         shell: bash
         working-directory: ./electron
 
