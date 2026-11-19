@@ -1,6 +1,6 @@
 {
   "name": "resilient-research-app",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Resilient Research App - Evidence Synthesis Platform",
   "main": "main.js",
   "scripts": {
