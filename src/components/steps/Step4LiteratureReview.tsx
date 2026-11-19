@@ -8,7 +8,7 @@ import {
 import { useApp } from "@/context/AppContext";
 import { callAiWithFallback, type AICallOptions } from "@/lib/ai";
 import { formatVancouverReference } from "@/lib/references";
-import { generateLocalLiteratureReview } from "@/lib/local-synthesis";
+import { generateLocalLiteratureReview, generateLocalLiteratureReviewSection } from "@/lib/local-synthesis";
 
 type SectionKey =
   | "introduction"
@@ -322,32 +322,6 @@ export default function Step4LiteratureReview() {
       .join("\n\n");
   }, [state.synthesisTable, selectedPapers]);
 
-  /**
-   * Deterministic local review (no API key, no model download): themes, PRISMA
-   * checklist scoring, GRADE judgement and Vancouver references. Used whenever
-   * the AI providers are unavailable or their quota is exhausted.
-   */
-  const buildLocalReviewFallback = useCallback((): string => {
-    try {
-      return generateLocalLiteratureReview(
-        selectedPapers.map((p) => ({
-          authors: p.authors,
-          year: p.year,
-          title: p.title,
-          journal: p.journal,
-          abstract: p.abstract,
-          doi: p.doi,
-          studyType: p.studyType,
-          database: p.database,
-        })),
-        state.searchQuery,
-        { enableRobustReview: true }
-      );
-    } catch (err: any) {
-      return `*The local review generator could not build this section (${err?.message || "unknown error"}).*`;
-    }
-  }, [selectedPapers, state.searchQuery]);
-
   const generateSection = useCallback(    async (meta: SectionMeta): Promise<string> => {
       if (meta.key === "references") return referencesText;
       try {
@@ -357,13 +331,26 @@ export default function Step4LiteratureReview() {
         return stripQuotesAndFences(text);
       } catch (err: any) {
         // Every AI provider (including the local model) failed: the section is
-        // written by the deterministic local review generator so the review is
+        // written by the deterministic local section generator so the review is
         // never left empty.
-        const local = buildLocalReviewFallback();
+        const local = generateLocalLiteratureReviewSection(
+          meta.key as any,
+          selectedPapers.map((p) => ({
+            authors: p.authors,
+            year: p.year,
+            title: p.title,
+            journal: p.journal,
+            abstract: p.abstract,
+            doi: p.doi,
+            studyType: p.studyType,
+            database: p.database,
+          })),
+          state.searchQuery
+        );
         return `${local}\n\n*Section "${meta.title}" was written by the local generator because the AI providers were unavailable (${err?.message || "unknown error"}).*`;
       }
     },
-    [callAi, referencesText, evidenceBase, deepReasoning, state.searchQuery, buildLocalReviewFallback],
+    [callAi, referencesText, evidenceBase, deepReasoning, state.searchQuery, selectedPapers],
   );
 
   const persist = useCallback(

@@ -463,6 +463,49 @@ ${effectSizes.length > 0 ? `\nEFFECT SIZE TABLE:\n${effectSizes.map((r, i) => `$
 ${reviewRequirements ? `\nUSER-SPECIFIC REQUIREMENTS:\n${reviewRequirements}\n` : ""}
 ${synthesisInstructions ? `SYNTHESIS INSTRUCTIONS:\n${synthesisInstructions}\n` : ""}
 
+## TABLES AND CHARTS TO GENERATE FROM PIPELINE DATA
+
+### 1. Study Characteristics Table (REQUIRED)
+Generate a Markdown table in Section 3.1 with these columns: Study, Design, Population, N, Intervention/Exposure, Comparison, Outcome, RoB. Use data from extractedData.
+
+### 2. Thematic Synthesis Evidence Table (REQUIRED)
+Generate a Markdown table in Section 3.2 with columns: Theme, Studies (n), Key Finding, Evidence Tier, Certainty. Derive from synthesisOutput and extractedData.
+
+### 3. Meta-analysis Effect Size Table & Forest Plot Data (REQUIRED if meta-analysis)
+${isMeta && effectSizes.length > 0 ? `Generate a Markdown table in Section 3.3 with columns: Study, Effect Estimate, 95% CI Lower, 95% CI Upper, Weight (%), I² Contribution. Also provide forest plot data as a code block:
+\`\`\`json
+{
+  "studies": ["Study1", "Study2", ...],
+  "effects": [0.5, 0.3, ...],
+  "ciLower": [0.2, 0.1, ...],
+  "ciUpper": [0.8, 0.5, ...],
+  "weights": [25, 30, ...],
+  "pooledEffect": 0.42,
+  "pooledCI": [0.25, 0.59],
+  "heterogeneity": {"I2": 45, "tau2": 0.02, "Q": 12.5, "df": 4, "p": 0.014}
+}
+\`\`\`
+` : "Meta-analysis not performed or no effect sizes available."}
+
+### 4. Risk of Bias Table (REQUIRED)
+Generate a Markdown table in Section 3.4 with columns: Study, D1, D2, D3, D4, D5, Overall. Use robAssessments data.
+
+### 5. PRISMA 2020 Flow Diagram Table (REQUIRED)
+Generate a Markdown table in Section 2.4 with the PRISMA flow counts:
+| Stage | Count | Description |
+|-------|-------|-------------|
+| Records identified from databases | ${prismaCounts.identification} | ${selectedDbs.join(", ")} |
+| Records after duplicates removed | ${prismaCounts.deduped} | Automated deduplication |
+| Records screened | ${prismaCounts.screened} | Title/abstract screening |
+| Records excluded | ${prismaCounts.excluded} | Did not meet criteria |
+| Full-text articles assessed | ${prismaCounts.assessed} | Eligibility assessment |
+| Full-text articles excluded | ${Math.max(0, prismaCounts.assessed - prismaCounts.included)} | With reasons |
+| Studies included in qualitative synthesis | ${prismaCounts.included} | ${reviewType} |
+${isMeta ? `| Studies included in quantitative synthesis (meta-analysis) | ${effectSizes.length || prismaCounts.included} | metafor/meta R packages |` : ""}
+
+### 6. GRADE Evidence Profile Table (REQUIRED)
+Generate a Markdown table in Section 5 with columns: Outcome, Study Design, Risk of Bias, Inconsistency, Indirectness, Imprecision, Publication Bias, Certainty, Effect Estimate. Use synthesisOutput and effectSizes.
+
 ## OUTPUT FORMAT
 
 Generate a complete, publication-ready manuscript in Markdown. Follow this exact structure:
@@ -512,7 +555,7 @@ Generate a complete, publication-ready manuscript in Markdown. Follow this exact
 [Tool: ${robLabel}. Approach: per-domain ${robMethodology}. Apply Equation-Code Correspondence if any statistical models are described.]
 
 ### 2.4 PRISMA 2020 Flow
-[Identification: ${prismaCounts.identification} → Deduplication: ${prismaCounts.deduped} → Screening: ${prismaCounts.screened} → Assessed: ${prismaCounts.assessed} → Included: ${prismaCounts.included}]
+[Identification: ${prismaCounts.identification} → Deduplication: ${prismaCounts.deduped} → Screening: ${prismaCounts.screened} → Assessed: ${prismaCounts.assessed} → Included: ${prismaCounts.included}. **INCLUDE THE PRISMA 2020 FLOW DIAGRAM TABLE (Markdown)** with columns: Stage, Count, Description.]
 
 ### 2.5 Synthesis Methods
 ${isMeta ? "[Random-effects meta-analysis (DerSimonian-Laird). Heterogeneity: I², τ². Certainty: GRADE.]" : "[Narrative/thematic synthesis following Academic Writing Agents principles: coding, theme development, and mapping.]"}
@@ -522,16 +565,16 @@ ${isMeta ? "[Random-effects meta-analysis (DerSimonian-Laird). Heterogeneity: I�
 ## 3. Results
 
 ### 3.1 Study Characteristics
-[Describe the evidence base: ${papersForSynthesis.length} studies, ${yearMin}–${yearMax}, ${studyTypes.join(", ").toLowerCase()}. Organize thematically. Apply Active Figures: every table should make a specific claim.]
+[Describe the evidence base: ${papersForSynthesis.length} studies, ${yearMin}–${yearMax}, ${studyTypes.join(", ").toLowerCase()}. Organize thematically. **INCLUDE THE STUDY CHARACTERISTICS TABLE (Markdown)** with columns: Study, Design, Population, N, Intervention/Exposure, Comparison, Outcome, RoB. Apply Active Figures: every table should make a specific claim.]
 
 ### 3.2 Thematic Synthesis
-[For each theme: summarize convergent findings, highlight divergent results, identify the strongest evidence tier. Apply Interpret Figures: do not just describe — interpret.]
+[For each theme: summarize convergent findings, highlight divergent results, identify the strongest evidence tier. **INCLUDE THE THEMATIC SYNTHESIS EVIDENCE TABLE (Markdown)** with columns: Theme, Studies (n), Key Finding, Evidence Tier, Certainty. Apply Interpret Figures: do not just describe — interpret.]
 
 ### 3.3 Meta-analysis (if applicable)
-[Pooled estimates, heterogeneity statistics, forest plot description. Apply Triple Explanation: intuitive description, formal notation, concrete example.]
+${isMeta ? `[Pooled estimates, heterogeneity statistics, forest plot description. **INCLUDE THE META-ANALYSIS EFFECT SIZE TABLE (Markdown)** with columns: Study, Effect Estimate, 95% CI Lower, 95% CI Upper, Weight (%), I² Contribution. **INCLUDE FOREST PLOT DATA** as a JSON code block for visualization. Apply Triple Explanation: intuitive description, formal notation, concrete example.]` : "[Not applicable — narrative synthesis only.]"}
 
 ### 3.4 Risk of Bias
-[Summarize ${isProbast ? "PROBAST+AI (D1–D4 + applicability A1–A3)" : "robvis"} domain-level judgments: Low ${robSummary.low}, Some/Moderate ${robSummary.some}, High ${robSummary.high}. Apply Caption Self-Sufficiency: figure captions must stand alone.]
+[Summarize ${isProbast ? "PROBAST+AI (D1–D4 + applicability A1–A3)" : "robvis"} domain-level judgments: Low ${robSummary.low}, Some/Moderate ${robSummary.some}, High ${robSummary.high}. **INCLUDE THE RISK OF BIAS TABLE (Markdown)** with columns: Study, D1, D2, D3, D4, D5, Overall. Apply Caption Self-Sufficiency: figure captions must stand alone.]
 
 ---
 
@@ -542,6 +585,8 @@ ${isMeta ? "[Random-effects meta-analysis (DerSimonian-Laird). Heterogeneity: I�
 ---
 
 ## 5. GRADE Certainty of Evidence
+
+**INCLUDE THE GRADE EVIDENCE PROFILE TABLE (Markdown)** with columns: Outcome, Study Design, Risk of Bias, Inconsistency, Indirectness, Imprecision, Publication Bias, Certainty, Effect Estimate. Use synthesisOutput and effectSizes.
 
 | Outcome | Certainty | Rationale |
 |---------|-----------|-----------|

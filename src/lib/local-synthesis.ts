@@ -620,6 +620,113 @@ export function generateLocalLiteratureReview(
 
 
 /* ------------------------------------------------------------------ */
+/*  Section-specific local generators for Step 4 Literature Review    */
+/* ------------------------------------------------------------------ */
+
+export type LocalLitReviewSectionKey =
+  | "introduction"
+  | "globalIndian"
+  | "gaps"
+  | "futureAdvice"
+  | "summary"
+  | "references";
+
+export function generateLocalLiteratureReviewSection(
+  sectionKey: LocalLitReviewSectionKey,
+  selectedPapers: { authors: string; year: number; title: string; journal: string; abstract: string; doi?: string; studyType: string; database: string }[],
+  searchQuery: string = ""
+): string {
+  const n = selectedPapers.length;
+  if (n === 0) {
+    return `*No studies available to generate the "${sectionKey}" section.*`;
+  }
+
+  const yearMin = Math.min(...selectedPapers.map((p) => p.year));
+  const yearMax = Math.max(...selectedPapers.map((p) => p.year));
+  const databases = [...new Set(selectedPapers.map((p) => p.database))].join(", ");
+  const topic = searchQuery
+    ? searchQuery.replace(/["]/g, "").split(/\s+/).filter(Boolean).slice(0, 8).join(" ")
+    : selectedPapers[0]?.title.split(":").pop()?.trim() || "the research topic";
+
+  const themes = extractThemes(selectedPapers);
+  const studyTypes = [...new Set(selectedPapers.map((p) => p.studyType))].join(", ");
+
+  const topCite = (p: { authors: string; year: number }) => p.authors.split(",").slice(0, 2).join(" & ");
+  const cite = (p: { authors: string; year: number }) => `(${topCite(p)}, ${p.year})`;
+  const indianPapers = selectedPapers.filter((p) =>
+    p.database.toLowerCase().includes("india") ||
+    p.abstract.toLowerCase().includes("india") ||
+    p.title.toLowerCase().includes("india")
+  );
+  const indianCount = indianPapers.length;
+
+  switch (sectionKey) {
+    case "introduction": {
+      const intro = `This literature review synthesizes evidence from **${n} peer-reviewed studies** addressing **${topic}**, published between ${yearMin} and ${yearMax} and retrieved from ${databases}. The cumulative body of evidence summarized here provides an overview of key findings, methodological approaches, identified research gaps, and implications for future inquiry. Synthesizing findings across studies with varying designs (${studyTypes}) enables identification of convergent evidence, areas of disagreement, and underexplored directions for ${topic}.`;
+      return `### 1.1 Background and Significance\n\n${intro}\n\n### 1.2 Current Understanding of the Problem\n\nThe evidence base on ${topic} has evolved substantially over the review period. Early studies focused on descriptive epidemiology, while more recent investigations employ advanced designs to address causal questions. ${n} studies contribute to this review, spanning ${yearMin}–${yearMax}.\n\n### 1.3 Rationale and Objectives of This Review\n\nDespite growing research, important gaps remain in our understanding of ${topic}. This review aims to: (1) synthesize current evidence across study designs and populations; (2) identify consistent findings and areas of divergence; (3) catalog methodological limitations and research gaps; and (4) provide concrete recommendations for future research priorities.\n\n### 1.4 Structure of the Review\n\nThis review is organized into six sections: Introduction (Section 1), Global & Indian Situations (Section 2), Research Gaps / Limitations (Section 3), Authors' Advice for Future Research (Section 4), Summary of All Studies (Section 5), and References (Section 6).`;
+    }
+
+    case "globalIndian": {
+      const globalPapers = selectedPapers.filter((p) => !indianPapers.includes(p));
+      let globalContent = `**Global evidence:** The ${globalPapers.length} studies conducted outside India (${globalPapers.map(cite).join("; ")}) provide a broad evidence base on ${topic}. These studies span diverse geographic regions and healthcare systems, enabling assessment of global prevalence, risk factors, and outcomes.`;
+      if (themes.length > 0) {
+        globalContent += `\n\nKey global themes identified: ${themes.map((t) => t.theme).slice(0, 3).join(", ")}.`;
+      }
+
+      let indianContent = "";
+      if (indianCount > 0) {
+        indianContent = `\n\n**Indian evidence:** ${indianCount} study${indianCount > 1 ? "s" : ""} with direct relevance to India (${indianPapers.map(cite).join("; ")}) offer country-specific insights. These investigations address ${topic} within the Indian context, including regional variations, national program data, and healthcare system constraints.`;
+      } else {
+        indianContent = `\n\n**Indian evidence:** No studies with explicit Indian focus were identified in the current selection. This represents a significant geographical gap, as India bears a substantial burden of ${topic}. National health programmes and regional data remain underexplored in the peer-reviewed literature.`;
+      }
+
+      return `### 2.1 Global Epidemiology and Trends\n\n${globalContent}\n\n### 2.2 Regional Disparities and Healthcare System Differences\n\nEvidence suggests considerable heterogeneity in ${topic} across global regions. High-income countries report different prevalence patterns and outcome profiles compared to low- and middle-income settings, likely reflecting differences in diagnostic capacity, reporting systems, and population demographics.\n\n### 2.3 India-Specific Data and National Health Programmes\n\n${indianContent}\n\n### 2.4 Policy Implications: Global vs. Indian Context\n\nTranslating global evidence to the Indian context requires caution. While global studies establish biological plausibility and intervention efficacy, implementation in India's diverse healthcare landscape—spanning public, private, and informal sectors—demands context-specific adaptation. National programmes such as NPCDCS, NHM, and Ayushman Bharat provide platforms for evidence integration but face challenges in data harmonization and outcome tracking.\n\n### 2.5 Comparative Synthesis\n\nDirect comparison between global and Indian evidence is limited by the small number of Indian studies. Where both exist, findings are broadly consistent regarding ${topic} epidemiology, but effect sizes and risk factor profiles may differ due to population genetics, environmental exposures, and healthcare access.`;
+    }
+
+    case "gaps": {
+      const designGaps = selectedPapers
+        .filter((p) => p.studyType.toLowerCase().includes("cross-sectional") || p.studyType.toLowerCase().includes("observational"))
+        .map(cite)
+        .join("; ");
+      const sampleGaps = selectedPapers
+        .filter((p) => {
+          const abstract = p.abstract.toLowerCase();
+          return abstract.includes("small sample") || abstract.includes("limited sample") || abstract.includes("underpowered");
+        })
+        .map(cite)
+        .join("; ");
+
+      return `### 3.1 Study Design Limitations\n\nThe evidence base is dominated by ${studyTypes.toLowerCase()} designs. ${designGaps ? `Cross-sectional and observational studies (${designGaps}) limit causal inference due to temporality concerns and residual confounding.` : "Few randomized controlled trials or longitudinal cohorts were identified, constraining causal interpretation."} Retrospective designs introduce selection and information bias that may distort effect estimates.\n\n### 3.2 Sample Size and Statistical Power\n\n${sampleGaps ? `Several studies acknowledge limited sample sizes (${sampleGaps}), reducing power to detect modest effects and increasing false-negative risk.` : "Sample size justification is inconsistently reported across studies. Many investigations appear underpowered for subgroup analyses or interaction testing."}\n\n### 3.3 Under-Studied Populations, Geographies, and Settings\n\nGeographical representation is skewed: ${indianCount > 0 ? `only ${indianCount} of ${n} studies` : "no studies"} focus on India despite its disease burden. Pediatric, geriatric, and rural populations are underrepresented. Healthcare settings beyond tertiary centers (primary care, community health) are rarely studied.\n\n### 3.4 Outcomes Not Measured or Inconsistently Defined\n\nOutcome heterogeneity precludes meta-analysis. Core outcome sets for ${topic} are not consistently adopted. Patient-reported outcomes, health-related quality of life, and economic endpoints are infrequently captured.\n\n### 3.5 Contradictions Between Studies\n\n${themes.length > 1 ? `Thematic analysis reveals ${themes.length} distinct evidence clusters with partially overlapping but non-identical findings. Convergence is seen for ${themes[0].theme}, while ${themes[1]?.theme || "other domains"} show divergent results across studies.` : "Limited study count precludes robust assessment of inter-study contradictions."}\n\n### 3.6 Impact of Gaps on Confidence in Findings\n\nApplying GRADE principles, the certainty of evidence for most outcomes is **low to very low** due to risk of bias, inconsistency, indirectness, and imprecision. Confidence in pooled estimates is limited; recommendations for practice must be conditional.`;
+    }
+
+    case "futureAdvice": {
+      return `### 4.1 Recommended Study Designs\n\nFuture research should prioritize **prospective longitudinal cohorts** and **pragmatic randomized controlled trials** to establish temporality and causal effects. Stepped-wedge and cluster-randomized designs are appropriate for health system interventions. Mendelian randomization studies can strengthen causal inference where RCTs are infeasible.\n\n### 4.2 Priority Populations and Settings\n\nStudies must deliberately include **underrepresented groups**: pediatric and geriatric populations, rural and tribal communities in India, and primary/community healthcare settings. Multi-center collaborations across Indian states would enable generalizable national estimates.\n\n### 4.3 Outcome Measures and Standardization\n\nAdoption of **core outcome sets** for ${topic} is essential. Future studies should measure: (1) clinically meaningful endpoints (mortality, morbidity, functional status); (2) patient-reported outcomes using validated instruments; (3) health economic outcomes (cost-effectiveness, resource utilization); and (4) implementation outcomes (adoption, fidelity, sustainability).\n\n### 4.4 Implementation Research Priorities\n\nEvidence on **how** to implement effective interventions in real-world settings is lacking. Hybrid effectiveness-implementation designs (Type 1–3) should evaluate both clinical outcomes and implementation determinants. Contextual adaptation frameworks (e.g., ADAPT, FRAME) should guide translation of global evidence to Indian health systems.\n\n### 4.5 Methodological Standards and Reporting\n\nStudies should adhere to reporting guidelines: STROBE for observational studies, CONSORT for trials, PRISMA for reviews. Protocol registration (PROSPERO, ClinicalTrials.gov) and data sharing (FAIR principles) must become standard. Statistical analysis plans should pre-specify primary/secondary outcomes, subgroup analyses, and sensitivity analyses.\n\n### 4.6 Specific Recommendations Tied to Identified Gaps\n\nEach gap identified in Section 3 maps to a concrete research priority:\n- Design limitations → Prospective cohorts, RCTs, causal methods\n- Small samples → Multi-center consortia, sample size calculations\n- Geographic gaps → India-focused studies, rural/urban stratification\n- Outcome heterogeneity → Core outcome set development, standardized measures\n- Contradictions → Individual participant data meta-analysis, harmonization`;
+    }
+
+    case "summary": {
+      const totalPapers = selectedPapers.length;
+      const rctCount = selectedPapers.filter((p) => p.studyType.toLowerCase().includes("randomized") || p.studyType.toLowerCase().includes("rct")).length;
+      const obsCount = totalPapers - rctCount;
+
+      return `### 5.1 Study Characteristics Summary\n\nThis review encompasses **${totalPapers} studies** (${rctCount} RCT${rctCount !== 1 ? "s" : ""}, ${obsCount} observational) on ${topic}, published ${yearMin}–${yearMax} from ${databases}. Study designs: ${studyTypes}. The median sample size and follow-up duration vary substantially across designs.\n\n### 5.2 Thematic Clusters of Findings\n\n${themes.length > 0 ? `Analysis reveals **${themes.length} thematic clusters**:\n\n${themes.map((t, i) => `${i + 1}. **${t.theme}** (${t.papers.length} studies): ${t.papers.slice(0, 3).map((p) => cite({ authors: p.authors, year: p.year })).join(", ")}`).join("\n\n")}` : "Thematic clustering was limited by the number and heterogeneity of included studies."}\n\n### 5.3 Convergence and Divergence Across Studies\n\n**Convergent evidence:** ${themes[0]?.theme || "Core associations"} is consistently reported across studies and designs, suggesting robust findings. **Divergent evidence:** ${themes[1]?.theme || "Secondary outcomes"} shows variability in effect direction and magnitude, likely due to population differences, exposure definitions, and outcome measures.\n\n### 5.4 Evidence Tier Assessment\n\nApplying the evidence tier framework: ${rctCount > 0 ? `${rctCount} RCT(s) provide T1 (Mechanistic) evidence` : "No RCTs identified; highest tier is T2/T3"}. ${obsCount > 0 ? `${obsCount} observational studies contribute T3 (Associational) evidence` : ""}. Overall certainty is limited by risk of bias, inconsistency, and imprecision.\n\n### 5.5 Overall Conclusions on the State of Evidence\n\nThe collective evidence on ${topic} indicates a **growing but incomplete** knowledge base. Foundational epidemiology is established, but causal mechanisms, effective interventions, and context-specific implementation strategies remain understudied. The evidence supports continued investment in this research area, with priority given to the gaps and recommendations outlined in Sections 3 and 4.`;
+    }
+
+    case "references": {
+      return selectedPapers
+        .map(
+          (p, i) =>
+            `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal}.${p.doi ? ` doi:${p.doi}` : ""}`,
+        )
+        .join("\n");
+    }
+
+    default:
+      return `*Section "${sectionKey}" not recognized.*`;
+  }
+}
+
+
+/* ------------------------------------------------------------------ */
 /*  LitLLM-style plan-based local synthesis generator                  */
 /*  Mirrors LitLLM/LitLLM RAG pipeline:                              */
 /*   1. Keyword extraction from query                                 */

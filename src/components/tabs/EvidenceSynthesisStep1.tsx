@@ -1,9 +1,29 @@
 "use client";
 
 import React from "react";
-import { Search, Database, ChevronRight, CheckSquare, Square, ExternalLink, Zap } from "lucide-react";
+import { Search, Database, ChevronRight, CheckSquare, Square, ExternalLink, Zap, Bot, Brain } from "lucide-react";
 import { type Paper } from "@/lib/database-apis";
 import { formatVancouverReference } from "@/lib/references";
+
+export interface ConceptBlock {
+  id: string;
+  label: string;
+  role: "condition" | "predictor" | "outcome" | "design";
+  required: boolean;
+  terms: string[];
+  meshTerms: string[];
+  synonyms: string[];
+  negated?: boolean;
+}
+
+export interface SearchStrategy {
+  conceptBlocks: ConceptBlock[];
+  pubmedQuery: string;
+  europePmcQuery: string;
+  crossrefQuery: string;
+  generatedBy: "ai" | "manual";
+  reasoning: string;
+}
 
 export interface EvidenceSynthesisStep1Props {
   databases: string[];
@@ -44,6 +64,12 @@ export interface EvidenceSynthesisStep1Props {
    *  would build it (concepts AND-ed, MeSH/synonyms OR-ed per concept). */
   keywordExtract: boolean;
   onKeywordExtractChange: (value: boolean) => void;
+  // AI Search Strategy
+  searchStrategy?: SearchStrategy | null;
+  showConceptBlocks?: boolean;
+  generatingStrategy?: boolean;
+  onGenerateAIStrategy?: () => void;
+  onToggleConceptBlocks?: () => void;
 }
 
 export default function EvidenceSynthesisStep1({
@@ -82,6 +108,11 @@ export default function EvidenceSynthesisStep1({
   onSemanticSearchChange,
   keywordExtract,
   onKeywordExtractChange,
+  searchStrategy,
+  showConceptBlocks,
+  generatingStrategy,
+  onGenerateAIStrategy,
+  onToggleConceptBlocks,
 }: EvidenceSynthesisStep1Props) {
   const getFilteredPapers = () => {
     return papers.filter((p) => {
@@ -137,7 +168,89 @@ export default function EvidenceSynthesisStep1({
           >
             {loading ? "Searching..." : "Search"}
           </button>
+          {onGenerateAIStrategy && (
+            <button
+              onClick={onGenerateAIStrategy}
+              disabled={loading || generatingStrategy}
+              className="bg-purple-500 hover:bg-purple-600 text-white font-bold px-6 py-2.5 rounded-lg disabled:opacity-50 flex items-center gap-2"
+            >
+              {generatingStrategy ? (
+                <>
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Bot size={16} />
+                  AI Search Strategy
+                </>
+              )}
+            </button>
+          )}
         </div>
+        {searchStrategy && (
+          <div className="mb-4 p-3 bg-purple-900/30 border border-purple-700/50 rounded-lg">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-purple-300 flex items-center gap-2">
+                <Brain size={14} />
+                AI-Generated Search Strategy
+                <span className="text-[10px] bg-purple-500/30 text-purple-200 px-1.5 py-0.5 rounded">AI Generated</span>
+              </span>
+              <button
+                onClick={onToggleConceptBlocks}
+                className="text-xs text-purple-400 hover:text-purple-200 flex items-center gap-1"
+              >
+                <ChevronRight size={12} className={showConceptBlocks ? "rotate-90" : ""} />
+                Concept Blocks
+              </button>
+            </div>
+            <div className="text-xs text-purple-200 mb-2">{searchStrategy.reasoning}</div>
+            <div className="grid grid-cols-3 gap-2 text-[10px]">
+              <div className="bg-purple-900/30 p-2 rounded border border-purple-700">
+                <div className="text-purple-300 font-medium">PubMed</div>
+                <div className="truncate">{searchStrategy.pubmedQuery}</div>
+              </div>
+              <div className="bg-purple-900/30 p-2 rounded border border-purple-700">
+                <div className="text-purple-300 font-medium">Europe PMC</div>
+                <div className="truncate">{searchStrategy.europePmcQuery}</div>
+              </div>
+              <div className="bg-purple-900/30 p-2 rounded border border-purple-700">
+                <div className="text-purple-300 font-medium">Crossref</div>
+                <div className="truncate">{searchStrategy.crossrefQuery}</div>
+              </div>
+            </div>
+            {showConceptBlocks && (
+              <div className="mt-3 space-y-2 border-t border-purple-700/50 pt-3">
+                {searchStrategy.conceptBlocks.map((concept, i) => (
+                  <div key={concept.id} className="bg-purple-900/20 border border-purple-700/30 rounded p-2">
+                    <div className="flex items-center gap-2 mb-1 text-[11px]">
+                      <span className="text-purple-300 font-mono">Concept {i+1}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${concept.role === "condition" ? "bg-blue-500/30 text-blue-300" : concept.role === "predictor" ? "bg-yellow-500/30 text-yellow-300" : concept.role === "outcome" ? "bg-emerald-500/30 text-emerald-300" : "bg-purple-500/30 text-purple-300"}`}>
+                        {concept.role}
+                      </span>
+                      <span className="text-[10px] text-blue-400">{concept.required ? "Required" : "Optional"}</span>
+                      {concept.negated && <span className="text-[10px] text-red-400">NOT</span>}
+                    </div>
+                    <div className="grid grid-cols-3 gap-1 text-[10px]">
+                      <div>
+                        <div className="text-purple-400/70">Terms</div>
+                        <div>{concept.terms.slice(0, 3).join(", ")}{concept.terms.length > 3 ? "..." : ""}</div>
+                      </div>
+                      <div>
+                        <div className="text-purple-400/70">MeSH</div>
+                        <div>{concept.meshTerms.slice(0, 3).join(", ")}{concept.meshTerms.length > 3 ? "..." : ""}</div>
+                      </div>
+                      <div>
+                        <div className="text-purple-400/70">Synonyms</div>
+                        <div>{concept.synonyms.slice(0, 3).join(", ")}{concept.synonyms.length > 3 ? "..." : ""}</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2 mb-4">
           <span className="text-xs text-blue-300">Boolean:</span>
           <div className="flex rounded-lg overflow-hidden border border-blue-800">
