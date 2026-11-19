@@ -40,7 +40,7 @@ import {
   buildQualityAssessment,
   buildEvidenceGradingSummary,
   type PRISMAFlowData,
-  type SearchStrategy,
+  type SearchStrategy as PrismaSearchStrategy,
   type IncludedStudy,
   type QualityAssessment,
 } from "@/lib/medical-skills/prisma-utils";
@@ -54,6 +54,7 @@ import {
   formatAgentsForPrompt,
   type ReviewFinding,
 } from "@/lib/academic-writing-agents";
+import { generateLocal } from "@/lib/local-llm";
 import {
   buildSTORMOutlinePrompt,
   buildSTORMOutlineDraftPrompt,
@@ -379,11 +380,41 @@ export default function EvidenceSynthesisTab() {
 
   // Lazy-load heavy doc exporters (docx/exceljs/pptxgenjs) on demand so they
   // never enter the initial preview bundle. They load on first export click.
-  const exportDoc = async (kind: "pdf" | "word" | "latex", content: string, filename: string) => {
+  const exportDoc = async (kind: "pdf" | "word" | "latex" | "pptx", content: string, filename: string) => {
     const mod = await import("@/lib/exporters");
     if (kind === "pdf") mod.downloadMarkdownAsPDF(content, filename);
     else if (kind === "word") await mod.downloadMarkdownAsWord(content, filename);
-    else mod.downloadMarkdownAsLaTeX(content, filename);
+    else if (kind === "latex") mod.downloadMarkdownAsLaTeX(content, filename);
+    else if (kind === "pptx") {
+      // Use native AI presentation generator (Gemini/Groq/local)
+      const synthesisRows = Array.isArray(extractedData) ? extractedData : [];
+      const selectedPapers = papers.filter((p) => selectedPaperIds.has(p.id));
+      await mod.downloadPPTXWithAI({
+        topic: query || "Evidence Synthesis",
+        synthesisRows: synthesisRows.map((r: any) => ({
+          reference: r.reference || r.title || "Unknown",
+          keyFindings: r.keyFindings || r.findings || "",
+          synopsis: r.synopsis || r.summary || "",
+          studyDetails: r.studyDetails || r.design || "",
+          researchGaps: r.researchGaps || r.gaps || "",
+        })),
+        selectedPapers: selectedPapers.map((p) => ({
+          title: p.title,
+          authors: p.authors,
+          journal: p.journal,
+          year: p.year,
+          doi: p.doi,
+        })),
+        template: "academic",
+        tone: "professional",
+        language: "English",
+        includeTitleSlide: true,
+        includeTableOfContents: true,
+        includeReferences: true,
+        maxSlides: 20,
+        // Provider and API key auto-detected from app state in the exporter
+      });
+    }
   };
 
   const manuscriptSlug = () => `${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}`;
@@ -396,6 +427,29 @@ export default function EvidenceSynthesisTab() {
   const [showVerifiedOnly, setShowVerifiedOnly] = useState(false);
   const [semanticSearch, setSemanticSearch] = useState(false);
   const [keywordExtract, setKeywordExtract] = useState(true);
+
+  // AI Search Strategy with Concept Blocks
+  interface ConceptBlock {
+    id: string;
+    label: string;
+    role: "condition" | "predictor" | "outcome" | "design";
+    required: boolean;
+    terms: string[];
+    meshTerms: string[];
+    synonyms: string[];
+    negated?: boolean;
+  }
+  interface SearchStrategy {
+    conceptBlocks: ConceptBlock[];
+    pubmedQuery: string;
+    europePmcQuery: string;
+    crossrefQuery: string;
+    generatedBy: "ai" | "manual";
+    reasoning: string;
+  }
+  const [searchStrategy, setSearchStrategy] = useState<SearchStrategy | null>(null);
+  const [showConceptBlocks, setShowConceptBlocks] = useState(false);
+  const [generatingStrategy, setGeneratingStrategy] = useState(false);
 
   const toggleDb = (db: string) => {
     setSelectedDbs((prev) =>
@@ -517,6 +571,104 @@ export default function EvidenceSynthesisTab() {
       setSearchError(`Search error: ${msg}`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // AI Search Strategy Generation with Concept Blocks
+  const buildSearchQueries = (concepts: ConceptBlock[]) => {
+    const required = concepts.filter(c => c.required && !c.negated);
+    const optional = concepts.filter(c => !c.required && !c.negated);
+    const negated = concepts.filter(c => c.negated);
+
+    const buildConceptQuery = (c: ConceptBlock) => {
+      const allTerms = [
+        ...c.terms,
+        ...c.meshTerms,
+        ...c.synonyms
+      ].filter(Boolean).map(t => `"${t}"`);
+      return allTerms.length > 1 ? `(${allTerms.join(" OR ")})` : allTerms[0] || "";
+    };
+
+    const requiredQuery = required.map(buildConceptQuery).filter(Boolean).join(" AND ");
+    const optionalQuery = optional.map(buildConceptQuery).filter(Boolean).join(" OR ");
+    const negatedQuery = negated.map(buildConceptQuery).filter(Boolean).map(q => `NOT ${q}`).join(" AND ");
+
+    const parts = [requiredQuery, optionalQuery, negatedQuery].filter(Boolean);
+    const baseQuery = parts.join(" AND ");
+
+    return {
+      pubmed: baseQuery,
+      europePmc: baseQuery,
+      crossref: baseQuery,
+    };
+  };
+
+  const generateAISearchStrategy = async () => {
+    if (!query.trim()) {
+      setSearchError("Please enter a research topic first.");
+      return;
+    }
+    setGeneratingStrategy(true);
+    setSearchError(null);
+
+    try {
+      const prompt = `You are an expert medical librarian. Extract search concept blocks for a systematic literature search on: "${query}"
+
+Create 3-5 concept blocks with:
+1. Condition/Disease concepts (required)
+2. Predictor/Exposure/Intervention concepts (required) 
+3. Outcome/Design filter concepts (optional)
+
+For each concept provide:
+- label: concise concept name
+- role: "condition" | "predictor" | "outcome" | "design"
+- required: boolean
+- terms: 5-10 specific search terms
+- meshTerms: relevant MeSH headings
+- synonyms: alternative terms/spellings
+
+Output as JSON array only. Example:
+[
+  {"id":"c1","label":"Cardiovascular-Kidney-Metabolic Syndrome","role":"condition","required":true,"terms":["CKM syndrome","cardiorenal-metabolic"],"meshTerms":["Metabolic Syndrome","Cardiorenal Syndrome"],"synonyms":["CKM"]},
+  {"id":"c2","label":"Predictors/Biomarkers","role":"predictor","required":true,"terms":["predictor*","risk factor*","biomarker*","FIB-4"],"meshTerms":["Biomarkers","Risk Factors"],"synonyms":["prognostic marker"]}
+]`;
+
+      let response: string;
+      const apiKey = state.geminiApiKey || state.groqApiKey || "";
+      const provider = state.geminiApiKey ? "gemini" : state.groqApiKey ? "groq" : "local";
+
+      if (provider === "gemini" && state.geminiApiKey) {
+        response = await callGemini(state.geminiApiKey, prompt);
+      } else if (provider === "groq" && state.groqApiKey) {
+        response = await callGroq(state.groqApiKey, prompt);
+      } else {
+        response = await generateLocal(prompt);
+      }
+
+      try {
+        const parsed = JSON.parse(response.match(/\[[\s\S]*\]/)?.[0] || "[]");
+        const concepts = parsed.map((c: any, i: number) => ({ ...c, id: c.id || `concept-${i}` })) as ConceptBlock[];
+        
+        const queries = buildSearchQueries(concepts);
+        const strategy: SearchStrategy = {
+          conceptBlocks: concepts,
+          pubmedQuery: queries.pubmed,
+          europePmcQuery: queries.europePmc,
+          crossrefQuery: queries.crossref,
+          generatedBy: "ai",
+          reasoning: `Generated ${concepts.length} concept blocks (${concepts.filter((c: ConceptBlock) => c.required).length} required, ${concepts.filter((c: ConceptBlock) => !c.required).length} optional, ${concepts.filter((c: ConceptBlock) => c.negated).length} excluded)`,
+        };
+        
+        setSearchStrategy(strategy);
+        setQuery(queries.pubmed); // Update the query with the AI-generated one
+        setShowConceptBlocks(true);
+      } catch {
+        setSearchError("Failed to parse AI response. Please try again.");
+      }
+    } catch (error) {
+      setSearchError(`AI strategy generation failed: ${error}`);
+    } finally {
+      setGeneratingStrategy(false);
     }
   };
 
@@ -2437,7 +2589,7 @@ ${stormReview}
       ],
     };
 
-    const strategies: SearchStrategy[] = (selectedDbs.length ? selectedDbs : ["—"]).map((db) => ({
+    const strategies: PrismaSearchStrategy[] = (selectedDbs.length ? selectedDbs : ["—"]).map((db) => ({
       database: db,
       dateSearched: new Date().toISOString().split("T")[0],
       dateRange: `${yearFrom || "no lower limit"} to ${yearTo || "present"}`,
@@ -2562,7 +2714,7 @@ ${stormReview}
 
   /** Per-database search strategy appendix (PRISMA-S style). */
   const downloadSearchStrategyMarkdown = () => {
-    const strategies: SearchStrategy[] = (selectedDbs.length ? selectedDbs : ["—"]).map((db) => ({
+    const strategies: PrismaSearchStrategy[] = (selectedDbs.length ? selectedDbs : ["—"]).map((db) => ({
       database: db,
       dateSearched: new Date().toISOString().split("T")[0],
       dateRange: `${yearFrom || "no lower limit"} to ${yearTo || "present"}`,
@@ -2787,6 +2939,11 @@ semanticSearch={semanticSearch}
                unverified: papers.filter((p) => !!p.doi && p.citationStatus !== "verified").length,
                noDoi: papers.filter((p) => !p.doi).length,
              }}
+            searchStrategy={searchStrategy}
+            showConceptBlocks={showConceptBlocks}
+            generatingStrategy={generatingStrategy}
+            onGenerateAIStrategy={generateAISearchStrategy}
+            onToggleConceptBlocks={() => setShowConceptBlocks(!showConceptBlocks)}
             />
         )}
 
@@ -4003,6 +4160,13 @@ semanticSearch={semanticSearch}
                           Export LaTeX
                         </button>
                         <button
+                          onClick={() => exportDoc("pptx", finalManuscript || manuscript, `academic-writing-agents-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pptx`)}
+                          className="flex items-center gap-1.5 bg-yellow-500/50 text-yellow-200 px-4 py-2 rounded-lg hover:bg-yellow-500/70 text-sm"
+                        >
+                          <Download size={14} />
+                          Export PPTX
+                        </button>
+                        <button
                           onClick={generateReview}
                           disabled={reviewLoading}
                           className="flex items-center gap-1.5 bg-indigo-900/50 text-indigo-200 px-4 py-2 rounded-lg hover:bg-indigo-800/70 text-sm disabled:opacity-50"
@@ -4090,6 +4254,13 @@ semanticSearch={semanticSearch}
                             >
                               <FileCode size={14} />
                               Export LaTeX
+                            </button>
+                            <button
+                              onClick={() => exportDoc("pptx", finalManuscript, `academic-writing-agents-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pptx`)}
+                              className="flex items-center gap-1.5 bg-yellow-500/50 text-yellow-200 px-4 py-2 rounded-lg hover:bg-yellow-500/70 text-sm"
+                            >
+                              <Download size={14} />
+                              Export PPTX
                             </button>
                           </div>
                         </div>
@@ -4273,6 +4444,13 @@ semanticSearch={semanticSearch}
                             >
                               <FileCode size={14} />
                               Export LaTeX
+                            </button>
+                            <button
+                              onClick={() => exportDoc("pptx", stormFinal, `storm-final-${reviewType.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pptx`)}
+                              className="flex items-center gap-1.5 bg-yellow-500/50 text-yellow-200 px-4 py-2 rounded-lg hover:bg-yellow-500/70 text-sm"
+                            >
+                              <Download size={14} />
+                              Export PPTX
                             </button>
                           </div>
                         </div>

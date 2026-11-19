@@ -12,6 +12,26 @@
 // ---------------------------------------------------------------------------
 
 const MESH_MAP: Record<string, { mesh: string[]; narrower: string[]; synonyms: string[] }> = {
+  typhoid: {
+    mesh: ["Typhoid Fever"],
+    narrower: ["typhoid fever", "paratyphoid fever", "salmonella typhi", "salmonella paratyphi", "enteric fever"],
+    synonyms: ["typhoid", "typhoid fever", "enteric fever", "salmonella typhi"],
+  },
+  vaccine: {
+    mesh: ["Vaccines"],
+    narrower: ["typhoid vaccines", "conjugate vaccines", "inactivated vaccines", "live attenuated vaccines", "vaccine efficacy", "vaccine effectiveness", "immunization", "vaccination"],
+    synonyms: ["vaccine", "vaccines", "vaccination", "immunization", "immunisation", "inoculation"],
+  },
+  vaccination: {
+    mesh: ["Vaccination"],
+    narrower: ["mass vaccination", "childhood vaccination", "routine immunization", "catch-up vaccination", "vaccination coverage"],
+    synonyms: ["vaccination", "immunization", "immunisation", "inoculation", "vaccine administration"],
+  },
+  india: {
+    mesh: ["India"],
+    narrower: ["north india", "south india", "rural india", "urban india", "indian subcontinent"],
+    synonyms: ["india", "indian", "bharat"],
+  },
   cancer: {
     mesh: ["Neoplasms", "Carcinoma", "Malignancy"],
     narrower: ["tumor", "tumour", "carcinoma", "sarcoma", "leukemia", "lymphoma", "melanoma", "glioblastoma", "astrocytoma"],
@@ -210,6 +230,11 @@ const TRUNCATION_ROOTS: Record<string, string[]> = {
 // ---------------------------------------------------------------------------
 
 const ATM_MAP: Record<string, string> = {
+  "typhoid fever": "typhoid",
+  "enteric fever": "typhoid",
+  "salmonella typhi": "typhoid",
+  "typhoid vaccine": "typhoid",
+  "tcV": "typhoid",
   "high blood pressure": "hypertension",
   "high bp": "hypertension",
   "blood pressure": "hypertension",

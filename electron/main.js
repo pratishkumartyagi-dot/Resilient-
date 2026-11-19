@@ -57,13 +57,6 @@ async function startServer() {
   const port = await getFreePort();
   serverPort = port;
 
-  let nextBin;
-  try {
-    nextBin = require.resolve("next/dist/bin/next", { paths: [appDir] });
-  } catch (e) {
-    throw new Error("Could not locate the Next.js server inside the app.\n" + ((e && e.message) || e));
-  }
-
   const logPath = path.join(app.getPath("userData"), "startup.log");
   const output = [];
   const record = (text) => {
@@ -76,10 +69,28 @@ async function startServer() {
     log(`[next] ${s}`);
   };
 
-  log(`Starting Next server: ${nextBin} on 127.0.0.1:${port}`);
+  // Check for standalone output (server.js in appDir)
+  const standaloneServer = path.join(appDir, "server.js");
+  let serverEntry = standaloneServer;
+  let args = ["-H", "127.0.0.1", "-p", String(port)];
+
+  // If standalone server.js doesn't exist, try next start
+  const fs = require("fs");
+  if (!fs.existsSync(standaloneServer)) {
+    let nextBin;
+    try {
+      nextBin = require.resolve("next/dist/bin/next", { paths: [appDir] });
+      serverEntry = nextBin;
+      args = ["start", "-H", "127.0.0.1", "-p", String(port)];
+    } catch (e) {
+      throw new Error("Could not locate the Next.js server inside the app.\n" + ((e && e.message) || e));
+    }
+  }
+
+  log(`Starting Next server: ${serverEntry} on 127.0.0.1:${port}`);
   serverProcess = spawn(
     process.execPath,
-    [nextBin, "start", "-H", "127.0.0.1", "-p", String(port)],
+    [serverEntry, ...args],
     {
       cwd: appDir,
       env: {
