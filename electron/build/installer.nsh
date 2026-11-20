@@ -11,7 +11,7 @@
 Var PreviousDirectory
 
 ; Window title for all pages
-nsis Caption"Resilient Research App Setup"
+Caption "Resilient Research App Setup"
 
 ; Welcome page - show additional info
 Function WelcomePagePre

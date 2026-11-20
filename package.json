@@ -14,7 +14,7 @@
     "electron": "next build && electron .",
     "electron:run": "electron .",
     "dist": "next build && electron-builder --publish never",
-    "dist:win": "next build --webpack && electron-builder --win --publish never",
+    "dist:win": "next build && electron-builder --win --publish never",
     "dist:mac": "next build && electron-builder --mac --publish never",
     "dist:linux": "next build && electron-builder --linux --publish never",
     "dist:dir": "next build && electron-builder --dir --publish never"

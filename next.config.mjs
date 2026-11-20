@@ -6,6 +6,7 @@ const nextConfig = {
   compress: true,
   poweredByHeader: false,
   output: 'standalone',
+  serverExternalPackages: ['sharp', 'docx'],
 };
 
 export default nextConfig;
