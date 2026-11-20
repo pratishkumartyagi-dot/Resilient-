@@ -11,7 +11,7 @@
 Var PreviousDirectory
 
 ; Window title for all pages
-!define MUI_WINDOW_TITLE "Welcome to Resilient Research App Setup"
+nsis Caption"Resilient Research App Setup"
 
 ; Welcome page - show additional info
 Function WelcomePagePre
