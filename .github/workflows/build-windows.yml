@@ -10,10 +10,37 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install
-      - run: bun run dist:win
-      - uses: actions/upload-artifact@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies (npm)
+        run: npm install
+        shell: bash
+
+      - name: Build Next.js app
+        run: npm run build
+        shell: bash
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+
+      - name: Package Electron app
+        run: npm run dist:win
+        shell: bash
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+
+      - name: List artifacts
+        run: Get-ChildItem -Path dist-electron -Recurse -File | Select-Object Name, Length, FullName
+        shell: pwsh
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: dist-electron/*.exe
+          path: |
+            dist-electron/*.exe
+            dist-electron/*.nsis*
+          retention-days: 30

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0a1a3a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e3a8a;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#facc15;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#f59e0b;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <!-- Background circle -->
+  <circle cx="128" cy="128" r="120" fill="url(#bg)" stroke="url(#accent)" stroke-width="4"/>
+  <!-- DNA double helix -->
+  <g stroke="url(#accent)" stroke-width="3" fill="none">
+    <path d="M 128 30 Q 160 50 128 70 Q 96 90 128 110 Q 160 130 128 150 Q 96 170 128 190 Q 160 210 128 230"/>
+    <path d="M 128 30 Q 96 50 128 70 Q 160 90 128 110 Q 96 130 128 150 Q 160 170 128 190 Q 96 210 128 230"/>
+  </g>
+  <!-- Base pairs -->
+  <g stroke="#ffffff" stroke-width="2">
+    <line x1="98" y1="50" x2="158" y2="50"/>
+    <line x1="98" y1="90" x2="158" y2="90"/>
+    <line x1="98" y1="130" x2="158" y2="130"/>
+    <line x1="98" y1="170" x2="158" y2="170"/>
+    <line x1="98" y1="210" x2="158" y2="210"/>
+  </g>
+  <!-- Center dot -->
+  <circle cx="128" cy="128" r="6" fill="url(#accent)"/>
+  <!-- Outer ring -->
+  <circle cx="128" cy="128" r="110" fill="none" stroke="url(#accent)" stroke-width="2" stroke-dasharray="8,4"/>
+  <!-- Text "R" -->
+  <text x="128" y="138" font-family="Arial, sans-serif" font-size="48" font-weight="bold" fill="#facc15" text-anchor="middle" dominant-baseline="middle">R</text>
+</svg>
