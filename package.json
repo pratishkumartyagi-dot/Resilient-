@@ -7,17 +7,17 @@
   "main": "electron/main.js",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "electron": "next build && electron .",
+    "electron": "next build --webpack && electron .",
     "electron:run": "electron .",
-    "dist": "next build && electron-builder --publish never",
-    "dist:win": "next build && electron-builder --win --publish never",
-    "dist:mac": "next build && electron-builder --mac --publish never",
-    "dist:linux": "next build && electron-builder --linux --publish never",
-    "dist:dir": "next build && electron-builder --dir --publish never"
+    "dist": "next build --webpack && electron-builder --publish never",
+    "dist:win": "next build --webpack && electron-builder --win --publish never",
+    "dist:mac": "next build --webpack && electron-builder --mac --publish never",
+    "dist:linux": "next build --webpack && electron-builder --linux --publish never",
+    "dist:dir": "next build --webpack && electron-builder --dir --publish never"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
@@ -102,17 +102,61 @@
       "icon": "electron/build/icon.ico",
       "signAndEditExecutable": false
     },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Resilient Research App",
+      "uninstallDisplayName": "Resilient Research App",
+      "license": "electron/build/license.txt",
+      "installerIcon": "electron/build/icon.ico",
+      "uninstallerIcon": "electron/build/icon.ico",
+      "installerHeaderIcon": "electron/build/icon.ico",
+      "include": "electron/build/installer.nsh",
+      "artifactName": "Resilient-Research-App-Setup-${version}.exe"
+    },
     "mac": {
       "target": [
-        "dmg"
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
+      "icon": "electron/build/icon.icns",
       "category": "public.app-category.productivity"
+    },
+    "dmg": {
+      "title": "Resilient Research App",
+      "icon": "electron/build/icon.icns",
+      "artifactName": "Resilient-Research-App-${version}.dmg"
     },
     "linux": {
       "target": [
-        "AppImage"
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
-      "category": "Science"
+      "icon": "electron/build/icon.png",
+      "category": "Office",
+      "artifactName": "Resilient-Research-App-${version}.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "pratishkumartyagi-dot",
+      "repo": "Resilient-"
     }
   }
 }

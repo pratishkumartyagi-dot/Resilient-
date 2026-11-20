@@ -3,6 +3,9 @@
 
 !include "MUI2.nsh"
 
+; Welcome page title - override default MUI_TEXT_WELCOME_INFO_TITLE
+!define MUI_TEXT_WELCOME_INFO_TITLE "Welcome to Resilient Research App Setup"
+
 ; Custom pages
 !define MUI_PAGE_CUSTOMFUNCTION_PRE WelcomePagePre
 !define MUI_PAGE_CUSTOMFUNCTION_LEAVE DirectoryPageLeave
@@ -12,8 +15,7 @@ Var PreviousDirectory
 
 ; Welcome page - show additional info
 Function WelcomePagePre
-  ; Set window title
-  !insertmacro MUI_SETWINDOWTITLE "Welcome to Resilient Research App Setup"
+  ; Window title is set at compile-time via MUI_TEXT_WELCOME_INFO_TITLE above
 FunctionEnd
 
 ; Directory page - validate directory
