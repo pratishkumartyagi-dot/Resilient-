@@ -48,7 +48,7 @@ NoDesktopShortcut:
 SectionEnd
 
 ; Function to check if app is running
-Function IsAppRunning
+Function un.IsAppRunning
   Push $0
   Push $1
   FindWindow $0 "Resilient Research App" $1
@@ -66,7 +66,7 @@ FunctionEnd
 
 ; Pre-uninstall: check if app is running
 Function un.onInit
-  Call IsAppRunning
+  Call un.IsAppRunning
   Pop $0
   StrCmp $0 "1" AppRunning NotRunning
 AppRunning:
