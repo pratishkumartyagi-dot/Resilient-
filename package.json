@@ -1,6 +1,6 @@
 {
   "name": "resilient-research-app",
-  "version": "0.8.6",
+  "version": "0.9.3",
   "private": true,
   "description": "AI-powered research intelligence platform for systematic reviews, evidence synthesis, and academic writing.",
   "author": "Resilient Research App",
@@ -54,22 +54,52 @@
   "build": {
     "appId": "com.resilient.researchapp",
     "productName": "Resilient Research App",
-    "asar": false,
+    "copyright": "Copyright © 2024 Resilient Research Team",
+    "asar": true,
     "directories": {
-      "output": "dist-electron"
+      "output": "dist-electron",
+      "buildResources": "electron/build"
     },
     "files": [
       "**/*",
-      "!**/.next/cache/**",
-      "!dist-electron/**",
-      "!.git/**",
-      "!.kilocode/**"
+      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+      "!**/node_modules/*.d.ts",
+      "!**/node_modules/.bin",
+      "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}",
+      "!**/.next/**",
+      "!**/.next/cache/**"
+    ],
+    "extraResources": [
+      {
+        "from": ".next/standalone",
+        "to": "."
+      },
+      {
+        "from": ".next/static",
+        "to": ".next/static"
+      },
+      {
+        "from": "public",
+        "to": "public"
+      }
     ],
     "win": {
       "target": [
-        "nsis",
-        "portable"
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
+      "icon": "electron/build/icon.ico",
       "signAndEditExecutable": false
     },
     "mac": {
