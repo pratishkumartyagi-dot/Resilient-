@@ -114,5 +114,12 @@
       ],
       "category": "Science"
     }
+  },
+  "allowScripts": {
+    "electron-winstaller": true,
+    "onnxruntime-node": true,
+    "protobufjs": true,
+    "sharp": true,
+    "unrs-resolver": true
   }
 }
