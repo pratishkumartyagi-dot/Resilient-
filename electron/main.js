@@ -11,9 +11,12 @@ let serverProcess = null;
 let inProcessServer = null;
 let serverPort = 0;
 
-// The packaged app files live next to this "electron" folder (resources/app),
-// and in development __dirname is <project>/electron, so ".." resolves in both.
-const appDir = path.join(__dirname, "..");
+// In production the app is packaged into resources/app.asar, while extraResources
+// (server.js, .next, node_modules) are placed directly in resources/.
+// In development __dirname is <project>/electron, so ".." resolves to the project root.
+const appDir = app.isPackaged
+  ? path.join(__dirname, "..", "..")
+  : path.join(__dirname, "..");
 
 function log(message) {
   const line = `[${new Date().toISOString()}] ${message}`;
