@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { ChevronRight, Sparkles } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
+import { callAiWithFallback, type AICallOptions } from "@/lib/ai";
 import { buildStep8Prompt } from "@/lib/research-skills";
 
 export default function Step8AimObjectives() {
@@ -69,17 +69,9 @@ export default function Step8AimObjectives() {
 
       let responseText: string = "";
       try {
-        responseText = await callGemini(state.geminiApiKey || "", prompt, searchOptions);
+        responseText = await callAiWithFallback(prompt, searchOptions);
       } catch {
-        try {
-          responseText = await callGroq(state.groqApiKey || "", prompt, searchOptions);
-        } catch {
-          try {
-            responseText = await callDeepSeek(prompt, searchOptions);
-          } catch {
-            responseText = "";
-          }
-        }
+        responseText = "";
       }
 
       if (!responseText.trim()) {

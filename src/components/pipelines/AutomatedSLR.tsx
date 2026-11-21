@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback } from "react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
+import { callAiWithFallback, type AICallOptions } from "@/lib/ai";
 import {
   Microscope, Search, Database, List, CheckCircle2, X,
   ChevronRight, ChevronLeft, Filter, ShieldAlert, BarChart3,
@@ -88,11 +88,9 @@ export default function AutomatedSLR() {
   const callAi = useCallback(
     async (prompt: string): Promise<string> => {
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: state.searchQuery };
-      if (state.geminiApiKey) return callGemini(state.geminiApiKey, prompt, searchOptions);
-      if (state.groqApiKey) return callGroq(state.groqApiKey, prompt, searchOptions);
-      return callDeepSeek(prompt, searchOptions);
+      return callAiWithFallback(prompt, searchOptions);
     },
-    [state.geminiApiKey, state.groqApiKey, state.searchQuery]
+    [state.searchQuery]
   );
   const [searching, setSearching] = useState(false);
   const [extracting, setExtracting] = useState(false);
@@ -225,7 +223,7 @@ export default function AutomatedSLR() {
     const fullPrompt = `${systemPrompt}\n\n${buildReportingPrompt(question, included, state.slrResults || "")}`;
 
     try {
-      const res = await callGemini(state.geminiApiKey || "", fullPrompt, {
+      const res = await callAiWithFallback(fullPrompt, {
         searchEnabled: false,
       });
       dispatch({ type: "SET_SLR_RESULTS", payload: res });

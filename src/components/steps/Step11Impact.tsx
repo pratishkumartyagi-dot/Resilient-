@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from "react";
 import { Sparkles, Trophy, Download, Share2, ArrowLeft, CheckCircle, Info } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
+import { callAiWithFallback } from "@/lib/ai";
 import { downloadMarkdownAsWord } from "@/lib/exporters";
 
 const generateMockImpactAssessment = (): string => {
@@ -151,17 +151,9 @@ export default function Step11Impact() {
     let text = "";
     try {
       try {
-        text = await callGemini(state.geminiApiKey || "", prompt);
+        text = await callAiWithFallback(prompt);
       } catch {
-        try {
-          text = await callGroq(state.groqApiKey || "", prompt);
-        } catch {
-          try {
-            text = await callDeepSeek(prompt);
-          } catch {
-            text = "";
-          }
-        }
+        text = "";
       }
     } catch {
       text = "";

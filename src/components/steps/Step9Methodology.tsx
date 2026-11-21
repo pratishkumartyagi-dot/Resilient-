@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { ChevronRight, Plus, Trash2, Calculator, FlaskConical, ExternalLink, Sparkles } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
+import { callAiWithFallback, type AICallOptions } from "@/lib/ai";
 import { buildStep9Prompt } from "@/lib/research-skills";
 
 const DEFAULT_OUTCOMES = ["LTBI conversion rate (IGRA pos/neg)", "Completion rate of IPT regimen", "Cost per QALY gained", "HCW satisfaction score (0–100 Likert scale)"];
@@ -118,17 +118,9 @@ export default function Step9Methodology() {
 
       let responseText: string = "";
       try {
-        responseText = await callGemini(state.geminiApiKey || "", prompt, searchOptions);
+        responseText = await callAiWithFallback(prompt, searchOptions);
       } catch {
-        try {
-          responseText = await callGroq(state.groqApiKey || "", prompt, searchOptions);
-        } catch {
-          try {
-            responseText = await callDeepSeek(prompt, searchOptions);
-          } catch {
-            responseText = "";
-          }
-        }
+        responseText = "";
       }
 
       if (!responseText.trim()) {
