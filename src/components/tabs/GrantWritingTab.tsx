@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { Sparkles, ChevronRight, Download, FlaskConical, FileText, Info, CheckCircle } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
+import { callAiWithFallback } from "@/lib/ai";
 import { downloadMarkdownAsWord, downloadMarkdownAsPDF } from "@/lib/exporters";
 
 const FUNDERS = [
@@ -233,9 +233,7 @@ export default function GrantWritingTab() {
 
     let text = "";
     try {
-      if (state.geminiApiKey) text = await callGemini(state.geminiApiKey, prompt);
-      else if (state.groqApiKey) text = await callGroq(state.groqApiKey, prompt);
-      else text = await callDeepSeek(prompt);
+      text = await callAiWithFallback(prompt);
     } catch {
       text = "";
     }

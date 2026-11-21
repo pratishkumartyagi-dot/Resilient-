@@ -15,7 +15,7 @@ import {
   FileCheck2,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
+import { callAiWithFallback, type AICallOptions } from "@/lib/ai";
 import { buildStep10Prompt } from "@/lib/research-skills";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
 import { downloadMarkdownAsWord } from "@/lib/exporters";
@@ -93,19 +93,8 @@ ${historyText}
 ${userMessage}`;
 };
 
-async function callAIChat(prompt: string, options: AICallOptions, geminiKey: string, groqKey: string): Promise<string> {
-  let responseText: string;
-  if (geminiKey) {
-    responseText = await callGemini(geminiKey, prompt, options);
-  } else if (groqKey) {
-    responseText = await callGroq(groqKey, prompt, options);
-  } else {
-    responseText = await callDeepSeek(prompt, options);
-  }
-  if (!responseText.trim()) {
-    throw new Error("The AI model returned an empty response");
-  }
-  return responseText;
+async function callAIChat(prompt: string, options: AICallOptions): Promise<string> {
+  return await callAiWithFallback(prompt, options);
 }
 
 function buildDocumentSources(documentContent: string, uploadedFileName: string): Message["sources"] {
@@ -228,7 +217,7 @@ export default function ProtocolChatTab() {
           : buildDefaultPrompt(currentInput, documentContent, historyForPrompt);
 
       try {
-        responseText = await callAIChat(prompt, searchOptions, state.geminiApiKey, state.groqApiKey);
+        responseText = await callAIChat(prompt, searchOptions);
       } catch {
         usedFallback = true;
         responseText = generateProtocolResponse(currentInput, documentContent);
@@ -294,7 +283,7 @@ export default function ProtocolChatTab() {
       let usedFallback = false;
       let failureReason = "";
       try {
-        responseText = await callAIChat(genPrompt, genSearchOptions, state.geminiApiKey, state.groqApiKey);
+        responseText = await callAIChat(genPrompt, genSearchOptions);
       } catch (aiErr) {
         usedFallback = true;
         failureReason = aiErr instanceof Error ? aiErr.message : "AI providers unavailable";

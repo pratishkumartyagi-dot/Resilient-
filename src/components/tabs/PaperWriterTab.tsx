@@ -21,7 +21,7 @@ import {
   Check,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
+import { callAiWithFallback, type AICallOptions } from "@/lib/ai";
 import { downloadMarkdownAsWord, downloadMarkdownAsPDF } from "@/lib/exporters";
 import {
   ARS_MODES,
@@ -168,17 +168,9 @@ export default function PaperWriterTab() {
         searchEnabled: false,
         searchQuery: state.searchQuery,
       };
-      let text = "";
-      try {
-        if (state.geminiApiKey) text = await callGemini(state.geminiApiKey, prompt, options);
-        else if (state.groqApiKey) text = await callGroq(state.groqApiKey, prompt, options);
-        else text = await callDeepSeek(prompt, options);
-      } catch {
-        text = "";
-      }
-      return text;
+      return await callAiWithFallback(prompt, options);
     },
-    [state.geminiApiKey, state.groqApiKey, state.searchQuery]
+    [state.searchQuery]
   );
 
   // Search references from the app's own databases (uses From/To year bounds).

@@ -9,7 +9,7 @@ import {
   Bot, ShieldCheck, Loader2, Zap
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
+import { callAiWithFallback, type AICallOptions } from "@/lib/ai";
 import { type Paper } from "@/lib/database-apis";
 import { generateLocalLiteratureReview, generateLitLLMSynthesis } from "@/lib/local-synthesis";
 import {
@@ -1036,7 +1036,7 @@ Studies:
 ${studyList}
 
 Return a concise markdown report with a "## PROBAST+AI Assessment" heading and a per-study bullet list.`;
-          const content = state.geminiApiKey ? await callGemini(state.geminiApiKey, prompt) : await callGroq(state.groqApiKey!, prompt);
+          const content = await callAiWithFallback(prompt);
           if (content) {
             setProbastAnalysis(content);
             return;

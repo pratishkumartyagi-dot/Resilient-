@@ -7,7 +7,7 @@ import {
   Download, ToggleLeft, FileSpreadsheet, AlertCircle, Zap
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
+import { callAiWithFallback } from "@/lib/ai";
 
 // Lazy-load heavy doc exporters on demand so docx stays out of the initial
 // preview bundle.
@@ -275,11 +275,8 @@ export default function PredictiveAnalysisTab() {
 
   const runAi = async (prompt: string, fallback: string): Promise<string> => {
     try {
-      let response = "";
-      if (state.geminiApiKey) response = await callGemini(state.geminiApiKey, prompt);
-      else if (state.groqApiKey) response = await callGroq(state.groqApiKey, prompt);
-      else response = await callDeepSeek(prompt);
-      const trimmed = (response ?? "").trim();
+      const response = await callAiWithFallback(prompt);
+      const trimmed = response.trim();
       return trimmed || fallback;
     } catch {
       return fallback;
