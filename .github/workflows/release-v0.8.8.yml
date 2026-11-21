@@ -1,0 +1,37 @@
+name: Release v0.8.8
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        run: npm ci
+      - name: Build Next.js
+        run: npm run build
+      - name: Build Windows installer
+        run: npx electron-builder --win --x64 --publish never
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.8.8
+          name: v0.8.8
+          body: |
+            Release v0.8.8 — AI fallback, PPT Generator, Thesis Generator, DB fixes
+          files: |
+            dist-electron/Resilient Research App Setup 0.8.8.exe
+            dist-electron/resilient-research-app-0.8.8-x64.nsis.7z
+          draft: false
+          prerelease: false
