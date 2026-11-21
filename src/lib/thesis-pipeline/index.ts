@@ -87,10 +87,20 @@ export async function runThesisPipeline(
     }
   }
 
-  onProgress?.("prose", `Generating prose for ${outline.chapters.length} chapters...`);
+  const chapters: ChapterFile[] = outline.chapters.map((ch, i) => ({
+    chapterNumber: ch.number || i + 1,
+    chapterTitle: ch.title || `Chapter ${i + 1}`,
+    content: (ch as any).content || "",
+    sections: Array.isArray(ch.sections) ? ch.sections : [],
+    wordCount: (ch as any).wordCount || 0,
+    citations: [],
+    argumentAudit: { claims: [], evidenceGaps: [], logicalFlowScore: 0, citationCoverage: 0, recommendations: [] },
+  }));
+
+  onProgress?.("prose", `Generating prose for ${chapters.length} chapters...`);
   // Stage 3: Refine via ScholarCopilot (replaces heavy per‑chapter AI loops)
   const refineResult = await scholarCopilot({
-    chapters: outline.chapters,
+    chapters,
     papers,
     config: { topic: config.topic, level: config.level, style: config.style },
     wordTargets,
@@ -98,7 +108,7 @@ export async function runThesisPipeline(
     onProgress: (msg) => onProgress?.("refine", msg),
   });
   subResults.refine = refineResult.subResult;
-  let chapters: ChapterFile[] = refineResult.chapters;
+  const refinedChapters: ChapterFile[] = refineResult.chapters;
 
   // Stage 4: Build references after the conclusion
   const references = papers.slice(0, config.maxReferences || 150);
@@ -119,7 +129,7 @@ export async function runThesisPipeline(
   const stats: any = {
     totalWords: fullThesis.split(/\s+/).filter(Boolean).length,
     totalReferences: references.length,
-    totalChapters: chapters.length,
+    totalChapters: refinedChapters.length,
     generationTimeMs: Date.now() - start,
   };
 
@@ -135,7 +145,7 @@ export async function runThesisPipeline(
     outline,
     fullThesis,
     markdownOutline,
-    chapters,
+    chapters: refinedChapters,
     references,
     papers,
     stats,

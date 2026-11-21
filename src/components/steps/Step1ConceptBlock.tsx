@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef } from "react";
+import { useApp } from "@/context/AppContext";
 import { callAiWithFallback } from "@/lib/ai";
 
 export default function Step1ConceptBlock() {
@@ -9,7 +10,7 @@ export default function Step1ConceptBlock() {
   const [finalised, setFinalised] = useState("");
   const [conceptBlock, setConceptBlock] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const handleGenerate = async () => {
     if (!query.trim() || !finalised.trim()) {

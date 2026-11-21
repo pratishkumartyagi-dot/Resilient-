@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef } from "react";
 import {
   Upload,
   FileText,
@@ -28,7 +28,7 @@ export default function PptGenerator() {
   const [mode, setMode] = useState<"upload" | "generate">("upload");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pptxBase64, setPptxBase64] = useState<string | null>(null); // base64 PPTX
+  const [pptxBlob, setPptxBlob] = useState<Blob | null>(null);
   const [figurePrompts, setFigurePrompts] = useState<string[]>([]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -118,7 +118,7 @@ export default function PptGenerator() {
       }
 
       // Build PPTX using pptxgenjs
-      const pptxGen = new PptxGenJS({});
+      const pptxGen = new PptxGenJS();
       slideContents.forEach((sc, i) => {
         const slide = pptxGen.addSlide();
         slide.addText(sc.title, { x: 1, y: 1, fontSize: 24 });
@@ -135,13 +135,10 @@ export default function PptGenerator() {
       });
 
       // Generate download blob
-      const blob = await pptxGen.writeBuffer({ bookType: "pptx" });
-      const base64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string || "");
-        reader.readAsDataURL(blob);
-      });
-      setPptxBase64(base64);
+      // PptxGenJS.write() in browser returns a Blob directly; writeBuffer not available
+      const result = await pptxGen.write({ outputType: "blob" });
+      const blob = result instanceof Blob ? result : new Blob([result as any]);
+      setPptxBlob(blob);
       setLoading(false);
     } catch (err: any) {
       console.error("PPT generation error:", err);
@@ -151,9 +148,10 @@ export default function PptGenerator() {
   };
 
   const downloadPptx = () => {
-    if (!pptxBase64) return;
+    if (!pptxBlob) return;
+    const url = URL.createObjectURL(pptxBlob);
     const link = document.createElement("a");
-    link.href = pptxBase64;
+    link.href = url;
     link.download = "generated-pptx.pptx";
     document.body.appendChild(link);
     link.click();
@@ -213,7 +211,7 @@ export default function PptGenerator() {
         )}
 
         {/* Result */}
-        {pptxBase64 && (
+        {pptxBlob && (
           <div>
             <p className="text-green-400 mb-2">PPTX generated successfully</p>
             <button onClick={downloadPptx} className="bg-green-600 hover:bg-green-700 text-white font-bold px-5 py-2 rounded">
