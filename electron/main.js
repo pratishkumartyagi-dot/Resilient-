@@ -14,7 +14,9 @@ let serverPort = 0;
 // In production the app is packaged into resources/app.asar, while extraResources
 // (server.js, .next, node_modules) are placed directly in resources/.
 // In development __dirname is <project>/electron, so ".." resolves to the project root.
-const appDir = path.join(__dirname, "..");
+const appDir = app.isPackaged
+  ? path.join(__dirname, "..", "..")  // resources/
+  : path.join(__dirname, "..");        // project root
 
 function log(message) {
   const line = `[${new Date().toISOString()}] ${message}`;
