@@ -14,9 +14,19 @@ let serverPort = 0;
 // In production the app is packaged into resources/app.asar, while extraResources
 // (server.js, .next, node_modules) are placed directly in resources/.
 // In development __dirname is <project>/electron, so ".." resolves to the project root.
-const appDir = app.isPackaged
-  ? path.join(__dirname, "..", "..")  // resources/
-  : path.join(__dirname, "..");        // project root
+const resourcesDir = path.join(__dirname, "..", "..");  // resources/ in packaged app
+const projectDir = path.join(__dirname, "..");          // project root in development
+
+// Use resources/ if server.js was placed there by electron-builder's extraResources,
+// otherwise fall back to the project root (development).
+let appDir = projectDir;
+try {
+  if (fs.existsSync(path.join(resourcesDir, "server.js"))) {
+    appDir = resourcesDir;
+  }
+} catch {
+  // fs check failed, use project root
+}
 
 function log(message) {
   const line = `[${new Date().toISOString()}] ${message}`;
