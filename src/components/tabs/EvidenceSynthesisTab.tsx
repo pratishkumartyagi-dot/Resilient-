@@ -1250,11 +1250,9 @@ object per paper. Each object MUST have exactly these keys:
 
       let text: string;
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
-      if (state.geminiApiKey) {
-        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
-      } else if (state.groqApiKey) {
-        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
-      } else {
+      try {
+        text = await callAiWithFallback(prompt, searchOptions);
+      } catch {
         throw new Error("No API key configured. Please open Settings (gear icon).");
       }
 
@@ -1399,7 +1397,7 @@ Return ONLY a markdown table with these exact columns:
 Extraction and synthesis tooling you may reference in the notes column (awesome-evidence-synthesis):
 ${buildSynthesisToolReference()}`;
 
-      const response = state.geminiApiKey ? await callGemini(state.geminiApiKey, prompt) : state.groqApiKey ? await callGroq(state.groqApiKey!, prompt) : await callDeepSeek(prompt);
+      const response = await callAiWithFallback(prompt);
 
       const tableText = response || "No table generated.";
       const rows = parseSynthesisTable(tableText);
@@ -1646,11 +1644,9 @@ At the end, include a References section with all papers in Vancouver style:
 
       let text: string;
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
-      if (state.geminiApiKey) {
-        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
-      } else if (state.groqApiKey) {
-        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
-      } else {
+      try {
+        text = await callAiWithFallback(prompt, searchOptions);
+      } catch {
         throw new Error("No API key configured. Please open Settings (gear icon).");
       }
 
@@ -1983,12 +1979,10 @@ ${isNarrative ? `## Evidence Synthesis
 
       let text: string;
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
-      if (state.geminiApiKey) {
-        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
-      } else if (state.groqApiKey) {
-        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
-      } else {
-        text = await callDeepSeek(prompt, searchOptions);
+      try {
+        text = await callAiWithFallback(prompt, searchOptions);
+      } catch {
+        text = "";
       }
 
         const cleaned = text.replace(/```markdown/g, "").replace(/```/g, "").trim();
@@ -2088,11 +2082,9 @@ ${buildReportingToolReference()}`;
 
       let text: string;
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
-      if (state.geminiApiKey) {
-        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
-      } else if (state.groqApiKey) {
-        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
-      } else {
+      try {
+        text = await callAiWithFallback(prompt, searchOptions);
+      } catch {
         throw new Error("No API key configured. Please open Settings (gear icon).");
       }
 
@@ -2128,11 +2120,9 @@ ${buildReportingToolReference()}`;
 
       let text: string;
       const searchOptions: AICallOptions = { searchEnabled: false, searchQuery: query };
-      if (state.geminiApiKey) {
-        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
-      } else if (state.groqApiKey) {
-        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
-      } else {
+      try {
+        text = await callAiWithFallback(prompt, searchOptions);
+      } catch {
         throw new Error("No API key configured. Please open Settings (gear icon).");
       }
 
@@ -2169,11 +2159,9 @@ ${buildReportingToolReference()}`;
 
       let text: string;
       const searchOptions: AICallOptions = { searchEnabled: false, searchQuery: query };
-      if (state.geminiApiKey) {
-        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
-      } else if (state.groqApiKey) {
-        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
-      } else {
+      try {
+        text = await callAiWithFallback(prompt, searchOptions);
+      } catch {
         throw new Error("No API key configured. Please open Settings (gear icon).");
       }
 
@@ -2226,11 +2214,9 @@ ${buildReportingToolReference()}`;
 
       let text: string;
       const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
-      if (state.geminiApiKey) {
-        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
-      } else if (state.groqApiKey) {
-        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
-      } else {
+      try {
+        text = await callAiWithFallback(prompt, searchOptions);
+      } catch {
         throw new Error("No API key configured. Please open Settings (gear icon).");
       }
 
@@ -2262,11 +2248,9 @@ ${buildReportingToolReference()}`;
 
       let text: string;
       const searchOptions: AICallOptions = { searchEnabled: false, searchQuery: query };
-      if (state.geminiApiKey) {
-        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
-      } else if (state.groqApiKey) {
-        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
-      } else {
+      try {
+        text = await callAiWithFallback(prompt, searchOptions);
+      } catch {
         throw new Error("No API key configured. Please open Settings (gear icon).");
       }
 
@@ -2311,11 +2295,9 @@ ${stormReview}
 
       let text: string;
       const searchOptions: AICallOptions = { searchEnabled: false, searchQuery: query };
-      if (state.geminiApiKey) {
-        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
-      } else if (state.groqApiKey) {
-        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
-      } else {
+      try {
+        text = await callAiWithFallback(prompt, searchOptions);
+      } catch {
         throw new Error("No API key configured. Please open Settings (gear icon).");
       }
 

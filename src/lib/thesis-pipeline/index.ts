@@ -46,7 +46,7 @@ export async function runThesisPipeline(
   });
   subResults.outline = { ok: false };
 
-  // Stage 1: Outline
+  // Stage 1: Outline via OpenDraft
   onProgress?.("outline", "Generating thesis outline...");
   const outlineResult = await openDraft({
     topic: config.topic,
@@ -72,7 +72,7 @@ export async function runThesisPipeline(
     `Outline ready: ${outline.chapters.length} chapters, ${Object.values(wordTargets).reduce((a, b) => a + b, 0).toLocaleString()} words planned`
   );
 
-  // Stage 2: Prose (search papers first for grounding)
+  // Stage 2: Search papers for grounding
   onProgress?.("prose", "Searching databases for grounding papers...");
   let papers: ThesisPaper[] = [];
   if (searchFn) {
@@ -88,28 +88,9 @@ export async function runThesisPipeline(
   }
 
   onProgress?.("prose", `Generating prose for ${outline.chapters.length} chapters...`);
-  const proseResult = await generateThesis({
-    outline,
-    papers,
-    config: {
-      topic: config.topic,
-      level: config.level,
-      style: config.style,
-      language: config.language,
-      studyDesign: config.studyDesign,
-      targetWordCount: config.targetWordCount,
-      maxReferences: config.maxReferences,
-    },
-    aiFn,
-    onProgress: (msg) => onProgress?.("prose", msg),
-  });
-  subResults.prose = proseResult.subResult;
-  let chapters: ChapterFile[] = proseResult.chapters;
-
-  // Stage 3: Refine / citation validation
-  onProgress?.("refine", "Refining chapters and validating citations...");
+  // Stage 3: Refine via ScholarCopilot (replaces heavy per‑chapter AI loops)
   const refineResult = await scholarCopilot({
-    chapters,
+    chapters: outline.chapters,
     papers,
     config: { topic: config.topic, level: config.level, style: config.style },
     wordTargets,
@@ -117,25 +98,9 @@ export async function runThesisPipeline(
     onProgress: (msg) => onProgress?.("refine", msg),
   });
   subResults.refine = refineResult.subResult;
-  chapters = refineResult.chapters;
+  let chapters: ChapterFile[] = refineResult.chapters;
 
-  // Stage 4: CASP appraisal of the evidence base (NurseStack /review-evidence)
-  onProgress?.("appraise", "Appraising the evidence base with CASP...");
-  let evidenceAppraisal: ReturnType<typeof appraiseEvidenceBase> = [];
-  let evidenceAppraisalMarkdown = "";
-  try {
-    evidenceAppraisal = appraiseEvidenceBase(papers);
-    evidenceAppraisalMarkdown = buildEvidenceAppraisalMarkdown(evidenceAppraisal);
-    subResults.appraise = { ok: true, data: { studies: evidenceAppraisal.length } };
-  } catch (err: any) {
-    subResults.appraise = { ok: false, error: err?.message || "Evidence appraisal failed" };
-  }
-
-  // CASP evidence-appraisal table removed from the written thesis.
-
-  // Build references (Vancouver) from grounding papers and append them to the
-  // thesis so the reference list appears after the conclusion chapter in the
-  // rendered document (Word / PDF / LaTeX exports).
+  // Stage 4: Build references after the conclusion
   const references = papers.slice(0, config.maxReferences || 150);
   const referencesMarkdown = references.length > 0
     ? `\n\n---\n\n# References\n\n${formatVancouverList(references.map((p) => ({
@@ -148,6 +113,8 @@ export async function runThesisPipeline(
     : "";
   let fullThesis = refineResult.fullThesis + referencesMarkdown;
   const markdownOutline = outlineResult.markdownOutline;
+
+  // CASP evidence-appraisal table removed from the written thesis.
 
   const stats: any = {
     totalWords: fullThesis.split(/\s+/).filter(Boolean).length,
@@ -182,8 +149,8 @@ export async function runThesisPipeline(
     nursestackPlan,
     wordBudget: refineResult.wordBudget,
     wordBudgetMet: refineResult.wordBudgetMet,
-    evidenceAppraisal,
-    evidenceAppraisalMarkdown,
+    evidenceAppraisal: [],
+    evidenceAppraisalMarkdown: "",
   };
 }
 

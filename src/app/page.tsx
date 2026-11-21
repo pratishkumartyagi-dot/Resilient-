@@ -39,6 +39,7 @@ const ThesisGenerator = lazy(() => import("@/components/pipelines/ThesisGenerato
 const AutomatedSLR = lazy(() => import("@/components/pipelines/AutomatedSLR"));
 const CriticalAppraisal = lazy(() => import("@/components/pipelines/CriticalAppraisal"));
 const JbiAppraisal = lazy(() => import("@/components/pipelines/JbiAppraisal"));
+const PptGenerator = lazy(() => import("@/components/pipelines/PptGenerator"));
 
 function withSuspense(node: React.ReactNode, label?: string) {
   return <Suspense fallback={<TabLoadingSkeleton label={label} />}>{node}</Suspense>;
@@ -94,6 +95,8 @@ function AppContent() {
         return withSuspense(<CriticalAppraisal />, "Critical Appraisal");
       case "jbi":
         return withSuspense(<JbiAppraisal />, "JBI Appraisal");
+      case "ppt":
+        return withSuspense(<PptGenerator />, "PPT Generator");
       default:
         return withSuspense(<GrantWritingTab />, "Grant Writing");
     }
