@@ -13,10 +13,12 @@ let serverPort = 0;
 
 // In production the app is packaged into resources/app.asar, while extraResources
 // (server.js, .next, node_modules) are placed directly in resources/.
-// In development __dirname is <project>/electron, so ".." resolves to the project root.
+// process.resourcesPath is the absolute path to resources/ in a packaged app and is
+// cwd-independent. In development __dirname is <project>/electron, so ".." resolves
+// to the project root.
 // Locate the directory that actually contains server.js (Next.js standalone output).
-const resourcesDir = path.join(__dirname, "..", "..");  // resources/ in packaged app
-const projectDir = path.join(__dirname, "..");          // project root in development
+const resourcesDir = process.resourcesPath || path.join(__dirname, "..", "..");
+const projectDir = path.join(__dirname, "..");
 
 // Use resources/ if server.js was placed there by electron-builder's extraResources,
 // otherwise fall back to the project root (development).
@@ -111,6 +113,12 @@ async function startServer() {
         ELECTRON_RUN_AS_NODE: "1",
         NODE_ENV: "production",
         NEXT_TELEMETRY_DISABLED: "1",
+        // Force the Next.js standalone server to bind to the loopback address so
+        // pingServer(127.0.0.1) always succeeds. The standalone server.js ignores
+        // the -H CLI argument and reads process.env.HOSTNAME, which on Windows may
+        // be set to the computer name and resolve to a non-local (or unavailable)
+        // address, causing EADDRNOTAVAIL crashes or failed connections.
+        HOSTNAME: "127.0.0.1",
         PORT: String(port),
       },
       stdio: ["ignore", "pipe", "pipe"],

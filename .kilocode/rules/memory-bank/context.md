@@ -2265,3 +2265,10 @@ Rebuilt Steps 1 and 2 of the Research Pipeline into a systematic-review-grade fl
 - `bun typecheck` ✅, `bun lint` ✅, `bun run build` ✅ across all commits above
 - Note: `node_modules` is wiped between some sessions in this environment — run `bun install` before typecheck/lint/build if `tsc: command not found` appears
 
+### Electron packaging fix (v0.8.8 startup failure on Windows)
+- Root cause: v0.8.8 switched from `next start -H 127.0.0.1 -p <port>` to spawning the Next.js standalone `server.js` directly. That standalone file ignores the `-H` CLI argument and reads `process.env.HOSTNAME || '0.0.0.0'`. On Windows `HOSTNAME` may be set to the computer name, which resolves to a non-local/unavailable address → `EADDRNOTAVAIL` crash, or to `0.0.0.0` with unreliable loopback behavior. Result: the internal Next server never becomes ready on `127.0.0.1`, so the app shows a startup/"Internal Server Error" failure after install.
+- Fix (`electron/main.js`):
+  1. `appDir` detection now uses `process.resourcesPath` (absolute, cwd-independent) instead of a `__dirname`-relative `resources/` path, so `resources/server.js` is reliably located in a packaged asar app.
+  2. The server spawn env now forces `HOSTNAME: "127.0.0.1"` so the standalone Next server always binds to loopback, matching v0.8.7 behavior and `pingServer(127.0.0.1)`.
+- Verified: standalone server returns HTTP 200 on `127.0.0.1` with `HOSTNAME=127.0.0.1`; crashes with `EADDRNOTAVAIL` when `HOSTNAME` is a computer name (pre-fix behavior). `npm run build` ✅ and `electron-builder --dir` ✅ (produces `resources/server.js`).
+
