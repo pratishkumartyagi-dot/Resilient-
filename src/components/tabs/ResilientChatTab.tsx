@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Send, MessageSquare, User, Bot, Trash2, FlaskConical, Stethoscope } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
+import { callAiWithFallback, type AICallOptions } from "@/lib/ai";
 
 interface Message {
   id: string;
@@ -172,14 +172,7 @@ ${input.trim()}
 Answer the user's question based on the pipeline state above. If they ask about synthesis, themes, questions, titles, methodology, or impact assessment, reference the specific counts and state shown. Offer to help them navigate to the relevant step or expand on any area.`;
 
         const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: input.trim() };
-        let responseText = "";
-        if (state.geminiApiKey) {
-          responseText = await callGemini(state.geminiApiKey, prompt, searchOptions);
-        } else if (state.groqApiKey) {
-          responseText = await callGroq(state.groqApiKey, prompt, searchOptions);
-        } else {
-          responseText = await callDeepSeek(prompt, searchOptions);
-        }
+        const responseText = await callAiWithFallback(prompt, searchOptions);
 
         const assistantMsg: Message = {
           id: `assistant-${Date.now()}`,

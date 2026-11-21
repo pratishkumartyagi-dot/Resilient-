@@ -14,7 +14,7 @@ import { profileToJson } from "@/lib/data-profiling/json-report";
 import DataProfilePanels from "@/components/DataProfilePanels";
 import { buildAutoAnalystReportAsync } from "@/lib/auto-analyst";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
+import { callAiWithFallback } from "@/lib/ai";
 import * as XLSX from "xlsx";
 
 const CHART_TYPES = [
@@ -366,11 +366,7 @@ export default function StatisticalAnalysisTab() {
       const dataForProfile = profile ? undefined : parsedRows as unknown as ProfileRow[];
       const prof = profile || profileDataset(dataForProfile!);
       setProfile(prof);
-      const aiFn = state.geminiApiKey
-        ? (p: string) => callGemini(state.geminiApiKey!, p)
-        : state.groqApiKey
-          ? (p: string) => callGroq(state.groqApiKey!, p)
-          : (p: string) => callDeepSeek(p);
+      const aiFn = (p: string) => callAiWithFallback(p);
       const report = await buildAutoAnalystReportAsync(prof, {
         aiFn,
         title: `Automated Statistical Report — ${fileUploaded?.name || chartType}`,

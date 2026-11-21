@@ -674,6 +674,24 @@ export function resolveEffectiveTerm(ctx: FetchContext): string {
   }
   // natural / keyword extract: PubMed gets the concept-aware MeSH term;
   // every other database gets a plain query it translates itself.
+  if (ctx.keywordExtract) {
+    const concepts = extractSearchConcepts(query);
+    if (concepts.length > 0) {
+      const joiner = " OR ";
+      const conceptParts = concepts.map((c) => {
+        const terms = new Set<string>();
+        if (c.label) terms.add(c.label);
+        for (const s of c.synonyms) if (s) terms.add(s);
+        // MeSH terms are PubMed-specific; include as plain text for cross-database
+        for (const m of c.meshTerms) if (m) terms.add(m);
+        const arr = Array.from(terms).filter(Boolean);
+        if (arr.length === 0) return "";
+        return arr.map((t) => quote(t)).join(joiner);
+      }).filter(Boolean);
+      const term = conceptParts.join(" AND ") || query;
+      return term;
+    }
+  }
   if (database.toLowerCase() === "pubmed") {
     return buildConceptAwareTerm(query, opts);
   }

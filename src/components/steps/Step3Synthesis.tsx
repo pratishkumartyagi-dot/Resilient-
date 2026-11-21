@@ -3,7 +3,7 @@
 import React, { useState, useRef } from "react";
 import { Download, FileUp, Sparkles, Trash2, ChevronDown, FileText, AlertCircle, Loader2 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
+import { callAiWithFallback } from "@/lib/ai";
 import { buildStep3Prompt } from "@/lib/research-skills";
 import { generateLocalSynthesis, type SynthesisRow } from "@/lib/local-synthesis";
 import type { AICallOptions } from "@/lib/ai";
@@ -63,28 +63,13 @@ export default function Step3Synthesis() {
     try {
       let synthesis: SynthesisRow[] = [];
 
-      if (state.geminiApiKey || state.groqApiKey) {
-          const prompt = buildStep3Prompt(filteredPapers, uploadedText);
-        const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: state.searchQuery };
-        try {
-          let responseText = "";
-          if (state.geminiApiKey) {
-            responseText = await callGemini(state.geminiApiKey, prompt, searchOptions);
-          } else {
-            responseText = await callGroq(state.groqApiKey, prompt, searchOptions);
-          }
-          const cleaned = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
-          synthesis = JSON.parse(cleaned);
-        } catch {
-          try {
-            const deepSeekText = await callDeepSeek(prompt, searchOptions);
-            const cleaned = deepSeekText.replace(/```json/g, "").replace(/```/g, "").trim();
-            synthesis = JSON.parse(cleaned);
-          } catch {
-            synthesis = await generateLocalSynthesis(filteredPapers);
-          }
-        }
-      } else {
+      const prompt = buildStep3Prompt(filteredPapers, uploadedText);
+      const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: state.searchQuery };
+      try {
+        const responseText = await callAiWithFallback(prompt, searchOptions);
+        const cleaned = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
+        synthesis = JSON.parse(cleaned);
+      } catch {
         synthesis = await generateLocalSynthesis(filteredPapers);
       }
 

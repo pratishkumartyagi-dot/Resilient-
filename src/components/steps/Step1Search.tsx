@@ -4,6 +4,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { Search, Database, ChevronRight, CheckSquare, Square, Loader2, CheckCircle2, AlertCircle, Globe } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { webSearchPapers, verifyCitations, enrichPapersWithDois, type Paper } from "@/lib/database-apis";
+import Step1ConceptBlock from "@/components/steps/Step1ConceptBlock";
 
 const STUDY_TYPES = [
   "All Study Types",
@@ -404,6 +405,8 @@ export default function Step1Search() {
               </button>
             </div>
           </div>
+
+          <Step1ConceptBlock />
 
           <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div>

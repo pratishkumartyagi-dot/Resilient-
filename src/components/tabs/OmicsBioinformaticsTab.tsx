@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { Send, User, Bot, Trash2, FlaskConical, Paperclip, X, Download, FileText, Loader2, Dna, BarChart3, Network, Shield, Search, GitBranch, Bug, Table2, FileJson, FileType2, Printer, ChevronRight, ChevronDown, FolderOpen, BookOpen, Microscope, Database, Workflow, FlaskRound, Atom, Stethoscope, HeartPulse, type LucideIcon } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 import { useApp } from "@/context/AppContext";
-import { callGemini, callGroq, callDeepSeek } from "@/lib/ai";
+import { callAiWithFallback } from "@/lib/ai";
 import { downloadMarkdownAsWord, downloadMarkdownAsPDF } from "@/lib/exporters";
 import { getSkillsBySubcategory, getAllCategories, getSkillById, MEDICAL_SKILLS_REGISTRY, type MedicalSkill } from "@/lib/medical-skills/skills-registry";
 
@@ -170,12 +170,10 @@ export default function OmicsBioinformaticsTab() {
       }
 
       let responseContent: string;
-      if (state.geminiApiKey) {
-        responseContent = await callGemini(state.geminiApiKey, prompt);
-      } else if (state.groqApiKey) {
-        responseContent = await callGroq(state.groqApiKey, prompt);
-      } else {
-        responseContent = await callDeepSeek(prompt);
+      try {
+        responseContent = await callAiWithFallback(prompt);
+      } catch {
+        responseContent = "";
       }
       if (!responseContent.trim()) {
         throw new Error("The AI model returned an empty response");
