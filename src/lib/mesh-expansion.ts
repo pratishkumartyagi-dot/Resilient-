@@ -11,7 +11,7 @@
 // MeSH concept dictionaries (term -> { mesh: string[], narrower: string[], synonyms: string[] })
 // ---------------------------------------------------------------------------
 
-const MESH_MAP: Record<string, { mesh: string[]; narrower: string[]; synonyms: string[] }> = {
+export const MESH_MAP: Record<string, { mesh: string[]; narrower: string[]; synonyms: string[] }> = {
   cancer: {
     mesh: ["Neoplasms", "Carcinoma", "Malignancy"],
     narrower: ["tumor", "tumour", "carcinoma", "sarcoma", "leukemia", "lymphoma", "melanoma", "glioblastoma", "astrocytoma"],
@@ -175,7 +175,7 @@ const MESH_MAP: Record<string, { mesh: string[]; narrower: string[]; synonyms: s
 };
 
 // Terms that should trigger truncation/wildcard expansion (common clinical roots)
-const TRUNCATION_ROOTS: Record<string, string[]> = {
+export const TRUNCATION_ROOTS: Record<string, string[]> = {
   pediat: ["pediatric", "pediatrics", "pediatrician", "paediatric", "paediatrics", "paediatrician"],
   cardi: ["cardiac", "cardiology", "cardiovascular", "cardiopulmonary"],
   hepat: ["hepatic", "hepatitis", "hepatology", "hepatocellular"],
@@ -209,7 +209,7 @@ const TRUNCATION_ROOTS: Record<string, string[]> = {
 // Automatic Term Mapping (ATM): lay term -> canonical MeSH-friendly term
 // ---------------------------------------------------------------------------
 
-const ATM_MAP: Record<string, string> = {
+export const ATM_MAP: Record<string, string> = {
   "high blood pressure": "hypertension",
   "high bp": "hypertension",
   "blood pressure": "hypertension",

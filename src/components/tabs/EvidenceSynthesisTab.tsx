@@ -46,7 +46,6 @@ import {
 } from "@/lib/medical-skills/prisma-utils";
 import { marked } from "marked";
 import { getIntegratedSkills } from "@/lib/medical-skills/skills-registry";
-import { scholarCopilot, type ScholarCopilotInput } from "@/lib/scholar-copilot";
 import {
   buildAcademicWritingManuscriptPrompt,
   buildAcademicWritingReviewPrompt,
@@ -352,8 +351,6 @@ export default function EvidenceSynthesisTab() {
   const [synthesisInstructions, setSynthesisInstructions] = useState("");
   const [synthesisOutput, setSynthesisOutput] = useState("");
   const [synthesisLoading, setSynthesisLoading] = useState(false);
-  const [scholarCopilotOutput, setScholarCopilotOutput] = useState("");
-  const [scholarCopilotLoading, setScholarCopilotLoading] = useState(false);
   const [manuscript, setManuscript] = useState("");
   const [manuscriptLoading, setManuscriptLoading] = useState(false);
   const [reviewReport, setReviewReport] = useState("");
@@ -399,6 +396,11 @@ export default function EvidenceSynthesisTab() {
   const [showVerifiedOnly, setShowVerifiedOnly] = useState(false);
   const [semanticSearch, setSemanticSearch] = useState(false);
   const [keywordExtract, setKeywordExtract] = useState(true);
+  const [conceptBlocksMode, setConceptBlocksMode] = useState(false);
+  const [conceptA, setConceptA] = useState("");
+  const [conceptB, setConceptB] = useState("");
+  const [conceptC, setConceptC] = useState("");
+  const [maxPapers, setMaxPapers] = useState(0);
 
   const toggleDb = (db: string) => {
     setSelectedDbs((prev) =>
@@ -439,8 +441,12 @@ export default function EvidenceSynthesisTab() {
   };
 
   const handleSearch = async () => {
-    if (!query.trim()) {
-      setSearchError("Please enter a search query.");
+    if (!query.trim() && !conceptBlocksMode) {
+      setSearchError("Please enter a search query or concept blocks.");
+      return;
+    }
+    if (conceptBlocksMode && (!conceptA.trim() || !conceptB.trim())) {
+      setSearchError("Concept A (Condition) and Concept B (Predictor/Exposure) are required in concept-blocks mode.");
       return;
     }
     setLoading(true);
@@ -471,6 +477,8 @@ export default function EvidenceSynthesisTab() {
           searchLogic,
           semanticSearch,
           keywordExtract,
+          conceptBlocks: conceptBlocksMode ? { A: conceptA, B: conceptB, C: conceptC } : undefined,
+          maxPapers: maxPapers > 0 ? maxPapers : undefined,
           timeoutMs,
         }),
       });
@@ -1058,7 +1066,7 @@ Return a concise markdown report with a "## PROBAST+AI Assessment" heading and a
     }
   };
 
-const runExtraction = async () => {
+  const runExtraction = async () => {
     const selected = papers.filter((p) => selectedPaperIds.has(p.id));
     if (selected.length === 0) {
       alert("Please select at least one paper in Step 1.");
@@ -1124,25 +1132,19 @@ const runExtraction = async () => {
       return;
     }
 
-    // Batch-wise extraction: process papers in chunks of 5 to avoid
-    // token limits and improve reliability for large paper sets.
-    const BATCH_SIZE = 5;
-    const allMapped: any[] = [];
-
-    for (let batchStart = 0; batchStart < selected.length; batchStart += BATCH_SIZE) {
-      const batch = selected.slice(batchStart, batchStart + BATCH_SIZE);
-      const batchPico = localPico.filter((p) => batch.some((bp) => bp.id === p.id));
-
-      const papersContext = batch
+    try {
+      const papersContext = selected
         .map(
           (p, i) =>
-            `${batchStart + i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || "Unknown journal"}. DOI: ${p.doi || "N/A"}. Type: ${p.studyType || "N/A"}. Abstract: ${p.abstract || "No abstract"}`
+            `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || "Unknown journal"}. DOI: ${p.doi || "N/A"}. Type: ${p.studyType || "N/A"}. Abstract: ${p.abstract || "No abstract"}`
         )
         .join("\n\n");
 
-      const seedContext = batchPico
+      // Pre-extracted seed values give the AI a high-quality starting point
+      // so it can focus on enriching detail rather than guessing.
+      const seedContext = localPico
         .map((pico) => {
-          const paper = batch.find((p) => p.id === pico.id);
+          const paper = selected.find((p) => p.id === pico.id);
           return `${paper ? paper.title : pico.id}:
 - Population (seed): ${pico.population}
 - Intervention (seed): ${pico.intervention}
@@ -1178,7 +1180,7 @@ const runExtraction = async () => {
    exclusion criteria]; Gaps: [unanswered questions]".
 
 ## Task
-For each of the ${batch.length} papers below, deeply reason over the
+For each of the ${selected.length} papers below, deeply reason over the
 abstract and metadata, then refine and enrich the seed values into a
 fully populated extraction. You may correct any seed that is wrong,
 and you MUST add more detail where the abstract supports it. If the
@@ -1257,120 +1259,116 @@ object per paper. Each object MUST have exactly these keys:
 }
 `;
 
+      let text: string;
+      const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
+      if (state.geminiApiKey) {
+        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
+      } else if (state.groqApiKey) {
+        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
+      } else {
+        throw new Error("No API key configured. Please open Settings (gear icon).");
+      }
+
+      const cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
+      let parsed: any[];
       try {
-        let text: string;
-        const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
-        if (state.geminiApiKey) {
-          text = await callGemini(state.geminiApiKey, prompt, searchOptions);
-        } else if (state.groqApiKey) {
-          text = await callGroq(state.groqApiKey!, prompt, searchOptions);
-        } else {
-          throw new Error("No API key configured. Please open Settings (gear icon).");
-        }
+        parsed = JSON.parse(cleaned);
+      } catch {
+        const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
+        if (!jsonMatch) throw new Error("AI returned invalid JSON. Please try again.");
+        parsed = JSON.parse(jsonMatch[0]);
+      }
 
-        const cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
-        let parsed: any[];
-        try {
-          parsed = JSON.parse(cleaned);
-        } catch {
-          const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
-          if (!jsonMatch) throw new Error("AI returned invalid JSON. Please try again.");
-          parsed = JSON.parse(jsonMatch[0]);
-        }
+      const mapped = parsed.map((item: any) => {
+        const paper = selected.find((p) => p.id === item.id) || selected[0];
+        const pico = localPico.find((x) => x.id === paper.id) || ({} as ExtractedPICO);
+        const doiLink = paper.doi ? `<a href="https://doi.org/${paper.doi}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">doi:${paper.doi}</a>` : "";
+        const urlLink = paper.url && !paper.doi ? `<a href="${paper.url}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">Link</a>` : "";
+        const searchLink = paper.doi ? `<a href="https://scholar.google.com/scholar?q=${encodeURIComponent(paper.title)}" target="_blank" rel="noreferrer" class="text-blue-300 underline">[Search]</a>` : "";
+        const vancouverRef = `${item.authors || paper.authors}. ${item.title || paper.title}. ${paper.journal || "Unknown journal"}. ${item.year || paper.year}. ${doiLink} ${urlLink} ${searchLink}`.trim();
 
-        const mapped = parsed.map((item: any) => {
-          const paper = batch.find((p) => p.id === item.id) || batch[0];
-          const pico = batchPico.find((x) => x.id === paper.id) || ({} as ExtractedPICO);
-          const doiLink = paper.doi ? `<a href="https://doi.org/${paper.doi}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">doi:${paper.doi}</a>` : "";
-          const urlLink = paper.url && !paper.doi ? `<a href="${paper.url}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">Link</a>` : "";
-          const searchLink = paper.doi ? `<a href="https://scholar.google.com/scholar?q=${encodeURIComponent(paper.title)}" target="_blank" rel="noreferrer" class="text-blue-300 underline">[Search]</a>` : "";
-          const vancouverRef = `${item.authors || paper.authors}. ${item.title || paper.title}. ${paper.journal || "Unknown journal"}. ${item.year || paper.year}. ${doiLink} ${urlLink} ${searchLink}`.trim();
+        // AI value wins when it returns substantive content; otherwise
+        // fall back to the deterministic deep extractor.
+        const pickRich = (aiVal: string | undefined, seedVal: string | undefined, notSpecified: string) => {
+          const ai = (aiVal || "").trim();
+          const seed = (seedVal || "").trim();
+          if (ai && ai.toLowerCase() !== "not specified" && ai.length >= seed.length * 0.5) return ai;
+          if (seed) return seed;
+          return notSpecified;
+        };
 
-          const pickRich = (aiVal: string | undefined, seedVal: string | undefined, notSpecified: string) => {
-            const ai = (aiVal || "").trim();
-            const seed = (seedVal || "").trim();
-            if (ai && ai.toLowerCase() !== "not specified" && ai.length >= seed.length * 0.5) return ai;
-            if (seed) return seed;
-            return notSpecified;
-          };
-
-          let ciLower = item.ciLower || "Not reported in abstract — full text required.";
-          let ciUpper = item.ciUpper || "Not reported in abstract — full text required.";
-          if (item.ci && !item.ciLower && !item.ciUpper) {
-            const ciMatch = item.ci.match(/([\d.]+)\s*[-–to]+\s*([\d.]+)/);
-            if (ciMatch) {
-              ciLower = ciMatch[1];
-              ciUpper = ciMatch[2];
-            }
+        // Parse CI if it's in combined format (e.g., "0.55-0.94" or "1.2 to 3.4")
+        let ciLower = item.ciLower || "Not reported in abstract — full text required.";
+        let ciUpper = item.ciUpper || "Not reported in abstract — full text required.";
+        if (item.ci && !item.ciLower && !item.ciUpper) {
+          const ciMatch = item.ci.match(/([\d.]+)\s*[-–to]+\s*([\d.]+)/);
+          if (ciMatch) {
+            ciLower = ciMatch[1];
+            ciUpper = ciMatch[2];
           }
+        }
 
-          return {
-            id: item.id || paper.id,
-            title: item.title || paper.title,
-            authors: item.authors || paper.authors,
-            year: item.year || paper.year,
-            doi: item.doi || paper.doi,
-            studyType: item.studyType || paper.studyType,
-            population: pickRich(item.population, pico.population, "Not specified — full text required."),
-            intervention: pickRich(item.intervention, pico.intervention, "Not specified — full text required."),
-            comparison: pickRich(item.comparison, pico.comparison, "Not specified — full text required."),
-            outcome: pickRich(item.outcome, pico.outcome, "Not specified — full text required."),
-            sampleSize: pickRich(item.sampleSize, pico.sampleSize, "Not specified — full text required."),
-            predictors: item.predictors || "Not specified — extract from full text",
-            effectEstimate: pickRich(item.effectEstimate, pico.effectEstimate, "Not reported in abstract — full text required."),
-            ciLower: ciLower,
-            ciUpper: ciUpper,
-            ROB: item.ROB || "Pending — assess in Step 3",
-            vancouverReference: vancouverRef,
-            researchGaps: pickRich(item.researchGaps, pico.researchGaps, "Limitations: Not specified; Exclusions: Not specified; Gaps: Not specified"),
-            evidenceLevel: item.evidenceLevel || pico.evidenceLevel || "T4 — Mention (☆☆☆)",
-          };
-        });
+        return {
+          id: item.id || paper.id,
+          title: item.title || paper.title,
+          authors: item.authors || paper.authors,
+          year: item.year || paper.year,
+          doi: item.doi || paper.doi,
+          studyType: item.studyType || paper.studyType,
+          population: pickRich(item.population, pico.population, "Not specified — full text required."),
+          intervention: pickRich(item.intervention, pico.intervention, "Not specified — full text required."),
+          comparison: pickRich(item.comparison, pico.comparison, "Not specified — full text required."),
+          outcome: pickRich(item.outcome, pico.outcome, "Not specified — full text required."),
+          sampleSize: pickRich(item.sampleSize, pico.sampleSize, "Not specified — full text required."),
+          predictors: item.predictors || "Not specified — extract from full text",
+          effectEstimate: pickRich(item.effectEstimate, pico.effectEstimate, "Not reported in abstract — full text required."),
+          ciLower: ciLower,
+          ciUpper: ciUpper,
+          ROB: item.ROB || "Pending — assess in Step 3",
+          vancouverReference: vancouverRef,
+          researchGaps: pickRich(item.researchGaps, pico.researchGaps, "Limitations: Not specified; Exclusions: Not specified; Gaps: Not specified"),
+          evidenceLevel: item.evidenceLevel || pico.evidenceLevel || "T4 — Mention (☆☆☆)",
+        };
+      });
 
-        allMapped.push(...mapped);
-      } catch (err: any) {
-        // Fallback for this batch
-        const fallback = batch.map((p) => {
-          const pico = batchPico.find((x) => x.id === p.id) || ({} as ExtractedPICO);
-          const doiLink = p.doi ? `<a href="https://doi.org/${p.doi}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">doi:${p.doi}</a>` : "";
-          const urlLink = p.url && !p.doi ? `<a href="${p.url}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">Link</a>` : "";
-          const searchLink = p.doi ? `<a href="https://scholar.google.com/scholar?q=${encodeURIComponent(p.title)}" target="_blank" rel="noreferrer" class="text-blue-300 underline">[Search]</a>` : "";
-          const vancouverRef = `${p.authors}. ${p.title}. ${p.journal || "Unknown journal"}. ${p.year}. ${doiLink} ${urlLink} ${searchLink}`.trim();
-          return {
-            id: p.id,
-            title: p.title,
-            authors: p.authors,
-            year: p.year,
-            doi: p.doi,
-            studyType: p.studyType,
-            population: pico.population || "Not specified",
-            intervention: pico.intervention || "Not specified",
-            comparison: pico.comparison || "Not specified",
-            outcome: pico.outcome || "Not specified",
-            sampleSize: pico.sampleSize || "Not specified",
-            predictors: "Not specified — extract from full text",
-            effectEstimate: pico.effectEstimate || "Not reported",
-            ciLower: "Not reported",
-            ciUpper: "Not reported",
-            ROB: "Pending — assess in Step 3",
-            vancouverReference: vancouverRef,
-            researchGaps: pico.researchGaps || "Limitations: Not specified; Exclusions: Not specified; Gaps: Not specified",
-            evidenceLevel: pico.evidenceLevel || "T4 mention",
-          };
-        });
-        allMapped.push(...fallback);
-      }
-
-      // Small delay between batches to respect rate limits
-      if (batchStart + BATCH_SIZE < selected.length) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
+      setExtractedData(mapped);
+      setPipelineStep(3);
+    } catch (err: any) {
+      alert("AI extraction failed: " + (err.message || "Unknown error") + ". Showing local deep extraction.");
+      const fallback = selected.map((p) => {
+        const pico = localPico.find((x) => x.id === p.id) || ({} as ExtractedPICO);
+        const doiLink = p.doi ? `<a href="https://doi.org/${p.doi}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">doi:${p.doi}</a>` : "";
+        const urlLink = p.url && !p.doi ? `<a href="${p.url}" target="_blank" rel="noreferrer" class="text-yellow-300 underline">Link</a>` : "";
+        const searchLink = p.doi ? `<a href="https://scholar.google.com/scholar?q=${encodeURIComponent(p.title)}" target="_blank" rel="noreferrer" class="text-blue-300 underline">[Search]</a>` : "";
+        const vancouverRef = `${p.authors}. ${p.title}. ${p.journal || "Unknown journal"}. ${p.year}. ${doiLink} ${urlLink} ${searchLink}`.trim();
+        return {
+          id: p.id,
+          title: p.title,
+          authors: p.authors,
+          year: p.year,
+          doi: p.doi,
+          studyType: p.studyType,
+          population: pico.population || "Not specified",
+          intervention: pico.intervention || "Not specified",
+          comparison: pico.comparison || "Not specified",
+          outcome: pico.outcome || "Not specified",
+          sampleSize: pico.sampleSize || "Not specified",
+          predictors: "Not specified — extract from full text",
+          effectEstimate: pico.effectEstimate || "Not reported",
+          ciLower: "Not reported",
+          ciUpper: "Not reported",
+          ROB: "Pending — assess in Step 3",
+          vancouverReference: vancouverRef,
+          researchGaps: pico.researchGaps || "Limitations: Not specified; Exclusions: Not specified; Gaps: Not specified",
+          evidenceLevel: pico.evidenceLevel || "T4 mention",
+        };
+      });
+      setExtractedData(fallback);
+      setPipelineStep(3);
+    } finally {
+      setExtractionLoading(false);
     }
-
-    setExtractedData(allMapped);
-    setPipelineStep(3);
-    setExtractionLoading(false);
-  };;
+  };
 
   const generateSynthesisTable = async () => {
     const selected = papers.filter((p) => selectedPaperIds.has(p.id));
@@ -2025,117 +2023,6 @@ ${isNarrative ? `## Evidence Synthesis
       setSynthesisOutput(`## Evidence Synthesis\n\n**Error generating synthesis:** ${err.message || "Unknown error"}\n\nPlease try again, adjust your instructions, or use local synthesis (no API key required).`);
     } finally {
       setSynthesisLoading(false);
-    }
-  };
-
-  const generateScholarCopilotReview = async () => {
-    if (extractedData.length === 0) {
-      alert("Please complete data extraction first.");
-      return;
-    }
-    setScholarCopilotLoading(true);
-    setScholarCopilotOutput("");
-    try {
-      const selectedPapers = extractedData.filter((p) => selectedPaperIds.has(p.id));
-      const papersForReview = selectedPapers.length > 0 ? selectedPapers : extractedData;
-
-      // Build thesis-style chapter structure from extracted data for ScholarCopilot
-      const chapters = [
-        {
-          chapterNumber: 1,
-          chapterTitle: "Introduction",
-          content: `## Introduction\n\nThis comprehensive review examines the evidence on ${query || "the research topic"} based on ${papersForReview.length} included studies.\n\n### Background\n\nThe background and rationale for this review are derived from the selected studies.\n\n### Objectives\n\nTo systematically evaluate the evidence on ${query || "the research topic"}.`,
-          sections: [],
-          wordCount: 0,
-          citations: [],
-          argumentAudit: { claims: [], evidenceGaps: [], logicalFlowScore: 0, citationCoverage: 0, recommendations: [] },
-        },
-        {
-          chapterNumber: 2,
-          chapterTitle: "Methods",
-          content: `## Methods\n\n### Search Strategy\n\nStudies were identified through searches of ${reviewRequirements || "multiple databases"}.\n\n### Selection Criteria\n\n${synthesisInstructions || "Standard systematic review inclusion/exclusion criteria were applied."}\n\n### Data Extraction\n\nData were extracted using the meta-pipe and decipher-research-agent frameworks.\n\n### Risk of Bias Assessment\n\nRisk of bias was assessed using ${robMode === "probast" ? "PROBAST + AI" : "robvis (" + (getRobToolTemplate()?.label || robTool) + ")"}.\n\n### Synthesis Methods\n\n${reviewType.includes("Meta") ? "Meta-analysis was conducted using random-effects models." : "Narrative synthesis was conducted following awesome-evidence-synthesis principles."}`,
-          sections: [],
-          wordCount: 0,
-          citations: [],
-          argumentAudit: { claims: [], evidenceGaps: [], logicalFlowScore: 0, citationCoverage: 0, recommendations: [] },
-        },
-        {
-          chapterNumber: 3,
-          chapterTitle: "Results",
-          content: `## Results\n\n### Study Selection\n\n${papersForReview.length} studies were included in this review.\n\n### Study Characteristics\n\n${papersForReview.map((p, i) => `${i + 1}. ${p.authors} (${p.year}). ${p.title}. ${p.journal || "Unknown journal"}. Study type: ${p.studyType || "Not specified"}. Outcome: ${p.outcome || "As reported"}.`).join("\n\n")}\n\n### Synthesis of Findings\n\n${synthesisOutput || "Synthesis output not yet generated. Run synthesis first for comprehensive results."}`,
-          sections: [],
-          wordCount: 0,
-          citations: [],
-          argumentAudit: { claims: [], evidenceGaps: [], logicalFlowScore: 0, citationCoverage: 0, recommendations: [] },
-        },
-        {
-          chapterNumber: 4,
-          chapterTitle: "Discussion",
-          content: `## Discussion\n\n### Summary of Evidence\n\nThe body of evidence comprises ${papersForReview.length} studies examining ${query || "the research topic"}.\n\n### Risk of Bias\n\nRisk of bias assessments were conducted for all included studies.\n\n### Limitations\n\nThis review is limited by the available abstract data and the scope of included databases.\n\n### Implications\n\nThe findings have implications for clinical practice and future research.`,
-          sections: [],
-          wordCount: 0,
-          citations: [],
-          argumentAudit: { claims: [], evidenceGaps: [], logicalFlowScore: 0, citationCoverage: 0, recommendations: [] },
-        },
-        {
-          chapterNumber: 5,
-          chapterTitle: "Conclusion",
-          content: `## Conclusion\n\nBased on the systematic evaluation of ${papersForReview.length} studies, this review provides comprehensive evidence on ${query || "the research topic"}. Further research is needed to address identified gaps.`,
-          sections: [],
-          wordCount: 0,
-          citations: [],
-          argumentAudit: { claims: [], evidenceGaps: [], logicalFlowScore: 0, citationCoverage: 0, recommendations: [] },
-        },
-      ];
-
-      // Convert papers to ThesisPaper format for ScholarCopilot
-      const thesisPapers = papersForReview.map((p) => ({
-        id: p.id,
-        title: p.title,
-        authors: p.authors,
-        journal: p.journal || p.database || "Unknown",
-        year: typeof p.year === "number" ? p.year : parseInt(String(p.year), 10) || new Date().getFullYear(),
-        doi: p.doi,
-        abstract: p.abstract || "",
-        database: p.database,
-        studyType: p.studyType,
-        url: p.url,
-      }));
-
-      const aiFn = async (prompt: string, opts?: { searchEnabled?: boolean; searchQuery?: string }) => {
-        const searchOptions: AICallOptions = { searchEnabled: true, searchQuery: query };
-        if (state.geminiApiKey) {
-          return await callGemini(state.geminiApiKey, prompt, searchOptions);
-        } else if (state.groqApiKey) {
-          return await callGroq(state.groqApiKey!, prompt, searchOptions);
-        } else {
-          return await callDeepSeek(prompt, searchOptions);
-        }
-      };
-
-      const result = await scholarCopilot({
-        chapters,
-        papers: thesisPapers,
-        config: {
-          topic: query || "Evidence Synthesis Review",
-          level: "PhD",
-          style: "Vancouver",
-        },
-        aiFn,
-        onProgress: (msg) => {
-          console.log("ScholarCopilot:", msg);
-        },
-      });
-
-      if (result.subResult.ok) {
-        setScholarCopilotOutput(result.fullThesis);
-      } else {
-        setScholarCopilotOutput(`## ScholarCopilot Comprehensive Review\n\n**Error:** ${result.subResult.error || "Unknown error"}\n\nPlease ensure API keys are configured in Settings.`);
-      }
-    } catch (err: any) {
-      setScholarCopilotOutput(`## ScholarCopilot Comprehensive Review\n\n**Error generating review:** ${err.message || "Unknown error"}\n\nPlease try again or check your API key configuration.`);
-    } finally {
-      setScholarCopilotLoading(false);
     }
   };
 
@@ -2906,6 +2793,16 @@ semanticSearch={semanticSearch}
             onSemanticSearchChange={setSemanticSearch}
             keywordExtract={keywordExtract}
             onKeywordExtractChange={setKeywordExtract}
+            conceptBlocksMode={conceptBlocksMode}
+            onConceptBlocksModeChange={setConceptBlocksMode}
+            conceptA={conceptA}
+            onConceptAChange={setConceptA}
+            conceptB={conceptB}
+            onConceptBChange={setConceptB}
+            conceptC={conceptC}
+            onConceptCChange={setConceptC}
+            maxPapers={maxPapers}
+            onMaxPapersChange={setMaxPapers}
             citationValidationCounts={{
                verified: papers.filter((p) => !!p.doi).length,
                unverified: papers.filter((p) => !!p.doi && p.citationStatus !== "verified").length,
@@ -3359,44 +3256,25 @@ semanticSearch={semanticSearch}
                 />
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-3 mb-4">
-                <button
-                  onClick={generateSynthesis}
-                  disabled={synthesisLoading || extractedData.length === 0}
-                  className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
-                >
-                  {synthesisLoading ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-[#0a1a3a] border-t-transparent rounded-full animate-spin" />
-                      Generating Synthesis...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles size={16} />
-                      {(state.geminiApiKey || state.groqApiKey)
-                        ? `Generate AI Synthesis (${reviewType})`
-                        : `Generate Local Synthesis (${reviewType})`}
-                    </>
-                  )}
-                </button>
-                <button
-                  onClick={generateScholarCopilotReview}
-                  disabled={scholarCopilotLoading || extractedData.length === 0 || !(state.geminiApiKey || state.groqApiKey)}
-                  className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-bold px-5 py-2.5 rounded-lg disabled:opacity-50"
-                >
-                  {scholarCopilotLoading ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      Generating ScholarCopilot Review...
-                    </>
-                  ) : (
-                    <>
-                      <Bot size={16} />
-                      Generate ScholarCopilot Review
-                    </>
-                  )}
-                </button>
-              </div>
+              <button
+                onClick={generateSynthesis}
+                disabled={synthesisLoading || extractedData.length === 0}
+                className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-[#0a1a3a] font-bold px-5 py-2.5 rounded-lg disabled:opacity-50 mb-4"
+              >
+                {synthesisLoading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-[#0a1a3a] border-t-transparent rounded-full animate-spin" />
+                    Generating Synthesis...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={16} />
+                    {(state.geminiApiKey || state.groqApiKey)
+                      ? `Generate AI Synthesis (${reviewType})`
+                      : `Generate Local Synthesis (${reviewType})`}
+                  </>
+                )}
+              </button>
 
               {synthesisOutput && (
                 <div className="bg-blue-950/50 border border-blue-900 rounded-lg p-4 mb-4">
@@ -3414,49 +3292,6 @@ semanticSearch={semanticSearch}
                       if (line.startsWith("| ")) return <pre key={i} className="text-xs overflow-x-auto my-2 bg-blue-900/20 p-2 rounded">{line}</pre>;
                       if (line.trim() === "") return <br key={i} />;
                       return <p key={i} className="text-sm text-blue-100 mb-1">{line}</p>;
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {scholarCopilotOutput && (
-                <div className="bg-purple-950/30 border border-purple-800 rounded-lg p-4 mb-4">
-                  <div className="flex items-center justify-between gap-2 mb-3">
-                    <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                      <Bot size={16} className="text-purple-300" />
-                      ScholarCopilot Comprehensive Review
-                    </h4>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => {
-                          const blob = new Blob([scholarCopilotOutput], { type: "text/markdown" });
-                          const url = URL.createObjectURL(blob);
-                          const a = document.createElement("a");
-                          a.href = url;
-                          a.download = `scholar-copilot-review-${new Date().toISOString().split("T")[0]}.md`;
-                          a.click();
-                          URL.revokeObjectURL(url);
-                        }}
-                        className="text-[10px] bg-blue-900/50 text-blue-200 px-2 py-1 rounded hover:bg-blue-800/60"
-                      >
-                        <Download size={10} /> MD
-                      </button>
-                      <button
-                        onClick={() => navigator.clipboard.writeText(scholarCopilotOutput)}
-                        className="text-[10px] bg-emerald-900/50 text-emerald-200 px-2 py-1 rounded hover:bg-emerald-800/60"
-                      >
-                        <ClipboardList size={10} /> Copy
-                      </button>
-                    </div>
-                  </div>
-                  <div className="text-purple-100 whitespace-pre-wrap max-h-[600px] overflow-y-auto text-sm leading-relaxed">
-                    {scholarCopilotOutput.split("\n").map((line, i) => {
-                      if (line.startsWith("# ")) return <h1 key={i} className="text-lg font-bold text-white mt-4 mb-2">{line.slice(2)}</h1>;
-                      if (line.startsWith("## ")) return <h2 key={i} className="text-base font-bold text-yellow-200 mt-3 mb-2">{line.slice(3)}</h2>;
-                      if (line.startsWith("### ")) return <h3 key={i} className="text-sm font-bold text-blue-200 mt-2 mb-1">{line.slice(4)}</h3>;
-                      if (line.startsWith("| ")) return <pre key={i} className="text-xs overflow-x-auto my-2 bg-purple-900/20 p-2 rounded">{line}</pre>;
-                      if (line.trim() === "") return <br key={i} />;
-                      return <p key={i} className="text-sm text-purple-100 mb-1">{line}</p>;
                     })}
                   </div>
                 </div>

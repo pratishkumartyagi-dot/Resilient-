@@ -44,6 +44,17 @@ export interface EvidenceSynthesisStep1Props {
    *  would build it (concepts AND-ed, MeSH/synonyms OR-ed per concept). */
   keywordExtract: boolean;
   onKeywordExtractChange: (value: boolean) => void;
+  /** Concept-block search mode (A=Condition, B=Predictor/Exposure, C=Outcome/Design). */
+  conceptBlocksMode: boolean;
+  onConceptBlocksModeChange: (value: boolean) => void;
+  conceptA: string;
+  onConceptAChange: (value: string) => void;
+  conceptB: string;
+  onConceptBChange: (value: string) => void;
+  conceptC: string;
+  onConceptCChange: (value: string) => void;
+  maxPapers: number;
+  onMaxPapersChange: (value: number) => void;
 }
 
 export default function EvidenceSynthesisStep1({
@@ -82,6 +93,16 @@ export default function EvidenceSynthesisStep1({
   onSemanticSearchChange,
   keywordExtract,
   onKeywordExtractChange,
+  conceptBlocksMode,
+  onConceptBlocksModeChange,
+  conceptA,
+  onConceptAChange,
+  conceptB,
+  onConceptBChange,
+  conceptC,
+  onConceptCChange,
+  maxPapers,
+  onMaxPapersChange,
 }: EvidenceSynthesisStep1Props) {
   const getFilteredPapers = () => {
     return papers.filter((p) => {
@@ -223,7 +244,76 @@ export default function EvidenceSynthesisStep1({
               Clear filters
             </button>
           )}
-          {citationValidationCounts && (
+        </div>
+
+        {/* Concept-blocks search mode */}
+        <div className="mb-4">
+          <label className="flex items-center gap-2 text-xs cursor-pointer select-none group mb-2">
+            <input
+              type="checkbox"
+              checked={conceptBlocksMode}
+              onChange={(e) => onConceptBlocksModeChange(e.target.checked)}
+              className="w-3 h-3 rounded border-blue-600 text-yellow-500 focus:ring-yellow-500 bg-blue-950"
+            />
+            <span className="text-blue-300 group-hover:text-blue-200 font-medium">Concept-blocks search (A & B & C)</span>
+            <Search size={12} className="text-yellow-500/70 group-hover:text-yellow-400" />
+          </label>
+          <p className="text-[10px] text-blue-500 ml-6">
+            Each block is OR-ed internally with MeSH/synonyms; blocks are combined with AND.
+          </p>
+
+          {conceptBlocksMode && (
+            <div className="space-y-3 ml-6 mt-2">
+              <div className="bg-blue-950/50 border border-blue-800 rounded-lg p-3">
+                <p className="text-xs font-semibold text-yellow-300 mb-2">Concept A — Condition (required)</p>
+                <textarea
+                  value={conceptA}
+                  onChange={(e) => onConceptAChange(e.target.value)}
+                  placeholder='e.g., "cardiovascular-kidney-metabolic syndrome" OR "CKM syndrome" OR "cardiorenal-metabolic" OR "CKM" OR "metabolic dysfunction-associated steatotic liver disease" OR "MASLD" OR "MAFLD" OR "non-alcoholic fatty liver disease" OR "NAFLD"'
+                  rows={3}
+                  className="w-full bg-blue-950 border border-blue-700 text-white rounded-lg px-3 py-2 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 resize-none"
+                />
+              </div>
+              <div className="bg-blue-950/50 border border-blue-800 rounded-lg p-3">
+                <p className="text-xs font-semibold text-yellow-300 mb-2">Concept B — Predictor/Exposure (required)</p>
+                <textarea
+                  value={conceptB}
+                  onChange={(e) => onConceptBChange(e.target.value)}
+                  placeholder='e.g., predictor* OR "risk factor*" OR biomarker* OR "risk score*" OR "prediction model*" OR prognos* OR stratif* OR "FIB-4" OR "transient elastography" OR fibrosis'
+                  rows={3}
+                  className="w-full bg-blue-950 border border-blue-700 text-white rounded-lg px-3 py-2 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 resize-none"
+                />
+              </div>
+              <div className="bg-blue-950/50 border border-blue-800 rounded-lg p-3">
+                <p className="text-xs font-semibold text-yellow-300 mb-2">Concept C — Outcome/Design (optional filter)</p>
+                <textarea
+                  value={conceptC}
+                  onChange={(e) => onConceptCChange(e.target.value)}
+                  placeholder='e.g., cohort OR "cross-sectional" OR "case-control" OR incidence OR progression OR "major adverse cardiovascular events" OR MACE OR "chronic kidney disease"'
+                  rows={3}
+                  className="w-full bg-blue-950 border border-blue-700 text-white rounded-lg px-3 py-2 text-sm placeholder:text-blue-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 resize-none"
+                />
+              </div>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
+                  <input
+                    type="number"
+                    value={maxPapers}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      onMaxPapersChange(Number.isNaN(val) ? 0 : Math.max(0, val));
+                    }}
+                    min="0"
+                    className="w-20 bg-blue-950 border border-blue-700 text-white rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                  />
+                  <span className="text-blue-300">Max papers per database (0 = unlimited)</span>
+                </label>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {citationValidationCounts && (
             <button
               onClick={() => onShowVerifiedOnlyChange(!showVerifiedOnly)}
               className={`text-xs px-3 py-1.5 rounded border ${
@@ -238,7 +328,6 @@ export default function EvidenceSynthesisStep1({
               )}
             </button>
           )}
-        </div>
         <div className="flex items-center gap-2 mb-2">
           <button onClick={onSelectAllDbs} className="text-xs bg-blue-900/50 text-blue-200 px-3 py-1 rounded hover:bg-blue-900/70">
             Select All Databases

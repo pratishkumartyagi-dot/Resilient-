@@ -111,6 +111,21 @@ export default function ThesisGenerator() {
   const [notebookTitle, setNotebookTitle] = useState("");
   const generatingRef = useRef(false);
 
+  const [showReferences, setShowReferences] = useState(true);
+  const [searchDatabases, setSearchDatabases] = useState<string[]>([
+    "PubMed",
+    "OpenAlex",
+    "Europe PMC",
+    "bioRxiv",
+    "medRxiv",
+    "Crossref",
+    "arXiv",
+    "OpenAIRE",
+    "Zenodo",
+    "ClinicalTrials.gov",
+    "Semantic Scholar",
+  ]);
+
   // Load saved session on mount
   useEffect(() => {
     try {
@@ -165,7 +180,7 @@ export default function ThesisGenerator() {
         searchFn: async (query, opts) => {
           const papers = await searchThesisPapers({
             query,
-            databases: ["PubMed", "Europe PMC", "bioRxiv", "medRxiv", "Crossref", "arXiv", "OpenAIRE", "Zenodo"],
+            databases: searchDatabases,
             yearFrom: opts?.yearFrom,
             yearTo: opts?.yearTo,
             studyDesign: opts?.studyDesign,
@@ -400,6 +415,17 @@ export default function ThesisGenerator() {
   const stats = result?.stats || {};
   const chapters = result?.chapters || result?.outline?.chapters || [];
 
+  // Filter references section based on toggle
+  const displayThesis = useMemo(() => {
+    if (!fullThesis) return "";
+    if (showReferences) return fullThesis;
+    // Remove the references section (typically starts with "# References" or "## References" or "### References")
+    return fullThesis
+      .split("\n---\n\n")
+      .filter(part => !part.trim().match(/^#{1,3}\s*References\s*$/i))
+      .join("\n---\n\n");
+  }, [fullThesis, showReferences]);
+
   const isApiKeyMissing = !config.apiKey && !apiKey;
 
   const pipelineStages: Array<{ n: number; name: string; role: string; href: string; stageKey: string }> = [
@@ -619,6 +645,49 @@ export default function ThesisGenerator() {
             />
             <span className="text-[10px]">{apiKey ? "context key loaded" : "enter key"}</span>
           </div>
+        </div>
+
+        <div className="col-span-full">
+          <label className="block text-xs font-medium text-blue-300 mb-1">Search Databases</label>
+          <div className="flex flex-wrap gap-2">
+            {[
+              "PubMed",
+              "OpenAlex",
+              "Europe PMC",
+              "bioRxiv",
+              "medRxiv",
+              "Crossref",
+              "arXiv",
+              "OpenAIRE",
+              "Zenodo",
+              "ClinicalTrials.gov",
+              "Semantic Scholar",
+            ].map((db) => (
+              <label key={db} className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={searchDatabases.includes(db)}
+                  onChange={(e) => setSearchDatabases(prev =>
+                    e.target.checked ? [...prev, db] : prev.filter(d => d !== db)
+                  )}
+                  className="w-3.5 h-3.5 rounded border-blue-700 bg-blue-950 text-yellow-500 focus:ring-yellow-500"
+                />
+                <span className="text-xs text-blue-200">{db}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="col-span-full">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showReferences}
+              onChange={(e) => setShowReferences(e.target.checked)}
+              className="w-3.5 h-3.5 rounded border-blue-700 bg-blue-950 text-yellow-500 focus:ring-yellow-500"
+            />
+            <span className="text-xs text-blue-200">Show References section after Conclusion (with DOI/weblink)</span>
+          </label>
         </div>
       </div>
 
@@ -870,7 +939,7 @@ export default function ThesisGenerator() {
                   <CheckCircle2 size={12} /> Finalised — ready to download
                   {liveWordBudget.length > 0 && (
                     <span className="text-blue-400">
-                      · {countWords(fullThesis).toLocaleString()} words ·{" "}
+                      · {countWords(displayThesis).toLocaleString()} words ·{" "}
                       {liveWordBudget.filter((w: { status: string }) => w.status === "on-target").length}/{liveWordBudget.length} chapters on target
                     </span>
                   )}
@@ -878,7 +947,7 @@ export default function ThesisGenerator() {
               )}
             </div>
             <textarea
-              value={fullThesis}
+              value={displayThesis}
               onChange={handleThesisChange}
               rows={24}
               className="w-full h-[600px] bg-transparent text-white text-sm font-mono leading-relaxed focus:outline-none resize-y whitespace-pre-wrap"

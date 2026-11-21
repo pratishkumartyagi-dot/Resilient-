@@ -57,12 +57,20 @@ export interface SearchOptions {
   limitPerDatabase?: number;
   /** Overall wall-clock budget for the whole multi-database search. */
   timeoutMs?: number;
-  /** "boolean" | "semantic" | "natural" — how the query term should be built. */
-  queryMode?: "boolean" | "semantic" | "natural";
+  /** "boolean" | "semantic" | "natural" | "concept-blocks" — how the query term should be built. */
+  queryMode?: "boolean" | "semantic" | "natural" | "concept-blocks";
   /** Run the scispacy-style concept extractor (MeSH + synonyms per concept). */
   keywordExtract?: boolean;
   /** Broaden the query with MeSH/ATM expansion, stripping boolean operators. */
   semanticSearch?: boolean;
+  /** Concept blocks for systematic review search (A=Condition, B=Predictor, C=Outcome/Design). */
+  conceptBlocks?: {
+    A: string;
+    B: string;
+    C: string;
+  };
+  /** Maximum number of papers per database (unlimited when not set). */
+  maxPapers?: number;
 }
 
 const STUDY_TYPE_KEYWORDS: Record<string, string[]> = {
@@ -492,8 +500,12 @@ interface FetchContext {
   /** When true the query has been broadened with MeSH/ATM expansion and
    *  boolean operators have been stripped. */
   semanticSearch?: boolean;
-  /** "boolean" | "semantic" | "natural" — how the caller wants the term built. */
-  queryMode?: "boolean" | "semantic" | "natural";
+  /** "boolean" | "semantic" | "natural" | "concept-blocks" — how the caller wants the term built. */
+  queryMode?: "boolean" | "semantic" | "natural" | "concept-blocks";
+  /** Concept blocks for systematic review search (A=Condition, B=Predictor/Exposure, C=Outcome/Design). */
+  conceptBlocks?: { A: string; B: string; C: string };
+  /** Maximum number of papers per database (unlimited when not set). */
+  maxPapers?: number;
 }
 
 function yearFilterForApi(from?: string, to?: string): string {
@@ -571,7 +583,7 @@ function quote(term: string): string {
  * whether it is required, and the expanded MeSH/synonym terms to OR together.
  */
 import { extractConceptsLocally, enrichConcepts } from "./concept-extraction";
-import { expandQueryWithMesh } from "./mesh-expansion";
+import { expandQueryWithMesh, TRUNCATION_ROOTS, ATM_MAP, MESH_MAP } from "./mesh-expansion";
 
 export interface ExtractedConcept {
   id: string;
@@ -641,13 +653,16 @@ export function buildConceptAwareTerm(query: string, options: { studyType?: stri
  * This is the single decision point for how a natural-language question is
  * turned into a database query. The route decides the mode and the fetcher
  * just follows it:
- *  - "boolean"  — the caller already wrote a boolean query; pass through with
- *                 each database's own field syntax (via buildDatabaseSearch).
- *  - "semantic" — MeSH/ATM expansion with boolean operators stripped.
+ *  - "boolean"        — the caller already wrote a boolean query; pass through with
+ *                       each database's own field syntax (via buildDatabaseSearch).
+ *  - "semantic"       — MeSH/ATM expansion with boolean operators stripped.
  *  - "natural" / keyword extract — scispacy-style concept-aware term. PubMed
- *                 gets MeSH + [Title/Abstract]; every other database gets a
- *                 plain boolean query that its own buildDatabaseSearch
- *                 translates into the correct field syntax.
+ *                       gets MeSH + [Title/Abstract]; every other database gets a
+ *                       plain boolean query that its own buildDatabaseSearch
+ *                       translates into the correct field syntax.
+ *  - "concept-blocks" — Systematic review search: three concept blocks (A=Condition,
+ *                       B=Predictor/Exposure, C=Outcome/Design) combined with AND.
+ *                       Each block is OR-ed internally with MeSH/synonyms.
  *
  * Previously each fetcher re-derived the mode from the raw query string, so a
  * route that had already decided "keyword extract" was ignored and PubMed fell
@@ -672,12 +687,88 @@ export function resolveEffectiveTerm(ctx: FetchContext): string {
       .replace(/\s+/g, " ")
       .trim() || query;
   }
+  if (ctx.queryMode === "concept-blocks") {
+    // Build concept-blocks query: (A) AND (B) AND (C)
+    // Each block is OR-ed with MeSH/synonyms
+    const blocks = ctx.conceptBlocks;
+    if (!blocks) return query;
+    const parts: string[] = [];
+    const blockLabels = ["A", "B", "C"] as const;
+    for (const label of blockLabels) {
+      const blockText = blocks[label]?.trim();
+      if (!blockText) continue;
+      // Expand with MeSH/synonyms for this block
+      const expanded = expandConceptBlock(blockText);
+      if (expanded.length > 0) {
+        parts.push(`(${expanded.join(" OR ")})`);
+      }
+    }
+    let term = parts.join(" AND ");
+    // Apply study type and date filters
+    const filter = buildStudyTypeFilter(opts.studyType);
+    if (filter) term = `(${term}) AND ${filter}`;
+    if (opts.yearFrom || opts.yearTo) {
+      const from = opts.yearFrom ? `${opts.yearFrom}/01/01` : "1800/01/01";
+      const to = opts.yearTo ? `${opts.yearTo}/12/31` : `${new Date().getFullYear()}/12/31`;
+      term = `(${term}) AND ("${from}"[Date - Publication] : "${to}"[Date - Publication])`;
+    }
+    return term;
+  }
   // natural / keyword extract: PubMed gets the concept-aware MeSH term;
   // every other database gets a plain query it translates itself.
   if (database.toLowerCase() === "pubmed") {
     return buildConceptAwareTerm(query, opts);
   }
   return query;
+}
+
+/** Expand a single concept block with MeSH terms and synonyms. */
+function expandConceptBlock(text: string): string[] {
+  const tokens = text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s\-\*]/g, " ")
+    .split(/\s+(?:OR|AND)\s+|\s*,\s*|\s+/i)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 1);
+  
+  const results = new Set<string>();
+  for (const token of tokens) {
+    // Check if it's a wildcard
+    if (token.includes("*")) {
+      const stripped = token.replace(/\*/g, "");
+      const known = TRUNCATION_ROOTS[stripped];
+      if (known) {
+        known.forEach((w: string) => results.add(w));
+      } else {
+        results.add(stripped);
+      }
+      continue;
+    }
+    // Check MESH_MAP
+    const meshEntry = MESH_MAP[token];
+    if (meshEntry) {
+      meshEntry.mesh.forEach((m: string) => results.add(m));
+      meshEntry.narrower.forEach((n: string) => results.add(n));
+      meshEntry.synonyms.forEach((s: string) => results.add(s));
+      continue;
+    }
+    // Check ATM_MAP
+    const atmMapped = ATM_MAP[token];
+    if (atmMapped) {
+      const atmEntry = MESH_MAP[atmMapped];
+      if (atmEntry) {
+        atmEntry.mesh.forEach((m: string) => results.add(m));
+        atmEntry.narrower.forEach((n: string) => results.add(n));
+        atmEntry.synonyms.forEach((s: string) => results.add(s));
+      } else {
+        results.add(atmMapped);
+      }
+      continue;
+    }
+    // Default: add the token itself
+    results.add(token);
+  }
+  return Array.from(results).map((t) => quote(t));
 }
 
 /** Builds the search string for one database from the research question. */

@@ -272,7 +272,19 @@ export interface ThesisSearchOptions {
 export async function searchThesisPapers(opts: ThesisSearchOptions): Promise<Paper[]> {
   const databases = opts.databases.length > 0
     ? opts.databases
-    : ["PubMed", "OpenAlex", "Europe PMC", "DOAJ", "bioRxiv", "medRxiv", "Crossref", "arXiv", "OpenAIRE", "Semantic Scholar"];
+    : [
+      "PubMed",
+      "OpenAlex",
+      "Europe PMC",
+      "bioRxiv",
+      "medRxiv",
+      "Crossref",
+      "arXiv",
+      "OpenAIRE",
+      "Zenodo",
+      "ClinicalTrials.gov",
+      "Semantic Scholar",
+    ];
 
   const { papers } = await fetchRealPapersWithCounts(
     opts.query,

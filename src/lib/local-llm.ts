@@ -4,12 +4,12 @@ env.allowLocalModels = false;
 env.useBrowserCache = true;
 
 // A small, browser-runnable instruct model with real ONNX weights.
-// NOTE: Transformers.js only supports ONNX models (NOT GGUF). Qwen2.5-0.5B-Instruct
-// is the canonical Transformers.js browser LLM and runs on WebGPU (with a WASM
-// fallback for browsers without GPU access). The 0.5B model is used instead of
-// 1.5B for reliable browser loading within reasonable time/memory budgets.
-const MODEL_ID = "onnx-community/Qwen2.5-0.5B-Instruct";
-export const LOCAL_MODEL_LABEL = "Qwen2.5 0.5B Instruct (in-browser)";
+// NOTE: Transformers.js only supports ONNX models (NOT GGUF). The previous
+// GGUF model could never load in the browser. Qwen2.5-0.5B-Instruct is the
+// canonical Transformers.js browser LLM and runs on WebGPU (with a WASM
+// fallback for browsers without GPU access).
+const MODEL_ID = "onnx-community/Qwen2.5-1.5B-Instruct";
+export const LOCAL_MODEL_LABEL = "Qwen2.5 1.5B Instruct (in-browser)";
 
 type Device = "webgpu" | "wasm";
 

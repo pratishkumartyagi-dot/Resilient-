@@ -26,6 +26,14 @@ interface LiteratureSearchRequestBody {
    *  concepts AND-ed) so a natural-language question is turned into a
    *  librarian-style query instead of AND-ing every content word. */
   keywordExtract?: boolean;
+  /** Concept blocks for systematic review search (A=Condition, B=Predictor/Exposure, C=Outcome/Design). */
+  conceptBlocks?: {
+    A: string;
+    B: string;
+    C: string;
+  };
+  /** Maximum number of papers per database (unlimited when not set). */
+  maxPapers?: number;
 }
 
 function corsHeaders() {
@@ -87,8 +95,10 @@ export async function POST(request: Request) {
     const timeoutMs = typeof body.timeoutMs === "number" ? body.timeoutMs : undefined;
     const semanticSearch = body.semanticSearch === true;
     const keywordExtract = body.keywordExtract === true;
+    const conceptBlocks = body.conceptBlocks;
+    const maxPapers = typeof body.maxPapers === "number" ? body.maxPapers : undefined;
 
-    if (!query) {
+    if (!query && !conceptBlocks) {
       return NextResponse.json({ error: "Missing query parameter" }, { status: 400, headers: corsHeaders() });
     }
 
@@ -108,7 +118,7 @@ export async function POST(request: Request) {
       ? buildConceptAwareTerm(query, { yearFrom, yearTo, studyType })
       : undefined;
 
-    const queryMode = semanticSearch ? "semantic" : keywordExtract ? "natural" : undefined;
+    const queryMode = semanticSearch ? "semantic" : keywordExtract ? "natural" : conceptBlocks ? "concept-blocks" : undefined;
 
     const dbsToSearch = databases.length > 0 ? databases : DEFAULT_DATABASES;
 
@@ -117,11 +127,13 @@ export async function POST(request: Request) {
       yearFrom,
       yearTo,
       studyType,
-      limitPerDatabase: maxResults,
+      limitPerDatabase: maxResults ?? maxPapers,
       timeoutMs,
       queryMode,
       keywordExtract,
       semanticSearch,
+      conceptBlocks,
+      maxPapers,
     });
 
     const papers = outcome.papers;

@@ -31,9 +31,11 @@ export default function Step3Synthesis() {
 
   const getFilteredPapers = () => {
     const selected = state.papers.filter((p) => p.selected);
-    // Include all selected papers, even those with short/missing abstracts.
-    // Papers without sufficient abstract content will be synthesized with a note.
-    return selected;
+    const minAbstractLength = 50;
+    return selected.filter((p) => {
+      if (!p.abstract || p.abstract.length < minAbstractLength) return false;
+      return true;
+    });
   };
 
   const handleGenerateSynthesis = async () => {
@@ -46,8 +48,13 @@ export default function Step3Synthesis() {
     const filteredPapers = getFilteredPapers();
 
     if (filteredPapers.length === 0) {
-      setError("No papers selected. Please select papers in Step 2.");
+      setError("No papers with sufficient abstract content found. Please return to Step 2 and select papers with abstracts.");
       return;
+    }
+
+    if (filteredPapers.length < selected.length) {
+      const excludedCount = selected.length - filteredPapers.length;
+      alert(`Note: ${excludedCount} paper(s) were excluded due to missing/short abstracts. Synthesis will proceed with ${filteredPapers.length} paper(s).`);
     }
 
     dispatch({ type: "SET_LOADING", payload: true });
