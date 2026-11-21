@@ -14,6 +14,7 @@ let serverPort = 0;
 // In production the app is packaged into resources/app.asar, while extraResources
 // (server.js, .next, node_modules) are placed directly in resources/.
 // In development __dirname is <project>/electron, so ".." resolves to the project root.
+// Locate the directory that actually contains server.js (Next.js standalone output).
 const resourcesDir = path.join(__dirname, "..", "..");  // resources/ in packaged app
 const projectDir = path.join(__dirname, "..");          // project root in development
 
@@ -110,6 +111,7 @@ async function startServer() {
         ELECTRON_RUN_AS_NODE: "1",
         NODE_ENV: "production",
         NEXT_TELEMETRY_DISABLED: "1",
+        PORT: String(port),
       },
       stdio: ["ignore", "pipe", "pipe"],
     }
