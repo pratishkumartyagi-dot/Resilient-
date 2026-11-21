@@ -13,11 +13,11 @@
     "typecheck": "tsc --noEmit",
     "electron": "next build && electron .",
     "electron:run": "electron .",
-    "dist": "next build && electron-builder --publish never",
-    "dist:win": "next build && electron-builder --win --publish never",
-    "dist:mac": "next build && electron-builder --mac --publish never",
-    "dist:linux": "next build && electron-builder --linux --publish never",
-    "dist:dir": "next build && electron-builder --dir --publish never"
+    "dist": "rm -rf dist-electron .next/standalone/dist-electron && next build && rm -rf .next/standalone/dist-electron && find .next/standalone -type l -exec sh -c 'cp -rL \"$1\" \"$1.tmp\" 2>/dev/null && rm \"$1\" && mv \"$1.tmp\" \"$1\"' _ {} \\; && electron-builder --publish never",
+    "dist:win": "rm -rf dist-electron .next/standalone/dist-electron && next build && rm -rf .next/standalone/dist-electron && find .next/standalone -type l -exec sh -c 'cp -rL \"$1\" \"$1.tmp\" 2>/dev/null && rm \"$1\" && mv \"$1.tmp\" \"$1\"' _ {} \\; && electron-builder --win --publish never",
+    "dist:mac": "rm -rf dist-electron .next/standalone/dist-electron && next build && rm -rf .next/standalone/dist-electron && find .next/standalone -type l -exec sh -c 'cp -rL \"$1\" \"$1.tmp\" 2>/dev/null && rm \"$1\" && mv \"$1.tmp\" \"$1\"' _ {} \\; && electron-builder --mac --publish never",
+    "dist:linux": "rm -rf dist-electron .next/standalone/dist-electron && next build && rm -rf .next/standalone/dist-electron && find .next/standalone -type l -exec sh -c 'cp -rL \"$1\" \"$1.tmp\" 2>/dev/null && rm \"$1\" && mv \"$1.tmp\" \"$1\"' _ {} \\; && electron-builder --linux --publish never",
+    "dist:dir": "rm -rf dist-electron .next/standalone/dist-electron && next build && rm -rf .next/standalone/dist-electron && find .next/standalone -type l -exec sh -c 'cp -rL \"$1\" \"$1.tmp\" 2>/dev/null && rm \"$1\" && mv \"$1.tmp\" \"$1\"' _ {} \\; && electron-builder --dir --publish never"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
