@@ -19,14 +19,17 @@ jobs:
             script: dist:win
             artifact: windows-installer
             pattern: dist-electron/*.exe
+            setup-python: true
           - os: macos-latest
             script: dist:mac
             artifact: macos-dmg
             pattern: dist-electron/*.dmg
+            setup-python: false
           - os: ubuntu-latest
             script: dist:linux
             artifact: linux-appimage
             pattern: dist-electron/*.AppImage
+            setup-python: false
 
     runs-on: ${{ matrix.os }}
 
@@ -39,11 +42,32 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Setup Python (Windows only)
+        if: matrix.setup-python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install paper-search-mcp (Windows only)
+        if: matrix.setup-python
+        run: |
+          python -m pip install --upgrade pip
+          pip install "paper-search-mcp==0.1.4"
+          pip install "mcp[cli]>=1.27.2,<2"
+        shell: bash
+
       - name: Install dependencies
         run: bun install
 
       - name: Build desktop app
         run: bun run ${{ matrix.script }}
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          CSC_NAME: ${{ secrets.CSC_NAME }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
