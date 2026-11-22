@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
-import { Search, Database, ChevronRight, CheckSquare, Square, Loader2, CheckCircle2, AlertCircle, Globe } from "lucide-react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
+import { Search, Database, ChevronRight, CheckSquare, Square, Loader2, CheckCircle2, AlertCircle, Globe, Brain, RotateCcw, Copy, FileText, Sparkles } from "lucide-react";
 import { useApp } from "@/context/AppContext";
+import { callAiWithFallback, callGemini, callGroq, type AICallOptions } from "@/lib/ai";
 import { webSearchPapers, verifyCitations, enrichPapersWithDois, type Paper } from "@/lib/database-apis";
 
 const STUDY_TYPES = [
@@ -102,6 +103,16 @@ export default function Step1Search() {
   const [searchFailed, setSearchFailed] = useState(false);
   const [webFallbackBusy, setWebFallbackBusy] = useState(false);
 
+  // Concept block (PICO) state — AI-generated from the user query, then
+  // finalized by the user before search. Block A = Condition/Population,
+  // Block B = Intervention/Predictor/Exposure, Block C = Outcome.
+  const [conceptA, setConceptA] = useState("");
+  const [conceptB, setConceptB] = useState("");
+  const [conceptC, setConceptC] = useState("");
+  const [conceptBlockGenerating, setConceptBlockGenerating] = useState(false);
+  const [conceptBlockGenerated, setConceptBlockGenerated] = useState(false);
+  const [conceptBlocksMode, setConceptBlocksMode] = useState(false);
+
   const availableDbs = useMemo(() => catalogue.filter((d) => d.available).map((d) => d.id), [catalogue]);
   const unavailableDbs = useMemo(() => catalogue.filter((d) => !d.available), [catalogue]);
 
@@ -195,6 +206,12 @@ export default function Step1Search() {
     setSearchFailed(false);
 
     try {
+      // When concept-blocks mode is on, the query is built from the three
+      // concept blocks (A=Condition, B=Intervention, C=Outcome) and semantic
+      // / keyword-extract modes are disabled so the server uses the concept
+      // blocks verbatim.
+      const queryMode = conceptBlocksMode ? "concept-blocks" : semanticSearch ? "semantic" : keywordExtract ? "natural" : undefined;
+      const conceptBlocks = conceptBlocksMode ? { A: conceptA, B: conceptB, C: conceptC } : undefined;
       const res = await fetch("/api/literature-search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -206,8 +223,10 @@ export default function Step1Search() {
           studyType: studyType === "All Study Types" ? undefined : studyType,
           maxResults: resultLimit,
           timeoutMs: searchBudget * 1000,
-          semanticSearch,
-          keywordExtract,
+          semanticSearch: conceptBlocksMode ? false : semanticSearch,
+          keywordExtract: conceptBlocksMode ? false : keywordExtract,
+          queryMode,
+          conceptBlocks,
         }),
       });
 
@@ -280,6 +299,74 @@ export default function Step1Search() {
     } finally {
       setWebFallbackBusy(false);
       dispatch({ type: "SET_LOADING", payload: false });
+    }
+  };
+
+  // Generate a PICO-style concept block (A = Condition/Population, B = Intervention/Predictor,
+  // C = Outcome) from the user's research question using AI. The user can then
+  // edit each block before searching with concept-blocks mode.
+  const handleGenerateConceptBlock = async () => {
+    if (!localQuery.trim()) {
+      dispatch({ type: "SET_ERROR", payload: "Enter a research question first." });
+      return;
+    }
+    setConceptBlockGenerating(true);
+    setConceptBlockGenerated(false);
+    try {
+      const apiKey = state.geminiApiKey || state.groqApiKey;
+      if (!apiKey) {
+        // No API key — split the query into three roughly-equal word groups as a
+        // deterministic fallback concept block.
+        const words = localQuery.trim().split(/\s+/).filter((w) => w.length > 2);
+        const third = Math.max(1, Math.floor(words.length / 3));
+        setConceptA(words.slice(0, third).join(" ") || localQuery);
+        setConceptB(words.slice(third, third * 2).join(" ") || "");
+        setConceptC(words.slice(third * 2).join(" ") || "");
+        setConceptBlockGenerated(true);
+        return;
+      }
+      const prompt = `You are an expert systematic-review librarian. Turn the user's research question into a PICO-style concept block for database searching.
+
+RESEARCH QUESTION: "${localQuery}"
+
+TASK: Identify exactly three concept blocks:
+- Block A (Condition / Population): the health condition, disease, or population being studied.
+- Block B (Intervention / Predictor / Exposure): the intervention, exposure, or predictor being tested.
+- Block C (Outcome): the outcome or outcome measure of interest.
+
+Return ONLY a JSON object with keys "A", "B", "C". Each value is a short plain-English phrase (no boolean operators, no brackets). If a block is not applicable to the question, leave it as an empty string.
+
+Example:
+{
+  "A": "healthcare workers",
+  "B": "latent tuberculosis infection screening",
+  "C": "treatment completion"
+}`;
+      const searchOptions: AICallOptions = { searchEnabled: false, searchQuery: localQuery };
+      let text: string;
+      if (state.geminiApiKey) {
+        text = await callGemini(state.geminiApiKey, prompt, searchOptions);
+      } else if (state.groqApiKey) {
+        text = await callGroq(state.groqApiKey!, prompt, searchOptions);
+      } else {
+        throw new Error("No API key configured. Please open Settings (gear icon).");
+      }
+      const cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
+      let parsed: any;
+      try {
+        parsed = JSON.parse(cleaned);
+      } catch {
+        const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+        parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+      }
+      setConceptA(typeof parsed.A === "string" ? parsed.A : "");
+      setConceptB(typeof parsed.B === "string" ? parsed.B : "");
+      setConceptC(typeof parsed.C === "string" ? parsed.C : "");
+      setConceptBlockGenerated(true);
+    } catch (err: any) {
+      dispatch({ type: "SET_ERROR", payload: `Concept block generation failed: ${err?.message || "unknown error"}` });
+    } finally {
+      setConceptBlockGenerating(false);
     }
   };
 
@@ -404,6 +491,84 @@ export default function Step1Search() {
                 <Search size={16} />
                 {state.isLoading ? "Searching..." : "Search"}
               </button>
+            </div>
+          </div>
+
+          {/* Concept block (PICO) — AI-generated from the query, user-finalized */}
+          <div className="bg-[#0d1b3e]/50 border border-blue-800/50 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Brain size={16} className="text-purple-400" />
+                <h3 className="text-sm font-bold text-white">Concept block (PICO)</h3>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer text-xs">
+                <input
+                  type="checkbox"
+                  checked={conceptBlocksMode}
+                  onChange={(e) => setConceptBlocksMode(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded border-purple-700 bg-blue-950 text-purple-400 focus:ring-purple-400"
+                />
+                <span className="text-blue-300">Search using concept blocks</span>
+              </label>
+            </div>
+            <p className="text-xs text-blue-400 mb-3">
+              Block A = Condition/Population · Block B = Intervention/Predictor/Exposure · Block C = Outcome.
+              Generate with AI, then edit each block before searching.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-purple-300 mb-1">Block A — Condition / Population</label>
+                <input
+                  type="text"
+                  value={conceptA}
+                  onChange={(e) => setConceptA(e.target.value)}
+                  placeholder="e.g., healthcare workers"
+                  className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-purple-300 mb-1">Block B — Intervention / Exposure</label>
+                <input
+                  type="text"
+                  value={conceptB}
+                  onChange={(e) => setConceptB(e.target.value)}
+                  placeholder="e.g., latent TB screening"
+                  className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-purple-300 mb-1">Block C — Outcome</label>
+                <input
+                  type="text"
+                  value={conceptC}
+                  onChange={(e) => setConceptC(e.target.value)}
+                  placeholder="e.g., treatment completion"
+                  className="w-full bg-blue-950 border border-blue-800 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-3">
+              <button
+                onClick={handleGenerateConceptBlock}
+                disabled={conceptBlockGenerating || state.isLoading || !localQuery.trim()}
+                className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+              >
+                {conceptBlockGenerating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                {conceptBlockGenerated ? "Regenerate concept block" : "Generate concept block with AI"}
+              </button>
+              {conceptBlockGenerated && (
+                <button
+                  onClick={() => {
+                    setConceptA("");
+                    setConceptB("");
+                    setConceptC("");
+                    setConceptBlockGenerated(false);
+                  }}
+                  className="text-xs bg-blue-900/50 text-blue-200 px-3 py-2 rounded hover:bg-blue-900/70"
+                >
+                  <RotateCcw size={12} /> Clear
+                </button>
+              )}
             </div>
           </div>
 

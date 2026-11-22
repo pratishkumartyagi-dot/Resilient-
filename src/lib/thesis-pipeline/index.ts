@@ -8,7 +8,6 @@ import type {
 } from "@/lib/thesis-types";
 import { LEVEL_WORD_RANGES } from "@/lib/thesis-types";
 import { openDraft } from "@/lib/opendraft";
-import { generateThesis } from "@/lib/thesis-generator";
 import { scholarCopilot } from "@/lib/scholar-copilot";
 import { formatReferenceListByStyle } from "@/lib/references";
 import { appraiseEvidenceBase, buildEvidenceAppraisalMarkdown, buildNursestackThesisPlan, applyNursestackPlanToOutline, wordTargetsFromPlan } from "@/lib/thesis-nursestack";
@@ -72,7 +71,10 @@ export async function runThesisPipeline(
     `Outline ready: ${outline.chapters.length} chapters, ${Object.values(wordTargets).reduce((a, b) => a + b, 0).toLocaleString()} words planned`
   );
 
-  // Stage 2: Prose (search papers first for grounding)
+  // Stage 2: Prose + refine + citation validation via ScholarCopilot.
+  // The old thesis-generator lib is removed; ScholarCopilot now generates
+  // chapter prose (from outline chapters with no initial content), refines it,
+  // validates citations against grounding papers, and applies the word budget.
   onProgress?.("prose", "Searching databases for grounding papers...");
   let papers: ThesisPaper[] = [];
   if (searchFn) {
@@ -87,37 +89,36 @@ export async function runThesisPipeline(
     }
   }
 
-  onProgress?.("prose", `Generating prose for ${outline.chapters.length} chapters...`);
-  const proseResult = await generateThesis({
-    outline,
-    papers,
-    config: {
-      topic: config.topic,
-      level: config.level,
-      style: config.style,
-      language: config.language,
-      studyDesign: config.studyDesign,
-      targetWordCount: config.targetWordCount,
-      maxReferences: config.maxReferences,
-    },
-    aiFn,
-    onProgress: (msg) => onProgress?.("prose", msg),
-  });
-  subResults.prose = proseResult.subResult;
-  let chapters: ChapterFile[] = proseResult.chapters;
+  // Build chapter files from the outline (no content yet — ScholarCopilot
+  // generates prose from the topic + grounding papers).
+  const chaptersFromOutline: ChapterFile[] = outline.chapters.map((c, idx) => ({
+    chapterNumber: c.number || idx + 1,
+    chapterTitle: c.title || `Chapter ${idx + 1}`,
+    content: "",
+    sections: (c.sections || []).map((s: any, sidx: number) => ({
+      id: s.id ?? `c${c.number ?? idx + 1}-s${sidx + 1}`,
+      title: s.title || `Section ${sidx + 1}`,
+      wordTarget: typeof s.wordTarget === "number" ? s.wordTarget : 0,
+      content: "",
+    })),
+    wordCount: 0,
+    citations: [],
+    argumentAudit: { claims: [], evidenceGaps: [], logicalFlowScore: 0, citationCoverage: 0, recommendations: [] },
+  }));
 
-  // Stage 3: Refine / citation validation
-  onProgress?.("refine", "Refining chapters and validating citations...");
-  const refineResult = await scholarCopilot({
-    chapters,
+  onProgress?.("prose", `Generating prose and validating citations for ${chaptersFromOutline.length} chapters...`);
+  const scholarResult = await scholarCopilot({
+    chapters: chaptersFromOutline,
     papers,
     config: { topic: config.topic, level: config.level, style: config.style },
     wordTargets,
     aiFn,
-    onProgress: (msg) => onProgress?.("refine", msg),
+    onProgress: (msg) => onProgress?.("prose", msg),
   });
-  subResults.refine = refineResult.subResult;
-  chapters = refineResult.chapters;
+  subResults.prose = scholarResult.subResult;
+  subResults.refine = scholarResult.subResult;
+  let chapters: ChapterFile[] = scholarResult.chapters;
+  let fullThesis = scholarResult.fullThesis;
 
   // Stage 4: CASP appraisal of the evidence base (NurseStack /review-evidence)
   onProgress?.("appraise", "Appraising the evidence base with CASP...");
@@ -137,7 +138,6 @@ export async function runThesisPipeline(
   // append them to the thesis so the reference list appears after the
   // conclusion chapter in the rendered document (Word / PDF / LaTeX exports).
   const references = papers.slice(0, config.maxReferences || 150);
-  let fullThesis = refineResult.fullThesis;
   const markdownOutline = outlineResult.markdownOutline;
 
   // Format references according to the selected citation style
@@ -187,8 +187,8 @@ export async function runThesisPipeline(
       appraise: subResults.appraise,
     },
     nursestackPlan,
-    wordBudget: refineResult.wordBudget,
-    wordBudgetMet: refineResult.wordBudgetMet,
+    wordBudget: scholarResult.wordBudget,
+    wordBudgetMet: scholarResult.wordBudgetMet,
     evidenceAppraisal,
     evidenceAppraisalMarkdown,
   };

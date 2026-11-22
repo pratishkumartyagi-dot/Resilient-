@@ -1065,21 +1065,35 @@ async function fetchEuropePmcQuery(
   const pageSize = 100;
   let pages = 0;
   const cap = isFinite(ctx.limit) && ctx.limit > 0 ? ctx.limit : Infinity;
+  const isServer = typeof window === "undefined";
 
   while (pages < MAX_PAGINATION_PAGES) {
     if (papers.length >= cap) break;
     pages++;
-    const params = new URLSearchParams({
-      query: epmcQuery,
-      format: "json",
-      resultType: "core",
-      pageSize: String(pageSize),
-      cursorMark,
-    });
-    const data = await httpJson<any>(`https://www.ebi.ac.uk/europepmc/webservices/rest/search?${params.toString()}`, {
-      timeoutMs: 30000,
-      retries: 3,
-    });
+    let data: any;
+    if (isServer) {
+      const params = new URLSearchParams({
+        query: epmcQuery,
+        format: "json",
+        resultType: "core",
+        pageSize: String(pageSize),
+        cursorMark,
+      });
+      data = await httpJson<any>(`https://www.ebi.ac.uk/europepmc/webservices/rest/search?${params.toString()}`, {
+        timeoutMs: 30000,
+        retries: 3,
+      });
+    } else {
+      // Browser: go through the same-origin /api/europepmc proxy so the call
+      // honours Retry-After / backoff and avoids CORS preflight issues.
+      data = await httpJson<any>("/api/europepmc", {
+        method: "POST",
+        timeoutMs: 30000,
+        retries: 3,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: epmcQuery, pageSize: 100, cursorMark, format: "json", resultType: "core" }),
+      });
+    }
     const results = data.resultList?.result || [];
     if (results.length === 0) break;
 
