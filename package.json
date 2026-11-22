@@ -55,7 +55,7 @@
     "appId": "com.resilient.researchapp",
     "productName": "Resilient Research App",
     "copyright": "Copyright © 2024 Resilient Research Team",
-    "asar": true,
+    "asar": false,
     "directories": {
       "output": "dist-electron",
       "buildResources": "electron/build"

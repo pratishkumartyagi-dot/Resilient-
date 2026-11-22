@@ -11,12 +11,11 @@ let serverProcess = null;
 let inProcessServer = null;
 let serverPort = 0;
 
-// In production the app is packaged into resources/app.asar, while extraResources
-// (server.js, .next, node_modules) are placed directly in resources/.
-// In development __dirname is <project>/electron, so ".." resolves to the project root.
-// Locate the directory that actually contains server.js (Next.js standalone output).
-const resourcesDir = path.join(__dirname, "..", "..");  // resources/ in packaged app
-const projectDir = path.join(__dirname, "..");          // project root in development
+// In a packaged Electron app, process.resourcesPath points to resources/ where
+// extraResources places server.js and .next/. In development, fall back to
+// computing from __dirname.
+const resourcesDir = process.resourcesPath || path.join(__dirname, "..", "..");
+const projectDir = path.join(__dirname, "..");
 
 // Use resources/ if server.js was placed there by electron-builder's extraResources,
 // otherwise fall back to the project root (development).
@@ -101,6 +100,14 @@ async function startServer() {
   };
 
   log(`Starting Next server: ${serverEntry} on 127.0.0.1:${port}`);
+
+  // With asar: false, node_modules lives at resources/app/node_modules/.
+  // server.js runs from resources/ via extraResources, so it cannot find
+  // next by walking up the directory tree. Point NODE_PATH at it.
+  const nodeModulesPath = process.resourcesPath
+    ? path.join(resourcesDir, "app", "node_modules")
+    : undefined;
+
   serverProcess = spawn(
     process.execPath,
     [serverEntry, ...args],
@@ -108,6 +115,7 @@ async function startServer() {
       cwd: appDir,
       env: {
         ...process.env,
+        ...(nodeModulesPath ? { NODE_PATH: nodeModulesPath } : {}),
         ELECTRON_RUN_AS_NODE: "1",
         NODE_ENV: "production",
         NEXT_TELEMETRY_DISABLED: "1",
