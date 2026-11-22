@@ -233,6 +233,10 @@ function conceptKey(terms: string[]): string {
 interface ConceptExpansion {
   pubmedMesh: string[];      // MeSH headings for PubMed
   pubmedTiab: string[];      // [Title/Abstract] terms for PubMed
+  europepmcMesh: string[];   // MESH:"term" for Europe PMC
+  europepmcTitle: string[];  // TITLE:(...) for Europe PMC
+  europepmcAbstract: string[]; // ABSTRACT:(...) for Europe PMC
+  europepmcKw: string[];     // KW:(...) for Europe PMC
   embaseExp: string[];       // /exp terms for Embase
   embaseTiab: string[];      // :ti,ab,kw terms for Embase
   wos: string[];             // TS= terms for Web of Science
@@ -247,6 +251,10 @@ const CONCEPT_DICTIONARY: Record<string, ConceptExpansion> = {
   india: {
     pubmedMesh: ["India[MeSH Terms]"],
     pubmedTiab: ["India[tiab]", "Indian[tiab]"],
+    europepmcMesh: ['MESH:"India"'],
+    europepmcTitle: ["TITLE:(india OR indian)"],
+    europepmcAbstract: ["ABSTRACT:(india OR indian)"],
+    europepmcKw: ["KW:(india OR indian)"],
     embaseExp: ["'india'/exp"],
     embaseTiab: ["india:ti,ab,kw", "indian:ti,ab,kw"],
     wos: ["india", "indian"],
@@ -276,6 +284,22 @@ const CONCEPT_DICTIONARY: Record<string, ConceptExpansion> = {
       '"black carbon"[tiab]',
       '"nitrogen dioxide"[tiab]',
       '"second-hand smoke"[tiab]',
+    ],
+    europepmcMesh: [
+      'MESH:"Air Pollution"',
+      'MESH:"Air Pollutants"',
+      'MESH:"Air Pollution, Indoor"',
+      'MESH:"Particulate Matter"',
+      'MESH:"Tobacco Smoke Pollution"',
+    ],
+    europepmcTitle: [
+      'TITLE:("air pollution" OR "air pollutant" OR "air pollutants" OR "particulate matter" OR PM2.5 OR PM10 OR "household air pollution" OR "solid fuel" OR "solid fuels" OR biomass OR "cooking fuel" OR "cooking fuels" OR "clean fuel" OR "clean fuels" OR cookstove OR cookstoves OR "black carbon" OR "nitrogen dioxide" OR "second-hand smoke")',
+    ],
+    europepmcAbstract: [
+      'ABSTRACT:("air pollution" OR "air pollutant" OR "air pollutants" OR "particulate matter" OR PM2.5 OR PM10 OR "household air pollution" OR "solid fuel" OR "solid fuels" OR biomass OR "cooking fuel" OR "cooking fuels" OR "clean fuel" OR "clean fuels" OR cookstove OR cookstoves OR "black carbon" OR "nitrogen dioxide" OR "second-hand smoke")',
+    ],
+    europepmcKw: [
+      'KW:("air pollution" OR "air pollutant" OR "air pollutants" OR "particulate matter" OR PM2.5 OR PM10 OR "household air pollution" OR "solid fuel" OR "solid fuels" OR biomass OR "cooking fuel" OR "cooking fuels" OR "clean fuel" OR "clean fuels" OR cookstove OR cookstoves OR "black carbon" OR "nitrogen dioxide" OR "second-hand smoke")',
     ],
     embaseExp: [
       "'air pollution'/exp",
@@ -356,6 +380,16 @@ const CONCEPT_DICTIONARY: Record<string, ConceptExpansion> = {
       "hepcidin[tiab]",
       '"C-reactive protein"[tiab]',
     ],
+    europepmcMesh: ['MESH:"Anemia"', 'MESH:"Hemoglobins"'],
+    europepmcTitle: [
+      'TITLE:(anaemia OR anemia OR anaemic OR anemic OR haemoglobin OR hemoglobin OR ferritin OR "iron deficiency" OR hepcidin OR "C-reactive protein")',
+    ],
+    europepmcAbstract: [
+      'ABSTRACT:(anaemia OR anemia OR anaemic OR anemic OR haemoglobin OR hemoglobin OR ferritin OR "iron deficiency" OR hepcidin OR "C-reactive protein")',
+    ],
+    europepmcKw: [
+      'KW:(anaemia OR anemia OR anaemic OR anemic OR haemoglobin OR hemoglobin OR ferritin OR "iron deficiency" OR hepcidin OR "C-reactive protein")',
+    ],
     embaseExp: [
       "'anemia'/exp",
       "'hemoglobin'/exp",
@@ -405,9 +439,14 @@ function lookupConcept(concept: SearchConcept): ConceptExpansion {
 
   // Fallback: raw terms with minimal database syntax
   const quoted = concept.terms.map((t) => `"${t}"`);
+  const quotedMesh = quoted.map((t) => `MESH:${t}`);
   return {
     pubmedMesh: quoted.map((t) => `${t}[MeSH Terms]`),
     pubmedTiab: quoted.map((t) => `${t}[tiab]`),
+    europepmcMesh: quotedMesh,
+    europepmcTitle: [`TITLE:(${quoted.join(" OR ")})`],
+    europepmcAbstract: [`ABSTRACT:(${quoted.join(" OR ")})`],
+    europepmcKw: [`KW:(${quoted.join(" OR ")})`],
     embaseExp: quoted.map((t) => `'${t}'/exp`),
     embaseTiab: quoted.map((t) => `'${t}':ti,ab,kw`),
     wos: quoted,
@@ -430,6 +469,14 @@ function pubmedDateFilter(term: string, from?: string, to?: string): string {
   const f = from ? `${from}/01/01` : "1800/01/01";
   const t = to ? `${to}/12/31` : `${new Date().getFullYear()}/12/31`;
   return `(${term}) AND ("${f}"[Date - Publication] : "${t}"[Date - Publication])`;
+}
+
+/** Append an Europe PMC date filter. */
+function europepmcDateFilter(term: string, from?: string, to?: string): string {
+  if (!from && !to) return term;
+  const f = from ? `${from}-01-01` : "1800-01-01";
+  const t = to ? `${to}-12-31` : `${new Date().getFullYear()}-12-31`;
+  return `${term} AND FIRST_PDATE:[${f} TO ${t}]`;
 }
 
 /** Append an Embase date filter. */
@@ -476,6 +523,44 @@ export function buildPubMedSearchQuery(
 
   let term = `(${popPart}) AND ((${expPart}) AND (${outPart}))`;
   term = pubmedDateFilter(term, yearFrom, yearTo);
+  return term;
+}
+
+/** Europe PMC: ((MESH:"..." OR TITLE:(...) OR ABSTRACT:(...) OR KW:(...)) AND (...)) AND (...) + date.
+ *
+ * Each concept block combines MESH headings with TITLE/ABSTRACT/KW free-text
+ * terms, all OR-ed within the block, then the three blocks are AND-ed.
+ */
+export function buildEuropePmcSearchQuery(
+  concepts: SearchConcepts,
+  yearFrom?: string,
+  yearTo?: string,
+): string {
+  const pop = lookupConcept(concepts.population);
+  const exp = lookupConcept(concepts.exposure);
+  const out = lookupConcept(concepts.outcome);
+
+  const popPart = orGroup([
+    ...pop.europepmcMesh,
+    ...pop.europepmcTitle,
+    ...pop.europepmcAbstract,
+    ...pop.europepmcKw,
+  ]);
+  const expPart = orGroup([
+    ...exp.europepmcMesh,
+    ...exp.europepmcTitle,
+    ...exp.europepmcAbstract,
+    ...exp.europepmcKw,
+  ]);
+  const outPart = orGroup([
+    ...out.europepmcMesh,
+    ...out.europepmcTitle,
+    ...out.europepmcAbstract,
+    ...out.europepmcKw,
+  ]);
+
+  let term = `(${popPart}) AND ((${expPart}) AND (${outPart}))`;
+  term = europepmcDateFilter(term, yearFrom, yearTo);
   return term;
 }
 
@@ -597,6 +682,11 @@ export function buildDatabaseSpecificQueries(
       case id === "pubmed": {
         query = buildPubMedSearchQuery(concepts, q.yearFrom, q.yearTo);
         description = "PubMed: (population[MeSH/tiab]) AND ((exposure[MeSH/tiab]) AND (outcome[MeSH/tiab])) + date range";
+        break;
+      }
+      case id === "europe pmc" || id === "europepmc": {
+        query = buildEuropePmcSearchQuery(concepts, q.yearFrom, q.yearTo);
+        description = "Europe PMC: ((MESH/TITLE/ABSTRACT/KW:pop) AND ((MESH/TITLE/ABSTRACT/KW:exp) AND (MESH/TITLE/ABSTRACT/KW:out))) + FIRST_PDATE range";
         break;
       }
       case id === "embase.com" || id === "embase": {

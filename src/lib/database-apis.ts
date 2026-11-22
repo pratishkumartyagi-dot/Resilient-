@@ -506,6 +506,9 @@ interface FetchContext {
   conceptBlocks?: { A: string; B: string; C: string };
   /** Maximum number of papers per database (unlimited when not set). */
   maxPapers?: number;
+  /** When set, this native query string is sent to the database exactly as-is,
+   *  bypassing all query translation (used for Europe PMC native syntax). */
+  rawTerm?: string;
 }
 
 function yearFilterForApi(from?: string, to?: string): string {
@@ -1051,14 +1054,19 @@ async function fetchEuropePmcQuery(
 ): Promise<Paper[]> {
   // Europe PMC scheme: quoted terms ORed/ANDed with the TITLE and ABST
   // fields, plus the date range and (for preprints) the source filter.
-  // The route/server decides how the natural-language question is turned into
-  // a query (semantic / keyword-extract / boolean) and the fetcher follows it.
-  const translated = buildDatabaseSearch(label, resolveEffectiveTerm({ ...ctx, database: label }), {
-    yearFrom: ctx.yearFrom,
-    yearTo: ctx.yearTo,
-  });
-  const terms = [translated.term, ...extraTerms].filter(Boolean);
-  let epmcQuery = terms.join(" AND ");
+  // When ctx.rawTerm is set (native Europe PMC syntax from the search
+  // strategy builder), it is sent verbatim without any translation.
+  let epmcQuery: string;
+  if (ctx.rawTerm) {
+    epmcQuery = ctx.rawTerm;
+  } else {
+    const translated = buildDatabaseSearch(label, resolveEffectiveTerm({ ...ctx, database: label }), {
+      yearFrom: ctx.yearFrom,
+      yearTo: ctx.yearTo,
+    });
+    const terms = [translated.term, ...extraTerms].filter(Boolean);
+    epmcQuery = terms.join(" AND ");
+  }
 
   const papers: Paper[] = [];
   let cursorMark = "*";
@@ -1132,8 +1140,8 @@ async function fetchEuropePmcQuery(
   return papers;
 }
 
-export async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
-  const papers = await fetchEuropePmcQuery(query, { query, yearFrom, yearTo, limit: limit ?? UNLIMITED, database: "Europe PMC" });
+export async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number, rawTerm?: string): Promise<Paper[]> {
+  const papers = await fetchEuropePmcQuery(query, { query, yearFrom, yearTo, limit: limit ?? UNLIMITED, database: "Europe PMC", rawTerm });
   void studyType;
   return capResults(papers, limit ?? UNLIMITED);
 }
@@ -1907,7 +1915,12 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "Europe PMC",
     url: "https://europepmc.org/",
     description: "Europe PMC literature database",
-    search: (ctx) => fetchEuropePMC(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => {
+      // When the query is already native Europe PMC syntax (MESH:/TITLE:/ABSTRACT:/KW:/FIRST_PDATE),
+      // pass it as rawTerm so fetchEuropePmcQuery sends it verbatim without translation.
+      const isNative = /(MESH:|TITLE:|ABSTRACT:|KW:|FIRST_PDATE)/i.test(ctx.query || "");
+      return fetchEuropePMC(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, isNative ? ctx.query : undefined);
+    },
   },
   {
     id: "DOAJ",
