@@ -2258,9 +2258,10 @@ export async function fetchRealPapers(
   databases: string[],
   yearFrom?: string,
   yearTo?: string,
-  studyType?: string
+  studyType?: string,
+  maxPapers?: number
 ): Promise<Paper[]> {
-  const outcome = await searchDatabases(databases, { query, yearFrom, yearTo, studyType });
+  const outcome = await searchDatabases(databases, { query, yearFrom, yearTo, studyType, limitPerDatabase: maxPapers });
   return outcome.papers;
 }
 
@@ -2274,9 +2275,10 @@ export async function fetchRealPapersWithCounts(
   databases: string[],
   yearFrom?: string,
   yearTo?: string,
-  studyType?: string
+  studyType?: string,
+  maxPapers?: number,
 ): Promise<FetchRealPapersResult> {
-  const outcome = await searchDatabases(databases, { query, yearFrom, yearTo, studyType });
+  const outcome = await searchDatabases(databases, { query, yearFrom, yearTo, studyType, limitPerDatabase: maxPapers });
   return { papers: outcome.papers, dedupedCount: outcome.dedupedCount };
 }
 

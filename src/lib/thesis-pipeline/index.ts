@@ -14,7 +14,7 @@ import { appraiseEvidenceBase, buildEvidenceAppraisalMarkdown, buildNursestackTh
 
 export interface PipelineDeps {
   aiFn: (prompt: string, opts?: { searchEnabled?: boolean; searchQuery?: string }) => Promise<string>;
-  searchFn?: (query: string, opts?: { yearFrom?: number; yearTo?: number; studyDesign?: string }) => Promise<ThesisPaper[]>;
+  searchFn?: (query: string, opts?: { yearFrom?: number; yearTo?: number; studyDesign?: string; maxPapers?: number }) => Promise<ThesisPaper[]>;
   onProgress?: (stage: string, message: string) => void;
 }
 
@@ -83,6 +83,9 @@ export async function runThesisPipeline(
         yearFrom: config.yearFrom,
         yearTo: config.yearTo,
         studyDesign: config.studyDesign,
+        // Search for at least the level's reference minimum so every chapter
+        // has enough grounding papers to cite.
+        maxPapers: config.maxReferences,
       });
     } catch {
       papers = [];

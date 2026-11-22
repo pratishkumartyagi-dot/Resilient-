@@ -184,6 +184,7 @@ export default function ThesisGenerator() {
             yearFrom: opts?.yearFrom,
             yearTo: opts?.yearTo,
             studyDesign: opts?.studyDesign,
+            maxPapers: opts?.maxPapers,
           });
           return papers.map(toThesisPaper);
         },
