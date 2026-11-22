@@ -267,6 +267,7 @@ export interface ThesisSearchOptions {
   yearFrom?: number;
   yearTo?: number;
   studyDesign?: string;
+  maxPapers?: number;
 }
 
 export async function searchThesisPapers(opts: ThesisSearchOptions): Promise<Paper[]> {
@@ -292,6 +293,7 @@ export async function searchThesisPapers(opts: ThesisSearchOptions): Promise<Pap
     opts.yearFrom?.toString(),
     opts.yearTo?.toString(),
     opts.studyDesign || undefined,
+    opts.maxPapers,
   );
 
   return papers;

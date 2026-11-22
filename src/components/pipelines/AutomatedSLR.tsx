@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { useApp } from "@/context/AppContext";
 import { callGemini, callGroq, callDeepSeek, type AICallOptions } from "@/lib/ai";
 import {
@@ -17,6 +17,9 @@ import {
   buildProblemFormulation,
   buildProtocol,
   buildSearchQueries,
+  buildDatabaseSpecificQueries,
+  extractSearchConceptsFromQuestion,
+  type DatabaseSearchQuery,
   buildScreeningCriteria,
   buildExtractionPrompt,
   buildQualityAssessment,
@@ -84,6 +87,7 @@ export default function AutomatedSLR() {
   ]);
   const [biasAssessing, setBiasAssessing] = useState(false);
   const [slrBias, setSlrBias] = useState<Record<string, { risk: "low" | "some" | "high"; aiGenerated: boolean }>>({});
+  const [searchStrategies, setSearchStrategies] = useState<DatabaseSearchQuery[]>([]);
 
   const callAi = useCallback(
     async (prompt: string): Promise<string> => {
@@ -133,27 +137,46 @@ export default function AutomatedSLR() {
     yearTo,
   };
 
+  // Generate database-specific search strategies whenever the question or
+  // database selection changes, so Step 2 can display them before searching.
+  useEffect(() => {
+    if (databases.length === 0) return;
+    const strategies = buildDatabaseSpecificQueries(question, databases);
+    setSearchStrategies(strategies);
+  }, [question, databases]);
+
   const handleRunSearch = async () => {
     setSearching(true);
     try {
-      const queries = buildSearchQueries(question, databases);
+      // Build database-specific search strategies (one query per database in
+      // that database's native syntax). medRxiv produces multiple sub-queries.
+      const strategies = buildDatabaseSpecificQueries(question, databases);
+      setSearchStrategies(strategies);
+
       const allPapers: Paper[] = [];
 
-      for (let i = 0; i < queries.length; i++) {
-        try {
-          const papers = await fetchRealPapers(
-            queries[i],
-            [databases[i % databases.length]],
-            yearFrom,
-            yearTo,
-            "All Study Types",
-          );
-          papers.forEach((p) => {
-            if (!p.database) p.database = databases[i % databases.length];
-          });
-          allPapers.push(...papers);
-        } catch (err) {
-          console.warn(`Search failed for ${databases[i % databases.length]}:`, err);
+      for (const strategy of strategies) {
+        // medRxiv may yield multiple queries — run each separately.
+        const subQueries = strategy.database.toLowerCase() === "medrxiv"
+          ? strategy.query.split("\n• ").filter(Boolean)
+          : [strategy.query];
+
+        for (const subQuery of subQueries) {
+          try {
+            const papers = await fetchRealPapers(
+              subQuery,
+              [strategy.database],
+              yearFrom,
+              yearTo,
+              "All Study Types",
+            );
+            papers.forEach((p) => {
+              if (!p.database) p.database = strategy.database;
+            });
+            allPapers.push(...papers);
+          } catch (err) {
+            console.warn(`Search failed for ${strategy.database}:`, err);
+          }
         }
       }
 
@@ -513,6 +536,28 @@ export default function AutomatedSLR() {
               <h4 className="text-xs font-semibold text-blue-300 mb-2">Generated Protocol</h4>
               <pre className="text-xs text-blue-200 overflow-x-auto">{buildProtocol(question, databases)}</pre>
             </div>
+
+            {/* Database-specific search strategies */}
+            {searchStrategies.length > 0 && (
+              <div className="mt-4 p-3 bg-[#1e293b] rounded border border-emerald-900/30">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-xs font-semibold text-emerald-300">Search Strategy per Database</h4>
+                  <span className="text-[10px] text-blue-400">{searchStrategies.length} database(s)</span>
+                </div>
+                <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1">
+                  {searchStrategies.map((s) => (
+                    <div key={s.database} className="bg-blue-950/40 border border-blue-900 rounded p-2">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] font-semibold text-yellow-300">{s.database}</span>
+                        <span className="text-[10px] text-blue-400/70">{s.query.length} chars</span>
+                      </div>
+                      <pre className="text-[9px] text-blue-200 overflow-x-auto break-all">{s.query}</pre>
+                      <p className="text-[9px] text-blue-400/60 mt-0.5">{s.description}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="flex justify-end mt-4">
               <button
                 onClick={() => goToStep(1)}

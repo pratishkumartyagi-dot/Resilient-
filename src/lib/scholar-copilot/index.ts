@@ -39,7 +39,9 @@ function countWords(text: string): number {
 
 function budgetStatus(target: number, actual: number): ChapterWordBudget["status"] {
   if (!target) return "no-target";
-  if (actual < target * 0.88) return "short";
+  // Hard floor: a chapter must never be below its planned word target.
+  // "on-target" means >= target; "short" means below target.
+  if (actual < target) return "short";
   if (actual > target * 1.12) return "over";
   return "on-target";
 }
@@ -96,7 +98,7 @@ CHAPTER CONTENT:
 ${chapter.content}
 
 TASK:
-1. ${direction === "expand" ? "Expand" : "Condense"} the chapter to ${Math.round(target * 0.95)}–${Math.round(target * 1.05)} words.
+1. ${direction === "expand" ? "Expand" : "Condense"} the chapter to ${Math.round(target)}–${Math.round(target * 1.08)} words. The chapter must NOT fall below ${target} words under any circumstances — add depth, evidence-linked analysis, and clinical critical appraisal rather than padding.
 2. ${direction === "expand" ? "Add depth, evidence-linked analysis and clinical critical appraisal — never padding or repetition" : "Tighten the prose without dropping findings, citations or headings"}.
 3. Keep every existing heading, table and list; keep inline citations that map to the grounding papers; never invent citations.
 4. Keep markdown structure and do not wrap the output in code fences.

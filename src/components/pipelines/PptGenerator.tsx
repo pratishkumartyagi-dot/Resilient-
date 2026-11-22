@@ -6,12 +6,51 @@ import {
   Loader2, CircleHelp, X, Copy, Edit2, Check, CheckCircle2, ClipboardCheck,
   BarChart3, Table, Image, Layout, PenTool, Eye, MessageSquare, Brain,
   Zap, RefreshCw, FileCode, Palette, Type, Layers, Search, Trash2,
-  ArrowUp, ArrowDown, GripVertical, Settings, Shield, Star, AlertCircle
+  ArrowUp, ArrowDown, GripVertical, Settings, Shield, Star, AlertCircle,
+  File, Upload
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { callAiWithFallback, type AICallOptions } from "@/lib/ai";
 import { downloadPPTX } from "@/lib/exporters";
 import { marked } from "marked";
+
+const MAX_UPLOAD_FILES = 5;
+
+interface UploadedFile {
+  id: string;
+  name: string;
+  type: string;
+  text: string;
+  size: number;
+}
+
+async function extractDocxText(file: File): Promise<string> {
+  const { extractRawText } = await import("mammoth");
+  const arrayBuffer = await file.arrayBuffer();
+  const result = await extractRawText({ arrayBuffer });
+  return result.value || "";
+}
+
+async function extractPdfText(file: File): Promise<string> {
+  const pdfjsLib = await import("pdfjs-dist");
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.js`;
+  const arrayBuffer = await file.arrayBuffer();
+  const doc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const texts: string[] = [];
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    const content = await page.getTextContent();
+    texts.push(content.items.map((item: any) => item.str).join(" "));
+  }
+  return texts.join("\n");
+}
+
+async function extractFileText(file: File): Promise<string> {
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".docx")) return extractDocxText(file);
+  if (name.endsWith(".pdf")) return extractPdfText(file);
+  return "";
+}
 
 const PREMIUM_COLOR_SCHEMES = [
   { name: "Deep Ocean", bg: "0f172a", accent: "0ea5e9", text: "f8fafc", secondary: "64748b" },
@@ -102,6 +141,49 @@ export default function PptGenerator() {
   const [tone, setTone] = useState("professional");
   const [editingSlideId, setEditingSlideId] = useState<string | null>(null);
   const [editedSlide, setEditedSlide] = useState<SlideContent | null>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [fileUploadLoading, setFileUploadLoading] = useState<Record<string, boolean>>({});
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    if (uploadedFiles.length + files.length > MAX_UPLOAD_FILES) {
+      alert(`Maximum ${MAX_UPLOAD_FILES} files allowed. You can add ${MAX_UPLOAD_FILES - uploadedFiles.length} more.`);
+      return;
+    }
+    setFileUploadLoading({});
+    const next: UploadedFile[] = [...uploadedFiles];
+    for (const file of files) {
+      if (next.length >= MAX_UPLOAD_FILES) break;
+      const id = `file-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      setFileUploadLoading(prev => ({ ...prev, [id]: true }));
+      try {
+        const text = await extractFileText(file);
+        next.push({ id, name: file.name, type: file.type, text, size: file.size });
+      } catch (err: any) {
+        next.push({ id, name: file.name, type: file.type, text: `*Text extraction failed: ${err?.message || "unknown error"}*`, size: file.size });
+      } finally {
+        setFileUploadLoading(prev => {
+          const n = { ...prev };
+          delete n[id];
+          return n;
+        });
+      }
+    }
+    setUploadedFiles(next);
+    e.target.value = "";
+  };
+
+  const removeUploadedFile = (id: string) => {
+    setUploadedFiles(prev => prev.filter(f => f.id !== id));
+  };
+
+  const uploadedText = useMemo(() => {
+    if (uploadedFiles.length === 0) return "";
+    return uploadedFiles
+      .map((f) => `--- ${f.name} ---\n${f.text}\n`)
+      .join("\n");
+  }, [uploadedFiles]);
 
   const callAi = useCallback(async (prompt: string): Promise<string> => {
     const searchOptions: AICallOptions = {
@@ -134,7 +216,8 @@ export default function PptGenerator() {
         sections,
         totalSlides,
         audience,
-        tone
+        tone,
+        uploadedText
       );
       const outlineText = await callAi(outlinePrompt);
       const outline = parseOutline(outlineText, sections, totalSlides);
@@ -159,7 +242,8 @@ export default function PptGenerator() {
           includeVisualSuggestions,
           includeSpeakerNotes,
           i + 1,
-          generationState.colorScheme
+          generationState.colorScheme,
+          uploadedText
         );
         slides.push(slide);
       }
@@ -203,7 +287,8 @@ export default function PptGenerator() {
         includeVisualSuggestions,
         includeSpeakerNotes,
         slide.slideNumber,
-        generationState.colorScheme
+        generationState.colorScheme,
+        uploadedText
       );
 
       setGenerationState(prev => ({
@@ -476,6 +561,65 @@ export default function PptGenerator() {
               </label>
             </div>
 
+            {/* Source file upload (docx / pdf, max 5) */}
+            <div className="border-t border-blue-800 pt-4 mb-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-xs font-medium text-blue-200">Source Documents</h3>
+                <span className="text-[10px] text-blue-500">{uploadedFiles.length} / {MAX_UPLOAD_FILES} files</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  id="ppt-file-input"
+                  type="file"
+                  accept=".docx,.pdf"
+                  multiple
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+                <button
+                  onClick={() => document.getElementById("ppt-file-input")?.click()}
+                  disabled={uploadedFiles.length >= MAX_UPLOAD_FILES}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                    uploadedFiles.length >= MAX_UPLOAD_FILES
+                      ? "border-blue-800/50 text-blue-500 opacity-50 cursor-not-allowed"
+                      : "border-yellow-500/50 text-yellow-300 hover:border-yellow-400 hover:text-yellow-300"
+                  }`}
+                >
+                  <Upload size={14} />
+                  <span id="ppt-file-input-label">Upload DOCX / PDF</span>
+                </button>
+              </div>
+              {uploadedFiles.length > 0 && (
+                <div className="mt-3 space-y-1">
+                  {uploadedFiles.map((f) => {
+                    const loading = !!fileUploadLoading[f.id];
+                    return (
+                      <div key={f.id} className="flex items-center gap-2 bg-blue-950/30 border border-blue-800/50 rounded-lg p-2">
+                        <span className="w-6 h-6 rounded flex items-center justify-center text-[10px]">
+                          <FileText size={10} />
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs text-blue-200 truncate" title={f.name}>{f.name}</div>
+                          <div className="text-[10px] text-blue-500">{f.text.length} chars extracted</div>
+                        </div>
+                        {loading && (
+                          <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                        )}
+                        {!loading && (
+                          <button
+                            onClick={() => removeUploadedFile(f.id)}
+                            className="text-[10px] text-red-400 hover:text-red-200 p-1"
+                          >
+                            <X size={10} />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             <button
               onClick={handleGenerate}
               className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-[#0a1a3a] font-bold px-6 py-3 rounded-lg flex items-center justify-center gap-2"
@@ -489,8 +633,9 @@ export default function PptGenerator() {
         <div className="bg-blue-950/40 border border-blue-900/40 rounded-lg p-4 text-xs text-blue-300">
           <h4 className="font-semibold text-blue-200 mb-2">Pipeline Stages:</h4>
           <ol className="space-y-1 list-decimal list-inside">
-            <li><strong>Structure Planning:</strong> AI creates optimal slide outline based on topic and sections</li>
-            <li><strong>Slide Generation:</strong> Each slide generated individually with premium design</li>
+            <li><strong>Source Documents:</strong> Upload up to 5 DOCX/PDF files; text is extracted and used as grounding</li>
+            <li><strong>Structure Planning:</strong> AI creates optimal slide outline based on topic, sections, and source material</li>
+            <li><strong>Slide Generation:</strong> Each slide generated individually with premium design and visual suggestions</li>
             <li><strong>Visual Suggestions:</strong> Charts, graphs, tables, infographics recommended per slide</li>
             <li><strong>Speaker Notes:</strong> Natural, conversational notes with transitions and examples</li>
             <li><strong>Review Pass:</strong> Accuracy, clarity, design consistency, storytelling review</li>
@@ -884,15 +1029,20 @@ function buildOutlinePrompt(
   sections: string[],
   slideCount: number,
   audience: string,
-  tone: string
+  tone: string,
+  uploadedText = ""
 ): string {
+  const sourceContext = uploadedText.trim()
+    ? `\n\nSOURCE MATERIAL FROM UPLOADED FILES (use as grounding for content and figures):\n${uploadedText}\n`
+    : "";
+
   return `You are an expert presentation designer creating a premium PowerPoint outline.
 
 TOPIC: "${topic}"
 TARGET AUDIENCE: ${audience}
 TONE: ${tone}
 TARGET SLIDE COUNT: ${slideCount}
-REQUIRED SECTIONS: ${sections.join(", ")}
+REQUIRED SECTIONS: ${sections.join(", ")}${sourceContext}
 
 TASK: Create a detailed slide-by-slide outline for a professional presentation. Each slide must have:
 1. Slide number
@@ -914,7 +1064,7 @@ FORMAT: Return as structured JSON array. Example:
   }
 ]
 
-Ensure logical flow, strong storytelling arc, and visual variety. The first slide must be a title slide, the last a closing/Q&A slide.`;
+Ensure logical flow, strong storytelling arc, and visual variety. The first slide must be a title slide, the last a closing/Q&A slide. Ground content in the source material where provided.`;
 }
 
 function parseOutline(text: string, sections: string[], slideCount: number) {
@@ -946,8 +1096,13 @@ async function generateSlide(
   includeVisuals: boolean,
   includeNotes: boolean,
   slideNumber: number,
-  colorScheme: typeof PREMIUM_COLOR_SCHEMES[0]
+  colorScheme: typeof PREMIUM_COLOR_SCHEMES[0],
+  uploadedText = ""
 ): Promise<SlideContent> {
+  const sourceContext = uploadedText.trim()
+    ? `\n\nSOURCE MATERIAL (ground this slide's content in this text where relevant):\n${uploadedText}\n`
+    : "";
+
   const visualPrompt = includeVisuals ? `
 VISUAL SUGGESTION REQUIRED: For this slide, recommend the BEST visual element:
 - Type: chart | graph | table | infographic | timeline | comparison | process | diagram
@@ -971,7 +1126,7 @@ SLIDE NUMBER: ${slideNumber}
 SLIDE TITLE: ${slidePlan.title}
 LAYOUT: ${slidePlan.layout || "content"}
 KEY POINTS TO COVER: ${Array.isArray(slidePlan.keyPoints) ? slidePlan.keyPoints.join("; ") : slidePlan.keyPoints}
-COLOR SCHEME: ${colorScheme.name} (bg: #${colorScheme.bg}, accent: #${colorScheme.accent})
+COLOR SCHEME: ${colorScheme.name} (bg: #${colorScheme.bg}, accent: #${colorScheme.accent})${sourceContext}
 
 ${visualPrompt}
 ${notesPrompt}
@@ -982,6 +1137,7 @@ REQUIREMENTS:
 - Each bullet point should be substantial (1-2 sentences max)
 - Visual suggestions must be data-driven and realistic
 - Speaker notes must be conversational, not robotic
+- Ground slide content in the source material where provided
 
 OUTPUT FORMAT (JSON only):
 {

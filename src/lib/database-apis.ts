@@ -506,6 +506,9 @@ interface FetchContext {
   conceptBlocks?: { A: string; B: string; C: string };
   /** Maximum number of papers per database (unlimited when not set). */
   maxPapers?: number;
+  /** When set, this native query string is sent to the database exactly as-is,
+   *  bypassing all query translation (used for Europe PMC native syntax). */
+  rawTerm?: string;
 }
 
 function yearFilterForApi(from?: string, to?: string): string {
@@ -1051,35 +1054,54 @@ async function fetchEuropePmcQuery(
 ): Promise<Paper[]> {
   // Europe PMC scheme: quoted terms ORed/ANDed with the TITLE and ABST
   // fields, plus the date range and (for preprints) the source filter.
-  // The route/server decides how the natural-language question is turned into
-  // a query (semantic / keyword-extract / boolean) and the fetcher follows it.
-  const translated = buildDatabaseSearch(label, resolveEffectiveTerm({ ...ctx, database: label }), {
-    yearFrom: ctx.yearFrom,
-    yearTo: ctx.yearTo,
-  });
-  const terms = [translated.term, ...extraTerms].filter(Boolean);
-  let epmcQuery = terms.join(" AND ");
+  // When ctx.rawTerm is set (native Europe PMC syntax from the search
+  // strategy builder), it is sent verbatim without any translation.
+  let epmcQuery: string;
+  if (ctx.rawTerm) {
+    epmcQuery = ctx.rawTerm;
+  } else {
+    const translated = buildDatabaseSearch(label, resolveEffectiveTerm({ ...ctx, database: label }), {
+      yearFrom: ctx.yearFrom,
+      yearTo: ctx.yearTo,
+    });
+    const terms = [translated.term, ...extraTerms].filter(Boolean);
+    epmcQuery = terms.join(" AND ");
+  }
 
   const papers: Paper[] = [];
   let cursorMark = "*";
   const pageSize = 100;
   let pages = 0;
   const cap = isFinite(ctx.limit) && ctx.limit > 0 ? ctx.limit : Infinity;
+  const isServer = typeof window === "undefined";
 
   while (pages < MAX_PAGINATION_PAGES) {
     if (papers.length >= cap) break;
     pages++;
-    const params = new URLSearchParams({
-      query: epmcQuery,
-      format: "json",
-      resultType: "core",
-      pageSize: String(pageSize),
-      cursorMark,
-    });
-    const data = await httpJson<any>(`https://www.ebi.ac.uk/europepmc/webservices/rest/search?${params.toString()}`, {
-      timeoutMs: 30000,
-      retries: 3,
-    });
+    let data: any;
+    if (isServer) {
+      const params = new URLSearchParams({
+        query: epmcQuery,
+        format: "json",
+        resultType: "core",
+        pageSize: String(pageSize),
+        cursorMark,
+      });
+      data = await httpJson<any>(`https://www.ebi.ac.uk/europepmc/webservices/rest/search?${params.toString()}`, {
+        timeoutMs: 30000,
+        retries: 3,
+      });
+    } else {
+      // Browser: go through the same-origin /api/europepmc proxy so the call
+      // honours Retry-After / backoff and avoids CORS preflight issues.
+      data = await httpJson<any>("/api/europepmc", {
+        method: "POST",
+        timeoutMs: 30000,
+        retries: 3,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: epmcQuery, pageSize: 100, cursorMark, format: "json", resultType: "core" }),
+      });
+    }
     const results = data.resultList?.result || [];
     if (results.length === 0) break;
 
@@ -1118,8 +1140,8 @@ async function fetchEuropePmcQuery(
   return papers;
 }
 
-export async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number): Promise<Paper[]> {
-  const papers = await fetchEuropePmcQuery(query, { query, yearFrom, yearTo, limit: limit ?? UNLIMITED, database: "Europe PMC" });
+export async function fetchEuropePMC(query: string, yearFrom?: string, yearTo?: string, studyType?: string, limit?: number, rawTerm?: string): Promise<Paper[]> {
+  const papers = await fetchEuropePmcQuery(query, { query, yearFrom, yearTo, limit: limit ?? UNLIMITED, database: "Europe PMC", rawTerm });
   void studyType;
   return capResults(papers, limit ?? UNLIMITED);
 }
@@ -1893,7 +1915,12 @@ export const DATABASE_DEFINITIONS: DatabaseDefinition[] = [
     label: "Europe PMC",
     url: "https://europepmc.org/",
     description: "Europe PMC literature database",
-    search: (ctx) => fetchEuropePMC(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit),
+    search: (ctx) => {
+      // When the query is already native Europe PMC syntax (MESH:/TITLE:/ABSTRACT:/KW:/FIRST_PDATE),
+      // pass it as rawTerm so fetchEuropePmcQuery sends it verbatim without translation.
+      const isNative = /(MESH:|TITLE:|ABSTRACT:|KW:|FIRST_PDATE)/i.test(ctx.query || "");
+      return fetchEuropePMC(ctx.query, ctx.yearFrom, ctx.yearTo, undefined, ctx.limit, isNative ? ctx.query : undefined);
+    },
   },
   {
     id: "DOAJ",
@@ -2244,9 +2271,10 @@ export async function fetchRealPapers(
   databases: string[],
   yearFrom?: string,
   yearTo?: string,
-  studyType?: string
+  studyType?: string,
+  maxPapers?: number
 ): Promise<Paper[]> {
-  const outcome = await searchDatabases(databases, { query, yearFrom, yearTo, studyType });
+  const outcome = await searchDatabases(databases, { query, yearFrom, yearTo, studyType, limitPerDatabase: maxPapers });
   return outcome.papers;
 }
 
@@ -2260,9 +2288,10 @@ export async function fetchRealPapersWithCounts(
   databases: string[],
   yearFrom?: string,
   yearTo?: string,
-  studyType?: string
+  studyType?: string,
+  maxPapers?: number,
 ): Promise<FetchRealPapersResult> {
-  const outcome = await searchDatabases(databases, { query, yearFrom, yearTo, studyType });
+  const outcome = await searchDatabases(databases, { query, yearFrom, yearTo, studyType, limitPerDatabase: maxPapers });
   return { papers: outcome.papers, dedupedCount: outcome.dedupedCount };
 }
 
