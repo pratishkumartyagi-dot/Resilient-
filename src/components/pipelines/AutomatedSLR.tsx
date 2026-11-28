@@ -10,7 +10,7 @@ import {
   RefreshCw, MapPin, Layers, ClipboardList, Brain
 } from "lucide-react";
 import {
-  fetchRealPapers, type Paper, deduplicatePapers,
+  fetchRealPapers, type Paper, deduplicatePapers, searchDatabases,
 } from "@/lib/database-apis";
 import { extractPICOForPapers } from "@/lib/pico-extractor";
 import {
@@ -136,36 +136,49 @@ export default function AutomatedSLR() {
   const handleRunSearch = async () => {
     setSearching(true);
     try {
-      const queries = buildSearchQueries(question, databases);
-      const allPapers: Paper[] = [];
+      // Use the unified literature search API with keyword extraction (MeSH/synonym expansion)
+      // for maximum recall across all databases. No per-database cap for SLR pipeline.
+      const effectiveQuery = question.freeQuery ||
+        `${question.population || ""} ${question.intervention || question.exposure || ""} ${question.comparator || ""} ${question.outcome || ""} ${question.timeframe || ""}`.trim();
+      const res = await fetch("/api/literature-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: effectiveQuery,
+          databases,
+          yearFrom: yearFrom || undefined,
+          yearTo: yearTo || undefined,
+          studyType: "All Study Types",
+          keywordExtract: true,
+          maxPapers: 0, // 0 = unlimited
+          timeoutMs: 120000,
+        }),
+      });
 
-      for (let i = 0; i < queries.length; i++) {
-        try {
-          const papers = await fetchRealPapers(
-            queries[i],
-            [databases[i % databases.length]],
-            yearFrom,
-            yearTo,
-            "All Study Types",
-          );
-          papers.forEach((p) => {
-            if (!p.database) p.database = databases[i % databases.length];
-          });
-          allPapers.push(...papers);
-        } catch (err) {
-          console.warn(`Search failed for ${databases[i % databases.length]}:`, err);
-        }
+      const data = await res.json().catch(() => ({}));
+      const papers = Array.isArray(data.papers) ? data.papers : [];
+
+      if (!res.ok) {
+        const perDb = data.perDatabaseResults || [];
+        const failures = perDb
+          .filter((r: any) => r.status === "failed")
+          .map((r: any) => `${r.database}: ${r.error || "unknown error"}`)
+          .join(" | ");
+        throw new Error(data.error || `Search failed (${res.status})${failures ? ` — ${failures}` : ""}`);
       }
 
-      const deduped = deduplicatePapers(allPapers);
+      const deduped = deduplicatePapers(papers);
       dispatch({ type: "SET_SLR_PAPERS", payload: deduped });
       dispatch({ type: "SET_SLR_PRISMA", payload: {
-        identified: deduped.length,
+        identified: data.totalBeforeDedup || deduped.length,
         screened: 0,
         eligible: 0,
         included: 0,
       }});
       goToStep(4);
+    } catch (err: any) {
+      console.error("SLR search failed:", err);
+      alert(`Search failed: ${err.message}`);
     } finally {
       setSearching(false);
     }

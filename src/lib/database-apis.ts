@@ -107,8 +107,10 @@ const DATABASE_TIMEOUT_MS = 90000;
 const DEFAULT_SEARCH_BUDGET_MS = 30000;
 const MAX_SEARCH_BUDGET_MS = 120000;
 /** Maximum number of pagination pages any single database may fetch, so an
- *  upstream that never signals "end of results" cannot loop forever. */
-const MAX_PAGINATION_PAGES = 50;
+ *  upstream that never signals "end of results" cannot loop forever.
+ *  Increased to 100 to allow deep pagination for cursor-based APIs
+ *  (OpenAlex, Crossref, Europe PMC) when searching without a per-database cap. */
+const MAX_PAGINATION_PAGES = 100;
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -647,6 +649,38 @@ export function buildConceptAwareTerm(query: string, options: { studyType?: stri
   return term;
 }
 
+/** Build a generic boolean term from extracted concepts for non-PubMed databases.
+ *  Uses the same concept-aware logic but without PubMed-specific field tags. */
+export function buildGenericConceptAwareTerm(query: string, options: { studyType?: string; yearFrom?: string; yearTo?: string } = {}): string {
+  const concepts = extractSearchConcepts(query);
+  const joiner = " AND ";
+  const orJoiner = " OR ";
+
+  if (concepts.length === 0) {
+    return query;
+  }
+
+  const conceptParts = concepts.map((c) => {
+    const terms = new Set<string>();
+    if (c.label) terms.add(c.label);
+    for (const s of c.synonyms) if (s) terms.add(s);
+    for (const m of c.meshTerms) if (m) terms.add(m);
+    const arr = Array.from(terms).map((t) => quote(t));
+    if (arr.length === 0) return "";
+    return arr.length > 1 ? `(${arr.join(orJoiner)})` : arr[0];
+  }).filter(Boolean);
+
+  let term = conceptParts.join(joiner) || query;
+  const filter = buildStudyTypeFilter(options.studyType);
+  if (filter) term = `(${term}) AND ${filter}`;
+  if (options.yearFrom || options.yearTo) {
+    const from = options.yearFrom ? `${options.yearFrom}-01-01` : "1800-01-01";
+    const to = options.yearTo ? `${options.yearTo}-12-31` : `${new Date().getFullYear()}-12-31`;
+    term = `(${term}) AND (${from} TO ${to})`;
+  }
+  return term;
+}
+
 /**
  * Resolve the effective query term from a FetchContext.
  *
@@ -714,10 +748,14 @@ export function resolveEffectiveTerm(ctx: FetchContext): string {
     }
     return term;
   }
-  // natural / keyword extract: PubMed gets the concept-aware MeSH term;
-  // every other database gets a plain query it translates itself.
-  if (database.toLowerCase() === "pubmed") {
-    return buildConceptAwareTerm(query, opts);
+  // natural / keyword extract: PubMed gets the concept-aware MeSH term with field tags;
+  // every other database gets a generic concept-aware boolean query (no PubMed field tags).
+  const concepts = extractSearchConcepts(query);
+  if (concepts.length > 0) {
+    if (database.toLowerCase() === "pubmed") {
+      return buildConceptAwareTerm(query, opts);
+    }
+    return buildGenericConceptAwareTerm(query, opts);
   }
   return query;
 }
